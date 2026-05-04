@@ -1,0 +1,30 @@
+{
+    "name": "nwidart/pricing",
+    "description": "",
+    "authors": [
+        {
+            "name": "Nicolas Widart",
+            "email": "n.widart@gmail.com"
+        }
+    ],
+    "extra": {
+        "laravel": {
+            "providers": [],
+            "aliases": {
+
+            }
+        }
+    },
+    "autoload": {
+        "psr-4": {
+            "Modules\\Pricing\\": "app/",
+            "Modules\\Pricing\\Database\\Factories\\": "database/factories/",
+            "Modules\\Pricing\\Database\\Seeders\\": "database/seeders/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Modules\\Pricing\\Tests\\": "tests/"
+        }
+    }
+}

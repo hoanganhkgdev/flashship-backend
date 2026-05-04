@@ -1,0 +1,8 @@
+{
+    "Core": true,
+    "Order": true,
+    "Driver": true,
+    "Customer": true,
+    "Pricing": true,
+    "Admin": true
+}
