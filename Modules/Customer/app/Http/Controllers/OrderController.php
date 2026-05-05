@@ -165,7 +165,7 @@ class OrderController extends Controller
             'delivery_phone'   => $order->delivery_phone,
             'receiver_name'    => $order->receiver_name,
             'shipping_fee'     => $order->shipping_fee,
-            'distance_km'      => $order->distance,
+            'distance_km'      => $order->distance ? (float) $order->distance : null,
             'order_note'       => $order->order_note,
             'store_name'       => $order->store_name,
             'payment_method'   => $order->payment_method,
