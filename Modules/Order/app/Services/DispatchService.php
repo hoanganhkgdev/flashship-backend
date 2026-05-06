@@ -6,6 +6,7 @@ use Modules\Order\Jobs\DispatchOrderJob;
 use Modules\Order\Models\Order;
 use Modules\Order\Models\OrderDispatchLog;
 use Modules\Core\Models\User;
+use Modules\Core\Services\ApnsVoipService;
 use Modules\Core\Services\FCMService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -94,6 +95,19 @@ class DispatchService
                 $order->toArray(),
                 self::OFFER_TTL
             );
+        }
+
+        // iOS: VoIP push wakes the app even when killed and shows CallKit incoming call UI.
+        if ($driver->voip_token && config('services.apns.team_id')) {
+            try {
+                ApnsVoipService::getInstance()->sendOrderOffer(
+                    $driver->voip_token,
+                    $order->toArray(),
+                    self::OFFER_TTL
+                );
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::error('[Dispatch] VoIP push failed: ' . $e->getMessage());
+            }
         }
 
         DispatchOrderJob::dispatch($order->id, $driver->id)

@@ -10,15 +10,26 @@ jobs:
     steps:
       - name: Deploy to app.flashship.vn
         uses: appleboy/ssh-action@v1.0.3
+        env:
+          APNS_PRIVATE_KEY: ${{ secrets.APNS_PRIVATE_KEY }}
         with:
           host: 103.200.20.95
           username: deploy
           key: ${{ secrets.VPS_SSH_KEY }}
           port: 22
+          envs: APNS_PRIVATE_KEY
           script: |
             cd /var/www/flashship
             git pull origin main
             composer install --no-dev --optimize-autoloader --ignore-platform-req=ext-intl
+
+            # Inject APNS_PRIVATE_KEY vào .env nếu chưa có
+            if ! grep -q "APNS_PRIVATE_KEY" .env; then
+              echo "APNS_PRIVATE_KEY=\"$APNS_PRIVATE_KEY\"" >> .env
+            else
+              sed -i "s|^APNS_PRIVATE_KEY=.*|APNS_PRIVATE_KEY=\"$APNS_PRIVATE_KEY\"|" .env
+            fi
+
             php artisan migrate --force
             php artisan config:cache
             php artisan route:cache

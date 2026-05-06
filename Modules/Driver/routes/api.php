@@ -14,6 +14,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/profile/update',               [DriverController::class, 'updateProfile']);
         Route::post('/change-password',              [DriverController::class, 'changePassword']);
         Route::post('/update-fcm-token',             [DriverController::class, 'updateFcmToken']);
+        Route::post('/update-voip-token',            [DriverController::class, 'updateVoipToken']);
         Route::post('/toggle-status',                [DriverController::class, 'toggleOnline']);
         Route::post('/update-location',              [DriverController::class, 'updateLocation']);
         Route::get('/stats',                         [DriverController::class, 'stats']);

@@ -66,6 +66,13 @@ class DriverController extends Controller
         return response()->json(['success' => true, 'message' => 'FCM Token đã cập nhật']);
     }
 
+    public function updateVoipToken(Request $request): JsonResponse
+    {
+        $data = $request->validate(['voip_token' => 'required|string']);
+        $request->user()->update(['voip_token' => $data['voip_token']]);
+        return response()->json(['success' => true, 'message' => 'VoIP Token đã cập nhật']);
+    }
+
     public function updateProfile(Request $request): JsonResponse
     {
         $data = $request->validate([
