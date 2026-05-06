@@ -18,12 +18,12 @@ class OrderController extends Controller
     {
         $orders = Order::where('sender_platform_id', $request->user()->id)
             ->where('platform', 'customer_app')
-            ->with('driver:id,name,phone')
+            ->with('driver:id,name,phone,latitude,longitude')
             ->latest()->paginate(20);
 
         return response()->json([
             'success' => true,
-            'data'    => $orders->items(),
+            'data'    => $orders->map(fn($o) => $this->formatOrder($o)),
             'meta'    => ['current_page' => $orders->currentPage(), 'has_more' => $orders->hasMorePages(), 'total' => $orders->total()],
         ]);
     }
@@ -110,7 +110,7 @@ class OrderController extends Controller
         $order = Order::where('code', $code)
             ->where('sender_platform_id', $request->user()->id)
             ->where('platform', 'customer_app')
-            ->with('driver:id,name,phone')->first();
+            ->with('driver:id,name,phone,latitude,longitude')->first();
 
         if (!$order) return response()->json(['success' => false, 'message' => 'Không tìm thấy đơn hàng'], 404);
 
@@ -173,7 +173,12 @@ class OrderController extends Controller
             'driver_rating'    => $order->driver_rating,
             'scheduled_at'     => $order->scheduled_at?->toIso8601String(),
             'created_at'       => $order->created_at->toIso8601String(),
-            'driver'           => $order->driver ? ['name' => $order->driver->name, 'phone' => $order->driver->phone] : null,
+            'driver'           => $order->driver ? [
+                'name'      => $order->driver->name,
+                'phone'     => $order->driver->phone,
+                'latitude'  => $order->driver->latitude  ? (float) $order->driver->latitude  : null,
+                'longitude' => $order->driver->longitude ? (float) $order->driver->longitude : null,
+            ] : null,
         ];
 
         if ($withTracking) {

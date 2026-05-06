@@ -5,6 +5,8 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Hash;
+use Modules\Order\Events\DriverLocationUpdatedEvent;
+use Modules\Order\Models\Order;
 
 class DriverController extends Controller
 {
@@ -53,8 +55,21 @@ class DriverController extends Controller
             'longitude' => 'required|numeric',
         ]);
 
-        $request->user()->update(['latitude' => $data['latitude'], 'longitude' => $data['longitude']]);
-        // TODO: Firebase update driver location
+        $driver = $request->user();
+        $driver->update(['latitude' => $data['latitude'], 'longitude' => $data['longitude']]);
+
+        $activeOrder = Order::where('delivery_man_id', $driver->id)
+            ->whereIn('status', ['assigned', 'processing', 'on_the_way'])
+            ->select('code')
+            ->first();
+
+        if ($activeOrder) {
+            broadcast(new DriverLocationUpdatedEvent(
+                $activeOrder->code,
+                (float) $data['latitude'],
+                (float) $data['longitude'],
+            ));
+        }
 
         return response()->json(['success' => true]);
     }
