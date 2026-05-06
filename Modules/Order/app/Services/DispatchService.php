@@ -123,7 +123,7 @@ class DispatchService
             ->pluck('driver_id');
 
         // Lấy danh sách tài xế đang có đơn active để loại ra
-        $busyDriverIds = Order::whereIn('status', ['assigned', 'delivering'])
+        $busyDriverIds = Order::whereIn('status', ['assigned', 'processing', 'on_the_way'])
             ->whereNotNull('delivery_man_id')
             ->pluck('delivery_man_id');
 
@@ -151,7 +151,7 @@ class DispatchService
         $score = 100.0;
 
         $active = Order::where('delivery_man_id', $driver->id)
-            ->whereIn('status', ['assigned', 'delivering'])
+            ->whereIn('status', ['assigned', 'processing', 'on_the_way'])
             ->count();
         $score -= $active * 20;
 

@@ -19,7 +19,7 @@ return new class extends Migration
             $table->unsignedBigInteger('sender_platform_id')->nullable();
             $table->string('platform')->nullable();
             $table->unsignedBigInteger('created_by')->nullable();
-            $table->enum('status', ['pending', 'assigned', 'delivering', 'completed', 'cancelled'])->default('pending');
+            $table->enum('status', ['pending', 'assigned', 'processing', 'on_the_way', 'completed', 'cancelled'])->default('pending');
 
             // Điểm lấy
             $table->string('pickup_address')->nullable();

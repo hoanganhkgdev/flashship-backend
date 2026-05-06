@@ -18,7 +18,7 @@ class OrderService
     {
         $assigned = Order::with('city')
             ->where('delivery_man_id', $user->id)
-            ->whereIn('status', ['assigned', 'delivering'])
+            ->whereIn('status', ['assigned', 'processing', 'on_the_way'])
             ->orderByDesc('id')->get();
 
         $completed = Order::with('city')
@@ -60,7 +60,7 @@ class OrderService
             return ['success' => false, 'message' => 'Bạn đã ngoài giờ ca làm việc, không thể nhận đơn.', 'status' => 403];
         }
 
-        $activeOrders = Order::where('delivery_man_id', $user->id)->whereIn('status', ['assigned', 'delivering'])->count();
+        $activeOrders = Order::where('delivery_man_id', $user->id)->whereIn('status', ['assigned', 'processing', 'on_the_way'])->count();
         if ($activeOrders >= 1) {
             return ['success' => false, 'message' => 'Bạn đang có đơn hàng chưa hoàn thành. Vui lòng hoàn thành đơn hiện tại trước.', 'status' => 400];
         }
