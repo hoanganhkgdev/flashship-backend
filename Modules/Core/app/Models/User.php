@@ -39,7 +39,8 @@ class User extends Authenticatable implements FilamentUser
         'profile_photo_path',
         'last_login_at',
         'player_id',          // Deprecated — kept for backward compatibility
-        'fcm_token',          // Firebase Cloud Messaging token
+        'fcm_token',
+        'voip_token',
         'last_notification_seen',
         'is_online',
         'shift_id',
