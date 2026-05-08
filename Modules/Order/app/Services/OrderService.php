@@ -56,10 +56,6 @@ class OrderService
             return ['success' => false, 'message' => 'Đơn này không được phân cho bạn.', 'status' => 403];
         }
 
-        if (!$user->isInShift()) {
-            return ['success' => false, 'message' => 'Bạn đã ngoài giờ ca làm việc, không thể nhận đơn.', 'status' => 403];
-        }
-
         $activeOrders = Order::where('delivery_man_id', $user->id)->whereIn('status', ['assigned', 'processing', 'on_the_way'])->count();
         if ($activeOrders >= 1) {
             return ['success' => false, 'message' => 'Bạn đang có đơn hàng chưa hoàn thành. Vui lòng hoàn thành đơn hiện tại trước.', 'status' => 400];
@@ -121,6 +117,32 @@ class OrderService
         })->afterResponse();
 
         return ['success' => true, 'message' => 'Đã từ chối đơn hàng.', 'status' => 200];
+    }
+
+    public function updateOrderStatus(Order $order, User $user, string $status): array
+    {
+        $allowed = ['assigned' => 'processing', 'processing' => 'on_the_way'];
+
+        if ((int) $order->delivery_man_id !== (int) $user->id) {
+            return ['success' => false, 'message' => 'Bạn không có quyền cập nhật đơn này.', 'status' => 403];
+        }
+
+        if (!isset($allowed[$order->status]) || $allowed[$order->status] !== $status) {
+            return ['success' => false, 'message' => "Không thể chuyển từ {$order->status} sang {$status}.", 'status' => 400];
+        }
+
+        $order->update(['status' => $status]);
+
+        broadcast(new OrderStatusChangedEvent($order->code, $status));
+
+        $customer = User::find($order->sender_platform_id);
+        if ($customer?->fcm_token) {
+            FCMService::getInstance()->sendOrderStatusUpdate($customer->fcm_token, $order->code, $status);
+        }
+
+        Log::info("🔄 Order #{$order->id} status → {$status} by driver #{$user->id}");
+
+        return ['success' => true, 'message' => 'Cập nhật trạng thái thành công.', 'status' => 200];
     }
 
     public function completeOrder(Order $order, User $user): array

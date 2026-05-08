@@ -157,6 +157,7 @@ class OrderController extends Controller
             'id'               => $order->id,
             'code'             => $order->code,
             'status'           => $order->status,
+            'cancel_reason'    => $order->cancel_reason,
             'service_type'     => $order->service_type,
             'pickup_address'   => $order->pickup_address,
             'pickup_phone'     => $order->pickup_phone,

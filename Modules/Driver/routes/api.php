@@ -14,10 +14,10 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/profile/update',               [DriverController::class, 'updateProfile']);
         Route::post('/change-password',              [DriverController::class, 'changePassword']);
         Route::post('/update-fcm-token',             [DriverController::class, 'updateFcmToken']);
-        Route::post('/update-voip-token',            [DriverController::class, 'updateVoipToken']);
         Route::post('/toggle-status',                [DriverController::class, 'toggleOnline']);
         Route::post('/update-location',              [DriverController::class, 'updateLocation']);
         Route::get('/stats',                         [DriverController::class, 'stats']);
+        Route::get('/announcements',                 [DriverController::class, 'announcements']);
         Route::get('/notifications',                 [DriverController::class, 'notifications']);
         Route::post('/notifications/mark-read/{id}', [DriverController::class, 'markNotificationAsRead']);
         Route::post('/delete-account/request',       [DriverController::class, 'requestDeleteAccount']);
@@ -30,9 +30,11 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/completed',         [OrderController::class, 'completedOrders']);
         Route::get('/dashboard',         [OrderController::class, 'dashboard']);
         Route::get('/recent',            [EarningController::class, 'recentOrders']);
-        Route::post('/{order}/accept',   [OrderController::class, 'accept']);
-        Route::post('/{order}/decline',  [OrderController::class, 'decline']);
-        Route::post('/{order}/complete', [OrderController::class, 'complete']);
+        Route::post('/{order}/view-offer', [OrderController::class, 'viewOffer']);
+        Route::post('/{order}/accept',        [OrderController::class, 'accept']);
+        Route::post('/{order}/decline',       [OrderController::class, 'decline']);
+        Route::post('/{order}/update-status', [OrderController::class, 'updateStatus']);
+        Route::post('/{order}/complete',      [OrderController::class, 'complete']);
     });
 
     Route::prefix('earnings')->group(function () {

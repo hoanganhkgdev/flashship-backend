@@ -17,21 +17,25 @@ class DispatchOrderJob implements ShouldQueue
     public int $tries = 1;
 
     public function __construct(
-        public readonly int $orderId,
-        public readonly int $driverId,
+        public readonly int  $orderId,
+        public readonly int  $driverId,
+        public readonly bool $isAppDecision = false,
     ) {}
 
     public function handle(DispatchService $dispatch): void
     {
         $order = Order::find($this->orderId);
 
-        if (!$order) {
-            Log::info("[Dispatch] Job #{$this->orderId}: order not found, skip");
-            return;
-        }
+        if (!$order) return;
 
         if ($order->status !== 'pending' || (int) $order->dispatching_to_driver_id !== $this->driverId) {
             Log::info("[Dispatch] Job #{$this->orderId}: already handled (status={$order->status}), skip");
+            return;
+        }
+
+        if (!$this->isAppDecision && $order->offer_viewed_at !== null) {
+            // Driver opened the app — the app-decision job handles the timeout, skip this one.
+            Log::info("[Dispatch] Job #{$this->orderId}: driver opened app, callkit-timeout job skipped");
             return;
         }
 

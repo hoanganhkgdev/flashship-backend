@@ -17,30 +17,19 @@ class OrderServiceProvider extends ModuleServiceProvider
      */
     protected string $nameLower = 'order';
 
-    /**
-     * Command classes to register.
-     *
-     * @var string[]
-     */
-    // protected array $commands = [];
+    protected array $commands = [
+        \Modules\Order\Console\Commands\AutoCancelPendingOrders::class,
+        \Modules\Order\Console\Commands\DispatchScheduledOrders::class,
+    ];
 
-    /**
-     * Provider classes to register.
-     *
-     * @var string[]
-     */
     protected array $providers = [
         EventServiceProvider::class,
         RouteServiceProvider::class,
     ];
 
-    /**
-     * Define module schedules.
-     * 
-     * @param $schedule
-     */
-    // protected function configureSchedules(Schedule $schedule): void
-    // {
-    //     $schedule->command('inspire')->hourly();
-    // }
+    protected function configureSchedules(Schedule $schedule): void
+    {
+        $schedule->command('orders:auto-cancel-pending')->everyMinute();
+        $schedule->command('orders:dispatch-scheduled')->everyMinute();
+    }
 }

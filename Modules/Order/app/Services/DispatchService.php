@@ -6,14 +6,14 @@ use Modules\Order\Jobs\DispatchOrderJob;
 use Modules\Order\Models\Order;
 use Modules\Order\Models\OrderDispatchLog;
 use Modules\Core\Models\User;
-use Modules\Core\Services\ApnsVoipService;
 use Modules\Core\Services\FCMService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 class DispatchService
 {
-    const OFFER_TTL = 20;
+    const CALLKIT_RING_SECS  = 30; // CallKit rings for this long; job fires at +3s if no view
+    const APP_DECISION_SECS  = 20; // driver has this long once the offer screen opens
 
     public function startDispatch(Order $order): void
     {
@@ -75,6 +75,7 @@ class DispatchService
             ->where('status', 'pending')
             ->update([
                 'dispatching_to_driver_id' => $driver->id,
+                'offer_viewed_at'          => null,
                 'dispatch_attempts'        => DB::raw('dispatch_attempts + 1'),
                 'updated_at'               => now(),
             ]);
@@ -86,34 +87,44 @@ class DispatchService
             'result'     => 'pending',
         ]);
 
+        $offeredAt = now()->toIso8601String();
+
         // Broadcast qua Reverb WebSocket (realtime, không cần polling)
-        broadcast(new OrderOfferedEvent($driver->id, $order->toArray(), self::OFFER_TTL));
+        // Reverb: foreground realtime offer. TTL = ring duration cho foreground case.
+        broadcast(new OrderOfferedEvent($driver->id, $order->toArray(), self::CALLKIT_RING_SECS, $offeredAt));
 
         if ($driver->fcm_token) {
             FCMService::getInstance()->sendOrderOffer(
                 $driver->fcm_token,
                 $order->toArray(),
-                self::OFFER_TTL
+                self::CALLKIT_RING_SECS,
+                $offeredAt
             );
         }
 
-        // iOS: VoIP push wakes the app even when killed and shows CallKit incoming call UI.
-        if ($driver->voip_token && config('services.apns.team_id')) {
-            try {
-                ApnsVoipService::getInstance()->sendOrderOffer(
-                    $driver->voip_token,
-                    $order->toArray(),
-                    self::OFFER_TTL
-                );
-            } catch (\Throwable $e) {
-                \Illuminate\Support\Facades\Log::error('[Dispatch] VoIP push failed: ' . $e->getMessage());
-            }
-        }
-
-        DispatchOrderJob::dispatch($order->id, $driver->id)
-            ->delay(now()->addSeconds(self::OFFER_TTL + 2));
+        // Timeout job: nếu tài xế không mở app trong CALLKIT_RING_SECS giây thì chuyển sang tài xế tiếp theo.
+        DispatchOrderJob::dispatch($order->id, $driver->id, false)
+            ->delay(now()->addSeconds(self::CALLKIT_RING_SECS + 3));
 
         Log::info("[Dispatch] Offered order #{$order->id} to driver #{$driver->id}");
+    }
+
+    // Called when driver opens the OrderOfferScreen in the app.
+    // Starts the app-decision timer — backend countdown begins NOW.
+    public function viewOffer(Order $order, int $driverId): void
+    {
+        $updated = DB::table('orders')
+            ->where('id', $order->id)
+            ->where('dispatching_to_driver_id', $driverId)
+            ->whereNull('offer_viewed_at')
+            ->update(['offer_viewed_at' => now()]);
+
+        if (!$updated) return; // already viewed or no longer offered to this driver
+
+        DispatchOrderJob::dispatch($order->id, $driverId, true)
+            ->delay(now()->addSeconds(self::APP_DECISION_SECS + 2));
+
+        Log::info("[Dispatch] Driver #{$driverId} opened offer screen for order #{$order->id}");
     }
 
     public function selectNextDriver(Order $order): ?User

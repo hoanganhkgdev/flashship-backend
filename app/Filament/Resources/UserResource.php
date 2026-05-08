@@ -53,6 +53,14 @@ class UserResource extends Resource
                     ->required()
                     ->live(),
 
+                Forms\Components\TextInput::make('password')
+                    ->label('Mật khẩu')
+                    ->password()
+                    ->required(fn (string $operation): bool => $operation === 'create')
+                    ->minLength(6)
+                    ->dehydrateStateUsing(fn ($state) => filled($state) ? bcrypt($state) : null)
+                    ->dehydrated(fn ($state) => filled($state)),
+
                 Forms\Components\Toggle::make('status')
                     ->label('Kích hoạt')
                     ->default(true),

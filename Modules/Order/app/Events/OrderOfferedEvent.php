@@ -13,9 +13,10 @@ class OrderOfferedEvent implements ShouldBroadcastNow
     use Dispatchable, InteractsWithSockets, SerializesModels;
 
     public function __construct(
-        public readonly int   $driverId,
-        public readonly array $order,
-        public readonly int   $ttl,
+        public readonly int    $driverId,
+        public readonly array  $order,
+        public readonly int    $ttl,
+        public readonly string $offeredAt = '',
     ) {}
 
     public function broadcastOn(): array
@@ -31,8 +32,9 @@ class OrderOfferedEvent implements ShouldBroadcastNow
     public function broadcastWith(): array
     {
         return [
-            'order' => $this->order,
-            'ttl'   => $this->ttl,
+            'order'      => $this->order,
+            'ttl'        => $this->ttl,
+            'offered_at' => $this->offeredAt ?: now()->toIso8601String(),
         ];
     }
 }

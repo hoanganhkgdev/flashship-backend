@@ -52,10 +52,11 @@ class ApnsVoipService
         return self::$instance;
     }
 
-    public function sendOrderOffer(string $voipToken, array $order, int $ttl = 20): void
+    public function sendOrderOffer(string $voipToken, array $order, int $ttl = 45, string $offeredAt = ''): void
     {
+        $offeredAt = $offeredAt ?: now()->toIso8601String();
         $payload = [
-            'aps'         => (object) [],   // empty aps required by APNs
+            'aps'         => (object) [],
             'uuid'        => Str::uuid()->toString(),
             'nameCaller'  => 'FlashShip - Đơn hàng mới',
             'handle'      => $order['pickup_address'] ?? '',
@@ -75,7 +76,8 @@ class ApnsVoipService
                 'shipping_fee'     => $order['shipping_fee'] ?? 0,
                 'payment_method'   => $order['payment_method'] ?? 'prepaid',
                 'cod_amount'       => $order['cod_amount'] ?? 0,
-                'created_at'       => now()->toIso8601String(),
+                'offered_at'       => $offeredAt,
+                'ttl'              => $ttl,
             ],
         ];
 

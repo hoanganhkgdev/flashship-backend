@@ -7,9 +7,56 @@ use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\ValidationException;
 use Modules\Core\Models\User;
+use Modules\Customer\Services\OtpService;
 
 class AuthController extends Controller
 {
+    public function sendOtp(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'phone' => 'required|string',
+            'type'  => 'required|in:register,reset_password',
+        ]);
+
+        if ($data['type'] === 'register' && User::where('phone', $data['phone'])->exists()) {
+            return response()->json(['success' => false, 'message' => 'Số điện thoại đã được đăng ký'], 422);
+        }
+
+        if ($data['type'] === 'reset_password' && !User::where('phone', $data['phone'])->where('user_type', 'customer')->exists()) {
+            return response()->json(['success' => false, 'message' => 'Số điện thoại chưa đăng ký'], 422);
+        }
+
+        if (OtpService::recentlySent($data['phone'], $data['type'])) {
+            return response()->json(['success' => false, 'message' => 'Vui lòng chờ 60 giây trước khi gửi lại'], 429);
+        }
+
+        OtpService::send($data['phone'], $data['type']);
+
+        return response()->json(['success' => true, 'message' => 'Mã OTP đã được gửi đến ' . $data['phone']]);
+    }
+
+    public function resetPassword(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'phone'                     => 'required|string',
+            'otp_code'                  => 'required|string|size:6',
+            'new_password'              => 'required|string|min:6|confirmed',
+        ]);
+
+        if (!OtpService::verify($data['phone'], $data['otp_code'], 'reset_password')) {
+            return response()->json(['success' => false, 'message' => 'Mã OTP không đúng hoặc đã hết hạn'], 422);
+        }
+
+        $user = User::where('phone', $data['phone'])->where('user_type', 'customer')->first();
+        if (!$user) {
+            return response()->json(['success' => false, 'message' => 'Tài khoản không tồn tại'], 404);
+        }
+
+        $user->update(['password' => bcrypt($data['new_password'])]);
+
+        return response()->json(['success' => true, 'message' => 'Đặt lại mật khẩu thành công']);
+    }
+
     public function register(Request $request): JsonResponse
     {
         $data = $request->validate([
@@ -20,7 +67,12 @@ class AuthController extends Controller
             'latitude'  => 'nullable|numeric',
             'longitude' => 'nullable|numeric',
             'fcm_token' => 'nullable|string',
+            'otp_code'  => 'required|string|size:6',
         ]);
+
+        if (!OtpService::verify($data['phone'], $data['otp_code'], 'register')) {
+            return response()->json(['success' => false, 'message' => 'Mã OTP không đúng hoặc đã hết hạn'], 422);
+        }
 
         // Tự tìm city gần nhất theo GPS nếu không có city_id
         if (empty($data['city_id']) && !empty($data['latitude']) && !empty($data['longitude'])) {
@@ -98,6 +150,80 @@ class AuthController extends Controller
         return response()->json(['success' => true, 'message' => 'Đăng xuất thành công']);
     }
 
+    public function deleteAccount(Request $request): JsonResponse
+    {
+        $user = $request->user();
+
+        // Huỷ các đơn đang chờ (pending) của khách trước khi xóa
+        \Modules\Order\Models\Order::where('sender_platform_id', $user->id)
+            ->where('status', 'pending')
+            ->update(['status' => 'cancelled']);
+
+        // Xóa toàn bộ token
+        $user->tokens()->delete();
+
+        // Xóa tài khoản
+        $user->delete();
+
+        return response()->json(['success' => true, 'message' => 'Tài khoản đã được xóa vĩnh viễn']);
+    }
+
+    public function updateProfile(Request $request): JsonResponse
+    {
+        $user = $request->user();
+
+        $data = $request->validate([
+            'name'    => 'sometimes|string|max:255',
+            'email'   => 'sometimes|nullable|email|unique:users,email,' . $user->id,
+            'city_id' => 'sometimes|integer|exists:cities,id',
+        ]);
+
+        $user->update($data);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Cập nhật thành công',
+            'data'    => $this->formatUser($user->fresh()),
+        ]);
+    }
+
+    public function updateFcmToken(Request $request): JsonResponse
+    {
+        $request->validate(['fcm_token' => 'required|string']);
+        $fcmToken = $request->fcm_token;
+
+        // Remove token from any other user to avoid duplicate deliveries.
+        User::where('fcm_token', $fcmToken)->where('id', '!=', $request->user()->id)->update(['fcm_token' => null]);
+
+        $request->user()->update(['fcm_token' => $fcmToken]);
+
+        return response()->json(['success' => true]);
+    }
+
+    public function changePassword(Request $request): JsonResponse
+    {
+        $user = $request->user();
+
+        $request->validate([
+            'current_password' => 'required|string',
+            'new_password'     => 'required|string|min:6|confirmed',
+        ]);
+
+        if (!Hash::check($request->current_password, $user->password)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Mật khẩu hiện tại không đúng',
+            ], 422);
+        }
+
+        $user->update(['password' => bcrypt($request->new_password)]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Đổi mật khẩu thành công',
+        ]);
+    }
+
     private function formatUser(User $user): array
     {
         $user->loadMissing('city');
@@ -105,6 +231,7 @@ class AuthController extends Controller
             'id'        => $user->id,
             'name'      => $user->name,
             'phone'     => $user->phone,
+            'email'     => $user->email,
             'user_type' => $user->user_type,
             'city_id'   => $user->city_id,
             'city_name' => $user->city?->name ?? '',

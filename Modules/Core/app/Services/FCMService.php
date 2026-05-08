@@ -32,7 +32,7 @@ class FCMService
     /**
      * Gửi offer đơn hàng đến tài xế.
      */
-    public function sendOrderOffer(string $fcmToken, array $order, int $ttl = 20): void
+    public function sendOrderOffer(string $fcmToken, array $order, int $ttl = 45, string $offeredAt = ''): void
     {
         $this->send($fcmToken, [
             'title'   => 'Có đơn hàng mới!',
@@ -50,8 +50,26 @@ class FCMService
                 'payment_method'   => $order['payment_method'] ?? 'prepaid',
                 'cod_amount'       => (string) ($order['cod_amount'] ?? 0),
                 'ttl'              => (string) $ttl,
+                'offered_at'       => $offeredAt ?: now()->toIso8601String(),
             ],
             'ttl' => $ttl,
+        ]);
+    }
+
+    /**
+     * Gửi thông báo huỷ tự động khi không tìm được tài xế.
+     */
+    public function sendNoDriverCancellation(string $fcmToken, string $orderCode): void
+    {
+        $this->send($fcmToken, [
+            'title' => "Đơn $orderCode đã bị huỷ",
+            'body'  => 'Không tìm được tài xế sau 10 phút. Vui lòng đặt lại.',
+            'data'  => [
+                'type'          => 'order_status',
+                'order_code'    => $orderCode,
+                'status'        => 'cancelled',
+                'cancel_reason' => 'no_driver',
+            ],
         ]);
     }
 
@@ -105,9 +123,12 @@ class FCMService
 
             $this->messaging->send($message);
         } catch (\Throwable $e) {
+            $prev = $e->getPrevious();
             Log::error('[FCM] Send failed: ' . $e->getMessage(), [
-                'token'   => substr($token, 0, 20) . '...',
-                'payload' => $payload,
+                'token'    => substr($token, 0, 20) . '...',
+                'class'    => get_class($e),
+                'previous' => $prev ? get_class($prev) . ': ' . $prev->getMessage() : null,
+                'payload'  => $payload,
             ]);
         }
     }

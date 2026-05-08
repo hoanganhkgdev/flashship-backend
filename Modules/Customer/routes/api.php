@@ -1,6 +1,7 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
+use Modules\Customer\Http\Controllers\AddressController;
 use Modules\Customer\Http\Controllers\AuthController;
 use Modules\Customer\Http\Controllers\OrderController;
 use Modules\Pricing\Http\Controllers\PricingController;
@@ -8,17 +9,31 @@ use Modules\Pricing\Http\Controllers\PricingController;
 Route::prefix('customer')->group(function () {
 
     Route::prefix('auth')->group(function () {
-        Route::post('/register', [AuthController::class, 'register']);
-        Route::post('/login',    [AuthController::class, 'login']);
+        Route::post('/register',       [AuthController::class, 'register']);
+        Route::post('/login',          [AuthController::class, 'login']);
+        Route::post('/send-otp',       [AuthController::class, 'sendOtp']);
+        Route::post('/reset-password', [AuthController::class, 'resetPassword']);
 
         Route::middleware('auth:sanctum')->group(function () {
-            Route::get('/me',      [AuthController::class, 'me']);
-            Route::post('/logout', [AuthController::class, 'logout']);
+            Route::get('/me',              [AuthController::class, 'me']);
+            Route::post('/logout',         [AuthController::class, 'logout']);
+            Route::patch('/profile',       [AuthController::class, 'updateProfile']);
+            Route::patch('/password',      [AuthController::class, 'changePassword']);
+            Route::delete('/account',      [AuthController::class, 'deleteAccount']);
+            Route::post('/fcm-token',      [AuthController::class, 'updateFcmToken']);
         });
     });
 
     Route::middleware('auth:sanctum')->group(function () {
         Route::get('/pricing/estimate', [PricingController::class, 'estimate']);
+
+        Route::prefix('addresses')->group(function () {
+            Route::get('/',                      [AddressController::class, 'index']);
+            Route::post('/',                     [AddressController::class, 'store']);
+            Route::put('/{address}',             [AddressController::class, 'update']);
+            Route::patch('/{address}/default',   [AddressController::class, 'setDefault']);
+            Route::delete('/{address}',          [AddressController::class, 'destroy']);
+        });
 
         Route::prefix('orders')->group(function () {
             Route::get('/',              [OrderController::class, 'index']);

@@ -30,12 +30,6 @@ Route::prefix('auth')->group(function () {
 */
 Route::get('/cities', fn() => response()->json(['success' => true, 'data' => City::where('is_active', true)->get()]));
 
-Route::get('/shifts', function () {
-    $query = Shift::active();
-    if (request('city_id')) $query->where('city_id', request('city_id'));
-    return response()->json(['success' => true, 'data' => $query->get()]);
-});
-
 Route::get('/app-version', fn() => response()->json(['version' => config('app.version', '1.0.0')]));
 
 Route::get('/banners', function () {

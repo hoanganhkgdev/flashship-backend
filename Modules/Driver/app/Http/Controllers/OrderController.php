@@ -5,11 +5,18 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Modules\Order\Models\Order;
+use Modules\Order\Services\DispatchService;
 use Modules\Order\Services\OrderService;
 
 class OrderController extends Controller
 {
     public function __construct(private OrderService $orderService) {}
+
+    public function viewOffer(Request $request, Order $order): JsonResponse
+    {
+        app(DispatchService::class)->viewOffer($order, (int) $request->user()->id);
+        return response()->json(['success' => true]);
+    }
 
     public function pendingOffer(Request $request): JsonResponse
     {
@@ -54,6 +61,15 @@ class OrderController extends Controller
     public function decline(Request $request, Order $order): JsonResponse
     {
         $result = $this->orderService->declineOrder($order, $request->user());
+        $status = $result['status'];
+        unset($result['status']);
+        return response()->json($result, $status);
+    }
+
+    public function updateStatus(Request $request, Order $order): JsonResponse
+    {
+        $data   = $request->validate(['status' => 'required|in:processing,on_the_way']);
+        $result = $this->orderService->updateOrderStatus($order, $request->user(), $data['status']);
         $status = $result['status'];
         unset($result['status']);
         return response()->json($result, $status);

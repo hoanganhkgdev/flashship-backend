@@ -24,7 +24,7 @@ class Order extends Model
 
     protected $fillable = [
         'code', 'service_type', 'city_id', 'delivery_man_id', 'dispatching_to_driver_id',
-        'dispatch_attempts', 'sender_platform_id', 'platform', 'created_by', 'status',
+        'dispatch_attempts', 'sender_platform_id', 'platform', 'created_by', 'status', 'cancel_reason',
         'pickup_address', 'pickup_lat', 'pickup_lng', 'pickup_phone', 'sender_name', 'store_name',
         'delivery_address', 'delivery_lat', 'delivery_lng', 'delivery_phone', 'receiver_name',
         'shipping_fee', 'bonus_fee', 'is_freeship', 'distance', 'payment_method', 'cod_amount',
@@ -45,9 +45,10 @@ class Order extends Model
         'delivery_lng'             => 'float',
     ];
 
-    public function driver() { return $this->belongsTo(\Modules\Core\Models\User::class, 'delivery_man_id'); }
-    public function city()   { return $this->belongsTo(\Modules\Core\Models\City::class); }
-    public function histories() { return $this->hasMany(OrderHistory::class)->latest(); }
+    public function driver()   { return $this->belongsTo(\Modules\Core\Models\User::class, 'delivery_man_id'); }
+    public function sender()   { return $this->belongsTo(\Modules\Core\Models\User::class, 'sender_platform_id'); }
+    public function city()     { return $this->belongsTo(\Modules\Core\Models\City::class); }
+    public function histories(){ return $this->hasMany(OrderHistory::class)->latest(); }
 
     protected $appends = ['city_name'];
     public function getCityNameAttribute() { return $this->city?->name ?? 'N/A'; }

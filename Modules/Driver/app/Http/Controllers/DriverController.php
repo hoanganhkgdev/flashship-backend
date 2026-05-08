@@ -5,6 +5,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Hash;
+use Modules\Core\Models\Announcement;
 use Modules\Order\Events\DriverLocationUpdatedEvent;
 use Modules\Order\Models\Order;
 
@@ -13,11 +14,10 @@ class DriverController extends Controller
     public function profile(Request $request): JsonResponse
     {
         $user = $request->user();
-        $user->loadMissing(['city', 'bank', 'driverLicenses', 'plan', 'wallet']);
+        $user->loadMissing(['city', 'bank', 'driverLicenses', 'wallet']);
 
         $data = $user->toArray();
         $data['city_name']    = $user->city?->name ?? '';
-        $data['plan_type']    = $user->plan?->type;
         $data['balance']      = $user->wallet?->balance ?? 0;
         $data['bank_name']    = $user->bank?->bank_name;
         $data['bank_account'] = $user->bank?->account_number;
@@ -79,13 +79,6 @@ class DriverController extends Controller
         $data = $request->validate(['fcm_token' => 'required|string']);
         $request->user()->update(['fcm_token' => $data['fcm_token']]);
         return response()->json(['success' => true, 'message' => 'FCM Token đã cập nhật']);
-    }
-
-    public function updateVoipToken(Request $request): JsonResponse
-    {
-        $data = $request->validate(['voip_token' => 'required|string']);
-        $request->user()->update(['voip_token' => $data['voip_token']]);
-        return response()->json(['success' => true, 'message' => 'VoIP Token đã cập nhật']);
     }
 
     public function updateProfile(Request $request): JsonResponse
@@ -172,5 +165,18 @@ class DriverController extends Controller
         }
         $user->update(['delete_requested_at' => null]);
         return response()->json(['success' => true, 'message' => 'Đã hủy yêu cầu xóa tài khoản']);
+    }
+
+    public function announcements(Request $request): JsonResponse
+    {
+        $cityId = $request->user()->city_id;
+
+        $items = Announcement::activeFor('driver', $cityId)
+            ->select('id', 'title', 'content', 'type', 'city_id', 'created_at')
+            ->with('city:id,name')
+            ->limit(5)
+            ->get();
+
+        return response()->json(['data' => $items]);
     }
 }

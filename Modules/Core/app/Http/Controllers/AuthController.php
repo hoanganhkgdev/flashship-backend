@@ -7,7 +7,6 @@ use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\ValidationException;
-use Modules\Core\Models\Plan;
 use Modules\Core\Models\User;
 
 class AuthController extends Controller
@@ -45,9 +44,6 @@ class AuthController extends Controller
                 'profile_photo_path' => $path,
                 'fcm_token'          => $data['fcm_token'] ?? null,
             ]);
-
-            $plan = Plan::active()->first();
-            $user->update(['plan_id' => $plan?->id]);
 
             $token = $user->createToken('api_token')->plainTextToken;
             return [$user, $token];
@@ -117,10 +113,9 @@ class AuthController extends Controller
 
     private function formatUser(User $user): array
     {
-        $user->loadMissing(['city', 'bank', 'driverLicenses', 'plan']);
+        $user->loadMissing(['city', 'bank', 'driverLicenses']);
         $data = $user->toArray();
         $data['city_name'] = $user->city?->name ?? '';
-        $data['plan_type'] = $user->plan?->type;
         $data['bank_name'] = $user->bank?->bank_name;
         $data['bank_account'] = $user->bank?->account_number;
         $license = $user->driverLicenses->sortByDesc('id')->first();

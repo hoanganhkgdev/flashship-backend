@@ -8,15 +8,15 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::table('users', function (Blueprint $table) {
-            $table->string('voip_token')->nullable()->after('fcm_token');
+        Schema::table('orders', function (Blueprint $table) {
+            $table->string('cancel_reason')->nullable()->after('status');
         });
     }
 
     public function down(): void
     {
-        Schema::table('users', function (Blueprint $table) {
-            $table->dropColumn('voip_token');
+        Schema::table('orders', function (Blueprint $table) {
+            $table->dropColumn('cancel_reason');
         });
     }
 };
