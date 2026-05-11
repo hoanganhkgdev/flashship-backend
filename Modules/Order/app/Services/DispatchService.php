@@ -1,7 +1,6 @@
 <?php
 namespace Modules\Order\Services;
 
-use Modules\Order\Events\OrderOfferedEvent;
 use Modules\Order\Jobs\DispatchOrderJob;
 use Modules\Order\Models\Order;
 use Modules\Order\Models\OrderDispatchLog;
@@ -89,17 +88,17 @@ class DispatchService
 
         $offeredAt = now()->toIso8601String();
 
-        // Broadcast qua Reverb WebSocket (realtime, không cần polling)
-        // Reverb: foreground realtime offer. TTL = ring duration cho foreground case.
-        broadcast(new OrderOfferedEvent($driver->id, $order->toArray(), self::CALLKIT_RING_SECS, $offeredAt));
-
         if ($driver->fcm_token) {
-            FCMService::getInstance()->sendOrderOffer(
-                $driver->fcm_token,
-                $order->toArray(),
-                self::CALLKIT_RING_SECS,
-                $offeredAt
-            );
+            try {
+                FCMService::getInstance()->sendOrderOffer(
+                    $driver->fcm_token,
+                    $order->toArray(),
+                    self::CALLKIT_RING_SECS,
+                    $offeredAt
+                );
+            } catch (\Throwable $e) {
+                Log::error("[Dispatch] FCM failed for driver #{$driver->id}: " . $e->getMessage());
+            }
         }
 
         // Timeout job: nếu tài xế không mở app trong CALLKIT_RING_SECS giây thì chuyển sang tài xế tiếp theo.

@@ -35,12 +35,27 @@ return [
         ],
     ],
 
+    'firebase' => [
+        'database_url' => env('FIREBASE_DATABASE_URL'),
+    ],
+
     'apns' => [
         'team_id'     => env('APNS_TEAM_ID'),
         'key_id'      => env('APNS_KEY_ID'),
         'bundle_id'   => env('APNS_BUNDLE_ID', 'vn.flashship.driver'),
         'production'  => env('APNS_PRODUCTION', false),
-        'private_key' => env('APNS_PRIVATE_KEY'), // nội dung file .p8 (thay \n bằng \\n)
+        'private_key' => env('APNS_PRIVATE_KEY'),
+    ],
+
+    'vietmap' => [
+        'api_key'    => env('VIETMAP_API_KEY'),
+        'geocode_url' => 'https://maps.vietmap.vn/api/search/v3',
+        'reverse_url' => 'https://maps.vietmap.vn/api/reverse/v3',
+    ],
+
+    'google_maps' => [
+        'api_key'       => env('GOOGLE_MAPS_API_KEY'),
+        'directions_url' => 'https://maps.googleapis.com/maps/api/directions/json',
     ],
 
 ];

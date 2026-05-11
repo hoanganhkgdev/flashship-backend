@@ -5,8 +5,9 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Storage;
 use Modules\Core\Models\Announcement;
-use Modules\Order\Events\DriverLocationUpdatedEvent;
+use Modules\Core\Services\RTDBService;
 use Modules\Order\Models\Order;
 
 class DriverController extends Controller
@@ -64,11 +65,11 @@ class DriverController extends Controller
             ->first();
 
         if ($activeOrder) {
-            broadcast(new DriverLocationUpdatedEvent(
+            RTDBService::updateOrderLocation(
                 $activeOrder->code,
                 (float) $data['latitude'],
                 (float) $data['longitude'],
-            ));
+            );
         }
 
         return response()->json(['success' => true]);
@@ -85,19 +86,28 @@ class DriverController extends Controller
     {
         $data = $request->validate([
             'name'   => 'nullable|string|max:255',
-            'avatar' => 'nullable|image|max:2048',
+            'avatar' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:2048',
         ]);
 
         $user = $request->user();
 
         if ($request->hasFile('avatar')) {
+            if ($user->profile_photo_path) {
+                Storage::disk('public')->delete($user->profile_photo_path);
+            }
             $data['profile_photo_path'] = $request->file('avatar')->store('profile-photos', 'public');
         }
         unset($data['avatar']);
 
         $user->update(array_filter($data));
+        $user->refresh();
 
-        return response()->json(['success' => true, 'message' => 'Cập nhật thành công', 'data' => ['user' => $user->fresh()]]);
+        $userData = $user->toArray();
+        if ($user->profile_photo_path) {
+            $userData['profile_photo_url'] = url('storage/' . $user->profile_photo_path);
+        }
+
+        return response()->json(['success' => true, 'message' => 'Cập nhật thành công', 'data' => ['user' => $userData]]);
     }
 
     public function changePassword(Request $request): JsonResponse

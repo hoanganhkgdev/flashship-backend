@@ -7,6 +7,7 @@ use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Modules\Order\Models\Order;
+use Modules\Core\Models\Voucher;
 use Modules\Order\Services\OrderService;
 use Modules\Pricing\Services\PricingService;
 
@@ -47,21 +48,65 @@ class OrderController extends Controller
             'payment_method'   => 'nullable|in:cod,prepaid,wallet',
             'cod_amount'       => 'nullable|integer|min:0',
             'scheduled_at'     => 'nullable|date',
+            'topup_amount'     => 'nullable|integer|min:1000',
+            'stop_count'       => 'nullable|integer|min:1|max:5',
+            'voucher_code'     => 'nullable|string|max:32',
         ]);
 
         $user = $request->user();
 
         try {
-            if (isset($data['pickup_lat'], $data['pickup_lng'], $data['delivery_lat'], $data['delivery_lng'])) {
+            $cityId = $user->city_id;
+
+            if ($data['service_type'] === 'topup') {
+                $pricing = [
+                    'fee'         => PricingService::topupFee((int) ($data['topup_amount'] ?? 0), $cityId),
+                    'distance_km' => 0,
+                ];
+            } elseif (isset($data['pickup_lat'], $data['pickup_lng'], $data['delivery_lat'], $data['delivery_lng'])) {
                 $pricing = PricingService::estimateFromCoords(
                     $data['service_type'],
                     (float) $data['pickup_lat'], (float) $data['pickup_lng'],
-                    (float) $data['delivery_lat'], (float) $data['delivery_lng']
+                    (float) $data['delivery_lat'], (float) $data['delivery_lng'],
+                    $cityId
                 );
             } else {
                 $pricing = PricingService::estimateFromAddresses(
-                    $data['service_type'], $data['pickup_address'], $data['delivery_address'], $user->city?->name
+                    $data['service_type'], $data['pickup_address'], $data['delivery_address'], $user->city?->name, $cityId
                 );
+            }
+
+            // Phụ phí điểm mua thêm (shopping)
+            if ($data['service_type'] === 'shopping') {
+                $stopCount       = max(1, (int) ($data['stop_count'] ?? 1));
+                $pricing['fee'] += ($stopCount - 1) * 5000;
+            }
+
+            // Apply voucher
+            $voucherCode    = null;
+            $discountAmount = 0;
+            $shippingFee    = $pricing['fee'];
+
+            if (!empty($data['voucher_code'])) {
+                $voucher = Voucher::where('code', strtoupper($data['voucher_code']))->first();
+                if ($voucher && $voucher->is_active
+                    && (!$voucher->expires_at || $voucher->expires_at->isFuture())
+                    && (!$voucher->usage_limit || $voucher->used_count < $voucher->usage_limit)
+                    && (!$voucher->service_types || in_array($data['service_type'], $voucher->service_types))
+                    && (!$voucher->city_id || $voucher->city_id == $user->city_id)
+                    && (!$voucher->min_order_value || $shippingFee >= $voucher->min_order_value)
+                ) {
+                    $discountAmount = $voucher->type === 'percent'
+                        ? (int) round($shippingFee * $voucher->value / 100)
+                        : $voucher->value;
+                    if ($voucher->max_discount) {
+                        $discountAmount = min($discountAmount, $voucher->max_discount);
+                    }
+                    $discountAmount = min($discountAmount, $shippingFee);
+                    $shippingFee    = $shippingFee - $discountAmount;
+                    $voucherCode    = $voucher->code;
+                    $voucher->increment('used_count');
+                }
             }
 
             $order = Order::create([
@@ -82,8 +127,10 @@ class OrderController extends Controller
                 'payment_method'   => $data['payment_method'] ?? 'prepaid',
                 'cod_amount'       => ($data['payment_method'] ?? '') === 'cod' ? ($data['cod_amount'] ?? 0) : null,
                 'city_id'          => $user->city_id,
-                'shipping_fee'     => $pricing['fee'],
+                'shipping_fee'     => $shippingFee,
                 'distance'         => $pricing['distance_km'],
+                'voucher_code'     => $voucherCode,
+                'discount_amount'  => $discountAmount,
                 'bonus_fee'        => 0,
                 'is_freeship'      => false,
                 'status'           => 'pending',
@@ -171,6 +218,8 @@ class OrderController extends Controller
             'store_name'       => $order->store_name,
             'payment_method'   => $order->payment_method,
             'cod_amount'       => $order->cod_amount,
+            'voucher_code'     => $order->voucher_code,
+            'discount_amount'  => $order->discount_amount,
             'driver_rating'    => $order->driver_rating,
             'scheduled_at'     => $order->scheduled_at?->toIso8601String(),
             'created_at'       => $order->created_at->toIso8601String(),

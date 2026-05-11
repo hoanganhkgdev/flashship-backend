@@ -1,10 +1,10 @@
 <?php
 namespace Modules\Order\Services;
 
-use Modules\Order\Events\OrderStatusChangedEvent;
 use Modules\Order\Models\Order;
 use Modules\Core\Models\User;
 use Modules\Core\Services\FCMService;
+use Modules\Core\Services\RTDBService;
 use Modules\Driver\Services\DriverWalletService;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Cache;
@@ -35,14 +35,24 @@ class OrderService
 
     public function getDashboardStats(User $user): array
     {
-        $row = Order::where('delivery_man_id', $user->id)
-            ->selectRaw("COUNT(*) as total, SUM(status='completed') as completed, SUM(status='pending') as pending")
+        $today     = now()->toDateString();
+        $monthStart = now()->startOfMonth();
+
+        $todayRow = Order::where('delivery_man_id', $user->id)
+            ->where('status', 'completed')
+            ->whereDate('completed_at', $today)
+            ->selectRaw('COUNT(*) as cnt, COALESCE(SUM(shipping_fee + bonus_fee), 0) as earnings')
             ->first();
 
+        $monthCount = Order::where('delivery_man_id', $user->id)
+            ->where('status', 'completed')
+            ->where('completed_at', '>=', $monthStart)
+            ->count();
+
         return [
-            'total_orders'     => (int) ($row->total ?? 0),
-            'completed_orders' => (int) ($row->completed ?? 0),
-            'pending_orders'   => (int) ($row->pending ?? 0),
+            'today_orders'   => (int) ($todayRow->cnt ?? 0),
+            'today_earnings' => (int) ($todayRow->earnings ?? 0),
+            'month_orders'   => (int) $monthCount,
         ];
     }
 
@@ -87,11 +97,6 @@ class OrderService
             $freshOrder = Order::find($orderId);
             if (!$freshOrder) return;
             app(DispatchService::class)->handleAccepted($freshOrder, User::find($userId));
-            // Realtime cho customer biết đơn đã có tài xế
-            broadcast(new OrderStatusChangedEvent($freshOrder->code, 'assigned', [
-                'driver_id' => $userId,
-            ]));
-            // FCM fallback
             $customer = User::find($freshOrder->sender_platform_id);
             if ($customer?->fcm_token) {
                 FCMService::getInstance()->sendOrderStatusUpdate($customer->fcm_token, $freshOrder->code, 'assigned');
@@ -133,8 +138,6 @@ class OrderService
 
         $order->update(['status' => $status]);
 
-        broadcast(new OrderStatusChangedEvent($order->code, $status));
-
         $customer = User::find($order->sender_platform_id);
         if ($customer?->fcm_token) {
             FCMService::getInstance()->sendOrderStatusUpdate($customer->fcm_token, $order->code, $status);
@@ -174,9 +177,7 @@ class OrderService
         Cache::forget("driver_stats_{$user->id}");
         Log::info("✅ Order #{$order->id} completed by driver #{$user->id}");
 
-        // Realtime cho customer biết đơn đã hoàn thành
-        broadcast(new OrderStatusChangedEvent($order->code, 'completed'));
-        // FCM fallback
+        RTDBService::clearOrderLocation($order->code);
         $customer = User::find($order->sender_platform_id);
         if ($customer?->fcm_token) {
             FCMService::getInstance()->sendOrderStatusUpdate($customer->fcm_token, $order->code, 'completed');

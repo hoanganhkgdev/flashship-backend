@@ -1,33 +1,125 @@
 <?php
+
 namespace Modules\Pricing\Services;
 
+use Modules\Core\Services\VietmapService;
 use Modules\Pricing\Models\PricingConfig;
 
 class PricingService
 {
-    private const RATES = [
-        'delivery' => ['base' => 15_000, 'per_km' => 5_000,  'min' => 15_000],
-        'shopping' => ['base' => 20_000, 'per_km' => 6_000,  'min' => 20_000],
-        'topup'    => ['base' => 10_000, 'per_km' => 0,      'min' => 10_000],
-        'bike'     => ['base' => 15_000, 'per_km' => 5_000,  'min' => 15_000],
-        'motor'    => ['base' => 15_000, 'per_km' => 6_000,  'min' => 15_000],
-        'car'      => ['base' => 30_000, 'per_km' => 15_000, 'min' => 30_000],
-    ];
-
-    private static function getRates(string $serviceType): array
+    private static function cfg(string $serviceType, ?int $cityId = null): ?array
     {
-        $config = PricingConfig::forService($serviceType);
-        if ($config) {
-            return ['base' => $config->base_fee, 'per_km' => $config->per_km_fee, 'min' => $config->min_fee];
-        }
-        return self::RATES[$serviceType] ?? self::RATES['bike'];
+        return PricingConfig::forService($serviceType, $cityId)?->config_json;
     }
 
-    public static function estimate(string $serviceType, float $distanceKm): array
+    // ── Delivery / Shopping — slab bậc thang ──────────────────────────────────
+    private static function slabFee(float $km, string $serviceType, ?int $cityId = null): int
     {
-        $rates = self::getRates($serviceType);
-        $raw   = $rates['base'] + $distanceKm * $rates['per_km'];
-        $fee   = (int) (ceil(max($raw, $rates['min']) / 1000) * 1000);
+        $cfg = self::cfg($serviceType, $cityId);
+
+        if ($cfg && ($cfg['type'] ?? '') === 'slab') {
+            foreach ($cfg['slabs'] as $slab) {
+                if ($km <= $slab['max_km']) return (int) $slab['fee'];
+            }
+            $last = end($cfg['slabs']);
+            return (int) $last['fee'] + (int) (ceil($km - $last['max_km']) * ($cfg['over_max_per_km'] ?? 3_000));
+        }
+
+        return match (true) {
+            $km <= 3.5 => 15_000,
+            $km <= 4.5 => 18_000,
+            $km <= 5.5 => 20_000,
+            $km <= 6.5 => 23_000,
+            $km <= 7.5 => 25_000,
+            $km <= 8.5 => 28_000,
+            $km <= 10  => 30_000,
+            default    => 30_000 + (int) (ceil($km - 10) * 3_000),
+        };
+    }
+
+    // ── Xe Ôm — tuyến tính 2 bậc ──────────────────────────────────────────────
+    private static function bikeFee(float $km, ?int $cityId = null): int
+    {
+        $cfg = self::cfg('bike', $cityId);
+
+        if ($cfg && ($cfg['type'] ?? '') === 'tiered_linear') {
+            $baseKm    = (float) $cfg['base_km'];
+            $baseFee   = (int)   $cfg['base_fee'];
+            $perKm     = (int)   $cfg['per_km_fee'];
+            $higherKm  = (float) $cfg['higher_from_km'];
+            $higherPer = (int)   $cfg['higher_per_km_fee'];
+
+            if ($km <= $baseKm)  return $baseFee;
+            if ($km <= $higherKm) return $baseFee + (int) (ceil($km - $baseKm) * $perKm);
+            return $baseFee + (int) (($higherKm - $baseKm) * $perKm) + (int) (ceil($km - $higherKm) * $higherPer);
+        }
+
+        if ($km <= 2)  return 15_000;
+        if ($km <= 10) return 15_000 + (int) (ceil($km - 2) * 5_000);
+        return 15_000 + (8 * 5_000) + (int) (ceil($km - 10) * 6_000);
+    }
+
+    // ── Lái hộ xe máy ─────────────────────────────────────────────────────────
+    private static function motorFee(float $km, ?int $cityId = null): int
+    {
+        $cfg = self::cfg('motor', $cityId);
+        if ($cfg && ($cfg['type'] ?? '') === 'linear') return self::linearFee($km, $cfg);
+
+        return $km <= 3 ? 60_000 : 60_000 + (int) (ceil($km - 3) * 6_000);
+    }
+
+    // ── Lái hộ ô tô ───────────────────────────────────────────────────────────
+    private static function carFee(float $km, ?int $cityId = null): int
+    {
+        $cfg = self::cfg('car', $cityId);
+        if ($cfg && ($cfg['type'] ?? '') === 'linear') return self::linearFee($km, $cfg);
+
+        return $km <= 3 ? 80_000 : 80_000 + (int) (ceil($km - 3) * 10_000);
+    }
+
+    private static function linearFee(float $km, array $cfg): int
+    {
+        $baseKm  = (float) $cfg['base_km'];
+        $baseFee = (int)   $cfg['base_fee'];
+        $perKm   = (int)   $cfg['per_km_fee'];
+
+        return $km <= $baseKm ? $baseFee : $baseFee + (int) (ceil($km - $baseKm) * $perKm);
+    }
+
+    // ── Nạp tiền ──────────────────────────────────────────────────────────────
+    public static function topupFee(int $amount, ?int $cityId = null): int
+    {
+        $cfg = self::cfg('topup', $cityId);
+
+        if ($cfg && ($cfg['type'] ?? '') === 'topup') {
+            foreach ($cfg['tiers'] as $tier) {
+                if ($amount < $tier['max_amount']) return (int) $tier['fee'];
+            }
+            $last    = end($cfg['tiers']);
+            $perUnit = (int) ($cfg['over_max_per_unit'] ?? 5_000_000);
+            $step    = (int) ($cfg['over_max_fee_step'] ?? 10_000);
+            return (int) $last['fee'] + (int) (ceil(($amount - $last['max_amount']) / $perUnit) * $step);
+        }
+
+        if ($amount < 5_000_000)  return 20_000;
+        if ($amount < 10_000_000) return 30_000;
+        if ($amount < 15_000_000) return 40_000;
+        if ($amount < 20_000_000) return 50_000;
+        if ($amount < 25_000_000) return 60_000;
+        return 60_000 + (int) (ceil(($amount - 25_000_000) / 5_000_000) * 10_000);
+    }
+
+    // ── Public API ─────────────────────────────────────────────────────────────
+
+    public static function estimate(string $serviceType, float $distanceKm, ?int $cityId = null): array
+    {
+        $fee = match ($serviceType) {
+            'delivery', 'shopping' => self::slabFee($distanceKm, $serviceType, $cityId),
+            'bike'                 => self::bikeFee($distanceKm, $cityId),
+            'motor'                => self::motorFee($distanceKm, $cityId),
+            'car'                  => self::carFee($distanceKm, $cityId),
+            default                => self::slabFee($distanceKm, 'delivery', $cityId),
+        };
 
         return [
             'service_type' => $serviceType,
@@ -39,35 +131,27 @@ class PricingService
     public static function estimateFromCoords(
         string $serviceType,
         float $pickupLat, float $pickupLng,
-        float $deliveryLat, float $deliveryLng
+        float $deliveryLat, float $deliveryLng,
+        ?int $cityId = null
     ): array {
-        $distance = self::haversine($pickupLat, $pickupLng, $deliveryLat, $deliveryLng);
-        return self::estimate($serviceType, $distance);
+        $distance = VietmapService::roadDistanceKm($pickupLat, $pickupLng, $deliveryLat, $deliveryLng);
+        return self::estimate($serviceType, $distance, $cityId);
     }
 
     public static function estimateFromAddresses(
         string $serviceType,
         string $pickupAddress,
         string $deliveryAddress,
-        ?string $cityName = null
+        ?string $cityName = null,
+        ?int $cityId = null
     ): array {
-        // Fallback to 3km estimate when no geocoding available
-        $result = self::estimate($serviceType, 3.0);
+        $result = self::estimate($serviceType, 3.0, $cityId);
         $result['geocode_failed'] = true;
         return $result;
     }
 
-    private static function haversine(float $lat1, float $lng1, float $lat2, float $lng2): float
-    {
-        $R    = 6371;
-        $dLat = deg2rad($lat2 - $lat1);
-        $dLng = deg2rad($lng2 - $lng1);
-        $a    = sin($dLat / 2) ** 2 + cos(deg2rad($lat1)) * cos(deg2rad($lat2)) * sin($dLng / 2) ** 2;
-        return $R * 2 * atan2(sqrt($a), sqrt(1 - $a));
-    }
-
     public static function serviceTypes(): array
     {
-        return array_keys(self::RATES);
+        return ['delivery', 'shopping', 'topup', 'bike', 'motor', 'car'];
     }
 }
