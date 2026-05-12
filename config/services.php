@@ -39,13 +39,6 @@ return [
         'database_url' => env('FIREBASE_DATABASE_URL'),
     ],
 
-    'apns' => [
-        'team_id'     => env('APNS_TEAM_ID'),
-        'key_id'      => env('APNS_KEY_ID'),
-        'bundle_id'   => env('APNS_BUNDLE_ID', 'vn.flashship.driver'),
-        'production'  => env('APNS_PRODUCTION', false),
-        'private_key' => env('APNS_PRIVATE_KEY'),
-    ],
 
     'vietmap' => [
         'api_key'    => env('VIETMAP_API_KEY'),
