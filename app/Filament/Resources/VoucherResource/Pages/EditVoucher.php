@@ -10,6 +10,14 @@ class EditVoucher extends EditRecord
 {
     protected static string $resource = VoucherResource::class;
 
+    protected function mutateFormDataBeforeSave(array $data): array
+    {
+        if ($data['type'] === 'freeship') {
+            $data['value'] = 0;
+        }
+        return $data;
+    }
+
     protected function getHeaderActions(): array
     {
         return [
