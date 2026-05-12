@@ -85,6 +85,7 @@ class OrderController extends Controller
             // Apply voucher
             $voucherCode    = null;
             $discountAmount = 0;
+            $isFreeship     = false;
             $shippingFee    = $pricing['fee'];
 
             if (!empty($data['voucher_code'])) {
@@ -96,9 +97,14 @@ class OrderController extends Controller
                     && (!$voucher->city_id || $voucher->city_id == $user->city_id)
                     && (!$voucher->min_order_value || $shippingFee >= $voucher->min_order_value)
                 ) {
-                    $discountAmount = $voucher->type === 'percent'
-                        ? (int) round($shippingFee * $voucher->value / 100)
-                        : $voucher->value;
+                    if ($voucher->type === 'freeship') {
+                        $discountAmount = $shippingFee;
+                        $isFreeship     = true;
+                    } elseif ($voucher->type === 'percent') {
+                        $discountAmount = (int) round($shippingFee * $voucher->value / 100);
+                    } else {
+                        $discountAmount = (int) $voucher->value;
+                    }
                     if ($voucher->max_discount) {
                         $discountAmount = min($discountAmount, $voucher->max_discount);
                     }
@@ -132,7 +138,7 @@ class OrderController extends Controller
                 'voucher_code'     => $voucherCode,
                 'discount_amount'  => $discountAmount,
                 'bonus_fee'        => 0,
-                'is_freeship'      => false,
+                'is_freeship'      => $isFreeship,
                 'status'           => 'pending',
                 'platform'         => 'customer_app',
                 'sender_platform_id' => $user->id,
