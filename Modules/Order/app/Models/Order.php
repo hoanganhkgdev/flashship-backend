@@ -15,6 +15,9 @@ class Order extends Model
             $order->shipping_fee = $order->shipping_fee ?? 0;
             $order->is_freeship  = $order->is_freeship ?? false;
         });
+        static::created(function ($order) {
+            $order->updateQuietly(['code' => 'FS' . str_pad($order->id, 6, '0', STR_PAD_LEFT)]);
+        });
         static::saving(function ($order) {
             $order->bonus_fee    = $order->bonus_fee ?? 0;
             $order->shipping_fee = $order->shipping_fee ?? 0;

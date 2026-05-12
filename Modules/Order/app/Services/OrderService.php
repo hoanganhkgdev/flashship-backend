@@ -10,7 +10,6 @@ use Carbon\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Str;
 
 class OrderService
 {
@@ -205,10 +204,8 @@ class OrderService
 
     public function createOrder(array $data, User $user): Order
     {
-        $code = 'FS' . now()->format('ymdHis') . strtoupper(Str::random(3));
-
         return Order::create([
-            'code'             => $code,
+            'code'             => '',
             'service_type'     => $data['service_type'],
             'order_note'       => $data['order_note'] ?? null,
             'city_id'          => $user->city_id,
