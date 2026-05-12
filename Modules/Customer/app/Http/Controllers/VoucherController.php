@@ -38,6 +38,7 @@ class VoucherController extends Controller
             'code'         => 'required|string',
             'service_type' => 'required|string',
             'order_total'  => 'nullable|integer|min:0',
+            'shipping_fee' => 'nullable|integer|min:0',
         ]);
 
         $voucher = Voucher::where('code', strtoupper(trim($data['code'])))->first();
@@ -58,7 +59,8 @@ class VoucherController extends Controller
             return response()->json(['valid' => false, 'message' => 'Mã không áp dụng tại thành phố của bạn'], 422);
         }
 
-        $orderTotal = (int) ($data['order_total'] ?? 0);
+        $orderTotal  = (int) ($data['order_total'] ?? 0);
+        $shippingFee = (int) ($data['shipping_fee'] ?? 0);
 
         if ($voucher->min_order_value && $orderTotal < $voucher->min_order_value) {
             return response()->json([
@@ -67,21 +69,29 @@ class VoucherController extends Controller
             ], 422);
         }
 
-        $discount = $voucher->type === 'percent'
-            ? (int) round($orderTotal * $voucher->value / 100)
-            : $voucher->value;
-
-        if ($voucher->max_discount) {
-            $discount = min($discount, $voucher->max_discount);
+        if ($voucher->type === 'freeship') {
+            $discount = $shippingFee;
+            if ($voucher->max_discount) {
+                $discount = min($discount, $voucher->max_discount);
+            }
+        } elseif ($voucher->type === 'percent') {
+            $discount = (int) round($orderTotal * $voucher->value / 100);
+            if ($voucher->max_discount) {
+                $discount = min($discount, $voucher->max_discount);
+            }
+            $discount = min($discount, $orderTotal);
+        } else {
+            $discount = min((int) $voucher->value, $orderTotal);
         }
-        $discount = min($discount, $orderTotal);
 
         return response()->json([
             'valid'          => true,
             'code'           => $voucher->code,
+            'type'           => $voucher->type,
             'discount'       => $discount,
             'discount_label' => $voucher->discount_label,
             'description'    => $voucher->description,
+            'is_freeship'    => $voucher->type === 'freeship',
         ]);
     }
 }

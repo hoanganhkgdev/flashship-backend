@@ -46,26 +46,28 @@ class VoucherResource extends Resource
                         Forms\Components\Select::make('type')
                             ->label('Loại giảm giá')
                             ->options([
-                                'percent' => 'Theo % (phần trăm)',
-                                'fixed'   => 'Cố định (VND)',
+                                'percent'  => 'Theo % (phần trăm)',
+                                'fixed'    => 'Cố định (VND)',
+                                'freeship' => 'Freeship (miễn phí vận chuyển)',
                             ])
                             ->required()
                             ->live(),
 
                         Forms\Components\TextInput::make('value')
                             ->label(fn (Get $get) => $get('type') === 'percent' ? 'Mức giảm (%)' : 'Số tiền giảm (₫)')
-                            ->required()
                             ->numeric()
                             ->minValue(1)
                             ->maxValue(fn (Get $get) => $get('type') === 'percent' ? 100 : null)
-                            ->suffix(fn (Get $get) => $get('type') === 'percent' ? '%' : '₫'),
+                            ->suffix(fn (Get $get) => $get('type') === 'percent' ? '%' : '₫')
+                            ->visible(fn (Get $get) => in_array($get('type'), ['percent', 'fixed']))
+                            ->required(fn (Get $get) => in_array($get('type'), ['percent', 'fixed'])),
 
                         Forms\Components\TextInput::make('max_discount')
-                            ->label('Giảm tối đa (₫)')
+                            ->label(fn (Get $get) => $get('type') === 'freeship' ? 'Freeship tối đa (₫)' : 'Giảm tối đa (₫)')
                             ->numeric()
                             ->minValue(1)
                             ->suffix('₫')
-                            ->visible(fn (Get $get) => $get('type') === 'percent')
+                            ->visible(fn (Get $get) => in_array($get('type'), ['percent', 'freeship']))
                             ->helperText('Để trống = không giới hạn'),
 
                         Forms\Components\Textarea::make('description')
@@ -143,7 +145,11 @@ class VoucherResource extends Resource
                 Tables\Columns\TextColumn::make('discount_label')
                     ->label('Giảm giá')
                     ->weight('bold')
-                    ->color(fn (Voucher $record) => $record->type === 'percent' ? 'success' : 'warning'),
+                    ->color(fn (Voucher $record) => match ($record->type) {
+                        'percent'  => 'success',
+                        'freeship' => 'info',
+                        default    => 'warning',
+                    }),
 
                 Tables\Columns\TextColumn::make('max_discount')
                     ->label('Tối đa')
@@ -184,8 +190,9 @@ class VoucherResource extends Resource
                 SelectFilter::make('type')
                     ->label('Loại')
                     ->options([
-                        'percent' => 'Phần trăm',
-                        'fixed'   => 'Cố định',
+                        'percent'  => 'Phần trăm',
+                        'fixed'    => 'Cố định',
+                        'freeship' => 'Freeship',
                     ]),
             ])
             ->actions([

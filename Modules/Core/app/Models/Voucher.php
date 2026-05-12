@@ -34,8 +34,11 @@ class Voucher extends Model
 
     public function getDiscountLabelAttribute(): string
     {
-        return $this->type === 'percent'
-            ? "-{$this->value}%"
-            : '-' . number_format($this->value) . 'đ';
+        return match ($this->type) {
+            'percent'  => "-{$this->value}%",
+            'fixed'    => '-' . number_format($this->value) . 'đ',
+            'freeship' => 'Freeship',
+            default    => '-',
+        };
     }
 }
