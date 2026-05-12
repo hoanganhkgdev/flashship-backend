@@ -116,8 +116,17 @@ class FCMService
                 )
                 ->withApnsConfig(
                     ApnsConfig::fromArray([
-                        'headers' => ['apns-priority' => '10'],
-                        'payload' => ['aps' => ['sound' => 'default', 'badge' => 1]],
+                        'headers' => [
+                            'apns-priority'   => '10',
+                            'apns-push-type'  => 'alert',
+                        ],
+                        'payload' => [
+                            'aps' => [
+                                'sound'             => 'default',
+                                'badge'             => 1,
+                                'content-available' => 1,
+                            ],
+                        ],
                     ])
                 );
 

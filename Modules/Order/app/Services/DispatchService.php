@@ -11,8 +11,8 @@ use Illuminate\Support\Facades\Log;
 
 class DispatchService
 {
-    const CALLKIT_RING_SECS  = 30; // CallKit rings for this long; job fires at +3s if no view
-    const APP_DECISION_SECS  = 20; // driver has this long once the offer screen opens
+    const CALLKIT_RING_SECS  = 60; // driver has this long to respond before offer expires
+    const APP_DECISION_SECS  = 30; // driver has this long once the offer screen opens
 
     public function startDispatch(Order $order): void
     {
