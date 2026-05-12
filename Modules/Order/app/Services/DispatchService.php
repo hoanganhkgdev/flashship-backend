@@ -11,8 +11,9 @@ use Illuminate\Support\Facades\Log;
 
 class DispatchService
 {
-    const CALLKIT_RING_SECS  = 60; // driver has this long to respond before offer expires
-    const APP_DECISION_SECS  = 30; // driver has this long once the offer screen opens
+    const CALLKIT_RING_SECS  = 60;
+    const APP_DECISION_SECS  = 30;
+    const MIN_WALLET_BALANCE = 100_000;
 
     public function startDispatch(Order $order): void
     {
@@ -143,9 +144,10 @@ class DispatchService
             ->where('is_online', true)
             ->whereNotIn('id', $triedIds)
             ->whereNotIn('id', $busyDriverIds)
-            ->with(['debts'])
+            ->with(['debts', 'wallet'])
             ->get()
             ->filter(fn(User $d) => !$this->hasBlockedDebt($d))
+            ->filter(fn(User $d) => $this->hasMinWalletBalance($d))
             ->filter(fn(User $d) => $order->service_type !== 'car' || $d->has_car_license);
 
         if ($candidates->isEmpty()) return null;
@@ -179,6 +181,11 @@ class DispatchService
     private function hasBlockedDebt(User $driver): bool
     {
         return $driver->debts->where('status', 'overdue')->isNotEmpty();
+    }
+
+    private function hasMinWalletBalance(User $driver): bool
+    {
+        return ($driver->wallet?->balance ?? 0) >= self::MIN_WALLET_BALANCE;
     }
 
     private function markLogResult(int $orderId, int $driverId, string $result): void
