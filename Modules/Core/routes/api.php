@@ -31,6 +31,31 @@ Route::prefix('auth')->group(function () {
 */
 Route::get('/cities', fn() => response()->json(['success' => true, 'data' => City::where('is_active', true)->get()]));
 
+Route::get('/cities/nearest', function (\Illuminate\Http\Request $request) {
+    $lat = (float) $request->query('lat', 0);
+    $lng = (float) $request->query('lng', 0);
+
+    $cities = City::where('is_active', true)
+        ->whereNotNull('lat')->whereNotNull('lng')
+        ->get(['id', 'name', 'lat', 'lng']);
+
+    if ($cities->isEmpty()) {
+        $city = City::where('is_active', true)->first(['id', 'name']);
+        return response()->json(['success' => true, 'data' => $city]);
+    }
+
+    $nearest  = null;
+    $minDist  = PHP_FLOAT_MAX;
+    foreach ($cities as $city) {
+        $dLat = deg2rad((float)$city->lat - $lat);
+        $dLng = deg2rad((float)$city->lng - $lng);
+        $d    = $dLat * $dLat + $dLng * $dLng;
+        if ($d < $minDist) { $minDist = $d; $nearest = $city; }
+    }
+
+    return response()->json(['success' => true, 'data' => $nearest ? ['id' => $nearest->id, 'name' => $nearest->name] : null]);
+});
+
 Route::get('/service-types', fn() => response()->json(['success' => true, 'data' => ServiceType::active()->get()]));
 
 Route::get('/app-version', fn() => response()->json(['version' => config('app.version', '1.0.0')]));
