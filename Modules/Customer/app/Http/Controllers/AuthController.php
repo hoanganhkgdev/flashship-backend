@@ -5,7 +5,6 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 use Modules\Core\Models\User;
@@ -160,17 +159,17 @@ class AuthController extends Controller
     public function register(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'name'           => 'required|string|max:255',
-            'phone'          => 'required|string|unique:users,phone',
-            'password'       => 'required|string|min:6',
-            'city_id'        => 'nullable|integer|exists:cities,id',
-            'latitude'       => 'nullable|numeric',
-            'longitude'      => 'nullable|numeric',
-            'firebase_token' => 'required|string',
+            'name'      => 'required|string|max:255',
+            'phone'     => 'required|string|unique:users,phone',
+            'password'  => 'required|string|min:6',
+            'otp_code'  => 'required|string|size:6',
+            'city_id'   => 'nullable|integer|exists:cities,id',
+            'latitude'  => 'nullable|numeric',
+            'longitude' => 'nullable|numeric',
         ]);
 
-        if (!$this->verifyFirebasePhone($data['firebase_token'], $data['phone'])) {
-            return response()->json(['success' => false, 'message' => 'Xác thực số điện thoại thất bại'], 422);
+        if (!OtpService::verify($data['phone'], $data['otp_code'], 'register')) {
+            return response()->json(['success' => false, 'message' => 'Mã OTP không đúng hoặc đã hết hạn'], 422);
         }
 
         if (empty($data['city_id']) && !empty($data['latitude']) && !empty($data['longitude'])) {
@@ -193,23 +192,6 @@ class AuthController extends Controller
             'message' => 'Đăng ký thành công',
             'data'    => ['token' => $token, 'user' => $this->formatUser($user)],
         ], 201);
-    }
-
-    private function verifyFirebasePhone(string $idToken, string $phone): bool
-    {
-        $apiKey = config('services.firebase.web_api_key');
-        try {
-            $response = Http::post(
-                "https://identitytoolkit.googleapis.com/v1/accounts:lookup?key={$apiKey}",
-                ['idToken' => $idToken]
-            );
-            if (!$response->successful()) return false;
-
-            $firebasePhone = $response->json('users.0.phoneNumber', '');
-            return $this->normalizePhone($firebasePhone) === $this->normalizePhone($phone);
-        } catch (\Exception) {
-            return false;
-        }
     }
 
     private function normalizePhone(string $phone): string
