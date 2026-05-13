@@ -6,6 +6,14 @@ use Modules\Customer\Models\PhoneOtp;
 
 class OtpService
 {
+    // Test phone numbers that always receive code 123456 (remove before going live)
+    private static array $testPhones = ['0909123456', '84909123456'];
+
+    private static function isTestPhone(string $phone): bool
+    {
+        return in_array(preg_replace('/\D/', '', $phone), self::$testPhones);
+    }
+
     public static function send(string $phone, string $type): string
     {
         // Invalidate any previous unused OTPs for this phone+type
@@ -14,7 +22,7 @@ class OtpService
             ->whereNull('used_at')
             ->update(['used_at' => now()]);
 
-        $code = str_pad(random_int(0, 999999), 6, '0', STR_PAD_LEFT);
+        $code = self::isTestPhone($phone) ? '123456' : str_pad(random_int(0, 999999), 6, '0', STR_PAD_LEFT);
 
         PhoneOtp::create([
             'phone'      => $phone,
