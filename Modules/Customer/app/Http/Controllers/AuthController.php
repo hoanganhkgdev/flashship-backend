@@ -5,6 +5,8 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 use Modules\Core\Models\User;
@@ -193,6 +195,115 @@ class AuthController extends Controller
             'data'    => ['token' => $token, 'user' => $this->formatUser($user)],
         ], 201);
     }
+
+    // ── Firebase Phone Auth ───────────────────────────────────────────────────
+
+    public function firebasePhoneLogin(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'firebase_id_token' => 'required|string',
+        ]);
+
+        $phone = $this->verifyFirebaseIdToken($data['firebase_id_token']);
+        if (!$phone) {
+            return response()->json(['success' => false, 'message' => 'Xác thực Firebase thất bại'], 422);
+        }
+
+        $user = User::where('phone', $phone)->first();
+
+        if (!$user) {
+            $verificationToken = encrypt(json_encode([
+                'phone'   => $phone,
+                'expires' => now()->addMinutes(15)->timestamp,
+            ]));
+            return response()->json([
+                'success'            => true,
+                'needs_profile'      => true,
+                'verification_token' => $verificationToken,
+            ]);
+        }
+
+        if ($user->status == 2) {
+            return response()->json(['success' => false, 'message' => 'Tài khoản bị khóa'], 403);
+        }
+
+        if (!in_array($user->user_type, ['customer', 'shop'])) {
+            return response()->json(['success' => false, 'message' => 'Tài khoản không hợp lệ'], 403);
+        }
+
+        $user->tokens()->where('name', 'like', 'customer_token%')->delete();
+        $token = $user->createToken('customer_token')->plainTextToken;
+
+        return response()->json([
+            'success'       => true,
+            'needs_profile' => false,
+            'data'          => ['token' => $token, 'user' => $this->formatUser($user)],
+        ]);
+    }
+
+    public function firebaseRegister(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'firebase_id_token' => 'required|string',
+            'name'              => 'required|string|max:255',
+            'password'          => 'required|string|min:6',
+            'city_id'           => 'nullable|integer|exists:cities,id',
+            'latitude'          => 'nullable|numeric',
+            'longitude'         => 'nullable|numeric',
+        ]);
+
+        $phone = $this->verifyFirebaseIdToken($data['firebase_id_token']);
+        if (!$phone) {
+            return response()->json(['success' => false, 'message' => 'Xác thực Firebase thất bại'], 422);
+        }
+
+        if (User::where('phone', $phone)->exists()) {
+            return response()->json(['success' => false, 'message' => 'Số điện thoại đã được đăng ký'], 422);
+        }
+
+        if (empty($data['city_id']) && !empty($data['latitude']) && !empty($data['longitude'])) {
+            $data['city_id'] = $this->findNearestCity((float)$data['latitude'], (float)$data['longitude']);
+        }
+
+        $user = User::create([
+            'name'      => $data['name'],
+            'phone'     => $phone,
+            'password'  => bcrypt($data['password']),
+            'user_type' => 'customer',
+            'city_id'   => $data['city_id'] ?? null,
+            'status'    => 1,
+        ]);
+
+        $token = $user->createToken('customer_token')->plainTextToken;
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Đăng ký thành công',
+            'data'    => ['token' => $token, 'user' => $this->formatUser($user)],
+        ], 201);
+    }
+
+    private function verifyFirebaseIdToken(string $idToken): ?string
+    {
+        try {
+            $webApiKey = config('services.firebase.web_api_key');
+            $response  = Http::timeout(10)->post(
+                "https://identitytoolkit.googleapis.com/v1/accounts:lookup?key={$webApiKey}",
+                ['idToken' => $idToken]
+            );
+
+            $phoneNumber = $response->json('users.0.phoneNumber');
+            if (!$phoneNumber) return null;
+
+            // +84909123456 → 0909123456
+            return '0' . substr($phoneNumber, 3);
+        } catch (\Throwable $e) {
+            Log::error('[Firebase] Token verification failed: ' . $e->getMessage());
+            return null;
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
 
     private function normalizePhone(string $phone): string
     {

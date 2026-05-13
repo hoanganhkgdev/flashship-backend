@@ -1,7 +1,6 @@
 <?php
 namespace Modules\Customer\Services;
 
-use Illuminate\Support\Facades\Log;
 use Modules\Customer\Models\PhoneOtp;
 
 class OtpService
@@ -31,9 +30,10 @@ class OtpService
             'expires_at' => now()->addMinutes(10),
         ]);
 
-        // Log OTP for development. Replace with real SMS service in production:
-        // SmsService::send($phone, "Mã OTP FlashShip: $code. Hết hạn sau 10 phút.");
-        Log::info("[OTP] phone=$phone type=$type code=$code");
+        SmsService::send(
+            $phone,
+            "FlashShip: Ma xac thuc cua ban la $code. Het han sau 10 phut. Khong cung cap cho bat ky ai."
+        );
 
         return $code;
     }

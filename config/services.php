@@ -52,4 +52,10 @@ return [
         'directions_url' => 'https://maps.googleapis.com/maps/api/directions/json',
     ],
 
+    'speedsms' => [
+        'access_token' => env('SPEEDSMS_ACCESS_TOKEN'),
+        'type'         => env('SPEEDSMS_TYPE', 8),    // 8 = OTP (ưu tiên cao nhất)
+        'sender'       => env('SPEEDSMS_SENDER', 'SpeedSMS'),
+    ],
+
 ];
