@@ -32,9 +32,13 @@ class AuthController extends Controller
             return response()->json(['success' => false, 'message' => 'Vui lòng chờ 60 giây trước khi gửi lại'], 429);
         }
 
-        OtpService::send($data['phone'], $data['type']);
+        $code = OtpService::send($data['phone'], $data['type']);
 
-        return response()->json(['success' => true, 'message' => 'Mã OTP đã được gửi đến ' . $data['phone']]);
+        $response = ['success' => true, 'message' => 'Mã OTP đã được gửi đến ' . $data['phone']];
+        if (config('app.env') !== 'production') {
+            $response['otp_code'] = $code;
+        }
+        return response()->json($response);
     }
 
     public function resetPassword(Request $request): JsonResponse

@@ -6,7 +6,7 @@ use Modules\Customer\Models\PhoneOtp;
 
 class OtpService
 {
-    public static function send(string $phone, string $type): void
+    public static function send(string $phone, string $type): string
     {
         // Invalidate any previous unused OTPs for this phone+type
         PhoneOtp::where('phone', $phone)
@@ -26,6 +26,8 @@ class OtpService
         // Log OTP for development. Replace with real SMS service in production:
         // SmsService::send($phone, "Mã OTP FlashShip: $code. Hết hạn sau 10 phút.");
         Log::info("[OTP] phone=$phone type=$type code=$code");
+
+        return $code;
     }
 
     public static function verify(string $phone, string $code, string $type): bool
