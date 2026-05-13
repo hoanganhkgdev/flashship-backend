@@ -19,6 +19,7 @@ Route::prefix('customer')->group(function () {
             Route::get('/me',              [AuthController::class, 'me']);
             Route::post('/logout',         [AuthController::class, 'logout']);
             Route::patch('/profile',       [AuthController::class, 'updateProfile']);
+            Route::post('/avatar',         [AuthController::class, 'uploadAvatar']);
             Route::patch('/password',      [AuthController::class, 'changePassword']);
             Route::delete('/account',      [AuthController::class, 'deleteAccount']);
             Route::post('/fcm-token',      [AuthController::class, 'updateFcmToken']);

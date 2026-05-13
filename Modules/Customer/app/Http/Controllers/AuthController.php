@@ -5,6 +5,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 use Modules\Core\Models\User;
 use Modules\Customer\Services\OtpService;
@@ -200,6 +201,28 @@ class AuthController extends Controller
         return response()->json(['success' => true]);
     }
 
+    public function uploadAvatar(Request $request): JsonResponse
+    {
+        $request->validate([
+            'image' => 'required|image|mimes:jpg,jpeg,png,webp|max:2048',
+        ]);
+
+        $user = $request->user();
+
+        if ($user->profile_photo_path) {
+            Storage::disk('public')->delete($user->profile_photo_path);
+        }
+
+        $path = $request->file('image')->store("avatars/{$user->id}", 'public');
+        $user->update(['profile_photo_path' => $path]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Cập nhật ảnh đại diện thành công',
+            'data'    => $this->formatUser($user->fresh()),
+        ]);
+    }
+
     public function changePassword(Request $request): JsonResponse
     {
         $user = $request->user();
@@ -228,14 +251,18 @@ class AuthController extends Controller
     {
         $user->loadMissing('city');
         return [
-            'id'        => $user->id,
-            'name'      => $user->name,
-            'phone'     => $user->phone,
-            'email'     => $user->email,
-            'user_type' => $user->user_type,
-            'city_id'   => $user->city_id,
-            'city_name' => $user->city?->name ?? '',
-            'status'    => $user->status,
+            'id'                  => $user->id,
+            'name'                => $user->name,
+            'phone'               => $user->phone,
+            'email'               => $user->email,
+            'profile_photo_path'  => $user->profile_photo_path,
+            'avatar_url'          => $user->profile_photo_path
+                                        ? Storage::disk('public')->url($user->profile_photo_path)
+                                        : null,
+            'user_type'           => $user->user_type,
+            'city_id'             => $user->city_id,
+            'city_name'           => $user->city?->name ?? '',
+            'status'              => $user->status,
         ];
     }
 
