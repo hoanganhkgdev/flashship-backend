@@ -66,19 +66,27 @@ class AuthController extends Controller
     public function phoneLogin(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'phone'          => 'required|string',
-            'firebase_token' => 'required|string',
+            'phone'    => 'required|string',
+            'otp_code' => 'required|string|size:6',
         ]);
 
-        if (!$this->verifyFirebasePhone($data['firebase_token'], $data['phone'])) {
-            return response()->json(['success' => false, 'message' => 'Xác thực số điện thoại thất bại'], 422);
+        if (!OtpService::verify($data['phone'], $data['otp_code'], 'login')) {
+            return response()->json(['success' => false, 'message' => 'Mã OTP không đúng hoặc đã hết hạn'], 422);
         }
 
         $phone = $this->normalizePhone($data['phone']);
         $user  = User::where('phone', $phone)->first();
 
         if (!$user) {
-            return response()->json(['success' => true, 'needs_profile' => true]);
+            $verificationToken = encrypt(json_encode([
+                'phone'   => $phone,
+                'expires' => now()->addMinutes(15)->timestamp,
+            ]));
+            return response()->json([
+                'success'            => true,
+                'needs_profile'      => true,
+                'verification_token' => $verificationToken,
+            ]);
         }
 
         if ($user->status == 2) {
@@ -102,17 +110,28 @@ class AuthController extends Controller
     public function completeProfile(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'phone'          => 'required|string|unique:users,phone',
-            'firebase_token' => 'required|string',
-            'name'           => 'required|string|max:255',
-            'email'          => 'nullable|email|unique:users,email',
-            'city_id'        => 'nullable|integer|exists:cities,id',
-            'latitude'       => 'nullable|numeric',
-            'longitude'      => 'nullable|numeric',
+            'verification_token' => 'required|string',
+            'name'               => 'required|string|max:255',
+            'email'              => 'nullable|email|unique:users,email',
+            'city_id'            => 'nullable|integer|exists:cities,id',
+            'latitude'           => 'nullable|numeric',
+            'longitude'          => 'nullable|numeric',
         ]);
 
-        if (!$this->verifyFirebasePhone($data['firebase_token'], $data['phone'])) {
-            return response()->json(['success' => false, 'message' => 'Xác thực số điện thoại thất bại'], 422);
+        try {
+            $payload = json_decode(decrypt($data['verification_token']), true);
+        } catch (\Exception) {
+            return response()->json(['success' => false, 'message' => 'Token không hợp lệ'], 422);
+        }
+
+        if (!$payload || ($payload['expires'] ?? 0) < now()->timestamp) {
+            return response()->json(['success' => false, 'message' => 'Phiên đăng ký đã hết hạn, vui lòng thử lại'], 422);
+        }
+
+        $phone = $payload['phone'];
+
+        if (User::where('phone', $phone)->exists()) {
+            return response()->json(['success' => false, 'message' => 'Số điện thoại đã được đăng ký'], 422);
         }
 
         if (empty($data['city_id']) && !empty($data['latitude']) && !empty($data['longitude'])) {
@@ -121,7 +140,7 @@ class AuthController extends Controller
 
         $user = User::create([
             'name'      => $data['name'],
-            'phone'     => $this->normalizePhone($data['phone']),
+            'phone'     => $phone,
             'password'  => bcrypt(\Illuminate\Support\Str::random(32)),
             'email'     => $data['email'] ?? null,
             'user_type' => 'customer',
