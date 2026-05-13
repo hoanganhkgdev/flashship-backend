@@ -31,8 +31,10 @@ jobs:
             fi
 
             php artisan migrate --force
+            php artisan optimize:clear
             php artisan config:cache
             php artisan route:cache
             php artisan view:cache
+            php artisan filament:cache-components
             php artisan queue:restart
             sudo systemctl reload php8.3-fpm
