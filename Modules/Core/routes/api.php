@@ -3,6 +3,7 @@
 use Illuminate\Support\Facades\Route;
 use Modules\Core\Http\Controllers\AuthController;
 use Modules\Core\Models\City;
+use Modules\Core\Models\ServiceType;
 use Modules\Core\Models\Shift;
 use Modules\Admin\Models\Banner;
 use Modules\Admin\Models\Page;
@@ -29,6 +30,8 @@ Route::prefix('auth')->group(function () {
 |----------------------------------------------------------------------
 */
 Route::get('/cities', fn() => response()->json(['success' => true, 'data' => City::where('is_active', true)->get()]));
+
+Route::get('/service-types', fn() => response()->json(['success' => true, 'data' => ServiceType::active()->get()]));
 
 Route::get('/app-version', fn() => response()->json(['version' => config('app.version', '1.0.0')]));
 
