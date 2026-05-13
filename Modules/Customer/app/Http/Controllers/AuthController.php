@@ -5,6 +5,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 use Modules\Core\Models\User;
@@ -61,21 +62,19 @@ class AuthController extends Controller
     public function register(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'name'      => 'required|string|max:255',
-            'phone'     => 'required|string|unique:users,phone',
-            'password'  => 'required|string|min:6',
-            'city_id'   => 'nullable|integer|exists:cities,id',
-            'latitude'  => 'nullable|numeric',
-            'longitude' => 'nullable|numeric',
-            'fcm_token' => 'nullable|string',
-            'otp_code'  => 'required|string|size:6',
+            'name'           => 'required|string|max:255',
+            'phone'          => 'required|string|unique:users,phone',
+            'password'       => 'required|string|min:6',
+            'city_id'        => 'nullable|integer|exists:cities,id',
+            'latitude'       => 'nullable|numeric',
+            'longitude'      => 'nullable|numeric',
+            'firebase_token' => 'required|string',
         ]);
 
-        if (!OtpService::verify($data['phone'], $data['otp_code'], 'register')) {
-            return response()->json(['success' => false, 'message' => 'Mã OTP không đúng hoặc đã hết hạn'], 422);
+        if (!$this->verifyFirebasePhone($data['firebase_token'], $data['phone'])) {
+            return response()->json(['success' => false, 'message' => 'Xác thực số điện thoại thất bại'], 422);
         }
 
-        // Tự tìm city gần nhất theo GPS nếu không có city_id
         if (empty($data['city_id']) && !empty($data['latitude']) && !empty($data['longitude'])) {
             $data['city_id'] = $this->findNearestCity((float)$data['latitude'], (float)$data['longitude']);
         }
@@ -87,7 +86,6 @@ class AuthController extends Controller
             'user_type' => 'customer',
             'city_id'   => $data['city_id'] ?? null,
             'status'    => 1,
-            'fcm_token' => $data['fcm_token'] ?? null,
         ]);
 
         $token = $user->createToken('customer_token')->plainTextToken;
@@ -97,6 +95,33 @@ class AuthController extends Controller
             'message' => 'Đăng ký thành công',
             'data'    => ['token' => $token, 'user' => $this->formatUser($user)],
         ], 201);
+    }
+
+    private function verifyFirebasePhone(string $idToken, string $phone): bool
+    {
+        $apiKey = config('services.firebase.web_api_key');
+        try {
+            $response = Http::post(
+                "https://identitytoolkit.googleapis.com/v1/accounts:lookup?key={$apiKey}",
+                ['idToken' => $idToken]
+            );
+            if (!$response->successful()) return false;
+
+            $firebasePhone = $response->json('users.0.phoneNumber', '');
+            return $this->normalizePhone($firebasePhone) === $this->normalizePhone($phone);
+        } catch (\Exception) {
+            return false;
+        }
+    }
+
+    private function normalizePhone(string $phone): string
+    {
+        $digits = preg_replace('/\D/', '', $phone);
+        // +84901234567 → 0901234567
+        if (strlen($digits) === 11 && str_starts_with($digits, '84')) {
+            $digits = '0' . substr($digits, 2);
+        }
+        return $digits;
     }
 
     public function login(Request $request): JsonResponse

@@ -36,7 +36,8 @@ return [
     ],
 
     'firebase' => [
-        'database_url' => env('FIREBASE_DATABASE_URL'),
+        'database_url'  => env('FIREBASE_DATABASE_URL'),
+        'web_api_key'   => env('FIREBASE_WEB_API_KEY'),
     ],
 
 
