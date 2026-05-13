@@ -59,6 +59,81 @@ class AuthController extends Controller
         return response()->json(['success' => true, 'message' => 'Đặt lại mật khẩu thành công']);
     }
 
+    public function phoneLogin(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'phone'          => 'required|string',
+            'firebase_token' => 'required|string',
+        ]);
+
+        if (!$this->verifyFirebasePhone($data['firebase_token'], $data['phone'])) {
+            return response()->json(['success' => false, 'message' => 'Xác thực số điện thoại thất bại'], 422);
+        }
+
+        $phone = $this->normalizePhone($data['phone']);
+        $user  = User::where('phone', $phone)->first();
+
+        if (!$user) {
+            return response()->json(['success' => true, 'needs_profile' => true]);
+        }
+
+        if ($user->status == 2) {
+            return response()->json(['success' => false, 'message' => 'Tài khoản bị khóa'], 403);
+        }
+
+        if (!in_array($user->user_type, ['customer', 'shop'])) {
+            return response()->json(['success' => false, 'message' => 'Tài khoản không hợp lệ'], 403);
+        }
+
+        $user->tokens()->where('name', 'like', 'customer_token%')->delete();
+        $token = $user->createToken('customer_token')->plainTextToken;
+
+        return response()->json([
+            'success'       => true,
+            'needs_profile' => false,
+            'data'          => ['token' => $token, 'user' => $this->formatUser($user)],
+        ]);
+    }
+
+    public function completeProfile(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'phone'          => 'required|string|unique:users,phone',
+            'firebase_token' => 'required|string',
+            'name'           => 'required|string|max:255',
+            'email'          => 'nullable|email|unique:users,email',
+            'city_id'        => 'nullable|integer|exists:cities,id',
+            'latitude'       => 'nullable|numeric',
+            'longitude'      => 'nullable|numeric',
+        ]);
+
+        if (!$this->verifyFirebasePhone($data['firebase_token'], $data['phone'])) {
+            return response()->json(['success' => false, 'message' => 'Xác thực số điện thoại thất bại'], 422);
+        }
+
+        if (empty($data['city_id']) && !empty($data['latitude']) && !empty($data['longitude'])) {
+            $data['city_id'] = $this->findNearestCity((float)$data['latitude'], (float)$data['longitude']);
+        }
+
+        $user = User::create([
+            'name'      => $data['name'],
+            'phone'     => $this->normalizePhone($data['phone']),
+            'password'  => bcrypt(\Illuminate\Support\Str::random(32)),
+            'email'     => $data['email'] ?? null,
+            'user_type' => 'customer',
+            'city_id'   => $data['city_id'] ?? null,
+            'status'    => 1,
+        ]);
+
+        $token = $user->createToken('customer_token')->plainTextToken;
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Đăng ký thành công',
+            'data'    => ['token' => $token, 'user' => $this->formatUser($user)],
+        ], 201);
+    }
+
     public function register(Request $request): JsonResponse
     {
         $data = $request->validate([
