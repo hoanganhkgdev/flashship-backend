@@ -1,6 +1,7 @@
 <?php
 namespace Modules\Customer\Services;
 
+use Illuminate\Support\Facades\Log;
 use Modules\Customer\Models\PhoneOtp;
 
 class OtpService
@@ -30,10 +31,7 @@ class OtpService
             'expires_at' => now()->addMinutes(10),
         ]);
 
-        SmsService::send(
-            $phone,
-            "FlashShip: Ma xac thuc cua ban la $code. Het han sau 10 phut. Khong cung cap cho bat ky ai."
-        );
+        Log::info("[OTP] phone=$phone type=$type code=$code");
 
         return $code;
     }
