@@ -16,12 +16,16 @@ class AuthController extends Controller
     public function sendOtp(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'phone' => 'required|string',
-            'type'  => 'required|in:register,reset_password,login',
+            'phone'     => 'required|string',
+            'type'      => 'required|in:register,reset_password,login',
+            'user_type' => 'nullable|in:customer,shop',
         ]);
 
-        if ($data['type'] === 'register' && User::where('phone', $data['phone'])->exists()) {
-            return response()->json(['success' => false, 'message' => 'Số điện thoại đã được đăng ký'], 422);
+        if ($data['type'] === 'register') {
+            $userType = $data['user_type'] ?? 'customer';
+            if (User::where('phone', $data['phone'])->where('user_type', $userType)->exists()) {
+                return response()->json(['success' => false, 'message' => 'Số điện thoại đã được đăng ký'], 422);
+            }
         }
 
         if ($data['type'] === 'reset_password' && !User::where('phone', $data['phone'])->where('user_type', 'customer')->exists()) {
@@ -66,21 +70,24 @@ class AuthController extends Controller
     public function phoneLogin(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'phone'    => 'required|string',
-            'otp_code' => 'required|string|size:6',
+            'phone'     => 'required|string',
+            'otp_code'  => 'required|string|size:6',
+            'user_type' => 'nullable|in:customer,shop',
         ]);
 
         if (!OtpService::verify($data['phone'], $data['otp_code'], 'login')) {
             return response()->json(['success' => false, 'message' => 'Mã OTP không đúng hoặc đã hết hạn'], 422);
         }
 
-        $phone = $this->normalizePhone($data['phone']);
-        $user  = User::where('phone', $phone)->first();
+        $phone    = $this->normalizePhone($data['phone']);
+        $userType = $data['user_type'] ?? 'customer';
+        $user     = User::where('phone', $phone)->where('user_type', $userType)->first();
 
         if (!$user) {
             $verificationToken = encrypt(json_encode([
-                'phone'   => $phone,
-                'expires' => now()->addMinutes(15)->timestamp,
+                'phone'     => $phone,
+                'user_type' => $userType,
+                'expires'   => now()->addMinutes(15)->timestamp,
             ]));
             return response()->json([
                 'success'            => true,
@@ -128,9 +135,10 @@ class AuthController extends Controller
             return response()->json(['success' => false, 'message' => 'Phiên đăng ký đã hết hạn, vui lòng thử lại'], 422);
         }
 
-        $phone = $payload['phone'];
+        $phone    = $payload['phone'];
+        $userType = $payload['user_type'] ?? 'customer';
 
-        if (User::where('phone', $phone)->exists()) {
+        if (User::where('phone', $phone)->where('user_type', $userType)->exists()) {
             return response()->json(['success' => false, 'message' => 'Số điện thoại đã được đăng ký'], 422);
         }
 
@@ -143,7 +151,7 @@ class AuthController extends Controller
             'phone'     => $phone,
             'password'  => bcrypt(\Illuminate\Support\Str::random(32)),
             'email'     => $data['email'] ?? null,
-            'user_type' => 'customer',
+            'user_type' => $userType,
             'city_id'   => $data['city_id'] ?? null,
             'status'    => 1,
         ]);
@@ -161,13 +169,17 @@ class AuthController extends Controller
     {
         $data = $request->validate([
             'name'      => 'required|string|max:255',
-            'phone'     => 'required|string|unique:users,phone',
+            'phone'     => 'required|string',
             'password'  => 'required|string|min:6',
             'otp_code'  => 'required|string|size:6',
             'city_id'   => 'nullable|integer|exists:cities,id',
             'latitude'  => 'nullable|numeric',
             'longitude' => 'nullable|numeric',
         ]);
+
+        if (User::where('phone', $data['phone'])->where('user_type', 'customer')->exists()) {
+            return response()->json(['success' => false, 'message' => 'Số điện thoại đã được đăng ký'], 422);
+        }
 
         if (!OtpService::verify($data['phone'], $data['otp_code'], 'register')) {
             return response()->json(['success' => false, 'message' => 'Mã OTP không đúng hoặc đã hết hạn'], 422);
@@ -214,7 +226,7 @@ class AuthController extends Controller
             'device_id' => 'nullable|string',
         ]);
 
-        $user = User::where('phone', $data['phone'])->first();
+        $user = User::where('phone', $data['phone'])->whereIn('user_type', ['customer', 'shop'])->first();
 
         if (!$user || !Hash::check($data['password'], $user->password)) {
             throw ValidationException::withMessages(['phone' => ['Số điện thoại hoặc mật khẩu không đúng']]);

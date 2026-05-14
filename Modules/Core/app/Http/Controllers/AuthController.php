@@ -15,13 +15,17 @@ class AuthController extends Controller
     {
         $data = $request->validate([
             'name'      => 'required|string|max:255',
-            'phone'     => 'required|string|unique:users,phone',
+            'phone'     => 'required|string',
             'password'  => 'required|string|min:6',
             'city_id'   => 'nullable|integer|exists:cities,id',
             'latitude'  => 'nullable|numeric',
             'longitude' => 'nullable|numeric',
             'fcm_token' => 'nullable|string',
         ]);
+
+        if (User::where('phone', $data['phone'])->where('user_type', 'driver')->exists()) {
+            return response()->json(['success' => false, 'message' => 'Số điện thoại đã được đăng ký làm tài xế'], 422);
+        }
 
         // Tự tìm city gần nhất nếu không có city_id nhưng có tọa độ
         if (empty($data['city_id']) && !empty($data['latitude']) && !empty($data['longitude'])) {
@@ -66,7 +70,7 @@ class AuthController extends Controller
         ]);
 
         $field = filter_var($data['login'], FILTER_VALIDATE_EMAIL) ? 'email' : 'phone';
-        $user  = User::where($field, $data['login'])->first();
+        $user  = User::where($field, $data['login'])->where('user_type', 'driver')->first();
 
         if (!$user || !Hash::check($data['password'], $user->password)) {
             throw ValidationException::withMessages(['login' => ['Tài khoản hoặc mật khẩu không đúng']]);
