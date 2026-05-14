@@ -36,8 +36,13 @@ return [
     ],
 
     'firebase' => [
-        'database_url'  => env('FIREBASE_DATABASE_URL'),
-        'web_api_key'   => env('FIREBASE_WEB_API_KEY'),
+        'database_url' => env('FIREBASE_DATABASE_URL'),
+    ],
+
+    'zalo_zns' => [
+        'access_token'    => env('ZALO_ZNS_ACCESS_TOKEN'),
+        'refresh_token'   => env('ZALO_ZNS_REFRESH_TOKEN'),
+        'otp_template_id' => env('ZALO_ZNS_OTP_TEMPLATE_ID'),
     ],
 
 

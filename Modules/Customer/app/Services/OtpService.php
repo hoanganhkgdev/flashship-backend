@@ -1,6 +1,7 @@
 <?php
 namespace Modules\Customer\Services;
 
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Modules\Customer\Models\PhoneOtp;
 
@@ -33,7 +34,36 @@ class OtpService
 
         Log::info("[OTP] phone=$phone type=$type code=$code");
 
+        self::sendZaloZns($phone, $code);
+
         return $code;
+    }
+
+    private static function sendZaloZns(string $phone, string $code): void
+    {
+        $accessToken = config('services.zalo_zns.access_token');
+        $templateId  = config('services.zalo_zns.otp_template_id');
+
+        if (!$accessToken || !$templateId) return;
+
+        // 09xx → 849xx (định dạng Zalo ZNS)
+        $zaloPhone = '84' . ltrim(preg_replace('/\D/', '', $phone), '0');
+
+        try {
+            $res = Http::withHeaders(['access_token' => $accessToken])
+                ->post('https://business.openapi.zalo.me/message/template', [
+                    'phone'         => $zaloPhone,
+                    'template_id'   => $templateId,
+                    'template_data' => ['otp' => $code],
+                    'tracking_id'   => 'otp_' . time(),
+                ]);
+
+            if (!$res->successful() || ($res->json('error') !== 0)) {
+                Log::warning('[ZNS] Gửi OTP thất bại: ' . $res->body());
+            }
+        } catch (\Throwable $e) {
+            Log::error('[ZNS] Exception: ' . $e->getMessage());
+        }
     }
 
     public static function verify(string $phone, string $code, string $type): bool

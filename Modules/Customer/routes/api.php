@@ -14,10 +14,8 @@ Route::prefix('customer')->group(function () {
         Route::post('/login',            [AuthController::class, 'login']);
         Route::post('/phone-login',      [AuthController::class, 'phoneLogin']);
         Route::post('/complete-profile', [AuthController::class, 'completeProfile']);
-        Route::post('/send-otp',              [AuthController::class, 'sendOtp']);
-        Route::post('/reset-password',        [AuthController::class, 'resetPassword']);
-        Route::post('/firebase-phone-login',  [AuthController::class, 'firebasePhoneLogin']);
-        Route::post('/firebase-register',     [AuthController::class, 'firebaseRegister']);
+        Route::post('/send-otp',       [AuthController::class, 'sendOtp']);
+        Route::post('/reset-password', [AuthController::class, 'resetPassword']);
 
         Route::middleware('auth:sanctum')->group(function () {
             Route::get('/me',              [AuthController::class, 'me']);
