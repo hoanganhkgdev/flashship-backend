@@ -22,6 +22,12 @@ use Modules\Core\Models\User;
 
 class AdminPanelProvider extends PanelProvider
 {
+    public function boot(): void
+    {
+        parent::boot();
+        app()->setLocale('vi');
+    }
+
     public function panel(Panel $panel): Panel
     {
         return $panel
@@ -30,7 +36,6 @@ class AdminPanelProvider extends PanelProvider
             ->path('admin')
             ->login()
             ->brandName('FlashShip Admin')
-            ->locale('vi')
             ->font('Roboto', provider: GoogleFontProvider::class)
             ->colors([
                 'primary' => Color::Orange,
