@@ -188,8 +188,32 @@ class DriverRatingResource extends Resource
             ])
             ->actions([
                 Tables\Actions\ViewAction::make()->label('Xem'),
+                Tables\Actions\Action::make('delete_rating')
+                    ->label('Xóa đánh giá')
+                    ->icon('heroicon-o-trash')
+                    ->color('danger')
+                    ->requiresConfirmation()
+                    ->modalHeading('Xóa đánh giá')
+                    ->modalDescription('Bạn có chắc muốn xóa đánh giá này? Hành động không thể hoàn tác.')
+                    ->action(fn (Order $record) => $record->update([
+                        'driver_rating'      => null,
+                        'driver_rating_note' => null,
+                    ])),
             ])
-            ->bulkActions([])
+            ->bulkActions([
+                Tables\Actions\BulkAction::make('delete_ratings')
+                    ->label('Xóa đánh giá đã chọn')
+                    ->icon('heroicon-o-trash')
+                    ->color('danger')
+                    ->requiresConfirmation()
+                    ->modalHeading('Xóa các đánh giá đã chọn')
+                    ->modalDescription('Bạn có chắc muốn xóa tất cả đánh giá đã chọn?')
+                    ->action(fn ($records) => $records->each->update([
+                        'driver_rating'      => null,
+                        'driver_rating_note' => null,
+                    ]))
+                    ->deselectRecordsAfterCompletion(),
+            ])
             ->poll('30s');
     }
 
