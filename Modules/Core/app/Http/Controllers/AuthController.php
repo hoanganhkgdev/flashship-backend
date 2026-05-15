@@ -6,10 +6,9 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
-use Modules\Core\Models\PhoneOtp;
 use Modules\Core\Models\User;
+use Modules\Core\Services\OtpService;
 
 class AuthController extends Controller
 {
@@ -120,20 +119,13 @@ class AuthController extends Controller
             return response()->json(['success' => false, 'message' => 'Số điện thoại đã được đăng ký'], 422);
         }
 
-        PhoneOtp::where('phone', $phone)->delete();
+        if (OtpService::recentlySent($phone)) {
+            return response()->json(['success' => false, 'message' => 'Vui lòng chờ 60 giây trước khi gửi lại'], 429);
+        }
 
-        $otp = str_pad((string) random_int(0, 999999), 6, '0', STR_PAD_LEFT);
+        OtpService::send($phone);
 
-        PhoneOtp::create([
-            'phone'      => $phone,
-            'otp'        => $otp,
-            'expires_at' => now()->addMinutes(5),
-            'used'       => false,
-        ]);
-
-        Log::info("Driver OTP [{$phone}]: {$otp}");
-
-        return response()->json(['success' => true, 'message' => 'Mã OTP đã được gửi đến số điện thoại của bạn']);
+        return response()->json(['success' => true, 'message' => 'Mã OTP đã được gửi qua Zalo đến số ' . $phone]);
     }
 
     public function verifyOtpAndRegister(Request $request): JsonResponse
@@ -149,17 +141,9 @@ class AuthController extends Controller
             'longitude' => 'nullable|numeric',
         ]);
 
-        $record = PhoneOtp::where('phone', $data['phone'])
-            ->where('used', false)
-            ->where('expires_at', '>', now())
-            ->latest()
-            ->first();
-
-        if (!$record || $record->otp !== $data['otp']) {
+        if (!OtpService::verify($data['phone'], $data['otp'])) {
             return response()->json(['success' => false, 'message' => 'Mã OTP không đúng hoặc đã hết hạn'], 422);
         }
-
-        $record->update(['used' => true]);
 
         $existingDriver = User::where('phone', $data['phone'])->where('user_type', 'driver')->first();
 
