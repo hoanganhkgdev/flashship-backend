@@ -40,6 +40,8 @@ return [
     ],
 
     'zalo_zns' => [
+        'app_id'          => env('ZALO_APP_ID'),
+        'secret_key'      => env('ZALO_SECRET_KEY'),
         'access_token'    => env('ZALO_ZNS_ACCESS_TOKEN'),
         'refresh_token'   => env('ZALO_ZNS_REFRESH_TOKEN'),
         'otp_template_id' => env('ZALO_ZNS_OTP_TEMPLATE_ID'),

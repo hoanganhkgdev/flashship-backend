@@ -1,7 +1,7 @@
 <?php
 namespace Modules\Core\Services;
 
-use Illuminate\Support\Facades\Http;
+use App\Services\ZaloTokenService;
 use Illuminate\Support\Facades\Log;
 use Modules\Core\Models\PhoneOtp;
 
@@ -37,28 +37,10 @@ class OtpService
 
     private static function sendZaloZns(string $phone, string $code): void
     {
-        $accessToken = config('services.zalo_zns.access_token');
-        $templateId  = config('services.zalo_zns.otp_template_id');
+        $templateId = config('services.zalo_zns.otp_template_id');
+        if (!$templateId) return;
 
-        if (!$accessToken || !$templateId) return;
-
-        $zaloPhone = '84' . ltrim(preg_replace('/\D/', '', $phone), '0');
-
-        try {
-            $res = Http::withHeaders(['access_token' => $accessToken])
-                ->post('https://business.openapi.zalo.me/message/template', [
-                    'phone'         => $zaloPhone,
-                    'template_id'   => $templateId,
-                    'template_data' => ['otp' => $code],
-                    'tracking_id'   => 'driver_otp_' . time(),
-                ]);
-
-            if (!$res->successful() || ($res->json('error') !== 0)) {
-                Log::warning('[ZNS Driver] Gửi OTP thất bại: ' . $res->body());
-            }
-        } catch (\Throwable $e) {
-            Log::error('[ZNS Driver] Exception: ' . $e->getMessage());
-        }
+        ZaloTokenService::sendTemplate($phone, $templateId, ['otp' => $code], 'driver_otp_' . time());
     }
 
     public static function verify(string $phone, string $code): bool
