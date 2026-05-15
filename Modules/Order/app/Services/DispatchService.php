@@ -98,9 +98,11 @@ class DispatchService
 
         if ($driver->fcm_token) {
             try {
+                $orderData = $order->toArray();
+                $orderData['customer_phone'] = $order->sender?->phone ?? '';
                 FCMService::getInstance()->sendOrderOffer(
                     $driver->fcm_token,
-                    $order->toArray(),
+                    $orderData,
                     self::CALLKIT_RING_SECS,
                     $offeredAt
                 );
