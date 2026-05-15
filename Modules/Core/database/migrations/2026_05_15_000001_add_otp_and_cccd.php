@@ -8,9 +8,11 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::table('users', function (Blueprint $table) {
-            $table->string('cccd')->nullable()->after('address');
-        });
+        if (!Schema::hasColumn('users', 'cccd')) {
+            Schema::table('users', function (Blueprint $table) {
+                $table->string('cccd')->nullable()->after('address');
+            });
+        }
 
         Schema::create('driver_otps', function (Blueprint $table) {
             $table->id();
