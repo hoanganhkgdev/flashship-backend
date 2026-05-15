@@ -12,7 +12,7 @@ return new class extends Migration
             $table->string('cccd')->nullable()->after('address');
         });
 
-        Schema::create('phone_otps', function (Blueprint $table) {
+        Schema::create('driver_otps', function (Blueprint $table) {
             $table->id();
             $table->string('phone')->index();
             $table->string('otp', 6);
@@ -24,7 +24,7 @@ return new class extends Migration
 
     public function down(): void
     {
-        Schema::dropIfExists('phone_otps');
+        Schema::dropIfExists('driver_otps');
 
         Schema::table('users', function (Blueprint $table) {
             $table->dropColumn('cccd');

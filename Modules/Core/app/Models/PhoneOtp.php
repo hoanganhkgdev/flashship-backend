@@ -6,6 +6,8 @@ use Illuminate\Database\Eloquent\Model;
 
 class PhoneOtp extends Model
 {
+    protected $table = 'driver_otps';
+
     protected $fillable = [
         'phone',
         'otp',
