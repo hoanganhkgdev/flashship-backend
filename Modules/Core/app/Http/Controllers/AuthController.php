@@ -131,14 +131,16 @@ class AuthController extends Controller
     public function verifyOtpAndRegister(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'phone'     => 'required|string',
-            'otp'       => 'required|string|size:6',
-            'name'      => 'required|string|max:255',
-            'password'  => 'required|string|min:6',
-            'cccd'      => 'required|string|between:9,12',
-            'city_id'   => 'nullable|exists:cities,id',
-            'latitude'  => 'nullable|numeric',
-            'longitude' => 'nullable|numeric',
+            'phone'         => 'required|string',
+            'otp'           => 'required|string|size:6',
+            'name'          => 'required|string|max:255',
+            'password'      => 'required|string|min:6',
+            'cccd'          => 'required|string|between:9,12',
+            'vehicle_type'  => 'required|in:motorbike,car',
+            'license_plate' => 'required|string|max:20',
+            'city_id'       => 'nullable|exists:cities,id',
+            'latitude'      => 'nullable|numeric',
+            'longitude'     => 'nullable|numeric',
         ]);
 
         if (!OtpService::verify($data['phone'], $data['otp'])) {
@@ -159,13 +161,15 @@ class AuthController extends Controller
         }
 
         $user = User::create([
-            'name'      => $data['name'],
-            'phone'     => $data['phone'],
-            'password'  => bcrypt($data['password']),
-            'cccd'      => $data['cccd'],
-            'city_id'   => $data['city_id'] ?? null,
-            'status'    => 0,
-            'user_type' => 'driver',
+            'name'          => $data['name'],
+            'phone'         => $data['phone'],
+            'password'      => bcrypt($data['password']),
+            'cccd'          => $data['cccd'],
+            'vehicle_type'  => $data['vehicle_type'],
+            'license_plate' => strtoupper($data['license_plate']),
+            'city_id'       => $data['city_id'] ?? null,
+            'status'        => 0,
+            'user_type'     => 'driver',
         ]);
 
         if ($request->hasFile('avatar')) {
