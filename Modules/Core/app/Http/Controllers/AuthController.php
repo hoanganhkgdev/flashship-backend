@@ -6,7 +6,9 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
+use Modules\Core\Models\PhoneOtp;
 use Modules\Core\Models\User;
 
 class AuthController extends Controller
@@ -79,7 +81,13 @@ class AuthController extends Controller
         if (!in_array($user->user_type, ['driver'])) {
             return response()->json(['success' => false, 'message' => 'Tài khoản không hợp lệ'], 403);
         }
-        if ($user->status == 0) return response()->json(['success' => false, 'message' => 'Chưa được duyệt'], 403);
+        if ($user->status == 0) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Tài khoản đang chờ admin duyệt. Vui lòng liên hệ để được hỗ trợ.',
+                'code'    => 'account_pending',
+            ], 403);
+        }
         if ($user->status == 2) return response()->json(['success' => false, 'message' => 'Tài khoản bị khóa'], 403);
         if ($user->delete_requested_at) return response()->json(['success' => false, 'message' => 'Tài khoản đang chờ xóa'], 403);
 
@@ -100,6 +108,88 @@ class AuthController extends Controller
             'message' => 'Đăng nhập thành công',
             'data'    => ['token' => $token, 'user' => $this->formatUser($user)],
         ]);
+    }
+
+    public function sendOtp(Request $request): JsonResponse
+    {
+        $data  = $request->validate(['phone' => 'required|string']);
+        $phone = $data['phone'];
+
+        $existing = User::where('phone', $phone)->where('user_type', 'driver')->first();
+        if ($existing && $existing->status != 0) {
+            return response()->json(['success' => false, 'message' => 'Số điện thoại đã được đăng ký'], 422);
+        }
+
+        PhoneOtp::where('phone', $phone)->delete();
+
+        $otp = str_pad((string) random_int(0, 999999), 6, '0', STR_PAD_LEFT);
+
+        PhoneOtp::create([
+            'phone'      => $phone,
+            'otp'        => $otp,
+            'expires_at' => now()->addMinutes(5),
+            'used'       => false,
+        ]);
+
+        Log::info("Driver OTP [{$phone}]: {$otp}");
+
+        return response()->json(['success' => true, 'message' => 'Mã OTP đã được gửi đến số điện thoại của bạn']);
+    }
+
+    public function verifyOtpAndRegister(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'phone'     => 'required|string',
+            'otp'       => 'required|string|size:6',
+            'name'      => 'required|string|max:255',
+            'password'  => 'required|string|min:6',
+            'cccd'      => 'required|string|between:9,12',
+            'city_id'   => 'nullable|exists:cities,id',
+            'latitude'  => 'nullable|numeric',
+            'longitude' => 'nullable|numeric',
+        ]);
+
+        $record = PhoneOtp::where('phone', $data['phone'])
+            ->where('used', false)
+            ->where('expires_at', '>', now())
+            ->latest()
+            ->first();
+
+        if (!$record || $record->otp !== $data['otp']) {
+            return response()->json(['success' => false, 'message' => 'Mã OTP không đúng hoặc đã hết hạn'], 422);
+        }
+
+        $record->update(['used' => true]);
+
+        $existingDriver = User::where('phone', $data['phone'])->where('user_type', 'driver')->first();
+
+        if ($existingDriver) {
+            if ($existingDriver->status == 1) {
+                return response()->json(['success' => false, 'message' => 'Số điện thoại đã được đăng ký'], 422);
+            }
+            $existingDriver->delete();
+        }
+
+        if (empty($data['city_id']) && !empty($data['latitude']) && !empty($data['longitude'])) {
+            $data['city_id'] = $this->findNearestCity((float) $data['latitude'], (float) $data['longitude']);
+        }
+
+        $user = User::create([
+            'name'      => $data['name'],
+            'phone'     => $data['phone'],
+            'password'  => bcrypt($data['password']),
+            'cccd'      => $data['cccd'],
+            'city_id'   => $data['city_id'] ?? null,
+            'status'    => 0,
+            'user_type' => 'driver',
+        ]);
+
+        if ($request->hasFile('avatar')) {
+            $path = $request->file('avatar')->store('profiles', 'public');
+            $user->update(['profile_photo_path' => $path]);
+        }
+
+        return response()->json(['success' => true, 'message' => 'Đăng ký thành công! Tài khoản đang chờ admin duyệt.']);
     }
 
     public function me(Request $request): JsonResponse
