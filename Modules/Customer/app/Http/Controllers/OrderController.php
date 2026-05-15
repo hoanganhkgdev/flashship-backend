@@ -131,7 +131,9 @@ class OrderController extends Controller
                 'order_note'       => $data['order_note'] ?? '',
                 'store_name'       => $data['store_name'] ?? null,
                 'payment_method'   => $data['payment_method'] ?? 'prepaid',
-                'cod_amount'       => ($data['payment_method'] ?? '') === 'cod' ? ($data['cod_amount'] ?? 0) : null,
+                'cod_amount'       => $data['service_type'] === 'topup'
+                    ? (int) ($data['topup_amount'] ?? 0)
+                    : (($data['payment_method'] ?? '') === 'cod' ? ($data['cod_amount'] ?? 0) : null),
                 'city_id'          => $user->city_id,
                 'shipping_fee'     => $shippingFee,
                 'distance'         => $pricing['distance_km'],
