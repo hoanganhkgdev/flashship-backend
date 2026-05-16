@@ -28,6 +28,18 @@ class EarningController extends Controller
         return response()->json(['success' => true, 'data' => $data]);
     }
 
+    public function summary(Request $request): JsonResponse
+    {
+        $id = $request->user()->id;
+        return response()->json([
+            'success' => true,
+            'data'    => [
+                'weekly'  => $this->orderService->getEarningsSummary($id, 'week'),
+                'monthly' => $this->orderService->getEarningsSummary($id, 'month'),
+            ],
+        ]);
+    }
+
     public function recentOrders(Request $request): JsonResponse
     {
         $data = $this->orderService->getRecentOrders($request->user()->id);

@@ -331,4 +331,25 @@ class OrderService
             'earnings_target'   => 2000000,
         ];
     }
+
+    public function getEarningsSummary(int $driverId, string $period): array
+    {
+        $start = $period === 'week'
+            ? Carbon::now()->startOfWeek()
+            : Carbon::now()->startOfMonth();
+        $end = $period === 'week'
+            ? Carbon::now()->endOfWeek()
+            : Carbon::now()->endOfMonth();
+
+        $row = Order::where('delivery_man_id', $driverId)
+            ->where('status', 'completed')
+            ->whereBetween('completed_at', [$start, $end])
+            ->selectRaw('COUNT(*) as orders, SUM(shipping_fee + bonus_fee) as total')
+            ->first();
+
+        return [
+            'orders' => (int) ($row->orders ?? 0),
+            'total'  => (int) ($row->total ?? 0),
+        ];
+    }
 }
