@@ -6,6 +6,7 @@ use Modules\Order\Models\OrderDispatchLog;
 use Modules\Core\Models\User;
 use Modules\Core\Services\FCMService;
 use Modules\Core\Services\RTDBService;
+use Modules\Driver\Services\DriverScoreService;
 use Modules\Driver\Services\DriverWalletService;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Cache;
@@ -112,17 +113,22 @@ class OrderService
 
     public function declineOrder(Order $order, User $user): array
     {
-        if ((int) $order->dispatching_to_driver_id !== (int) $user->id) {
-            return ['success' => false, 'message' => 'Đơn này không được phân cho bạn.', 'status' => 403];
+        $log = OrderDispatchLog::where('order_id', $order->id)
+            ->where('driver_id', $user->id)
+            ->where('result', 'pending')
+            ->first();
+
+        if (!$log) {
+            return ['success' => false, 'message' => 'Đơn này không được phát cho bạn.', 'status' => 403];
         }
 
         if ($order->status !== 'pending') {
             return ['success' => false, 'message' => 'Đơn không còn ở trạng thái chờ.', 'status' => 409];
         }
 
-        dispatch(function () use ($order, $user) {
-            app(DispatchService::class)->handleDecline($order->fresh(), $user);
-        })->afterResponse();
+        $log->update(['result' => 'declined', 'responded_at' => now()]);
+
+        DriverScoreService::onDecline($user->id);
 
         return ['success' => true, 'message' => 'Đã từ chối đơn hàng.', 'status' => 200];
     }
@@ -182,6 +188,8 @@ class OrderService
         if ($bonusFee > 0) {
             DriverWalletService::adjust($user->id, $bonusFee, 'credit', "Bonus #{$order->id}", "order_{$order->id}_bonus");
         }
+
+        DriverScoreService::onComplete($user->id);
 
         Cache::forget("driver_stats_{$user->id}");
         Log::info("✅ Order #{$order->id} completed by driver #{$user->id}");

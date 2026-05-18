@@ -45,6 +45,8 @@ class User extends Authenticatable implements FilamentUser
         'last_notification_seen',
         'is_online',
         'has_car_license',
+        'driver_score',
+        'consecutive_completed',
         'name_updated_at',
         'delete_requested_at',
     ];

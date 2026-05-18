@@ -1,6 +1,7 @@
 <?php
 namespace Modules\Order\Services;
 
+use Modules\Driver\Services\DriverScoreService;
 use Modules\Order\Jobs\BroadcastTimeoutJob;
 use Modules\Order\Jobs\ExpandBroadcastJob;
 use Modules\Order\Models\Order;
@@ -14,13 +15,15 @@ use Illuminate\Support\Facades\Log;
 
 class DispatchService
 {
-    const BROADCAST_RADIUS_1 = 5;    // km — bán kính phát lần đầu
-    const BROADCAST_RADIUS_2 = 10;   // km — mở rộng sau 2 phút
-    const EXPAND_AFTER_SECS  = 120;  // 2 phút → mở rộng bán kính
-    const TIMEOUT_SECS       = 300;  // 5 phút → auto-cancel
-    const FCM_TTL_SECS       = 30;   // TTL của FCM offer
-    const MAX_DRIVERS        = 20;   // Tối đa 20 tài xế mỗi lần broadcast
-    const MIN_WALLET_BALANCE = 100_000;
+    const BROADCAST_RADIUS_1   = 5;    // km — đợt 1: score >= 60
+    const BROADCAST_RADIUS_2   = 10;   // km — đợt 2: score >= 30, sau 2 phút
+    const BROADCAST_RADIUS_3   = 10;   // km — đợt 3: score < 30, sau 4 phút
+    const EXPAND_AFTER_SECS    = 120;  // 2 phút → đợt 2
+    const EXPAND2_AFTER_SECS   = 240;  // 4 phút → đợt 3
+    const TIMEOUT_SECS         = 300;  // 5 phút → auto-cancel
+    const FCM_TTL_SECS         = 30;
+    const MAX_DRIVERS          = 20;
+    const MIN_WALLET_BALANCE   = 100_000;
 
     // =========================================================================
     // PUBLIC API
@@ -30,52 +33,56 @@ class DispatchService
     {
         if ($order->status !== 'pending') return;
 
-        // Đăng lên RTDB để tài xế thấy order trên bản đồ
         RTDBService::publishPendingOrder($order);
 
-        $drivers = $this->getCandidates($order, self::BROADCAST_RADIUS_1);
+        // Đợt 1: tài xế score >= 60, trong 5km
+        $wave1 = $this->getCandidates($order, self::BROADCAST_RADIUS_1, [], DriverScoreService::WAVE_1_MIN);
 
-        if ($drivers->isEmpty()) {
-            $drivers = $this->getCandidates($order, self::BROADCAST_RADIUS_2);
-        }
-
-        if ($drivers->isNotEmpty()) {
-            $this->broadcastToDrivers($order, $drivers);
+        if ($wave1->isNotEmpty()) {
+            $this->broadcastToDrivers($order, $wave1, 1);
         } else {
-            Log::warning("[Dispatch] No drivers for order #{$order->id} in city {$order->city_id}");
+            Log::info("[Dispatch] Wave 1 empty for order #{$order->id}, will try wave 2");
         }
 
-        // Mở rộng bán kính sau 2 phút (dù có driver hay không, phòng trường hợp chưa ai nhận)
-        ExpandBroadcastJob::dispatch($order->id)
-            ->delay(now()->addSeconds(self::EXPAND_AFTER_SECS));
-
-        // Auto-cancel sau 5 phút nếu không ai nhận
-        BroadcastTimeoutJob::dispatch($order->id)
-            ->delay(now()->addSeconds(self::TIMEOUT_SECS));
+        ExpandBroadcastJob::dispatch($order->id, 2)->delay(now()->addSeconds(self::EXPAND_AFTER_SECS));
+        ExpandBroadcastJob::dispatch($order->id, 3)->delay(now()->addSeconds(self::EXPAND2_AFTER_SECS));
+        BroadcastTimeoutJob::dispatch($order->id)->delay(now()->addSeconds(self::TIMEOUT_SECS));
     }
 
-    public function expandBroadcast(Order $order): void
+    public function expandBroadcast(Order $order, int $wave): void
     {
         if ($order->status !== 'pending') return;
 
-        $alreadyOffered = OrderDispatchLog::where('order_id', $order->id)
-            ->pluck('driver_id')
-            ->toArray();
+        $alreadyOffered = OrderDispatchLog::where('order_id', $order->id)->pluck('driver_id')->toArray();
 
-        $drivers = $this->getCandidates($order, self::BROADCAST_RADIUS_2, $alreadyOffered);
+        [$minScore, $radius] = match ($wave) {
+            2 => [DriverScoreService::WAVE_2_MIN, self::BROADCAST_RADIUS_2],
+            3 => [0,                              self::BROADCAST_RADIUS_3],
+            default => [DriverScoreService::WAVE_1_MIN, self::BROADCAST_RADIUS_1],
+        };
+
+        $drivers = $this->getCandidates($order, $radius, $alreadyOffered, $minScore, $wave === 3 ? DriverScoreService::WAVE_2_MIN - 1 : null);
 
         if ($drivers->isEmpty()) {
-            Log::info("[Dispatch] Expand: no new drivers for order #{$order->id}");
+            Log::info("[Dispatch] Wave {$wave} empty for order #{$order->id}");
             return;
         }
 
-        Log::info("[Dispatch] Expand to {$drivers->count()} more drivers for order #{$order->id}");
-        $this->broadcastToDrivers($order, $drivers);
+        $this->broadcastToDrivers($order, $drivers, $wave);
     }
 
     public function cancelIfNoDriver(Order $order): void
     {
         if ($order->status !== 'pending') return;
+
+        // Trừ điểm tài xế đã được offer nhưng không phản hồi
+        $pendingDriverIds = OrderDispatchLog::where('order_id', $order->id)
+            ->where('result', 'pending')
+            ->pluck('driver_id');
+
+        foreach ($pendingDriverIds as $driverId) {
+            DriverScoreService::onTimeout($driverId);
+        }
 
         OrderDispatchLog::where('order_id', $order->id)
             ->where('result', 'pending')
@@ -95,7 +102,7 @@ class DispatchService
             FCMService::getInstance()->sendNoDriverCancellation($customer->fcm_token, $order->code);
         }
 
-        Log::info("[Dispatch] Order #{$order->id} auto-cancelled: no driver accepted in 5 min");
+        Log::info("[Dispatch] Order #{$order->id} auto-cancelled: no driver accepted");
     }
 
     public function handleAccepted(Order $order, User $driver): void
@@ -105,7 +112,6 @@ class DispatchService
             ->where('result', 'pending')
             ->update(['result' => 'accepted', 'responded_at' => now()]);
 
-        // Hủy offer với các tài xế còn lại
         $otherDriverIds = OrderDispatchLog::where('order_id', $order->id)
             ->where('driver_id', '!=', $driver->id)
             ->where('result', 'pending')
@@ -135,12 +141,11 @@ class DispatchService
     // PRIVATE
     // =========================================================================
 
-    private function broadcastToDrivers(Order $order, Collection $drivers): void
+    private function broadcastToDrivers(Order $order, Collection $drivers, int $wave): void
     {
         $now       = now();
         $offeredAt = $now->toIso8601String();
 
-        // Insert dispatch logs
         OrderDispatchLog::insert($drivers->map(fn($d) => [
             'order_id'   => $order->id,
             'driver_id'  => $d->id,
@@ -154,7 +159,6 @@ class DispatchService
             ->where('id', $order->id)
             ->update(['dispatch_attempts' => DB::raw('dispatch_attempts + 1'), 'updated_at' => $now]);
 
-        // FCM multicast
         $tokens = $drivers->filter(fn($d) => $d->fcm_token)->pluck('fcm_token')->toArray();
         if (!empty($tokens)) {
             try {
@@ -162,36 +166,76 @@ class DispatchService
                 $orderData['customer_phone'] = $order->sender?->phone ?? '';
                 FCMService::getInstance()->sendMulticastOrderOffer($tokens, $orderData, self::FCM_TTL_SECS, $offeredAt);
             } catch (\Throwable $e) {
-                Log::error("[Dispatch] FCM multicast failed: " . $e->getMessage());
+                Log::error("[Dispatch] FCM multicast wave {$wave} failed: " . $e->getMessage());
             }
         }
 
-        Log::info("[Dispatch] Broadcast order #{$order->id} → {$drivers->count()} drivers");
+        Log::info("[Dispatch] Wave {$wave} — order #{$order->id} → {$drivers->count()} drivers");
     }
 
-    public function getCandidates(Order $order, float $radiusKm, array $excludeIds = []): Collection
+    /**
+     * Lấy danh sách tài xế ứng viên, lọc theo bán kính, điểm và sắp xếp theo composite score.
+     *
+     * @param int|null $maxScore  Giới hạn trên của driver_score (dùng cho đợt 3 chỉ lấy score thấp)
+     */
+    public function getCandidates(Order $order, float $radiusKm, array $excludeIds = [], int $minScore = 0, ?int $maxScore = null): Collection
     {
         $busyDriverIds = Order::whereIn('status', ['assigned', 'processing', 'on_the_way'])
             ->whereNotNull('delivery_man_id')
             ->pluck('delivery_man_id');
 
-        return User::where('user_type', 'driver')
+        $query = User::where('user_type', 'driver')
             ->where('city_id', $order->city_id)
             ->where('status', 1)
             ->where('is_online', true)
+            ->where('driver_score', '>=', $minScore)
             ->whereNotIn('id', $busyDriverIds)
             ->whereNotIn('id', $excludeIds)
             ->whereNotNull('latitude')
             ->whereNotNull('longitude')
-            ->with(['debts', 'wallet'])
-            ->get()
+            ->with(['debts', 'wallet']);
+
+        if ($maxScore !== null) {
+            $query->where('driver_score', '<=', $maxScore);
+        }
+
+        // Precompute avg_rating để dùng trong composite score
+        $candidates = $query->get();
+        $driverIds  = $candidates->pluck('id')->toArray();
+
+        $ratings = Order::whereIn('delivery_man_id', $driverIds)
+            ->whereNotNull('driver_rating')
+            ->where('status', 'completed')
+            ->select('delivery_man_id', DB::raw('AVG(driver_rating) as avg_rating'))
+            ->groupBy('delivery_man_id')
+            ->pluck('avg_rating', 'delivery_man_id');
+
+        return $candidates
             ->filter(fn(User $d) => !$this->hasBlockedDebt($d))
             ->filter(fn(User $d) => $this->hasMinWalletBalance($d))
             ->filter(fn(User $d) => $order->service_type !== 'car' || $d->has_car_license)
             ->filter(fn(User $d) => $this->distanceKm($d, $order) <= $radiusKm)
-            ->sortBy(fn(User $d) => $this->distanceKm($d, $order))
+            ->sortByDesc(fn(User $d) => $this->compositeScore($d, $order, (float) ($ratings[$d->id] ?? 0)))
             ->take(self::MAX_DRIVERS)
             ->values();
+    }
+
+    /**
+     * Composite score để sắp xếp ưu tiên trong cùng một đợt.
+     * Tài xế đầu danh sách nhận FCM trước (quan trọng khi FCM delay).
+     *
+     * Gần (40%) + Đánh giá (30%) + Điểm uy tín (30%)
+     */
+    private function compositeScore(User $driver, Order $order, float $avgRating): float
+    {
+        $dist     = $this->distanceKm($driver, $order);
+        $maxDist  = self::BROADCAST_RADIUS_2;
+
+        $distScore   = (1 - min($dist, $maxDist) / $maxDist) * 40;
+        $ratingScore = ($avgRating / 5) * 30;
+        $scoreScore  = (($driver->driver_score ?? 80) / 100) * 30;
+
+        return $distScore + $ratingScore + $scoreScore;
     }
 
     private function distanceKm(User $driver, Order $order): float
