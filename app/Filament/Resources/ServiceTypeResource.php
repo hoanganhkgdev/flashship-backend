@@ -22,6 +22,10 @@ class ServiceTypeResource extends Resource
     public static function form(Form $form): Form
     {
         return $form->schema([
+            Forms\Components\TextInput::make('label')
+                ->label('Tên hiển thị')
+                ->required(),
+
             Forms\Components\TextInput::make('key')
                 ->label('Key (slug)')
                 ->required()
@@ -29,18 +33,14 @@ class ServiceTypeResource extends Resource
                 ->alphaNum()
                 ->helperText('Ví dụ: delivery, shopping, bike — không dấu, không khoảng trắng'),
 
-            Forms\Components\TextInput::make('label')
-                ->label('Tên hiển thị')
-                ->required(),
-
-            Forms\Components\TextInput::make('icon_name')
-                ->label('Tên icon')
-                ->required()
-                ->helperText('Material icon name: storefront, shopping_bag, motorcycle, directions_car, ...'),
-
-            Forms\Components\ColorPicker::make('color_hex')
-                ->label('Màu icon')
-                ->required(),
+            Forms\Components\FileUpload::make('icon_url')
+                ->label('Hình ảnh')
+                ->image()
+                ->disk('public')
+                ->directory('service-types')
+                ->imagePreviewHeight('80')
+                ->nullable()
+                ->helperText('PNG/SVG nền trong suốt, tối thiểu 100×100px'),
 
             Forms\Components\ColorPicker::make('bg_color_hex')
                 ->label('Màu nền')
@@ -75,11 +75,11 @@ class ServiceTypeResource extends Resource
                     ->label('Tên')
                     ->searchable(),
 
-                Tables\Columns\TextColumn::make('icon_name')
-                    ->label('Icon'),
-
-                Tables\Columns\ColorColumn::make('color_hex')
-                    ->label('Màu icon'),
+                Tables\Columns\ImageColumn::make('icon_url')
+                    ->label('Icon')
+                    ->disk('public')
+                    ->square()
+                    ->size(40),
 
                 Tables\Columns\ColorColumn::make('bg_color_hex')
                     ->label('Màu nền'),

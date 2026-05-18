@@ -58,7 +58,16 @@ Route::get('/cities/nearest', function (\Illuminate\Http\Request $request) {
     return response()->json(['success' => true, 'data' => $nearest ? ['id' => $nearest->id, 'name' => $nearest->name] : null]);
 });
 
-Route::get('/service-types', fn() => response()->json(['success' => true, 'data' => ServiceType::active()->get()]));
+Route::get('/service-types', function () {
+    $items = ServiceType::active()->get()->map(function ($s) {
+        $data = $s->toArray();
+        $data['icon_url'] = $s->icon_url
+            ? \Illuminate\Support\Facades\Storage::disk('public')->url($s->icon_url)
+            : null;
+        return $data;
+    });
+    return response()->json(['success' => true, 'data' => $items]);
+});
 
 Route::get('/app-version', fn() => response()->json(['version' => config('app.version', '1.0.0')]));
 
