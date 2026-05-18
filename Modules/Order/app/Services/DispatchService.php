@@ -11,8 +11,9 @@ use Illuminate\Support\Facades\Log;
 
 class DispatchService
 {
-    const CALLKIT_RING_SECS  = 60;
-    const APP_DECISION_SECS  = 30;
+    const CALLKIT_RING_SECS  = 20;  // background/killed: phát driver kế nếu không tap trong 20s
+    const APP_DECISION_SECS  = 20;  // foreground: popup 20s
+    const FCM_TTL_SECS       = 25;  // FCM notification TTL (hơn dispatch 5s để cover delay mạng)
     const MIN_WALLET_BALANCE = 100_000;
 
     // Trọng số điểm (tổng tối đa ~100 điểm bonus)
@@ -103,7 +104,7 @@ class DispatchService
                 FCMService::getInstance()->sendOrderOffer(
                     $driver->fcm_token,
                     $orderData,
-                    self::CALLKIT_RING_SECS,
+                    self::FCM_TTL_SECS,
                     $offeredAt
                 );
             } catch (\Throwable $e) {
@@ -127,10 +128,17 @@ class DispatchService
 
         if (!$updated) return;
 
-        DispatchOrderJob::dispatch($order->id, $driverId, true)
-            ->delay(now()->addSeconds(self::APP_DECISION_SECS + 2));
+        // Tính thời gian còn lại từ offered_at để khớp với countdown Flutter
+        $offeredAt = OrderDispatchLog::where('order_id', $order->id)
+            ->where('driver_id', $driverId)
+            ->value('offered_at');
+        $elapsed  = $offeredAt ? now()->diffInSeconds($offeredAt) : 0;
+        $ttlLeft  = max(3, self::APP_DECISION_SECS - $elapsed + 2); // +2s buffer
 
-        Log::info("[Dispatch] Driver #{$driverId} opened offer screen for order #{$order->id}");
+        DispatchOrderJob::dispatch($order->id, $driverId, true)
+            ->delay(now()->addSeconds($ttlLeft));
+
+        Log::info("[Dispatch] Driver #{$driverId} opened offer for order #{$order->id}, {$ttlLeft}s left");
     }
 
     public function selectNextDriver(Order $order): ?User

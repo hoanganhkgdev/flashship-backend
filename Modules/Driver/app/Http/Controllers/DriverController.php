@@ -7,8 +7,12 @@ use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
 use Modules\Core\Models\Announcement;
+use Modules\Core\Models\City;
 use Modules\Core\Services\RTDBService;
+use Modules\Driver\Models\Bank;
+use Modules\Driver\Models\DriverLicense;
 use Modules\Order\Models\Order;
+use Modules\Order\Models\OrderDispatchLog;
 
 class DriverController extends Controller
 {
@@ -85,8 +89,10 @@ class DriverController extends Controller
     public function updateProfile(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'name'   => 'nullable|string|max:255',
-            'avatar' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:2048',
+            'name'    => 'nullable|string|max:255',
+            'email'   => 'nullable|email|max:255',
+            'city_id' => 'nullable|integer|exists:cities,id',
+            'avatar'  => 'nullable|image|mimes:jpg,jpeg,png,webp|max:2048',
         ]);
 
         $user = $request->user();
@@ -129,11 +135,87 @@ class DriverController extends Controller
     public function stats(Request $request): JsonResponse
     {
         $user  = $request->user();
-        $stats = \Modules\Order\Models\Order::where('delivery_man_id', $user->id)
+        $since = now()->subDays(30);
+
+        $orders = Order::where('delivery_man_id', $user->id)
+            ->where('created_at', '>=', $since)
             ->selectRaw("COUNT(*) as total, SUM(status='completed') as completed, SUM(status='cancelled') as cancelled")
             ->first();
 
-        return response()->json(['success' => true, 'data' => $stats]);
+        $dispatch = OrderDispatchLog::where('driver_id', $user->id)
+            ->where('created_at', '>=', $since)
+            ->selectRaw("COUNT(*) as offered, SUM(result='accepted') as accepted")
+            ->first();
+
+        $offered   = (int) ($dispatch->offered ?? 0);
+        $accepted  = (int) ($dispatch->accepted ?? 0);
+        $completed = (int) ($orders->completed ?? 0);
+        $total     = (int) ($orders->total ?? 0);
+
+        return response()->json(['success' => true, 'data' => [
+            'total'           => $total,
+            'completed'       => $completed,
+            'cancelled'       => (int) ($orders->cancelled ?? 0),
+            'acceptance_rate' => $offered > 0 ? round($accepted / $offered * 100) : null,
+            'completion_rate' => $total > 0 ? round($completed / $total * 100) : null,
+        ]]);
+    }
+
+    public function updateBank(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'bank_code'      => 'required|string|max:50',
+            'bank_name'      => 'required|string|max:255',
+            'account_number' => 'required|string|max:50',
+            'account_name'   => 'required|string|max:255',
+        ]);
+
+        $user = $request->user();
+        Bank::updateOrCreate(
+            ['user_id' => $user->id],
+            array_merge($data, ['user_id' => $user->id]),
+        );
+
+        return response()->json(['success' => true, 'message' => 'Cập nhật tài khoản ngân hàng thành công']);
+    }
+
+    public function uploadLicense(Request $request): JsonResponse
+    {
+        $request->validate([
+            'image' => 'required|image|mimes:jpg,jpeg,png,webp|max:5120',
+        ]);
+
+        $user = $request->user();
+        $path = $request->file('image')->store('driver-licenses', 'public');
+
+        DriverLicense::create([
+            'user_id'    => $user->id,
+            'image_path' => $path,
+            'status'     => 'pending',
+        ]);
+
+        return response()->json([
+            'success'   => true,
+            'message'   => 'Tải lên thành công, đang chờ xét duyệt',
+            'image_url' => url('storage/' . $path),
+        ]);
+    }
+
+    public function bankLists(Request $request): JsonResponse
+    {
+        $banks = \DB::table('bank_lists')
+            ->where('is_active', true)
+            ->orderBy('name')
+            ->get(['code', 'name', 'logo_url']);
+
+        return response()->json(['success' => true, 'data' => $banks]);
+    }
+
+    public function cities(Request $request): JsonResponse
+    {
+        $cities = City::active()->orderBy('name')->get(['id', 'name']);
+
+        return response()->json(['success' => true, 'data' => $cities]);
     }
 
     public function notifications(Request $request): JsonResponse

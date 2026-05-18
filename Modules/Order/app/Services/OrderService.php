@@ -163,20 +163,9 @@ class OrderService
 
         $order->update(['status' => 'completed', 'completed_at' => now(), 'delivered_at' => now()]);
 
-        $shippingFee    = (float) ($order->shipping_fee ?? 0);
-        $bonusFee       = (float) ($order->bonus_fee ?? 0);
-        $discountAmt    = (float) ($order->discount_amount ?? 0);
-        $commissionRate = (float) ($user->custom_commission_rate ?? 0.15);
-        $commission     = (int) round($shippingFee * $commissionRate);
-
-        if ($commission > 0) {
-            DriverWalletService::adjust(
-                $user->id, $commission, 'debit',
-                'Chiết khấu ' . round($commissionRate * 100) . '% đơn #' . $order->id,
-                "order_{$order->id}_commission",
-                true
-            );
-        }
+        $shippingFee = (float) ($order->shipping_fee ?? 0);
+        $bonusFee    = (float) ($order->bonus_fee ?? 0);
+        $discountAmt = (float) ($order->discount_amount ?? 0);
 
         if ($order->is_freeship && $shippingFee > 0) {
             DriverWalletService::adjust($user->id, $shippingFee, 'credit', "Ship Freeship #{$order->id}", "order_{$order->id}_shipping");

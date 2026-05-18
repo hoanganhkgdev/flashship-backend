@@ -21,6 +21,10 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/announcements',                 [DriverController::class, 'announcements']);
         Route::get('/notifications',                 [DriverController::class, 'notifications']);
         Route::post('/notifications/mark-read/{id}', [DriverController::class, 'markNotificationAsRead']);
+        Route::post('/profile/bank',                 [DriverController::class, 'updateBank']);
+        Route::post('/profile/license',             [DriverController::class, 'uploadLicense']);
+        Route::get('/bank-lists',                   [DriverController::class, 'bankLists']);
+        Route::get('/cities',                        [DriverController::class, 'cities']);
         Route::post('/delete-account/request',       [DriverController::class, 'requestDeleteAccount']);
         Route::post('/delete-account/cancel',        [DriverController::class, 'cancelDeleteAccount']);
     });
