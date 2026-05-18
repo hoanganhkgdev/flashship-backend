@@ -31,6 +31,7 @@ jobs:
             fi
 
             php artisan migrate --force
+            php artisan storage:link --quiet || true
             php artisan optimize:clear
             php artisan config:cache
             php artisan route:cache
