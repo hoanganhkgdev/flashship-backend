@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 class ServiceType extends Model
 {
     protected $fillable = [
-        'key', 'label', 'icon_url', 'bg_color_hex', 'sort_order', 'is_active',
+        'key', 'label', 'icon_url', 'sort_order', 'is_active',
     ];
 
     protected $casts = [

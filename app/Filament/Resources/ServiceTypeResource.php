@@ -42,10 +42,6 @@ class ServiceTypeResource extends Resource
                 ->nullable()
                 ->helperText('PNG/SVG nền trong suốt, tối thiểu 100×100px'),
 
-            Forms\Components\ColorPicker::make('bg_color_hex')
-                ->label('Màu nền')
-                ->required(),
-
             Forms\Components\TextInput::make('sort_order')
                 ->label('Thứ tự')
                 ->numeric()
@@ -80,9 +76,6 @@ class ServiceTypeResource extends Resource
                     ->disk('public')
                     ->square()
                     ->size(40),
-
-                Tables\Columns\ColorColumn::make('bg_color_hex')
-                    ->label('Màu nền'),
 
                 Tables\Columns\ToggleColumn::make('is_active')
                     ->label('Hiển thị'),
