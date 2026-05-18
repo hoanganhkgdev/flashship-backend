@@ -5,8 +5,8 @@ use Illuminate\Database\Eloquent\Builder;
 
 class City extends Model
 {
-    protected $fillable = ['name', 'slug', 'lat', 'lng', 'is_active'];
-    protected $casts = ['is_active' => 'boolean'];
+    protected $fillable = ['name', 'slug', 'lat', 'lng', 'is_active', 'weekly_fee'];
+    protected $casts = ['is_active' => 'boolean', 'weekly_fee' => 'integer'];
 
     public function scopeActive(Builder $q): Builder { return $q->where('is_active', true); }
 

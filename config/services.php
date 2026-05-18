@@ -48,12 +48,6 @@ return [
     ],
 
 
-    'vietmap' => [
-        'api_key'    => env('VIETMAP_API_KEY'),
-        'geocode_url' => 'https://maps.vietmap.vn/api/search/v3',
-        'reverse_url' => 'https://maps.vietmap.vn/api/reverse/v3',
-    ],
-
     'google_maps' => [
         'api_key'       => env('GOOGLE_MAPS_API_KEY'),
         'directions_url' => 'https://maps.googleapis.com/maps/api/directions/json',

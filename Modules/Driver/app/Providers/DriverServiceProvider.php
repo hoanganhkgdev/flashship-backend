@@ -4,43 +4,29 @@ namespace Modules\Driver\Providers;
 
 use Nwidart\Modules\Support\ModuleServiceProvider;
 use Illuminate\Console\Scheduling\Schedule;
+use Modules\Driver\Console\Commands\GenerateWeeklyFeesCommand;
+use Modules\Driver\Console\Commands\MarkOverdueDebtsCommand;
 
 class DriverServiceProvider extends ModuleServiceProvider
 {
-    /**
-     * The name of the module.
-     */
-    protected string $name = 'Driver';
-
-    /**
-     * The lowercase version of the module name.
-     */
+    protected string $name      = 'Driver';
     protected string $nameLower = 'driver';
 
-    /**
-     * Command classes to register.
-     *
-     * @var string[]
-     */
-    // protected array $commands = [];
+    protected array $commands = [
+        GenerateWeeklyFeesCommand::class,
+        MarkOverdueDebtsCommand::class,
+    ];
 
-    /**
-     * Provider classes to register.
-     *
-     * @var string[]
-     */
     protected array $providers = [
         EventServiceProvider::class,
         RouteServiceProvider::class,
     ];
 
-    /**
-     * Define module schedules.
-     * 
-     * @param $schedule
-     */
-    // protected function configureSchedules(Schedule $schedule): void
-    // {
-    //     $schedule->command('inspire')->hourly();
-    // }
+    protected function configureSchedules(Schedule $schedule): void
+    {
+        // Chủ nhật 13:00 — khóa tài xế chưa đóng phí tuần
+        $schedule->command('driver:mark-overdue-debts')->weeklyOn(0, '13:00');
+        // Thứ Hai 08:00 — tạo phí tuần mới cho tất cả tài xế
+        $schedule->command('driver:generate-weekly-fees')->weeklyOn(1, '08:00');
+    }
 }

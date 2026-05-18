@@ -5,6 +5,7 @@ namespace App\Filament\Resources;
 use App\Filament\Resources\CityResource\Pages;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
+use Filament\Forms\Components\View;
 use Filament\Forms\Form;
 use Filament\Resources\Resource;
 use Filament\Tables\Actions\DeleteAction;
@@ -35,6 +36,17 @@ class CityResource extends Resource
             TextInput::make('slug')
                 ->label('Slug')
                 ->maxLength(100),
+
+            View::make('filament.forms.components.map-picker')
+                ->columnSpanFull(),
+
+            TextInput::make('weekly_fee')
+                ->label('Phí tuần (VNĐ)')
+                ->numeric()
+                ->default(0)
+                ->minValue(0)
+                ->suffix('đ')
+                ->placeholder('0'),
 
             TextInput::make('lat')
                 ->label('Vĩ độ (Latitude)')

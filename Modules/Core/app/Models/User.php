@@ -46,7 +46,6 @@ class User extends Authenticatable implements FilamentUser
         'is_online',
         'has_car_license',
         'name_updated_at',
-        'custom_commission_rate',
         'delete_requested_at',
     ];
 
@@ -60,10 +59,9 @@ class User extends Authenticatable implements FilamentUser
         return [
             'email_verified_at'      => 'datetime',
             'password'               => 'hashed',
-            'name_updated_at'        => 'datetime',
-            'delete_requested_at'    => 'datetime',
-            'custom_commission_rate' => 'float',
-            'is_online'              => 'boolean',
+            'name_updated_at'     => 'datetime',
+            'delete_requested_at' => 'datetime',
+            'is_online'           => 'boolean',
         ];
     }
 
