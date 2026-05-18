@@ -5,6 +5,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Modules\Order\Models\Order;
+use Modules\Order\Models\OrderDispatchLog;
 use Modules\Order\Services\DispatchService;
 use Modules\Order\Services\OrderService;
 
@@ -12,23 +13,28 @@ class OrderController extends Controller
 {
     public function __construct(private OrderService $orderService) {}
 
-    public function viewOffer(Request $request, Order $order): JsonResponse
-    {
-        app(DispatchService::class)->viewOffer($order, (int) $request->user()->id);
-        return response()->json(['success' => true]);
-    }
-
     public function pendingOffer(Request $request): JsonResponse
     {
-        $order = Order::with('city')
-            ->where('dispatching_to_driver_id', $request->user()->id)
-            ->where('status', 'pending')
+        $driverId = $request->user()->id;
+
+        $log = OrderDispatchLog::where('driver_id', $driverId)
+            ->where('result', 'pending')
+            ->latest('offered_at')
             ->first();
 
-        return response()->json([
-            'success' => true,
-            'data'    => ['order' => $order],
-        ]);
+        $order = null;
+        if ($log) {
+            $order = Order::with('city')
+                ->where('id', $log->order_id)
+                ->where('status', 'pending')
+                ->first();
+
+            if (!$order) {
+                $log->update(['result' => 'expired']);
+            }
+        }
+
+        return response()->json(['success' => true, 'data' => ['order' => $order]]);
     }
 
     public function myOrders(Request $request): JsonResponse
@@ -39,7 +45,7 @@ class OrderController extends Controller
 
     public function completedOrders(Request $request): JsonResponse
     {
-        $page = (int) $request->get('page', 1);
+        $page = (int) $request->input('page', 1);
         $data = $this->orderService->getCompletedOrders($request->user(), $page);
         return response()->json(['success' => true, 'data' => $data]);
     }

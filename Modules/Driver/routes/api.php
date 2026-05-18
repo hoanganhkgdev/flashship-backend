@@ -30,12 +30,11 @@ Route::middleware('auth:sanctum')->group(function () {
     });
 
     Route::prefix('orders')->group(function () {
-        Route::get('/pending-offer',     [OrderController::class, 'pendingOffer']);
-        Route::get('/my-orders',         [OrderController::class, 'myOrders']);
-        Route::get('/completed',         [OrderController::class, 'completedOrders']);
-        Route::get('/dashboard',         [OrderController::class, 'dashboard']);
-        Route::get('/recent',            [EarningController::class, 'recentOrders']);
-        Route::post('/{order}/view-offer', [OrderController::class, 'viewOffer']);
+        Route::get('/pending-offer',          [OrderController::class, 'pendingOffer']);
+        Route::get('/my-orders',              [OrderController::class, 'myOrders']);
+        Route::get('/completed',              [OrderController::class, 'completedOrders']);
+        Route::get('/dashboard',              [OrderController::class, 'dashboard']);
+        Route::get('/recent',                 [EarningController::class, 'recentOrders']);
         Route::post('/{order}/accept',        [OrderController::class, 'accept']);
         Route::post('/{order}/decline',       [OrderController::class, 'decline']);
         Route::post('/{order}/update-status', [OrderController::class, 'updateStatus']);

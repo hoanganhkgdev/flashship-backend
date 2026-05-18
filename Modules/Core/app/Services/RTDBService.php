@@ -40,4 +40,33 @@ class RTDBService
             Log::error('[RTDB] clearOrderLocation failed: ' . $e->getMessage());
         }
     }
+
+    public static function publishPendingOrder(\Modules\Order\Models\Order $order): void
+    {
+        try {
+            self::db()->getReference("pending_orders/{$order->city_id}/{$order->code}")->set([
+                'id'               => $order->id,
+                'code'             => $order->code,
+                'service_type'     => $order->service_type,
+                'pickup_address'   => $order->pickup_address,
+                'pickup_lat'       => $order->pickup_lat,
+                'pickup_lng'       => $order->pickup_lng,
+                'delivery_address' => $order->delivery_address,
+                'shipping_fee'     => $order->shipping_fee,
+                'distance'         => $order->distance,
+                'expires_at'       => now()->addSeconds(300)->timestamp,
+            ]);
+        } catch (\Throwable $e) {
+            Log::error('[RTDB] publishPendingOrder failed: ' . $e->getMessage());
+        }
+    }
+
+    public static function removePendingOrder(string $orderCode, int $cityId): void
+    {
+        try {
+            self::db()->getReference("pending_orders/{$cityId}/{$orderCode}")->remove();
+        } catch (\Throwable $e) {
+            Log::error('[RTDB] removePendingOrder failed: ' . $e->getMessage());
+        }
+    }
 }

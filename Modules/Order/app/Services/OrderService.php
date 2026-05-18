@@ -2,6 +2,7 @@
 namespace Modules\Order\Services;
 
 use Modules\Order\Models\Order;
+use Modules\Order\Models\OrderDispatchLog;
 use Modules\Core\Models\User;
 use Modules\Core\Services\FCMService;
 use Modules\Core\Services\RTDBService;
@@ -61,8 +62,12 @@ class OrderService
             return ['success' => false, 'message' => 'Đơn đã có người nhận hoặc không khả dụng', 'status' => 409];
         }
 
-        if ((int) $order->dispatching_to_driver_id !== (int) $user->id) {
-            return ['success' => false, 'message' => 'Đơn này không được phân cho bạn.', 'status' => 403];
+        $wasOffered = OrderDispatchLog::where('order_id', $order->id)
+            ->where('driver_id', $user->id)
+            ->where('result', 'pending')
+            ->exists();
+        if (!$wasOffered) {
+            return ['success' => false, 'message' => 'Đơn này không được phát cho bạn.', 'status' => 403];
         }
 
         $activeOrders = Order::where('delivery_man_id', $user->id)->whereIn('status', ['assigned', 'processing', 'on_the_way'])->count();
@@ -77,7 +82,6 @@ class OrderService
         $affected = DB::table('orders')
             ->where('id', $order->id)
             ->where('status', 'pending')
-            ->where('dispatching_to_driver_id', $user->id)
             ->update([
                 'status'                   => 'assigned',
                 'delivery_man_id'          => $user->id,
