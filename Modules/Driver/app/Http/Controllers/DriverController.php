@@ -207,6 +207,17 @@ class DriverController extends Controller
         ]]);
     }
 
+    public function scoreHistory(Request $request): JsonResponse
+    {
+        $logs = \DB::table('driver_score_logs')
+            ->where('driver_id', $request->user()->id)
+            ->orderByDesc('created_at')
+            ->limit(50)
+            ->get(['delta', 'score_before', 'score_after', 'reason', 'created_at']);
+
+        return response()->json(['success' => true, 'data' => $logs]);
+    }
+
     public function updateBank(Request $request): JsonResponse
     {
         $data = $request->validate([

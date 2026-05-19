@@ -52,10 +52,20 @@ class DriverScoreService
 
     private static function adjust(int $driverId, int $delta, string $reason): void
     {
-        $current = DB::table('users')->where('id', $driverId)->value('driver_score') ?? self::DEFAULT_SCORE;
+        $current  = DB::table('users')->where('id', $driverId)->value('driver_score') ?? self::DEFAULT_SCORE;
         $newScore = max(self::MIN_SCORE, min(self::MAX_SCORE, $current + $delta));
 
         DB::table('users')->where('id', $driverId)->update(['driver_score' => $newScore]);
+
+        DB::table('driver_score_logs')->insert([
+            'driver_id'   => $driverId,
+            'delta'       => $delta,
+            'score_before' => $current,
+            'score_after'  => $newScore,
+            'reason'      => $reason,
+            'created_at'  => now(),
+            'updated_at'  => now(),
+        ]);
 
         Log::info("[DriverScore] Driver #{$driverId} {$reason}: {$current} → {$newScore} (Δ{$delta})");
     }
