@@ -15,13 +15,13 @@ class ExpandBroadcastJob implements ShouldQueue
 
     public int $tries = 1;
 
-    public function __construct(public readonly int $orderId) {}
+    public function __construct(public readonly int $orderId, public readonly int $wave = 2) {}
 
     public function handle(DispatchService $dispatch): void
     {
         $order = Order::find($this->orderId);
         if (!$order || $order->status !== 'pending') return;
 
-        $dispatch->expandBroadcast($order);
+        $dispatch->expandBroadcast($order, $this->wave);
     }
 }
