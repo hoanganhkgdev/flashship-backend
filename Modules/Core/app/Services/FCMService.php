@@ -4,7 +4,7 @@ namespace Modules\Core\Services;
 use Illuminate\Support\Facades\Log;
 use Kreait\Firebase\Factory;
 use Kreait\Firebase\Messaging\CloudMessage;
-use Kreait\Firebase\Messaging\MulticastMessage;
+
 use Kreait\Firebase\Messaging\Notification;
 use Kreait\Firebase\Messaging\AndroidConfig;
 use Kreait\Firebase\Messaging\ApnsConfig;
@@ -100,7 +100,7 @@ class FCMService
 
         foreach (array_chunk($tokens, 500) as $batch) {
             try {
-                $message = MulticastMessage::new()
+                $message = CloudMessage::new()
                     ->withNotification(Notification::create('Có đơn hàng mới!', "Từ: {$order['pickup_address']}"))
                     ->withData($data)
                     ->withAndroidConfig(AndroidConfig::fromArray([
