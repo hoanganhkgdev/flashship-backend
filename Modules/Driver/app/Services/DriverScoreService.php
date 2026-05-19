@@ -87,4 +87,38 @@ class DriverScoreService
     {
         DB::table('users')->where('id', $driverId)->update(['consecutive_completed' => 0]);
     }
+
+    public static function label(int $score): string
+    {
+        return match (true) {
+            $score >= 80 => 'Xuất sắc',
+            $score >= 60 => 'Tốt',
+            $score >= 40 => 'Trung bình',
+            $score >= 20 => 'Cần cải thiện',
+            default      => 'Kém',
+        };
+    }
+
+    public static function tips(int $score, int $streak): array
+    {
+        $tips = [];
+
+        if ($score < self::WAVE_1_MIN) {
+            $needed = self::WAVE_1_MIN - $score;
+            $tips[] = "Cần thêm {$needed} điểm để vào đợt 1 (ưu tiên cao nhất)";
+        }
+
+        if ($streak > 0) {
+            $left = self::STREAK_THRESHOLD - $streak;
+            $tips[] = "Hoàn thành thêm {$left} đơn liên tiếp để nhận +" . self::SCORE_STREAK_BONUS . " điểm";
+        } else {
+            $tips[] = "Hoàn thành " . self::STREAK_THRESHOLD . " đơn liên tiếp để nhận +" . self::SCORE_STREAK_BONUS . " điểm";
+        }
+
+        if ($score < 60) {
+            $tips[] = "Chấp nhận đơn nhanh để tránh mất điểm timeout (-" . abs(self::SCORE_TIMEOUT) . " điểm)";
+        }
+
+        return $tips;
+    }
 }

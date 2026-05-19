@@ -18,6 +18,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/toggle-status',                [DriverController::class, 'toggleOnline']);
         Route::post('/update-location',              [DriverController::class, 'updateLocation']);
         Route::get('/stats',                         [DriverController::class, 'stats']);
+        Route::get('/score',                         [DriverController::class, 'score']);
         Route::get('/hotspots',                      [DriverController::class, 'hotspots']);
         Route::get('/announcements',                 [DriverController::class, 'announcements']);
         Route::get('/notifications',                 [DriverController::class, 'notifications']);
