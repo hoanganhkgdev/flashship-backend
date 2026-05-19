@@ -23,7 +23,6 @@ class DispatchService
     const TIMEOUT_SECS         = 300;  // 5 phút → auto-cancel
     const FCM_TTL_SECS         = 30;
     const MAX_DRIVERS          = 20;
-    const MIN_WALLET_BALANCE   = 100_000;
 
     // =========================================================================
     // PUBLIC API
@@ -212,7 +211,6 @@ class DispatchService
 
         return $candidates
             ->filter(fn(User $d) => !$this->hasBlockedDebt($d))
-            ->filter(fn(User $d) => $this->hasMinWalletBalance($d))
             ->filter(fn(User $d) => $order->service_type !== 'car' || $d->has_car_license)
             ->filter(fn(User $d) => $this->distanceKm($d, $order) <= $radiusKm)
             ->sortByDesc(fn(User $d) => $this->compositeScore($d, $order, (float) ($ratings[$d->id] ?? 0)))
@@ -249,11 +247,6 @@ class DispatchService
     private function hasBlockedDebt(User $driver): bool
     {
         return $driver->debts->where('status', 'overdue')->isNotEmpty();
-    }
-
-    private function hasMinWalletBalance(User $driver): bool
-    {
-        return ($driver->wallet?->balance ?? 0) >= self::MIN_WALLET_BALANCE;
     }
 
     private function haversineKm(float $lat1, float $lng1, float $lat2, float $lng2): float
