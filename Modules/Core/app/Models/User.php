@@ -137,6 +137,12 @@ class User extends Authenticatable implements FilamentUser
 
     public function getHasCarLicenseAttribute(): bool
     {
+        if ($this->relationLoaded('driverLicenses')) {
+            return $this->driverLicenses
+                ->where('status', \Modules\Driver\Models\DriverLicense::STATUS_APPROVED)
+                ->isNotEmpty();
+        }
+
         return $this->driverLicenses()
             ->where('status', \Modules\Driver\Models\DriverLicense::STATUS_APPROVED)
             ->exists();

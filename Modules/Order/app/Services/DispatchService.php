@@ -193,7 +193,7 @@ class DispatchService
             ->whereNotIn('id', $excludeIds)
             ->whereNotNull('latitude')
             ->whereNotNull('longitude')
-            ->with(['debts', 'wallet']);
+            ->with(['debts', 'wallet', 'driverLicenses']);
 
         if ($maxScore !== null) {
             $query->where('driver_score', '<=', $maxScore);
