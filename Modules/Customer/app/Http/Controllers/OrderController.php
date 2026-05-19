@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Modules\Order\Models\Order;
 use Modules\Core\Models\Voucher;
+use Modules\Driver\Services\DriverScoreService;
 use Modules\Order\Services\OrderService;
 use Modules\Pricing\Services\PricingService;
 
@@ -205,6 +206,10 @@ class OrderController extends Controller
         }
 
         $order->update(['driver_rating' => $data['rating'], 'driver_rating_note' => $data['note'] ?? null]);
+
+        if ($order->delivery_man_id) {
+            DriverScoreService::onRated($order->delivery_man_id, (int) $data['rating']);
+        }
 
         return response()->json(['success' => true, 'message' => 'Cảm ơn đánh giá của bạn']);
     }

@@ -60,6 +60,22 @@ class DriverScoreService
         Log::info("[DriverScore] Driver #{$driverId} {$reason}: {$current} → {$newScore} (Δ{$delta})");
     }
 
+    public static function onRated(int $driverId, int $stars): void
+    {
+        $delta = match ($stars) {
+            5 => +3,
+            4 => +1,
+            3 =>  0,
+            2 => -2,
+            1 => -5,
+            default => 0,
+        };
+
+        if ($delta !== 0) {
+            self::adjust($driverId, $delta, "rated_{$stars}_stars");
+        }
+    }
+
     public static function resetToDefault(int $driverId): void
     {
         $current = DB::table('users')->where('id', $driverId)->value('driver_score') ?? self::DEFAULT_SCORE;
