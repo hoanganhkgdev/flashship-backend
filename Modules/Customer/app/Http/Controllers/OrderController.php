@@ -199,7 +199,10 @@ class OrderController extends Controller
             ->where('status', 'completed')->first();
 
         if (!$order) return response()->json(['success' => false, 'message' => 'Không tìm thấy đơn hàng'], 404);
-        if ($order->driver_rating) return response()->json(['success' => false, 'message' => 'Bạn đã đánh giá đơn hàng này'], 400);
+        if ($order->driver_rating) return response()->json(['success' => false, 'message' => 'Bạn đã đánh giá đơn hàng này rồi.'], 400);
+        if ($order->completed_at && $order->completed_at->diffInHours(now()) > 24) {
+            return response()->json(['success' => false, 'message' => 'Đã quá 24 giờ, không thể đánh giá đơn hàng này.'], 400);
+        }
 
         $order->update(['driver_rating' => $data['rating'], 'driver_rating_note' => $data['note'] ?? null]);
 
