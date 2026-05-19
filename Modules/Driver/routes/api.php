@@ -6,6 +6,7 @@ use Modules\Driver\Http\Controllers\EarningController;
 use Modules\Driver\Http\Controllers\WalletController;
 use Modules\Driver\Http\Controllers\DebtController;
 use Modules\Driver\Http\Controllers\OrderController;
+use Modules\Driver\Http\Controllers\ScoreResetController;
 
 Route::middleware('auth:sanctum')->group(function () {
 
@@ -59,5 +60,10 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/',                 [DebtController::class, 'index']);
         Route::get('/{id}',             [DebtController::class, 'show']);
         Route::post('/{id}/pay/wallet', [DebtController::class, 'payWithWallet']);
+    });
+
+    Route::prefix('score-reset')->group(function () {
+        Route::post('/request', [ScoreResetController::class, 'request']);
+        Route::get('/status',   [ScoreResetController::class, 'status']);
     });
 });

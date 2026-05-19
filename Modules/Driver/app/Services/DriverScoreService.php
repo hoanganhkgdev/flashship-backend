@@ -60,6 +60,13 @@ class DriverScoreService
         Log::info("[DriverScore] Driver #{$driverId} {$reason}: {$current} → {$newScore} (Δ{$delta})");
     }
 
+    public static function resetToDefault(int $driverId): void
+    {
+        $current = DB::table('users')->where('id', $driverId)->value('driver_score') ?? self::DEFAULT_SCORE;
+        DB::table('users')->where('id', $driverId)->update(['driver_score' => self::DEFAULT_SCORE]);
+        Log::info("[DriverScore] Driver #{$driverId} score reset: {$current} → " . self::DEFAULT_SCORE);
+    }
+
     private static function resetStreak(int $driverId): void
     {
         DB::table('users')->where('id', $driverId)->update(['consecutive_completed' => 0]);
