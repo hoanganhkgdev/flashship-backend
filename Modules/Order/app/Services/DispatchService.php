@@ -2,7 +2,7 @@
 namespace Modules\Order\Services;
 
 use Modules\Driver\Services\DriverScoreService;
-use Modules\Order\Jobs\BroadcastTimeoutJob;
+use Modules\Order\Jobs\AutoCancelOrderJob;
 use Modules\Order\Jobs\DispatchOrderJob;
 use Modules\Order\Models\Order;
 use Modules\Order\Models\OrderDispatchLog;
@@ -15,10 +15,9 @@ use Illuminate\Support\Facades\Log;
 
 class DispatchService
 {
-    const RADIUS_NEAR_KM     = 3;    // vòng 1: 3km
-    const RADIUS_FAR_KM      = 5;    // vòng 2: 5km (nếu vòng 1 hết)
+    const RADIUS_KM          = 5;    // bán kính tìm tài xế
     const DRIVER_OFFER_SECS  = 30;   // 30 giây mỗi tài xế
-    const TIMEOUT_SECS       = 600;  // 10 phút → safety-net auto-cancel
+    const TIMEOUT_SECS       = 600;  // 10 phút → auto-cancel nếu không ai nhận
     const FCM_TTL_SECS       = 30;
     const MAX_DRIVERS        = 50;
 
@@ -33,7 +32,7 @@ class DispatchService
         RTDBService::publishPendingOrder($order);
 
         // Auto-cancel sau 10 phút nếu không có tài xế nào nhận
-        BroadcastTimeoutJob::dispatch($order->id)->delay(now()->addSeconds(self::TIMEOUT_SECS));
+        AutoCancelOrderJob::dispatch($order->id)->delay(now()->addSeconds(self::TIMEOUT_SECS));
 
         $this->sendToNextDriver($order);
     }
@@ -50,16 +49,7 @@ class DispatchService
             ->pluck('driver_id')
             ->toArray();
 
-        // Vòng 1: 3km
-        $candidates = $this->getCandidates($order, self::RADIUS_NEAR_KM, $alreadyOffered);
-
-        // Vòng 2: mở rộng 5km nếu vòng 1 hết tài xế
-        if ($candidates->isEmpty()) {
-            $candidates = $this->getCandidates($order, self::RADIUS_FAR_KM, $alreadyOffered);
-            if ($candidates->isNotEmpty()) {
-                Log::info("[Dispatch] Order #{$order->id}: expanding radius to " . self::RADIUS_FAR_KM . "km");
-            }
-        }
+        $candidates = $this->getCandidates($order, self::RADIUS_KM, $alreadyOffered);
 
         if ($candidates->isEmpty()) {
             Log::info("[Dispatch] Order #{$order->id}: no more drivers → cancelling");
@@ -163,7 +153,6 @@ class DispatchService
             }
         }
 
-        // Safety-net job: nếu tài xế không mở app trong 30s → handleTimeout
         DispatchOrderJob::dispatch($order->id, $driver->id)
             ->delay(now()->addSeconds(self::DRIVER_OFFER_SECS));
 
@@ -208,7 +197,7 @@ class DispatchService
     private function compositeScore(User $driver, Order $order, float $avgRating): float
     {
         $dist        = $this->distanceKm($driver, $order);
-        $distScore   = (1 - min($dist, self::RADIUS_FAR_KM) / self::RADIUS_FAR_KM) * 40;
+        $distScore   = (1 - min($dist, self::RADIUS_KM) / self::RADIUS_KM) * 40;
         $ratingScore = ($avgRating / 5) * 30;
         $scoreScore  = (($driver->driver_score ?? 80) / 100) * 30;
 

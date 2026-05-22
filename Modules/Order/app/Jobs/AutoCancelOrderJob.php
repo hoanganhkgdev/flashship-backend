@@ -9,7 +9,7 @@ use Illuminate\Queue\SerializesModels;
 use Modules\Order\Models\Order;
 use Modules\Order\Services\DispatchService;
 
-class BroadcastTimeoutJob implements ShouldQueue
+class AutoCancelOrderJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
