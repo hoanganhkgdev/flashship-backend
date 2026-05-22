@@ -8,6 +8,7 @@ return new class extends Migration
 {
     public function up(): void
     {
+        if (Schema::hasTable('driver_score_logs')) return;
         Schema::create('driver_score_logs', function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('driver_id');
