@@ -3,7 +3,7 @@
 namespace Modules\Admin\Database\Seeders;
 
 use Illuminate\Database\Seeder;
-use Modules\Admin\Models\Page;
+use Modules\Admin\Models\Page; // trỏ vào bảng legal_pages
 
 class LegalPagesSeeder extends Seeder
 {
