@@ -136,8 +136,6 @@ class AuthController extends Controller
             'name'          => 'required|string|max:255',
             'password'      => 'required|string|min:6',
             'cccd'          => 'required|string|between:9,12',
-            'vehicle_type'  => 'required|in:motorbike,car',
-            'license_plate' => 'required|string|max:20',
             'city_id'       => 'nullable|exists:cities,id',
             'latitude'      => 'nullable|numeric',
             'longitude'     => 'nullable|numeric',
@@ -161,13 +159,11 @@ class AuthController extends Controller
         }
 
         $user = User::create([
-            'name'          => $data['name'],
-            'phone'         => $data['phone'],
-            'password'      => bcrypt($data['password']),
-            'cccd'          => $data['cccd'],
-            'vehicle_type'  => $data['vehicle_type'],
-            'license_plate' => strtoupper($data['license_plate']),
-            'city_id'       => $data['city_id'] ?? null,
+            'name'     => $data['name'],
+            'phone'    => $data['phone'],
+            'password' => bcrypt($data['password']),
+            'cccd'     => $data['cccd'],
+            'city_id'  => $data['city_id'] ?? null,
             'status'        => 0,
             'user_type'     => 'driver',
         ]);

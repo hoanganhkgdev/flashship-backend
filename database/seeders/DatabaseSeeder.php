@@ -10,6 +10,7 @@ class DatabaseSeeder extends Seeder
     {
         $this->call([
             \Modules\Core\Database\Seeders\CoreDatabaseSeeder::class,
+            \Modules\Driver\Database\Seeders\DriverDatabaseSeeder::class,
         ]);
     }
 }

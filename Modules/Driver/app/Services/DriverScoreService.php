@@ -8,16 +8,11 @@ class DriverScoreService
 {
     const DEFAULT_SCORE      = 80;
     const SCORE_DECLINE      = -5;
-    const SCORE_TIMEOUT      = -3;
+    const SCORE_TIMEOUT      = -5; // bỏ qua = từ chối, phạt như nhau
     const SCORE_STREAK_BONUS = +5;
     const STREAK_THRESHOLD   = 2;   // số đơn liên tiếp để được cộng điểm
     const MIN_SCORE          = 0;
     const MAX_SCORE          = 100;
-
-    // Ngưỡng điểm để vào từng đợt broadcast
-    const WAVE_1_MIN = 60;  // đợt 1 — 5km ngay lập tức
-    const WAVE_2_MIN = 30;  // đợt 2 — 10km sau 2 phút
-                            // < 30   — đợt 3 sau 4 phút
 
     public static function onDecline(int $driverId): void
     {
@@ -56,15 +51,13 @@ class DriverScoreService
         $newScore = max(self::MIN_SCORE, min(self::MAX_SCORE, $current + $delta));
 
         DB::table('users')->where('id', $driverId)->update(['driver_score' => $newScore]);
-
         DB::table('driver_score_logs')->insert([
-            'driver_id'   => $driverId,
-            'delta'       => $delta,
+            'driver_id'    => $driverId,
+            'delta'        => $delta,
             'score_before' => $current,
             'score_after'  => $newScore,
-            'reason'      => $reason,
-            'created_at'  => now(),
-            'updated_at'  => now(),
+            'reason'       => $reason,
+            'created_at'   => now(),
         ]);
 
         Log::info("[DriverScore] Driver #{$driverId} {$reason}: {$current} → {$newScore} (Δ{$delta})");
@@ -112,11 +105,6 @@ class DriverScoreService
     public static function tips(int $score, int $streak): array
     {
         $tips = [];
-
-        if ($score < self::WAVE_1_MIN) {
-            $needed = self::WAVE_1_MIN - $score;
-            $tips[] = "Cần thêm {$needed} điểm để vào đợt 1 (ưu tiên cao nhất)";
-        }
 
         if ($streak > 0) {
             $left = self::STREAK_THRESHOLD - $streak;

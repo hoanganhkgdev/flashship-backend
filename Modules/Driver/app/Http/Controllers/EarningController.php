@@ -34,6 +34,7 @@ class EarningController extends Controller
         return response()->json([
             'success' => true,
             'data'    => [
+                'today'   => $this->orderService->getEarningsSummary($id, 'today'),
                 'weekly'  => $this->orderService->getEarningsSummary($id, 'week'),
                 'monthly' => $this->orderService->getEarningsSummary($id, 'month'),
             ],

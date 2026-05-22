@@ -7,10 +7,12 @@ use Illuminate\Validation\Rule;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
+use Modules\Core\Services\OtpService;
 use Modules\Core\Models\Announcement;
 use Modules\Core\Models\City;
 use Modules\Core\Services\RTDBService;
 use Modules\Driver\Models\Bank;
+use Modules\Driver\Models\DriverCccdImage;
 use Modules\Driver\Models\DriverLicense;
 use Modules\Order\Models\Order;
 use Modules\Driver\Services\DriverScoreService;
@@ -21,13 +23,15 @@ class DriverController extends Controller
     public function profile(Request $request): JsonResponse
     {
         $user = $request->user();
-        $user->loadMissing(['city', 'bank', 'driverLicenses', 'wallet']);
+        $user->loadMissing(['city', 'bank', 'driverLicenses', 'driverCccdImages', 'wallet']);
 
         $data = $user->toArray();
         $data['city_name']    = $user->city?->name ?? '';
         $data['balance']      = $user->wallet?->balance ?? 0;
-        $data['bank_name']    = $user->bank?->bank_name;
-        $data['bank_account'] = $user->bank?->account_number;
+        $data['bank_code']     = $user->bank?->bank_code;
+        $data['bank_name']     = $user->bank?->bank_name;
+        $data['bank_account']  = $user->bank?->account_number;
+        $data['bank_holder']   = $user->bank?->account_name;
         $license = $user->driverLicenses->sortByDesc('id')->first();
         if ($license) {
             $data['license_status']    = $license->status;
@@ -36,6 +40,9 @@ class DriverController extends Controller
         if ($user->profile_photo_path) {
             $data['profile_photo_url'] = url('storage/' . $user->profile_photo_path);
         }
+        $cccd = $user->driverCccdImages->sortByDesc('id')->first();
+        $data['cccd_image_status'] = $cccd?->status;
+        $data['cccd_image_url']    = $cccd?->image_path ? url('storage/' . $cccd->image_path) : null;
 
         return response()->json(['success' => true, 'data' => ['user' => $data]]);
     }
@@ -44,14 +51,29 @@ class DriverController extends Controller
     {
         $user = $request->user();
 
-        $user->is_online = !$user->is_online;
+        // Chỉ cho phép bật online nếu CCCD đã được duyệt
+        if (!$user->is_online) {
+            $approved = DriverCccdImage::where('user_id', $user->id)
+                ->where('status', 'approved')
+                ->exists();
+
+            if (!$approved) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Bạn cần tải lên và được duyệt CCCD trước khi có thể hoạt động.',
+                ], 403);
+            }
+        }
+
+        $user->is_online   = !$user->is_online;
+        $user->online_since = $user->is_online ? now() : null;
         $user->save();
-        // TODO: Firebase update driver online status
 
         return response()->json([
-            'success'   => true,
-            'message'   => $user->is_online ? 'Bạn đang online' : 'Bạn đang offline',
-            'is_online' => $user->is_online,
+            'success'      => true,
+            'message'      => $user->is_online ? 'Bạn đang online' : 'Bạn đang offline',
+            'is_online'    => $user->is_online,
+            'online_since' => $user->online_since?->toIso8601String(),
         ]);
     }
 
@@ -118,19 +140,40 @@ class DriverController extends Controller
         return response()->json(['success' => true, 'message' => 'Cập nhật thành công', 'data' => ['user' => $userData]]);
     }
 
+    public function sendChangePasswordOtp(Request $request): JsonResponse
+    {
+        $user = $request->user();
+
+        if (OtpService::recentlySent($user->phone)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Vui lòng chờ 60 giây trước khi gửi lại',
+            ], 429);
+        }
+
+        OtpService::send($user->phone);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Mã OTP đã được gửi qua Zalo đến số ' . $user->phone,
+        ]);
+    }
+
     public function changePassword(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'current_password' => 'required|string',
-            'new_password'     => 'required|string|min:6|confirmed',
+            'otp'                      => 'required|string|size:6',
+            'new_password'             => 'required|string|min:6',
+            'new_password_confirmation' => 'required|same:new_password',
         ]);
 
         $user = $request->user();
-        if (!Hash::check($data['current_password'], $user->password)) {
-            return response()->json(['success' => false, 'message' => 'Mật khẩu hiện tại không đúng'], 400);
+
+        if (!OtpService::verify($user->phone, $data['otp'])) {
+            return response()->json(['success' => false, 'message' => 'Mã OTP không hợp lệ hoặc đã hết hạn'], 422);
         }
 
-        $user->update(['password' => bcrypt($data['new_password'])]);
+        $user->update(['password' => Hash::make($data['new_password'])]);
         return response()->json(['success' => true, 'message' => 'Đổi mật khẩu thành công']);
     }
 
@@ -248,6 +291,27 @@ class DriverController extends Controller
 
         DriverLicense::create([
             'user_id'    => $user->id,
+            'image_path' => $path,
+            'status'     => 'pending',
+        ]);
+
+        return response()->json([
+            'success'   => true,
+            'message'   => 'Tải lên thành công, đang chờ xét duyệt',
+            'image_url' => url('storage/' . $path),
+        ]);
+    }
+
+    public function uploadCccdImage(Request $request): JsonResponse
+    {
+        $request->validate([
+            'image' => 'required|image|mimes:jpg,jpeg,png,webp|max:5120',
+        ]);
+
+        $path = $request->file('image')->store('driver-cccd', 'public');
+
+        DriverCccdImage::create([
+            'user_id'    => $request->user()->id,
             'image_path' => $path,
             'status'     => 'pending',
         ]);

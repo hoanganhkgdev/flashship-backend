@@ -4,6 +4,8 @@ namespace Modules\Driver\Http\Controllers;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
+use Illuminate\Support\Facades\DB;
+use Modules\Order\Jobs\DispatchOrderJob;
 use Modules\Order\Models\Order;
 use Modules\Order\Models\OrderDispatchLog;
 use Modules\Order\Services\DispatchService;
@@ -54,6 +56,30 @@ class OrderController extends Controller
     {
         $stats = $this->orderService->getDashboardStats($request->user());
         return response()->json(['success' => true, 'data' => $stats]);
+    }
+
+    public function viewOffer(Request $request, Order $order): JsonResponse
+    {
+        $driver = $request->user();
+
+        // Chỉ xử lý nếu đơn đang pending và đang được phát cho driver này
+        if ($order->status !== 'pending' || (int) $order->dispatching_to_driver_id !== $driver->id) {
+            return response()->json(['success' => false], 200);
+        }
+
+        // Đặt offer_viewed_at để callkit-timeout job biết driver đã mở app
+        if ($order->offer_viewed_at === null) {
+            DB::table('orders')->where('id', $order->id)->update([
+                'offer_viewed_at' => now(),
+                'updated_at'      => now(),
+            ]);
+
+            // Dispatch job mới đếm 30s từ lúc driver MỞ APP (không phải từ lúc dispatch)
+            DispatchOrderJob::dispatch($order->id, $driver->id, true)
+                ->delay(now()->addSeconds(app(DispatchService::class)::DRIVER_OFFER_SECS));
+        }
+
+        return response()->json(['success' => true], 200);
     }
 
     public function accept(Request $request, Order $order): JsonResponse

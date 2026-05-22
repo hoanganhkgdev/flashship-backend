@@ -30,6 +30,8 @@ class User extends Authenticatable implements FilamentUser
         'phone',
         'address',
         'cccd',
+        'cccd_image_path',
+        'cccd_image_status',
         'vehicle_type',
         'license_plate',
         'user_type',
@@ -64,6 +66,7 @@ class User extends Authenticatable implements FilamentUser
             'name_updated_at'     => 'datetime',
             'delete_requested_at' => 'datetime',
             'is_online'           => 'boolean',
+            'online_since'        => 'datetime',
         ];
     }
 
@@ -110,6 +113,11 @@ class User extends Authenticatable implements FilamentUser
     public function driverLicenses()
     {
         return $this->hasMany(\Modules\Driver\Models\DriverLicense::class, 'user_id');
+    }
+
+    public function driverCccdImages()
+    {
+        return $this->hasMany(\Modules\Driver\Models\DriverCccdImage::class, 'user_id');
     }
 
     // =========================================================================

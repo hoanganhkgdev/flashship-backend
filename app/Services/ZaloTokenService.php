@@ -11,35 +11,53 @@ class ZaloTokenService
     private const REFRESH_URL = 'https://oauth.zaloapp.com/v4/oa/access_token';
     private const SEND_URL    = 'https://business.openapi.zalo.me/message/template';
 
-    public static function getAccessToken(): ?string
+    private static function row(): ?object
     {
-        $row = DB::table('zalo_tokens')->orderByDesc('id')->first();
-
-        if ($row) {
-            return $row->access_token;
-        }
-
-        // Fallback: seed from .env on first use
-        $token   = config('services.zalo_zns.access_token');
-        $refresh = config('services.zalo_zns.refresh_token');
-
-        if ($token && $refresh) {
-            DB::table('zalo_tokens')->insert([
-                'access_token'  => $token,
-                'refresh_token' => $refresh,
-                'expires_at'    => null,
-                'created_at'    => now(),
-                'updated_at'    => now(),
-            ]);
-        }
-
-        return $token;
+        return DB::table('zalo_tokens')->orderByDesc('id')->first();
     }
 
-    public static function refresh(): bool
+    private static function save(string $accessToken, string $refreshToken, int $expiresIn = 86400): void
     {
-        $row = DB::table('zalo_tokens')->orderByDesc('id')->first();
+        $row = self::row();
+        $payload = [
+            'access_token'  => $accessToken,
+            'refresh_token' => $refreshToken,
+            'expires_at'    => now()->addSeconds($expiresIn),
+            'updated_at'    => now(),
+        ];
 
+        if ($row) {
+            DB::table('zalo_tokens')->where('id', $row->id)->update($payload);
+        } else {
+            DB::table('zalo_tokens')->insert($payload + ['created_at' => now()]);
+        }
+    }
+
+    public static function getAccessToken(): ?string
+    {
+        $row = self::row();
+
+        if (!$row) {
+            $token   = config('services.zalo_zns.access_token');
+            $refresh = config('services.zalo_zns.refresh_token');
+            if ($token && $refresh) {
+                self::save($token, $refresh);
+            }
+            return $token;
+        }
+
+        // Chủ động refresh khi còn dưới 30 phút
+        if ($row->expires_at && now()->addMinutes(30)->gte($row->expires_at)) {
+            self::refresh($row);
+            return self::row()?->access_token ?? $row->access_token;
+        }
+
+        return $row->access_token;
+    }
+
+    public static function refresh(?object $row = null): bool
+    {
+        $row          = $row ?? self::row();
         $refreshToken = $row?->refresh_token ?? config('services.zalo_zns.refresh_token');
         $appId        = config('services.zalo_zns.app_id');
         $secretKey    = config('services.zalo_zns.secret_key');
@@ -50,40 +68,33 @@ class ZaloTokenService
         }
 
         try {
-            $res = Http::withHeaders(['secret_key' => $secretKey])
+            $res  = Http::withHeaders(['secret_key' => $secretKey])
                 ->asForm()
                 ->post(self::REFRESH_URL, [
                     'app_id'        => $appId,
                     'grant_type'    => 'refresh_token',
                     'refresh_token' => $refreshToken,
                 ]);
-
             $data = $res->json();
 
             if (!empty($data['access_token'])) {
-                DB::table('zalo_tokens')->insert([
-                    'access_token'  => $data['access_token'],
-                    'refresh_token' => $data['refresh_token'] ?? $refreshToken,
-                    'expires_at'    => now()->addSeconds((int)($data['expires_in'] ?? 7776000)),
-                    'created_at'    => now(),
-                    'updated_at'    => now(),
-                ]);
-
-                Log::info('[ZaloToken] Token đã được refresh thành công');
+                self::save(
+                    $data['access_token'],
+                    $data['refresh_token'] ?? $refreshToken,
+                    isset($data['expires_in']) ? (int) $data['expires_in'] : 7776000
+                );
+                Log::info('[ZaloToken] Refresh thành công');
                 return true;
             }
 
             Log::error('[ZaloToken] Refresh thất bại: ' . $res->body());
             return false;
         } catch (\Throwable $e) {
-            Log::error('[ZaloToken] Exception khi refresh: ' . $e->getMessage());
+            Log::error('[ZaloToken] Exception: ' . $e->getMessage());
             return false;
         }
     }
 
-    /**
-     * Gửi ZNS template. Nếu token hết hạn (-124), tự refresh và retry 1 lần.
-     */
     public static function sendTemplate(string $phone, string $templateId, array $templateData, string $trackingId = ''): bool
     {
         $zaloPhone = '84' . ltrim(preg_replace('/\D/', '', $phone), '0');
@@ -97,26 +108,20 @@ class ZaloTokenService
             }
 
             try {
-                $res = Http::withHeaders(['access_token' => $token])
+                $res   = Http::withHeaders(['access_token' => $token])
                     ->post(self::SEND_URL, [
                         'phone'         => $zaloPhone,
                         'template_id'   => $templateId,
                         'template_data' => $templateData,
                         'tracking_id'   => $trackingId ?: 'zns_' . time(),
                     ]);
-
                 $error = $res->json('error');
 
-                if ($error === 0) {
-                    return true;
-                }
+                if ($error === 0) return true;
 
-                // Token hết hạn → refresh rồi retry
                 if ($error === -124 && $attempt === 0) {
                     Log::warning('[ZaloToken] Token hết hạn, đang refresh...');
-                    if (!self::refresh()) {
-                        return false;
-                    }
+                    if (!self::refresh()) return false;
                     continue;
                 }
 

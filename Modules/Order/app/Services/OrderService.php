@@ -3,6 +3,7 @@ namespace Modules\Order\Services;
 
 use Modules\Order\Models\Order;
 use Modules\Order\Models\OrderDispatchLog;
+use Modules\Order\Services\DispatchService;
 use Modules\Core\Models\User;
 use Modules\Core\Services\FCMService;
 use Modules\Core\Services\RTDBService;
@@ -50,10 +51,18 @@ class OrderService
             ->where('completed_at', '>=', $monthStart)
             ->count();
 
+        $ratingRow = Order::where('delivery_man_id', $user->id)
+            ->where('status', 'completed')
+            ->whereNotNull('driver_rating')
+            ->selectRaw('AVG(driver_rating) as avg, COUNT(*) as cnt')
+            ->first();
+
         return [
             'today_orders'   => (int) ($todayRow->cnt ?? 0),
             'today_earnings' => (int) ($todayRow->earnings ?? 0),
             'month_orders'   => (int) $monthCount,
+            'rating'         => $ratingRow?->cnt > 0 ? round((float) $ratingRow->avg, 1) : null,
+            'rating_count'   => (int) ($ratingRow?->cnt ?? 0),
         ];
     }
 
@@ -129,6 +138,15 @@ class OrderService
         $log->update(['result' => 'declined', 'responded_at' => now()]);
 
         DriverScoreService::onDecline($user->id);
+
+        // Chuyển ngay sang tài xế tiếp theo, không chờ job 30s
+        $orderId = $order->id;
+        dispatch(function () use ($orderId) {
+            $freshOrder = Order::find($orderId);
+            if ($freshOrder) {
+                app(DispatchService::class)->sendToNextDriver($freshOrder);
+            }
+        })->afterResponse();
 
         return ['success' => true, 'message' => 'Đã từ chối đơn hàng.', 'status' => 200];
     }
@@ -335,12 +353,16 @@ class OrderService
 
     public function getEarningsSummary(int $driverId, string $period): array
     {
-        $start = $period === 'week'
-            ? Carbon::now()->startOfWeek()
-            : Carbon::now()->startOfMonth();
-        $end = $period === 'week'
-            ? Carbon::now()->endOfWeek()
-            : Carbon::now()->endOfMonth();
+        $start = match ($period) {
+            'week'  => Carbon::now()->startOfWeek(),
+            'today' => Carbon::now()->startOfDay(),
+            default => Carbon::now()->startOfMonth(),
+        };
+        $end = match ($period) {
+            'week'  => Carbon::now()->endOfWeek(),
+            'today' => Carbon::now()->endOfDay(),
+            default => Carbon::now()->endOfMonth(),
+        };
 
         $row = Order::where('delivery_man_id', $driverId)
             ->where('status', 'completed')

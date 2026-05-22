@@ -6,6 +6,7 @@ use Modules\Driver\Http\Controllers\EarningController;
 use Modules\Driver\Http\Controllers\WalletController;
 use Modules\Driver\Http\Controllers\DebtController;
 use Modules\Driver\Http\Controllers\OrderController;
+use Modules\Driver\Http\Controllers\ScoreController;
 use Modules\Driver\Http\Controllers\ScoreResetController;
 
 Route::middleware('auth:sanctum')->group(function () {
@@ -13,6 +14,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::prefix('driver')->group(function () {
         Route::get('/profile',                       [DriverController::class, 'profile']);
         Route::post('/profile/update',               [DriverController::class, 'updateProfile']);
+        Route::post('/change-password/send-otp',     [DriverController::class, 'sendChangePasswordOtp']);
         Route::post('/change-password',              [DriverController::class, 'changePassword']);
         Route::post('/update-fcm-token',             [DriverController::class, 'updateFcmToken']);
         Route::post('/toggle-status',                [DriverController::class, 'toggleOnline']);
@@ -25,7 +27,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/notifications',                 [DriverController::class, 'notifications']);
         Route::post('/notifications/mark-read/{id}', [DriverController::class, 'markNotificationAsRead']);
         Route::post('/profile/bank',                 [DriverController::class, 'updateBank']);
-        Route::post('/profile/license',             [DriverController::class, 'uploadLicense']);
+        Route::post('/profile/license',              [DriverController::class, 'uploadLicense']);
+        Route::post('/profile/cccd-image',           [DriverController::class, 'uploadCccdImage']);
         Route::get('/bank-lists',                   [DriverController::class, 'bankLists']);
         Route::get('/cities',                        [DriverController::class, 'cities']);
         Route::post('/delete-account/request',       [DriverController::class, 'requestDeleteAccount']);
@@ -38,6 +41,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/completed',              [OrderController::class, 'completedOrders']);
         Route::get('/dashboard',              [OrderController::class, 'dashboard']);
         Route::get('/recent',                 [EarningController::class, 'recentOrders']);
+        Route::post('/{order}/view-offer',    [OrderController::class, 'viewOffer']);
         Route::post('/{order}/accept',        [OrderController::class, 'accept']);
         Route::post('/{order}/decline',       [OrderController::class, 'decline']);
         Route::post('/{order}/update-status', [OrderController::class, 'updateStatus']);
@@ -67,5 +71,10 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::prefix('score-reset')->group(function () {
         Route::post('/request', [ScoreResetController::class, 'request']);
         Route::get('/status',   [ScoreResetController::class, 'status']);
+    });
+
+    Route::prefix('driver/score')->group(function () {
+        Route::get('/',        [ScoreController::class, 'index']);
+        Route::get('/history', [ScoreController::class, 'history']);
     });
 });
