@@ -82,10 +82,15 @@ class DriverController extends Controller
         $data = $request->validate([
             'latitude'  => 'required|numeric',
             'longitude' => 'required|numeric',
+            'bearing'   => 'nullable|numeric',
         ]);
 
         $driver = $request->user();
-        $driver->update(['latitude' => $data['latitude'], 'longitude' => $data['longitude']]);
+        $driver->update([
+            'latitude'  => $data['latitude'],
+            'longitude' => $data['longitude'],
+            'bearing'   => $data['bearing'] ?? $driver->bearing,
+        ]);
 
         $activeOrder = Order::where('delivery_man_id', $driver->id)
             ->whereIn('status', ['assigned', 'processing', 'on_the_way'])

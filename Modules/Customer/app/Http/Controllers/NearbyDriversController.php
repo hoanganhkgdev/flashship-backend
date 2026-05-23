@@ -33,7 +33,7 @@ class NearbyDriversController extends Controller
                 $q->whereNull('score_suspended_until')
                   ->orWhere('score_suspended_until', '<=', now());
             })
-            ->select('id', 'latitude', 'longitude')
+            ->select('id', 'latitude', 'longitude', 'bearing')
             ->get()
             ->filter(function ($d) use ($lat, $lng, $radius) {
                 return $this->haversineKm(
@@ -43,9 +43,10 @@ class NearbyDriversController extends Controller
             })
             ->values()
             ->map(fn($d) => [
-                'id'  => $d->id,
-                'lat' => (float) $d->latitude,
-                'lng' => (float) $d->longitude,
+                'id'      => $d->id,
+                'lat'     => (float) $d->latitude,
+                'lng'     => (float) $d->longitude,
+                'bearing' => (float) ($d->bearing ?? 0),
             ]);
 
         return response()->json(['data' => $drivers]);
