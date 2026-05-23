@@ -63,7 +63,7 @@ class DispatchService
         Log::debug("┌─ [Dispatch] Đơn #{$order->id} | Lần thử #{$attempt}");
         if (!empty($alreadyOffered)) {
             $offeredNames = User::whereIn('id', $alreadyOffered)->pluck('name', 'id');
-            $offeredStr   = collect($alreadyOffered)->map(fn($id) => "#{$id} {$offeredNames[$id] ?? '?'}")->implode(', ');
+            $offeredStr   = collect($alreadyOffered)->map(fn($id) => '#' . $id . ' ' . ($offeredNames[$id] ?? '?'))->implode(', ');
             Log::debug("│  Đã hỏi: {$offeredStr}");
         }
 
