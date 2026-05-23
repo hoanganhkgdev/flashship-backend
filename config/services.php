@@ -53,5 +53,11 @@ return [
         'directions_url' => 'https://maps.googleapis.com/maps/api/directions/json',
     ],
 
+    'esms' => [
+        'api_key'      => env('ESMS_API_KEY'),
+        'secret_key'   => env('ESMS_SECRET_KEY'),
+        'brandname'    => env('ESMS_BRANDNAME', 'Verify'),
+        'otp_template' => env('ESMS_OTP_TEMPLATE', 'Ma OTP FlashShip cua ban la: {code}. Co hieu luc 10 phut.'),
+    ],
 
 ];

@@ -1,6 +1,7 @@
 <?php
 namespace Modules\Customer\Services;
 
+use App\Services\EsmsService;
 use App\Services\ZaloTokenService;
 use Illuminate\Support\Facades\Log;
 use Modules\Customer\Models\PhoneOtp;
@@ -44,7 +45,12 @@ class OtpService
         $templateId = config('services.zalo_zns.otp_template_id');
         if (!$templateId) return;
 
-        ZaloTokenService::sendTemplate($phone, $templateId, ['otp' => $code], 'customer_otp_' . time());
+        $sent = ZaloTokenService::sendTemplate($phone, $templateId, ['otp' => $code], 'customer_otp_' . time());
+
+        if (!$sent) {
+            Log::warning("[OTP] Zalo ZNS thất bại → fallback eSMS | phone={$phone}");
+            EsmsService::sendOtp($phone, $code);
+        }
     }
 
     public static function verify(string $phone, string $code, string $type): bool
