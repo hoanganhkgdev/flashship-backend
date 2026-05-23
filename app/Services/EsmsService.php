@@ -34,7 +34,7 @@ class EsmsService
                 'Content'   => $content,
                 'Phone'     => $phone,
                 'SecretKey' => $secretKey,
-                'SmsType'   => '4',
+                'SmsType'   => '8',
                 'IsUnicode' => '0',
             ]);
 
