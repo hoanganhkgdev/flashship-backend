@@ -6,13 +6,15 @@ use Illuminate\Support\Facades\Log;
 
 class DriverScoreService
 {
-    const DEFAULT_SCORE      = 80;
-    const SCORE_DECLINE      = -5;
-    const SCORE_TIMEOUT      = -5; // bỏ qua = từ chối, phạt như nhau
-    const SCORE_STREAK_BONUS = +5;
-    const STREAK_THRESHOLD   = 2;   // số đơn liên tiếp để được cộng điểm
-    const MIN_SCORE          = 0;
-    const MAX_SCORE          = 100;
+    const DEFAULT_SCORE       = 80;
+    const SCORE_DECLINE       = -3;
+    const SCORE_TIMEOUT       = -1;
+    const SCORE_STREAK_BONUS  = +1;
+    const STREAK_THRESHOLD    = 2;   // 2 đơn liên tiếp để được cộng điểm
+    const MIN_SCORE           = 0;
+    const MAX_SCORE           = 100;
+    const SUSPEND_THRESHOLD   = 20;  // điểm <= này thì bị khóa nhận đơn tạm thời
+    const SUSPEND_HOURS       = 2;   // khóa 2 giờ
 
     public static function onDecline(int $driverId): void
     {
@@ -45,12 +47,30 @@ class DriverScoreService
             ->update(['consecutive_completed' => $streak]);
     }
 
+    /**
+     * Decay điểm cho tài xế không hoạt động.
+     * Gọi từ command DecayDriverScores.
+     */
+    public static function onDecay(int $driverId, int $delta, string $reason): void
+    {
+        self::adjust($driverId, $delta, $reason);
+    }
+
     private static function adjust(int $driverId, int $delta, string $reason): void
     {
         $current  = DB::table('users')->where('id', $driverId)->value('driver_score') ?? self::DEFAULT_SCORE;
         $newScore = max(self::MIN_SCORE, min(self::MAX_SCORE, $current + $delta));
 
-        DB::table('users')->where('id', $driverId)->update(['driver_score' => $newScore]);
+        $updates = ['driver_score' => $newScore];
+
+        // Khóa nhận đơn nếu điểm rớt xuống dưới ngưỡng
+        if ($newScore <= self::SUSPEND_THRESHOLD && $current > self::SUSPEND_THRESHOLD) {
+            $suspendUntil = now()->addHours(self::SUSPEND_HOURS);
+            $updates['score_suspended_until'] = $suspendUntil;
+            Log::warning("[DriverScore] Driver #{$driverId} bị khóa nhận đơn đến {$suspendUntil} do điểm rớt xuống {$newScore}");
+        }
+
+        DB::table('users')->where('id', $driverId)->update($updates);
         DB::table('driver_score_logs')->insert([
             'driver_id'    => $driverId,
             'delta'        => $delta,
@@ -66,8 +86,8 @@ class DriverScoreService
     public static function onRated(int $driverId, int $stars): void
     {
         $delta = match ($stars) {
-            5 => +3,
-            4 => +1,
+            5 => +1,
+            4 =>  0,
             3 =>  0,
             2 => -2,
             1 => -5,
@@ -82,7 +102,10 @@ class DriverScoreService
     public static function resetToDefault(int $driverId): void
     {
         $current = DB::table('users')->where('id', $driverId)->value('driver_score') ?? self::DEFAULT_SCORE;
-        DB::table('users')->where('id', $driverId)->update(['driver_score' => self::DEFAULT_SCORE]);
+        DB::table('users')->where('id', $driverId)->update([
+            'driver_score'           => self::DEFAULT_SCORE,
+            'score_suspended_until'  => null,
+        ]);
         Log::info("[DriverScore] Driver #{$driverId} score reset: {$current} → " . self::DEFAULT_SCORE);
     }
 
@@ -107,13 +130,15 @@ class DriverScoreService
         $tips = [];
 
         if ($streak > 0) {
-            $left = self::STREAK_THRESHOLD - $streak;
+            $left   = self::STREAK_THRESHOLD - $streak;
             $tips[] = "Hoàn thành thêm {$left} đơn liên tiếp để nhận +" . self::SCORE_STREAK_BONUS . " điểm";
         } else {
             $tips[] = "Hoàn thành " . self::STREAK_THRESHOLD . " đơn liên tiếp để nhận +" . self::SCORE_STREAK_BONUS . " điểm";
         }
 
-        if ($score < 60) {
+        if ($score <= self::SUSPEND_THRESHOLD) {
+            $tips[] = "Điểm quá thấp — bạn đang bị tạm khóa nhận đơn " . self::SUSPEND_HOURS . " giờ";
+        } elseif ($score < 60) {
             $tips[] = "Chấp nhận đơn nhanh để tránh mất điểm timeout (-" . abs(self::SCORE_TIMEOUT) . " điểm)";
         }
 

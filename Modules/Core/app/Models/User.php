@@ -65,8 +65,9 @@ class User extends Authenticatable implements FilamentUser
             'password'               => 'hashed',
             'name_updated_at'     => 'datetime',
             'delete_requested_at' => 'datetime',
-            'is_online'           => 'boolean',
-            'online_since'        => 'datetime',
+            'is_online'              => 'boolean',
+            'online_since'           => 'datetime',
+            'score_suspended_until'  => 'datetime',
         ];
     }
 
