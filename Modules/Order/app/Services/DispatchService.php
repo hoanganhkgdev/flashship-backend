@@ -29,6 +29,15 @@ class DispatchService
     {
         if ($order->status !== 'pending') return;
 
+        Log::info("╔══════════════════════════════════════════════════════════════");
+        Log::info("║ [Dispatch] BẮT ĐẦU PHÁT ĐƠN");
+        Log::info("║  Đơn     : #{$order->id} | Mã: {$order->code}");
+        Log::info("║  Loại    : {$order->service_type}");
+        Log::info("║  Thành phố: {$order->city_id}");
+        Log::info("║  Pickup  : {$order->pickup_address} ({$order->pickup_lat}, {$order->pickup_lng})");
+        Log::info("║  Timeout : " . self::TIMEOUT_SECS . "s → auto-cancel nếu không ai nhận");
+        Log::info("╚══════════════════════════════════════════════════════════════");
+
         RTDBService::publishPendingOrder($order);
 
         // Auto-cancel sau 10 phút nếu không có tài xế nào nhận
@@ -49,14 +58,24 @@ class DispatchService
             ->pluck('driver_id')
             ->toArray();
 
+        $attempt = count($alreadyOffered) + 1;
+
+        Log::debug("┌─ [Dispatch] Đơn #{$order->id} | Lần thử #{$attempt}");
+        if (!empty($alreadyOffered)) {
+            $offeredNames = User::whereIn('id', $alreadyOffered)->pluck('name', 'id');
+            $offeredStr   = collect($alreadyOffered)->map(fn($id) => "#{$id} {$offeredNames[$id] ?? '?'}")->implode(', ');
+            Log::debug("│  Đã hỏi: {$offeredStr}");
+        }
+
         $candidates = $this->getCandidates($order, self::RADIUS_KM, $alreadyOffered);
 
         if ($candidates->isEmpty()) {
-            Log::info("[Dispatch] Order #{$order->id}: no more drivers → cancelling");
+            Log::info("└─ [Dispatch] Đơn #{$order->id}: Hết tài xế khả dụng → HỦY ĐƠN");
             $this->cancelIfNoDriver($order);
             return;
         }
 
+        Log::debug("│  Tìm được {$candidates->count()} tài xế khả dụng");
         $this->sendToDriver($order, $candidates->first());
     }
 
@@ -66,6 +85,9 @@ class DispatchService
      */
     public function handleTimeout(Order $order, int $driverId): void
     {
+        $driver = User::find($driverId);
+        $name   = $driver?->name ?? "#{$driverId}";
+
         DriverScoreService::onDecline($driverId);
 
         OrderDispatchLog::where('order_id', $order->id)
@@ -73,7 +95,7 @@ class DispatchService
             ->where('result', 'pending')
             ->update(['result' => 'expired', 'responded_at' => now()]);
 
-        Log::info("[Dispatch] Order #{$order->id}: driver #{$driverId} timed out → next driver");
+        Log::info("⏱  [Dispatch] Đơn #{$order->id}: Tài xế {$name} HẾT THỜI GIAN (30s) → chuyển tài xế tiếp theo");
 
         $this->sendToNextDriver($order->fresh());
     }
@@ -81,6 +103,17 @@ class DispatchService
     public function cancelIfNoDriver(Order $order): void
     {
         if ($order->status !== 'pending') return;
+
+        $logs = OrderDispatchLog::where('order_id', $order->id)->get();
+        $driverIds = $logs->pluck('driver_id')->unique()->toArray();
+        $names = User::whereIn('id', $driverIds)->pluck('name', 'id');
+
+        $summary = $logs->map(fn($l) => sprintf(
+            "  - #{%d} %s → %s",
+            $l->driver_id,
+            $names[$l->driver_id] ?? '?',
+            $l->result
+        ))->implode("\n");
 
         OrderDispatchLog::where('order_id', $order->id)
             ->where('result', 'pending')
@@ -100,7 +133,15 @@ class DispatchService
             FCMService::getInstance()->sendNoDriverCancellation($customer->fcm_token, $order->code);
         }
 
-        Log::info("[Dispatch] Order #{$order->id} auto-cancelled: no driver accepted");
+        Log::info("╔══════════════════════════════════════════════════════════════");
+        Log::info("║ [Dispatch] KẾT QUẢ: ĐƠN #{$order->id} BỊ HỦY - Không có tài xế nhận");
+        Log::info("║  Tổng số lần thử: {$logs->count()}");
+        Log::info("║  Danh sách tài xế đã hỏi:");
+        foreach ($logs as $l) {
+            $n = $names[$l->driver_id] ?? '?';
+            Log::info("║    - #{$l->driver_id} {$n} → {$l->result}");
+        }
+        Log::info("╚══════════════════════════════════════════════════════════════");
     }
 
     public function handleAccepted(Order $order, User $driver): void
@@ -112,7 +153,13 @@ class DispatchService
 
         RTDBService::removePendingOrder($order->code, $order->city_id);
 
-        Log::info("[Dispatch] Driver #{$driver->id} accepted order #{$order->id}");
+        $attempts = OrderDispatchLog::where('order_id', $order->id)->count();
+
+        Log::info("╔══════════════════════════════════════════════════════════════");
+        Log::info("║ [Dispatch] KẾT QUẢ: ĐƠN #{$order->id} ĐƯỢC NHẬN");
+        Log::info("║  Tài xế  : #{$driver->id} {$driver->name} | SĐT: {$driver->phone}");
+        Log::info("║  Sau lần thử: #{$attempts}");
+        Log::info("╚══════════════════════════════════════════════════════════════");
     }
 
     // =========================================================================
@@ -121,7 +168,26 @@ class DispatchService
 
     private function sendToDriver(Order $order, User $driver): void
     {
-        $now = now();
+        $now  = now();
+        $dist = round($this->distanceKm($driver, $order), 2);
+
+        $ratings = Order::where('delivery_man_id', $driver->id)
+            ->whereNotNull('driver_rating')
+            ->where('status', 'completed')
+            ->avg('driver_rating') ?? 0;
+
+        $distScore   = round((1 - min($dist, self::RADIUS_KM) / self::RADIUS_KM) * 40, 1);
+        $ratingScore = round(($ratings / 5) * 30, 1);
+        $scoreScore  = round((($driver->driver_score ?? 80) / 100) * 30, 1);
+        $total       = round($distScore + $ratingScore + $scoreScore, 1);
+
+        Log::info("│");
+        Log::info("└→ [Dispatch] GỬI ĐƠN #{$order->id}");
+        Log::info("     Tài xế   : #{$driver->id} {$driver->name} | SĐT: {$driver->phone}");
+        Log::info("     Khoảng cách: {$dist} km");
+        Log::info("     Điểm tổng : {$total} = dist({$distScore}) + rating({$ratingScore}) + score({$scoreScore})");
+        Log::info("     driver_score: " . ($driver->driver_score ?? 80) . " | avg_rating: " . round($ratings, 2));
+        Log::info("     FCM token : " . ($driver->fcm_token ? 'có' : 'KHÔNG CÓ'));
 
         OrderDispatchLog::create([
             'order_id'   => $order->id,
@@ -148,6 +214,7 @@ class DispatchService
                     self::FCM_TTL_SECS,
                     $now->toIso8601String()
                 );
+                Log::debug("     → FCM gửi thành công");
             } catch (\Throwable $e) {
                 Log::error("[Dispatch] FCM failed for driver #{$driver->id}: " . $e->getMessage());
             }
@@ -155,8 +222,6 @@ class DispatchService
 
         DispatchOrderJob::dispatch($order->id, $driver->id)
             ->delay(now()->addSeconds(self::DRIVER_OFFER_SECS));
-
-        Log::info("[Dispatch] Order #{$order->id} → Driver #{$driver->id} (score={$driver->driver_score})");
     }
 
     public function getCandidates(Order $order, float $radiusKm, array $excludeIds = []): Collection
@@ -176,7 +241,28 @@ class DispatchService
             ->with(['debts', 'wallet', 'driverLicenses'])
             ->get();
 
-        $driverIds = $candidates->pluck('id')->toArray();
+        Log::debug("     [Candidates] Online trong thành phố: {$candidates->count()} | Bận: {$busyDriverIds->count()} | Đã hỏi: " . count($excludeIds));
+
+        $beforeDebt   = $candidates->count();
+        $afterDebt    = $candidates->filter(fn(User $d) => !$this->hasBlockedDebt($d));
+        $debtRemoved  = $beforeDebt - $afterDebt->count();
+        if ($debtRemoved > 0) {
+            Log::debug("     [Candidates] Loại {$debtRemoved} tài xế do nợ quá hạn");
+        }
+
+        $afterLicense = $afterDebt->filter(fn(User $d) => $order->service_type !== 'car' || $d->has_car_license);
+        $licRemoved   = $afterDebt->count() - $afterLicense->count();
+        if ($licRemoved > 0) {
+            Log::debug("     [Candidates] Loại {$licRemoved} tài xế do không có bằng xe hơi");
+        }
+
+        $afterRadius  = $afterLicense->filter(fn(User $d) => $this->distanceKm($d, $order) <= $radiusKm);
+        $radRemoved   = $afterLicense->count() - $afterRadius->count();
+        if ($radRemoved > 0) {
+            Log::debug("     [Candidates] Loại {$radRemoved} tài xế do ngoài bán kính {$radiusKm}km");
+        }
+
+        $driverIds = $afterRadius->pluck('id')->toArray();
 
         $ratings = Order::whereIn('delivery_man_id', $driverIds)
             ->whereNotNull('driver_rating')
@@ -185,13 +271,21 @@ class DispatchService
             ->groupBy('delivery_man_id')
             ->pluck('avg_rating', 'delivery_man_id');
 
-        return $candidates
-            ->filter(fn(User $d) => !$this->hasBlockedDebt($d))
-            ->filter(fn(User $d) => $order->service_type !== 'car' || $d->has_car_license)
-            ->filter(fn(User $d) => $this->distanceKm($d, $order) <= $radiusKm)
+        $sorted = $afterRadius
             ->sortByDesc(fn(User $d) => $this->compositeScore($d, $order, (float) ($ratings[$d->id] ?? 0)))
             ->take(self::MAX_DRIVERS)
             ->values();
+
+        if ($sorted->isNotEmpty()) {
+            Log::debug("     [Candidates] Top " . min(5, $sorted->count()) . " tài xế sẽ được hỏi:");
+            foreach ($sorted->take(5) as $i => $d) {
+                $dist  = round($this->distanceKm($d, $order), 2);
+                $score = round($this->compositeScore($d, $order, (float) ($ratings[$d->id] ?? 0)), 1);
+                Log::debug("       " . ($i + 1) . ". #{$d->id} {$d->name} | {$dist}km | điểm={$score} | driver_score=" . ($d->driver_score ?? 80));
+            }
+        }
+
+        return $sorted;
     }
 
     private function compositeScore(User $driver, Order $order, float $avgRating): float
