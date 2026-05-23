@@ -21,7 +21,11 @@ class EsmsService
             return false;
         }
 
-        $phone   = '0' . ltrim(preg_replace('/\D/', '', $phone), '84');
+        $digits = preg_replace('/\D/', '', $phone);
+        if (str_starts_with($digits, '84') && strlen($digits) === 11) {
+            $digits = '0' . substr($digits, 2);
+        }
+        $phone = $digits;
         $content = str_replace('{code}', $code, $content);
 
         try {
