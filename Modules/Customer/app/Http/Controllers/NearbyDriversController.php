@@ -29,7 +29,10 @@ class NearbyDriversController extends Controller
             ->whereNotNull('latitude')
             ->whereNotNull('longitude')
             ->whereNotIn('id', $busyIds)
-            ->whereNull('score_suspended_until')
+            ->where(function ($q) {
+                $q->whereNull('score_suspended_until')
+                  ->orWhere('score_suspended_until', '<=', now());
+            })
             ->select('id', 'latitude', 'longitude')
             ->get()
             ->filter(function ($d) use ($lat, $lng, $radius) {
