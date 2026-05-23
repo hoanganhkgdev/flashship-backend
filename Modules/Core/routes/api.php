@@ -15,10 +15,8 @@ use Modules\Admin\Models\SupportConfig;
 |----------------------------------------------------------------------
 */
 Route::prefix('auth')->group(function () {
-    Route::post('/login',               [AuthController::class, 'login']);
-    Route::post('/register',            [AuthController::class, 'register']);
-    Route::post('/send-otp',            [AuthController::class, 'sendOtp']);
-    Route::post('/verify-otp-register', [AuthController::class, 'verifyOtpAndRegister']);
+    Route::post('/login',    [AuthController::class, 'login']);
+    Route::post('/register', [AuthController::class, 'register']);
 
     Route::middleware('auth:sanctum')->group(function () {
         Route::get('/me',      [AuthController::class, 'me']);

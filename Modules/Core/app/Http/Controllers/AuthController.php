@@ -8,7 +8,6 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\ValidationException;
 use Modules\Core\Models\User;
-use Modules\Core\Services\OtpService;
 
 class AuthController extends Controller
 {
@@ -107,73 +106,6 @@ class AuthController extends Controller
             'message' => 'Đăng nhập thành công',
             'data'    => ['token' => $token, 'user' => $this->formatUser($user)],
         ]);
-    }
-
-    public function sendOtp(Request $request): JsonResponse
-    {
-        $data  = $request->validate(['phone' => 'required|string']);
-        $phone = $data['phone'];
-
-        $existing = User::where('phone', $phone)->where('user_type', 'driver')->first();
-        if ($existing && $existing->status != 0) {
-            return response()->json(['success' => false, 'message' => 'Số điện thoại đã được đăng ký'], 422);
-        }
-
-        if (OtpService::recentlySent($phone)) {
-            return response()->json(['success' => false, 'message' => 'Vui lòng chờ 60 giây trước khi gửi lại'], 429);
-        }
-
-        OtpService::send($phone);
-
-        return response()->json(['success' => true, 'message' => 'Mã OTP đã được gửi qua Zalo đến số ' . $phone]);
-    }
-
-    public function verifyOtpAndRegister(Request $request): JsonResponse
-    {
-        $data = $request->validate([
-            'phone'         => 'required|string',
-            'otp'           => 'required|string|size:6',
-            'name'          => 'required|string|max:255',
-            'password'      => 'required|string|min:6',
-            'cccd'          => 'required|string|between:9,12',
-            'city_id'       => 'nullable|exists:cities,id',
-            'latitude'      => 'nullable|numeric',
-            'longitude'     => 'nullable|numeric',
-        ]);
-
-        if (!OtpService::verify($data['phone'], $data['otp'])) {
-            return response()->json(['success' => false, 'message' => 'Mã OTP không đúng hoặc đã hết hạn'], 422);
-        }
-
-        $existingDriver = User::where('phone', $data['phone'])->where('user_type', 'driver')->first();
-
-        if ($existingDriver) {
-            if ($existingDriver->status == 1) {
-                return response()->json(['success' => false, 'message' => 'Số điện thoại đã được đăng ký'], 422);
-            }
-            $existingDriver->delete();
-        }
-
-        if (empty($data['city_id']) && !empty($data['latitude']) && !empty($data['longitude'])) {
-            $data['city_id'] = $this->findNearestCity((float) $data['latitude'], (float) $data['longitude']);
-        }
-
-        $user = User::create([
-            'name'     => $data['name'],
-            'phone'    => $data['phone'],
-            'password' => bcrypt($data['password']),
-            'cccd'     => $data['cccd'],
-            'city_id'  => $data['city_id'] ?? null,
-            'status'        => 0,
-            'user_type'     => 'driver',
-        ]);
-
-        if ($request->hasFile('avatar')) {
-            $path = $request->file('avatar')->store('profiles', 'public');
-            $user->update(['profile_photo_path' => $path]);
-        }
-
-        return response()->json(['success' => true, 'message' => 'Đăng ký thành công! Tài khoản đang chờ admin duyệt.']);
     }
 
     public function me(Request $request): JsonResponse

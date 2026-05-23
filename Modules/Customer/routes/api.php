@@ -10,12 +10,8 @@ use Modules\Pricing\Http\Controllers\PricingController;
 Route::prefix('customer')->group(function () {
 
     Route::prefix('auth')->group(function () {
-        Route::post('/register',         [AuthController::class, 'register']);
-        Route::post('/login',            [AuthController::class, 'login']);
-        Route::post('/phone-login',      [AuthController::class, 'phoneLogin']);
-        Route::post('/complete-profile', [AuthController::class, 'completeProfile']);
-        Route::post('/send-otp',       [AuthController::class, 'sendOtp']);
-        Route::post('/reset-password', [AuthController::class, 'resetPassword']);
+        Route::post('/register', [AuthController::class, 'register']);
+        Route::post('/login',    [AuthController::class, 'login']);
 
         Route::middleware('auth:sanctum')->group(function () {
             Route::get('/me',              [AuthController::class, 'me']);
