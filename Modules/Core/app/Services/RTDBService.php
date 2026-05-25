@@ -41,6 +41,28 @@ class RTDBService
         }
     }
 
+    public static function updateOrderStatus(string $orderCode, string $status): void
+    {
+        try {
+            self::db()->getReference("orders/{$orderCode}")->update([
+                'status'     => $status,
+                'updated_at' => now()->timestamp,
+            ]);
+        } catch (\Throwable $e) {
+            Log::error('[RTDB] updateOrderStatus failed: ' . $e->getMessage());
+        }
+    }
+
+    public static function clearOrder(string $orderCode): void
+    {
+        try {
+            self::db()->getReference("orders/{$orderCode}")->remove();
+            self::db()->getReference("order_location/{$orderCode}")->remove();
+        } catch (\Throwable $e) {
+            Log::error('[RTDB] clearOrder failed: ' . $e->getMessage());
+        }
+    }
+
     public static function publishPendingOrder(\Modules\Order\Models\Order $order): void
     {
         try {

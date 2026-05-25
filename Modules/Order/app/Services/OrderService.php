@@ -110,6 +110,7 @@ class OrderService
             $freshOrder = Order::find($orderId);
             if (!$freshOrder) return;
             app(DispatchService::class)->handleAccepted($freshOrder, User::find($userId));
+            RTDBService::updateOrderStatus($freshOrder->code, 'assigned');
             $customer = User::find($freshOrder->sender_platform_id);
             if ($customer?->fcm_token) {
                 FCMService::getInstance()->sendOrderStatusUpdate($customer->fcm_token, $freshOrder->code, 'assigned');
@@ -165,6 +166,8 @@ class OrderService
 
         $order->update(['status' => $status]);
 
+        RTDBService::updateOrderStatus($order->code, $status);
+
         $customer = User::find($order->sender_platform_id);
         if ($customer?->fcm_token) {
             FCMService::getInstance()->sendOrderStatusUpdate($customer->fcm_token, $order->code, $status);
@@ -212,7 +215,7 @@ class OrderService
         Cache::forget("driver_stats_{$user->id}");
         Log::info("✅ Order #{$order->id} completed by driver #{$user->id}");
 
-        RTDBService::clearOrderLocation($order->code);
+        RTDBService::clearOrder($order->code);
         $customer = User::find($order->sender_platform_id);
         if ($customer?->fcm_token) {
             FCMService::getInstance()->sendOrderStatusUpdate($customer->fcm_token, $order->code, 'completed');

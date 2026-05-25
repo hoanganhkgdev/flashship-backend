@@ -9,6 +9,7 @@ use Illuminate\Support\Str;
 use Modules\Order\Models\Order;
 use Modules\Core\Models\Voucher;
 use Modules\Driver\Services\DriverScoreService;
+use Modules\Core\Services\RTDBService;
 use Modules\Order\Services\OrderService;
 use Modules\Pricing\Services\PricingService;
 
@@ -190,7 +191,7 @@ class OrderController extends Controller
         if ($order->status !== 'pending') return response()->json(['success' => false, 'message' => 'Chỉ có thể hủy đơn khi chưa có tài xế nhận'], 400);
 
         $order->update(['status' => 'cancelled']);
-        // TODO: Firebase removeOrder($order)
+        RTDBService::clearOrder($order->code);
 
         return response()->json(['success' => true, 'message' => 'Đã hủy đơn hàng']);
     }
