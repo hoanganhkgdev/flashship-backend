@@ -56,6 +56,13 @@ class OrderController extends Controller
 
         $user = $request->user();
 
+        if (!$user->city_id) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Tài khoản chưa được gán thành phố. Vui lòng liên hệ hỗ trợ.',
+            ], 422);
+        }
+
         try {
             $cityId = $user->city_id;
 
@@ -223,9 +230,13 @@ class OrderController extends Controller
             'cancel_reason'    => $order->cancel_reason,
             'service_type'     => $order->service_type,
             'pickup_address'   => $order->pickup_address,
+            'pickup_lat'       => $order->pickup_lat    ? (float) $order->pickup_lat    : null,
+            'pickup_lng'       => $order->pickup_lng    ? (float) $order->pickup_lng    : null,
             'pickup_phone'     => $order->pickup_phone,
             'sender_name'      => $order->sender_name,
             'delivery_address' => $order->delivery_address,
+            'delivery_lat'     => $order->delivery_lat  ? (float) $order->delivery_lat  : null,
+            'delivery_lng'     => $order->delivery_lng  ? (float) $order->delivery_lng  : null,
             'delivery_phone'   => $order->delivery_phone,
             'receiver_name'    => $order->receiver_name,
             'shipping_fee'     => $order->shipping_fee,

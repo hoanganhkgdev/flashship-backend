@@ -260,6 +260,11 @@ class DispatchService
 
     public function getCandidates(Order $order, float $radiusKm, array $excludeIds = []): Collection
     {
+        if (!$order->city_id) {
+            Log::warning("[Dispatch] Đơn #{$order->id} không có city_id → không thể tìm tài xế");
+            return collect();
+        }
+
         $now           = now();
         $busyDriverIds = Order::whereIn('status', ['assigned', 'processing', 'on_the_way'])
             ->whereNotNull('delivery_man_id')

@@ -22,10 +22,13 @@ class NearbyDriversController extends Controller
             ->whereNotNull('delivery_man_id')
             ->pluck('delivery_man_id');
 
+        $cityId = $request->user()->city_id;
+
         $drivers = DB::table('users')
             ->where('user_type', 'driver')
             ->where('status', 1)
             ->where('is_online', true)
+            ->when($cityId, fn($q) => $q->where('city_id', $cityId))
             ->whereNotNull('latitude')
             ->whereNotNull('longitude')
             ->whereNotIn('id', $busyIds)
