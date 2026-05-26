@@ -59,8 +59,6 @@ class DispatchService
         DB::table('orders')->where('id', $order->id)->update(['dispatch_started_at' => $now]);
         $order->dispatch_started_at = $now;
 
-        RTDBService::publishPendingOrder($order);
-
         AutoCancelOrderJob::dispatch($order->id)->delay($now->copy()->addSeconds(self::TIMEOUT_SECS));
 
         $this->sendToNextDriver($order);
@@ -142,8 +140,6 @@ class DispatchService
 
         if (!$cancelled) return;
 
-        RTDBService::removePendingOrder($order->code, $order->city_id);
-
         $customer = User::find($order->sender_platform_id);
         if ($customer?->fcm_token) {
             FCMService::getInstance()->sendNoDriverCancellation($customer->fcm_token, $order->code);
@@ -166,7 +162,6 @@ class DispatchService
             ->where('result', 'pending')
             ->update(['result' => 'accepted', 'responded_at' => now()]);
 
-        RTDBService::removePendingOrder($order->code, $order->city_id);
         RTDBService::clearDriverOffer($driver->id);
 
         $attempts = OrderDispatchLog::where('order_id', $order->id)->count();
