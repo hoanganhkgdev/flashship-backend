@@ -3,6 +3,7 @@
 use Illuminate\Support\Facades\Route;
 use Modules\Admin\Http\Controllers\AdminController;
 use Modules\Admin\Http\Controllers\PricingAdminController;
+use Modules\Admin\Http\Controllers\ZaloTokenController;
 
 Route::prefix('admin')->group(function () {
     Route::post('/login', [AdminController::class, 'login']);
@@ -24,6 +25,11 @@ Route::prefix('admin')->group(function () {
         // Bằng lái ô tô
         Route::get('/car-licenses',                          [PricingAdminController::class, 'carLicenses']);
         Route::patch('/drivers/{driverId}/car-license',      [PricingAdminController::class, 'approveCarLicense']);
+
+        // Zalo ZNS token
+        Route::get('/zalo-token',          [ZaloTokenController::class, 'show']);
+        Route::post('/zalo-token',         [ZaloTokenController::class, 'update']);
+        Route::post('/zalo-token/refresh', [ZaloTokenController::class, 'refresh']);
 
     });
 });

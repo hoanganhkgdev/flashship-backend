@@ -38,18 +38,24 @@ class ZaloTokenService
         $row = self::row();
 
         if (!$row) {
+            // Seed từ .env nếu DB chưa có row
             $token   = config('services.zalo_zns.access_token');
             $refresh = config('services.zalo_zns.refresh_token');
             if ($token && $refresh) {
-                self::save($token, $refresh);
+                self::save($token, $refresh, 86400);
+                Log::info('[ZaloToken] Seeded token từ .env vào DB');
             }
-            return $token;
+            return $token ?: null;
         }
 
         // Chủ động refresh khi còn dưới 30 phút
         if ($row->expires_at && now()->addMinutes(30)->gte($row->expires_at)) {
-            self::refresh($row);
-            return self::row()?->access_token ?? $row->access_token;
+            Log::info('[ZaloToken] Token sắp hết hạn, đang tự refresh...');
+            if (self::refresh($row)) {
+                return self::row()?->access_token ?? $row->access_token;
+            }
+            // Nếu refresh thất bại vẫn thử dùng token cũ (có thể vẫn còn valid)
+            return $row->access_token;
         }
 
         return $row->access_token;
