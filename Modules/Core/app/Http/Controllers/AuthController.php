@@ -8,9 +8,75 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\ValidationException;
 use Modules\Core\Models\User;
+use Modules\Core\Services\OtpService;
 
 class AuthController extends Controller
 {
+    public function sendOtp(Request $request): JsonResponse
+    {
+        $data = $request->validate(['phone' => 'required|string']);
+
+        if (OtpService::recentlySent($data['phone'])) {
+            return response()->json(['success' => false, 'message' => 'Vui lòng chờ 60 giây trước khi gửi lại'], 429);
+        }
+
+        OtpService::send($data['phone']);
+
+        return response()->json(['success' => true, 'message' => 'Mã OTP đã được gửi đến ' . $data['phone']]);
+    }
+
+    public function verifyOtpAndRegister(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'phone'     => 'required|string',
+            'otp'       => 'required|string|size:6',
+            'name'      => 'required|string|max:255',
+            'password'  => 'required|string|min:6',
+            'city_id'   => 'nullable|integer|exists:cities,id',
+            'latitude'  => 'nullable|numeric',
+            'longitude' => 'nullable|numeric',
+            'fcm_token' => 'nullable|string',
+        ]);
+
+        if (!OtpService::verify($data['phone'], $data['otp'])) {
+            return response()->json(['success' => false, 'message' => 'Mã OTP không hợp lệ hoặc đã hết hạn'], 422);
+        }
+
+        if (User::where('phone', $data['phone'])->where('user_type', 'driver')->exists()) {
+            return response()->json(['success' => false, 'message' => 'Số điện thoại đã được đăng ký'], 422);
+        }
+
+        if (empty($data['city_id']) && !empty($data['latitude']) && !empty($data['longitude'])) {
+            $data['city_id'] = $this->findNearestCity((float) $data['latitude'], (float) $data['longitude']);
+        }
+
+        $path = null;
+        if ($request->hasFile('avatar')) {
+            $path = $request->file('avatar')->store('profiles', 'public');
+        }
+
+        [$user, $token] = DB::transaction(function () use ($data, $path) {
+            $user = User::create([
+                'name'               => $data['name'],
+                'phone'              => $data['phone'],
+                'password'           => bcrypt($data['password']),
+                'status'             => 1,
+                'user_type'          => 'driver',
+                'city_id'            => $data['city_id'] ?? null,
+                'profile_photo_path' => $path,
+                'fcm_token'          => $data['fcm_token'] ?? null,
+            ]);
+            $token = $user->createToken('api_token')->plainTextToken;
+            return [$user, $token];
+        });
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Đăng ký thành công',
+            'data'    => ['user' => $user->load('city'), 'token' => $token],
+        ], 201);
+    }
+
     public function register(Request $request): JsonResponse
     {
         $data = $request->validate([
