@@ -38,24 +38,19 @@ class ZaloTokenSettings extends Page
 
     public function form(Form $form): Form
     {
-        $row         = DB::table('zalo_tokens')->orderByDesc('id')->first();
-        $minutesLeft = $row?->expires_at ? now()->diffInMinutes($row->expires_at, false) : null;
-        $expiresAt   = $row?->expires_at;
-        $updatedAt   = $row?->updated_at;
-
-        $statusHtml = $this->buildStatusHtml($minutesLeft, $expiresAt, $updatedAt);
+        $row = DB::table('zalo_tokens')->orderByDesc('id')->first();
 
         return $form
             ->schema([
-                Section::make('Trạng thái hiện tại')
+                Section::make('Trạng thái')
                     ->schema([
                         Placeholder::make('status_info')
                             ->label('')
-                            ->content(fn () => new HtmlString($statusHtml)),
+                            ->content(fn () => new HtmlString($this->buildStatusHtml($row))),
                     ]),
 
-                Section::make('Cập nhật Token mới')
-                    ->description('Lấy token mới từ Zalo Developer Console khi refresh token hết hạn (mỗi 3 tháng)')
+                Section::make('Nhập Token mới')
+                    ->description('Chỉ cần nhập 1 lần đầu. Sau đó hệ thống tự refresh mỗi 24h.')
                     ->schema([
                         TextInput::make('access_token')
                             ->label('Access Token')
@@ -77,7 +72,7 @@ class ZaloTokenSettings extends Page
                             ->label('Thời hạn (giây)')
                             ->numeric()
                             ->default(86400)
-                            ->helperText('Mặc định 86400 = 24 giờ. Access token Zalo hết hạn sau 24h.'),
+                            ->helperText('Zalo access token = 86400s (24h). Không cần đổi giá trị này.'),
                     ]),
             ])
             ->statePath('');
@@ -92,10 +87,13 @@ class ZaloTokenSettings extends Page
         ]);
 
         $payload = [
-            'access_token'  => $this->access_token,
-            'refresh_token' => $this->refresh_token,
-            'expires_at'    => now()->addSeconds($this->expires_in),
-            'updated_at'    => now(),
+            'access_token'      => $this->access_token,
+            'refresh_token'     => $this->refresh_token,
+            'expires_at'        => now()->addSeconds($this->expires_in),
+            'last_error'        => null,
+            'last_error_at'     => null,
+            'last_refreshed_at' => now(),
+            'updated_at'        => now(),
         ];
 
         $row = DB::table('zalo_tokens')->orderByDesc('id')->first();
@@ -107,6 +105,7 @@ class ZaloTokenSettings extends Page
 
         Notification::make()
             ->title('Đã lưu token thành công')
+            ->body('Hệ thống sẽ tự động refresh mỗi 24h.')
             ->success()
             ->send();
 
@@ -117,35 +116,31 @@ class ZaloTokenSettings extends Page
     {
         return [
             Action::make('force_refresh')
-                ->label('Tự động Refresh Token')
+                ->label('Thử Refresh Ngay')
                 ->icon('heroicon-o-arrow-path')
                 ->color('warning')
                 ->requiresConfirmation()
                 ->modalHeading('Refresh Access Token')
-                ->modalDescription('Hệ thống sẽ dùng refresh token để lấy access token mới từ Zalo. Tiếp tục?')
+                ->modalDescription('Dùng refresh token để lấy access token mới từ Zalo. Tiếp tục?')
                 ->action(function () {
                     $row = DB::table('zalo_tokens')->orderByDesc('id')->first();
 
                     if (!$row) {
-                        Notification::make()
-                            ->title('Chưa có token trong DB')
-                            ->body('Vui lòng nhập token trước.')
-                            ->danger()
-                            ->send();
+                        Notification::make()->title('Chưa có token trong DB')->danger()->send();
                         return;
                     }
 
                     if (ZaloTokenService::refresh($row)) {
                         Notification::make()
                             ->title('Refresh thành công')
-                            ->body('Access token mới đã được lưu.')
+                            ->body('Access token + refresh token mới đã được lưu.')
                             ->success()
                             ->send();
                         $this->redirect(static::getUrl());
                     } else {
                         Notification::make()
                             ->title('Refresh thất bại')
-                            ->body('Refresh token có thể đã hết hạn. Hãy nhập token mới từ Zalo Developer Console.')
+                            ->body('Refresh token có thể đã hết hạn. Cần nhập token mới từ developers.zalo.me.')
                             ->danger()
                             ->persistent()
                             ->send();
@@ -154,47 +149,78 @@ class ZaloTokenSettings extends Page
         ];
     }
 
-    private function buildStatusHtml(?int $minutesLeft, ?string $expiresAt, ?string $updatedAt): string
+    private function buildStatusHtml(?object $row): string
     {
-        if ($minutesLeft === null) {
-            return '<div style="padding:12px;background:#fef2f2;border:1px solid #fca5a5;border-radius:8px;color:#b91c1c">
-                        <strong>⚠ Chưa có token</strong> — Vui lòng nhập token lần đầu.
-                    </div>';
+        // Chưa có token
+        if (!$row) {
+            return $this->alertHtml('warning',
+                '⚠ Chưa có token',
+                'Nhập access token + refresh token lần đầu ở bên dưới. Sau đó hệ thống hoàn toàn tự động.'
+            );
         }
 
-        if ($minutesLeft <= 0) {
-            $color = ['bg' => '#fef2f2', 'border' => '#fca5a5', 'text' => '#b91c1c', 'badge' => '#ef4444'];
-            $label = 'ĐÃ HẾT HẠN';
-            $desc  = 'Token đã hết hạn — nhấn "Tự động Refresh Token" hoặc nhập token mới.';
-        } elseif ($minutesLeft <= 30) {
-            $color = ['bg' => '#fffbeb', 'border' => '#fcd34d', 'text' => '#92400e', 'badge' => '#f59e0b'];
-            $label = 'SẮP HẾT HẠN';
-            $hours = round($minutesLeft / 60, 1);
-            $desc  = "Còn khoảng {$hours} giờ — hệ thống sẽ tự refresh.";
+        $html = '';
+
+        // Cảnh báo lỗi nếu refresh thất bại gần đây
+        if ($row->last_error_at) {
+            $errorTime = \Carbon\Carbon::parse($row->last_error_at)->format('d/m/Y H:i');
+            $html .= $this->alertHtml('danger',
+                "🚨 Tự động refresh thất bại lúc {$errorTime}",
+                "Lý do: <code>" . e($row->last_error) . "</code><br><br>" .
+                "Refresh token có thể đã hết hạn (~3 tháng). Cần:<br>" .
+                "1. Vào <a href='https://developers.zalo.me' target='_blank' style='color:inherit;text-decoration:underline'>developers.zalo.me</a> → lấy token mới<br>" .
+                "2. Dán vào form bên dưới → Lưu<br>" .
+                "<em>Trong thời gian này OTP gửi qua eSMS fallback.</em>"
+            );
+        }
+
+        // Trạng thái access token
+        $minutesLeft = $row->expires_at ? now()->diffInMinutes($row->expires_at, false) : null;
+        $expiresAt   = $row->expires_at ? \Carbon\Carbon::parse($row->expires_at)->format('d/m/Y H:i') : '—';
+        $lastRefresh = $row->last_refreshed_at
+            ? \Carbon\Carbon::parse($row->last_refreshed_at)->format('d/m/Y H:i')
+            : '—';
+
+        if ($minutesLeft === null || $minutesLeft <= 0) {
+            $html .= $this->alertHtml('danger', '🔴 Access token đã hết hạn',
+                "Hệ thống đang thử refresh tự động. Nếu tiếp tục lỗi, nhấn <strong>Thử Refresh Ngay</strong>."
+            );
+        } elseif ($minutesLeft <= 60) {
+            $html .= $this->alertHtml('warning', "🟡 Access token còn {$minutesLeft} phút",
+                'Scheduler sẽ tự refresh trong vài phút tới.'
+            );
         } else {
-            $color = ['bg' => '#f0fdf4', 'border' => '#86efac', 'text' => '#166534', 'badge' => '#22c55e'];
-            $label = 'HỢP LỆ';
             $hours = round($minutesLeft / 60, 1);
-            $desc  = "Còn khoảng {$hours} giờ.";
+            $html .= $this->alertHtml('success', "🟢 Access token hợp lệ — còn {$hours} giờ",
+                "Hết hạn lúc: <strong>{$expiresAt}</strong> · Refresh lần cuối: <strong>{$lastRefresh}</strong>"
+            );
         }
 
-        $expiresFormatted = $expiresAt ? \Carbon\Carbon::parse($expiresAt)->format('d/m/Y H:i') : '—';
-        $updatedFormatted = $updatedAt ? \Carbon\Carbon::parse($updatedAt)->format('d/m/Y H:i') : '—';
+        // Giải thích cơ chế
+        $html .= "<div style='margin-top:12px;padding:12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;font-size:13px;color:#475569'>
+            <strong>Cơ chế tự động:</strong><br>
+            • Scheduler kiểm tra mỗi <strong>1 giờ</strong><br>
+            • Khi access token còn &lt; 30 phút → tự gọi Zalo API lấy token mới (dùng refresh token)<br>
+            • Zalo trả về access token MỚI (24h) + refresh token MỚI (3 tháng) → lưu cả 2 vào DB<br>
+            • Chu kỳ lặp lại → <strong>không bao giờ hết hạn</strong> miễn scheduler đang chạy<br>
+            • Chỉ cần nhập lại thủ công khi cả 2 token đều bị vô hiệu hóa (hiếm gặp)
+        </div>";
 
-        return "
-        <div style='padding:14px;background:{$color['bg']};border:1px solid {$color['border']};border-radius:8px;color:{$color['text']}'>
-            <div style='display:flex;align-items:center;gap:10px;margin-bottom:8px'>
-                <span style='background:{$color['badge']};color:#fff;font-size:11px;font-weight:700;padding:2px 10px;border-radius:20px'>{$label}</span>
-                <span style='font-size:14px'>{$desc}</span>
-            </div>
-            <div style='font-size:13px;opacity:0.8'>
-                Hết hạn lúc: <strong>{$expiresFormatted}</strong> &nbsp;·&nbsp; Cập nhật lần cuối: <strong>{$updatedFormatted}</strong>
-            </div>
-        </div>
-        <div style='margin-top:10px;font-size:12px;color:#6b7280'>
-            📋 Lịch tự động: Hệ thống kiểm tra và refresh token mỗi <strong>1 giờ</strong> khi còn dưới 30 phút.
-            Khi refresh token hết hạn (~3 tháng), cần nhập token mới từ
-            <a href='https://developers.zalo.me' target='_blank' style='color:#f97316'>developers.zalo.me</a>.
+        return $html;
+    }
+
+    private function alertHtml(string $type, string $title, string $body): string
+    {
+        $styles = [
+            'success' => ['bg' => '#f0fdf4', 'border' => '#86efac', 'text' => '#166534'],
+            'warning' => ['bg' => '#fffbeb', 'border' => '#fcd34d', 'text' => '#92400e'],
+            'danger'  => ['bg' => '#fef2f2', 'border' => '#fca5a5', 'text' => '#b91c1c'],
+        ];
+        $s = $styles[$type] ?? $styles['warning'];
+
+        return "<div style='margin-bottom:10px;padding:14px;background:{$s['bg']};border:1px solid {$s['border']};border-radius:8px;color:{$s['text']}'>
+            <div style='font-weight:600;margin-bottom:4px'>{$title}</div>
+            <div style='font-size:13px'>{$body}</div>
         </div>";
     }
 }

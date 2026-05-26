@@ -5,6 +5,7 @@ namespace App\Services;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 
 class ZaloTokenService
 {
@@ -18,12 +19,15 @@ class ZaloTokenService
 
     private static function save(string $accessToken, string $refreshToken, int $expiresIn = 86400): void
     {
-        $row = self::row();
+        $row     = self::row();
         $payload = [
-            'access_token'  => $accessToken,
-            'refresh_token' => $refreshToken,
-            'expires_at'    => now()->addSeconds($expiresIn),
-            'updated_at'    => now(),
+            'access_token'      => $accessToken,
+            'refresh_token'     => $refreshToken,
+            'expires_at'        => now()->addSeconds($expiresIn),
+            'last_error'        => null,
+            'last_error_at'     => null,
+            'last_refreshed_at' => now(),
+            'updated_at'        => now(),
         ];
 
         if ($row) {
@@ -31,6 +35,15 @@ class ZaloTokenService
         } else {
             DB::table('zalo_tokens')->insert($payload + ['created_at' => now()]);
         }
+    }
+
+    private static function saveError(object $row, string $error): void
+    {
+        DB::table('zalo_tokens')->where('id', $row->id)->update([
+            'last_error'    => $error,
+            'last_error_at' => now(),
+            'updated_at'    => now(),
+        ]);
     }
 
     public static function getAccessToken(): ?string
@@ -54,7 +67,6 @@ class ZaloTokenService
             if (self::refresh($row)) {
                 return self::row()?->access_token ?? $row->access_token;
             }
-            // Nếu refresh thất bại vẫn thử dùng token cũ (có thể vẫn còn valid)
             return $row->access_token;
         }
 
@@ -87,16 +99,28 @@ class ZaloTokenService
                 self::save(
                     $data['access_token'],
                     $data['refresh_token'] ?? $refreshToken,
-                    isset($data['expires_in']) ? (int) $data['expires_in'] : 7776000
+                    isset($data['expires_in']) ? (int) $data['expires_in'] : 86400
                 );
-                Log::info('[ZaloToken] Refresh thành công');
+                Log::info('[ZaloToken] Refresh thành công — token mới có hiệu lực ' . ($data['expires_in'] ?? 86400) . 's');
                 return true;
             }
 
-            Log::error('[ZaloToken] Refresh thất bại: ' . $res->body());
+            $errMsg = $res->body();
+            Log::error('[ZaloToken] Refresh thất bại: ' . $errMsg);
+
+            if ($row) {
+                self::saveError($row, $errMsg);
+            }
+
+            self::notifyAdminRefreshFailed($errMsg);
             return false;
+
         } catch (\Throwable $e) {
             Log::error('[ZaloToken] Exception: ' . $e->getMessage());
+            if ($row) {
+                self::saveError($row, $e->getMessage());
+            }
+            self::notifyAdminRefreshFailed($e->getMessage());
             return false;
         }
     }
@@ -126,13 +150,14 @@ class ZaloTokenService
                 if ($error === 0) return true;
 
                 if ($error === -124 && $attempt === 0) {
-                    Log::warning('[ZaloToken] Token hết hạn, đang refresh...');
+                    Log::warning('[ZaloToken] Token hết hạn (error -124), đang refresh...');
                     if (!self::refresh()) return false;
                     continue;
                 }
 
                 Log::warning('[ZNS] Gửi thất bại (error=' . $error . '): ' . $res->body());
                 return false;
+
             } catch (\Throwable $e) {
                 Log::error('[ZNS] Exception: ' . $e->getMessage());
                 return false;
@@ -140,5 +165,29 @@ class ZaloTokenService
         }
 
         return false;
+    }
+
+    private static function notifyAdminRefreshFailed(string $reason): void
+    {
+        $adminEmail = config('services.zalo_zns.admin_email');
+        if (!$adminEmail) return;
+
+        try {
+            Mail::raw(
+                "⚠ Zalo ZNS refresh token thất bại\n\n" .
+                "Thời gian: " . now()->format('d/m/Y H:i:s') . "\n" .
+                "Lý do: {$reason}\n\n" .
+                "Hành động cần làm:\n" .
+                "1. Vào Zalo Developer Console (developers.zalo.me)\n" .
+                "2. Lấy access_token + refresh_token mới\n" .
+                "3. Vào Admin Panel → Cài đặt → Zalo ZNS Token → nhập token mới\n\n" .
+                "Trong thời gian chưa fix, OTP sẽ gửi qua eSMS.",
+                fn ($msg) => $msg
+                    ->to($adminEmail)
+                    ->subject('[FlashShip] ⚠ Zalo ZNS Token hết hạn — cần cập nhật')
+            );
+        } catch (\Throwable $e) {
+            Log::warning('[ZaloToken] Không gửi được email thông báo: ' . $e->getMessage());
+        }
     }
 }
