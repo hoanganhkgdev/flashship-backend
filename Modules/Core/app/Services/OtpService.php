@@ -2,6 +2,7 @@
 namespace Modules\Core\Services;
 
 use App\Services\EsmsService;
+use App\Services\ZaloTokenService;
 use Illuminate\Support\Facades\Log;
 use Modules\Core\Models\PhoneOtp;
 
@@ -28,11 +29,34 @@ class OtpService
             'expires_at' => now()->addMinutes(10),
         ]);
 
-        Log::info("[Driver OTP] phone=$phone code=$code");
+        Log::info("[OTP] phone=$phone code=$code");
 
-        EsmsService::sendOtp($phone, $code);
+        self::dispatch($phone, $code);
 
         return $code;
+    }
+
+    private static function dispatch(string $phone, string $code): void
+    {
+        if (self::isTestPhone($phone)) return;
+
+        $templateId = config('services.zalo_zns.otp_template_id');
+
+        if ($templateId) {
+            $sent = ZaloTokenService::sendTemplate($phone, $templateId, [
+                'otp'    => $code,
+                'expiry' => '10 phút',
+            ]);
+
+            if ($sent) {
+                Log::info("[OTP] Zalo ZNS → $phone OK");
+                return;
+            }
+
+            Log::warning("[OTP] Zalo ZNS thất bại, fallback eSMS → $phone");
+        }
+
+        EsmsService::sendOtp($phone, $code);
     }
 
 
