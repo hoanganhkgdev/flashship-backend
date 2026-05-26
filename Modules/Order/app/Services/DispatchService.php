@@ -271,15 +271,10 @@ class DispatchService
         ]);
         Log::debug("     → RTDB offer ghi thành công (expires_at: {$expiresAt})");
 
-        // FCM chỉ để wake-up khi app bị kill — không cần parse data từ FCM nữa
+        // FCM chỉ để wake-up khi app bị kill — RTDB là nguồn dữ liệu chính
         if ($driver->fcm_token) {
             try {
-                FCMService::getInstance()->sendMulticastOrderOffer(
-                    [$driver->fcm_token],
-                    ['order_id' => (string) $order->id, 'type' => 'order_offer'],
-                    self::FCM_TTL_SECS,
-                    $now->toIso8601String()
-                );
+                FCMService::getInstance()->sendDriverWakeUp($driver->fcm_token, $order->id);
                 Log::debug("     → FCM wake-up gửi thành công");
             } catch (\Throwable $e) {
                 Log::error("[Dispatch] FCM failed for driver #{$driver->id}: " . $e->getMessage());

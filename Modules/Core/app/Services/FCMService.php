@@ -66,6 +66,34 @@ class FCMService
     }
 
     /**
+     * Wake-up signal để app resume và đọc RTDB offer.
+     */
+    public function sendDriverWakeUp(string $fcmToken, int $orderId): void
+    {
+        try {
+            $message = CloudMessage::withTarget('token', $fcmToken)
+                ->withData([
+                    'type'     => 'order_offer',
+                    'order_id' => (string) $orderId,
+                ])
+                ->withAndroidConfig(AndroidConfig::fromArray([
+                    'priority' => 'high',
+                    'ttl'      => '45s',
+                ]))
+                ->withApnsConfig(ApnsConfig::fromArray([
+                    'headers' => [
+                        'apns-priority'  => '10',
+                        'apns-push-type' => 'background',
+                    ],
+                    'payload' => ['aps' => ['content-available' => 1]],
+                ]));
+            $this->messaging->send($message);
+        } catch (\Throwable $e) {
+            Log::error('[FCM] sendDriverWakeUp failed: ' . $e->getMessage());
+        }
+    }
+
+    /**
      * Gửi offer đơn hàng đến nhiều tài xế cùng lúc (broadcast).
      */
     public function sendMulticastOrderOffer(array $tokens, array $order, int $ttl = 30, string $offeredAt = ''): void
