@@ -23,6 +23,18 @@ class ZaloTokenSettings extends Page
 
     protected static string $view = 'filament.pages.zalo-token-settings';
 
+    public static function getNavigationBadge(): ?string
+    {
+        $row = DB::table('zalo_tokens')->orderByDesc('id')->first();
+        if ($row?->last_error_at) return 'LỖI';
+        return null;
+    }
+
+    public static function getNavigationBadgeColor(): ?string
+    {
+        return 'danger';
+    }
+
     public ?string $access_token  = null;
     public ?string $refresh_token = null;
     public int     $expires_in    = 86400;

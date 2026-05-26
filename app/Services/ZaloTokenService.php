@@ -107,20 +107,14 @@ class ZaloTokenService
 
             $errMsg = $res->body();
             Log::error('[ZaloToken] Refresh thất bại: ' . $errMsg);
-
-            if ($row) {
-                self::saveError($row, $errMsg);
-            }
-
-            self::notifyAdminRefreshFailed($errMsg);
+            if ($row) self::saveError($row, $errMsg);
+            self::notifyAdminByEmail($errMsg);
             return false;
 
         } catch (\Throwable $e) {
             Log::error('[ZaloToken] Exception: ' . $e->getMessage());
-            if ($row) {
-                self::saveError($row, $e->getMessage());
-            }
-            self::notifyAdminRefreshFailed($e->getMessage());
+            if ($row) self::saveError($row, $e->getMessage());
+            self::notifyAdminByEmail($e->getMessage());
             return false;
         }
     }
@@ -167,27 +161,24 @@ class ZaloTokenService
         return false;
     }
 
-    private static function notifyAdminRefreshFailed(string $reason): void
+    private static function notifyAdminByEmail(string $reason): void
     {
         $adminEmail = config('services.zalo_zns.admin_email');
         if (!$adminEmail) return;
 
         try {
             Mail::raw(
-                "⚠ Zalo ZNS refresh token thất bại\n\n" .
+                "Zalo ZNS refresh token thất bại\n\n" .
                 "Thời gian: " . now()->format('d/m/Y H:i:s') . "\n" .
                 "Lý do: {$reason}\n\n" .
-                "Hành động cần làm:\n" .
-                "1. Vào Zalo Developer Console (developers.zalo.me)\n" .
-                "2. Lấy access_token + refresh_token mới\n" .
-                "3. Vào Admin Panel → Cài đặt → Zalo ZNS Token → nhập token mới\n\n" .
+                "Vào Admin Panel → Cài đặt → Zalo ZNS Token để cập nhật token mới.\n" .
                 "Trong thời gian chưa fix, OTP sẽ gửi qua eSMS.",
                 fn ($msg) => $msg
                     ->to($adminEmail)
-                    ->subject('[FlashShip] ⚠ Zalo ZNS Token hết hạn — cần cập nhật')
+                    ->subject('[FlashShip] Zalo ZNS Token hết hạn — cần cập nhật')
             );
         } catch (\Throwable $e) {
-            Log::warning('[ZaloToken] Không gửi được email thông báo: ' . $e->getMessage());
+            Log::warning('[ZaloToken] Không gửi được email: ' . $e->getMessage());
         }
     }
 }
