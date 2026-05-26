@@ -190,8 +190,15 @@ class OrderController extends Controller
         if (!$order) return response()->json(['success' => false, 'message' => 'Không tìm thấy đơn hàng'], 404);
         if ($order->status !== 'pending') return response()->json(['success' => false, 'message' => 'Chỉ có thể hủy đơn khi chưa có tài xế nhận'], 400);
 
+        $dispatchingDriverId = $order->dispatching_to_driver_id;
+
         $order->update(['status' => 'cancelled']);
         RTDBService::clearOrder($order->code);
+
+        // Xóa offer RTDB — driver app tự dismiss màn hình offer ngay lập tức
+        if ($dispatchingDriverId) {
+            RTDBService::clearDriverOffer($dispatchingDriverId);
+        }
 
         return response()->json(['success' => true, 'message' => 'Đã hủy đơn hàng']);
     }

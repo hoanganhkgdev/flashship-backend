@@ -91,4 +91,29 @@ class RTDBService
             Log::error('[RTDB] removePendingOrder failed: ' . $e->getMessage());
         }
     }
+
+    /**
+     * Ghi offer đơn hàng vào RTDB để driver app nhận qua stream (thay FCM).
+     * Path: dispatch/driver_{id}/offer
+     */
+    public static function writeDriverOffer(int $driverId, array $data): void
+    {
+        try {
+            self::db()->getReference("dispatch/driver_{$driverId}/offer")->set($data);
+        } catch (\Throwable $e) {
+            Log::error('[RTDB] writeDriverOffer failed: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Xóa offer (timeout, accept, decline, customer cancel).
+     */
+    public static function clearDriverOffer(int $driverId): void
+    {
+        try {
+            self::db()->getReference("dispatch/driver_{$driverId}/offer")->remove();
+        } catch (\Throwable $e) {
+            Log::error('[RTDB] clearDriverOffer failed: ' . $e->getMessage());
+        }
+    }
 }

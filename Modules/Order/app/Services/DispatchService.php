@@ -115,6 +115,9 @@ class DispatchService
             ->where('result', 'pending')
             ->update(['result' => 'expired', 'responded_at' => now()]);
 
+        // Xóa offer trên RTDB — driver app tự dismiss màn hình offer
+        RTDBService::clearDriverOffer($driverId);
+
         Log::info("⏱  [Dispatch] Đơn #{$order->id}: Tài xế {$name} HẾT THỜI GIAN (30s) → chuyển tài xế tiếp theo");
 
         $this->sendToNextDriver($order->fresh());
@@ -164,6 +167,7 @@ class DispatchService
             ->update(['result' => 'accepted', 'responded_at' => now()]);
 
         RTDBService::removePendingOrder($order->code, $order->city_id);
+        RTDBService::clearDriverOffer($driver->id);
 
         $attempts = OrderDispatchLog::where('order_id', $order->id)->count();
 
@@ -238,17 +242,45 @@ class DispatchService
             'updated_at'               => $now,
         ]);
 
+        // Ghi offer lên RTDB — driver app nhận qua stream real-time (< 300ms)
+        $offeredAt = $now->timestamp;
+        $expiresAt = $offeredAt + self::DRIVER_OFFER_SECS;
+        RTDBService::writeDriverOffer($driver->id, [
+            'order_id'         => $order->id,
+            'order_code'       => $order->code,
+            'offered_at'       => $offeredAt,
+            'expires_at'       => $expiresAt,
+            'service_type'     => $order->service_type,
+            'pickup_address'   => $order->pickup_address  ?? '',
+            'pickup_name'      => $order->sender_name     ?? '',
+            'pickup_phone'     => $order->pickup_phone    ?? '',
+            'pickup_lat'       => $order->pickup_lat      ? (float) $order->pickup_lat  : null,
+            'pickup_lng'       => $order->pickup_lng      ? (float) $order->pickup_lng  : null,
+            'delivery_address' => $order->delivery_address ?? '',
+            'delivery_phone'   => $order->delivery_phone  ?? '',
+            'delivery_lat'     => $order->delivery_lat    ? (float) $order->delivery_lat : null,
+            'delivery_lng'     => $order->delivery_lng    ? (float) $order->delivery_lng : null,
+            'order_note'       => $order->order_note      ?? '',
+            'store_name'       => $order->store_name      ?? '',
+            'shipping_fee'     => (int) ($order->shipping_fee   ?? 0),
+            'discount_amount'  => (int) ($order->discount_amount ?? 0),
+            'bonus_fee'        => (int) ($order->bonus_fee       ?? 0),
+            'payment_method'   => $order->payment_method  ?? 'prepaid',
+            'cod_amount'       => (int) ($order->cod_amount      ?? 0),
+            'customer_phone'   => $order->sender?->phone  ?? '',
+        ]);
+        Log::debug("     → RTDB offer ghi thành công (expires_at: {$expiresAt})");
+
+        // FCM chỉ để wake-up khi app bị kill — không cần parse data từ FCM nữa
         if ($driver->fcm_token) {
             try {
-                $orderData                   = $order->toArray();
-                $orderData['customer_phone'] = $order->sender?->phone ?? '';
                 FCMService::getInstance()->sendMulticastOrderOffer(
                     [$driver->fcm_token],
-                    $orderData,
+                    ['order_id' => (string) $order->id, 'type' => 'order_offer'],
                     self::FCM_TTL_SECS,
                     $now->toIso8601String()
                 );
-                Log::debug("     → FCM gửi thành công");
+                Log::debug("     → FCM wake-up gửi thành công");
             } catch (\Throwable $e) {
                 Log::error("[Dispatch] FCM failed for driver #{$driver->id}: " . $e->getMessage());
             }

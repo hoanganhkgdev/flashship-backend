@@ -140,6 +140,9 @@ class OrderService
 
         DriverScoreService::onDecline($user->id);
 
+        // Xóa offer RTDB ngay lập tức — app dismiss màn hình offer
+        RTDBService::clearDriverOffer($user->id);
+
         // Chuyển ngay sang tài xế tiếp theo, không chờ job 30s
         $orderId = $order->id;
         dispatch(function () use ($orderId) {
