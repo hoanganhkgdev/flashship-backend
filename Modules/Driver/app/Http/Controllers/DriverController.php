@@ -92,18 +92,7 @@ class DriverController extends Controller
             'bearing'   => $data['bearing'] ?? $driver->bearing,
         ]);
 
-        $activeOrder = Order::where('delivery_man_id', $driver->id)
-            ->whereIn('status', ['assigned', 'processing', 'on_the_way'])
-            ->select('code')
-            ->first();
 
-        if ($activeOrder) {
-            RTDBService::updateOrderLocation(
-                $activeOrder->code,
-                (float) $data['latitude'],
-                (float) $data['longitude'],
-            );
-        }
 
         return response()->json(['success' => true]);
     }

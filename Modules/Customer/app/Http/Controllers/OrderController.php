@@ -259,6 +259,7 @@ class OrderController extends Controller
             'scheduled_at'     => $order->scheduled_at?->toIso8601String(),
             'created_at'       => $order->created_at->toIso8601String(),
             'driver'           => $order->driver ? [
+                'id'        => $order->driver->id,
                 'name'      => $order->driver->name,
                 'phone'     => $order->driver->phone,
                 'latitude'  => $order->driver->latitude  ? (float) $order->driver->latitude  : null,

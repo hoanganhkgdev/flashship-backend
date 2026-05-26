@@ -19,28 +19,6 @@ class RTDBService
         return self::$db;
     }
 
-    public static function updateOrderLocation(string $orderCode, float $lat, float $lng): void
-    {
-        try {
-            self::db()->getReference("order_location/{$orderCode}")->set([
-                'lat' => $lat,
-                'lng' => $lng,
-                'ts'  => now()->timestamp,
-            ]);
-        } catch (\Throwable $e) {
-            Log::error('[RTDB] updateOrderLocation failed: ' . $e->getMessage());
-        }
-    }
-
-    public static function clearOrderLocation(string $orderCode): void
-    {
-        try {
-            self::db()->getReference("order_location/{$orderCode}")->remove();
-        } catch (\Throwable $e) {
-            Log::error('[RTDB] clearOrderLocation failed: ' . $e->getMessage());
-        }
-    }
-
     public static function updateOrderStatus(string $orderCode, string $status): void
     {
         try {
@@ -57,7 +35,6 @@ class RTDBService
     {
         try {
             self::db()->getReference("orders/{$orderCode}")->remove();
-            self::db()->getReference("order_location/{$orderCode}")->remove();
         } catch (\Throwable $e) {
             Log::error('[RTDB] clearOrder failed: ' . $e->getMessage());
         }
