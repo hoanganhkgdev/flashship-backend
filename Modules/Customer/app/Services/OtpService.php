@@ -2,12 +2,12 @@
 namespace Modules\Customer\Services;
 
 use App\Services\EsmsService;
+use App\Services\ZaloTokenService;
 use Illuminate\Support\Facades\Log;
 use Modules\Customer\Models\PhoneOtp;
 
 class OtpService
 {
-    // Test phone numbers that always receive code 123456 (remove before going live)
     private static array $testPhones = ['0909123456', '84909123456'];
 
     private static function isTestPhone(string $phone): bool
@@ -17,7 +17,6 @@ class OtpService
 
     public static function send(string $phone, string $type): string
     {
-        // Invalidate any previous unused OTPs for this phone+type
         PhoneOtp::where('phone', $phone)
             ->where('type', $type)
             ->whereNull('used_at')
@@ -34,9 +33,32 @@ class OtpService
 
         Log::info("[OTP] phone=$phone type=$type code=$code");
 
-        EsmsService::sendOtp($phone, $code);
+        self::dispatch($phone, $code);
 
         return $code;
+    }
+
+    private static function dispatch(string $phone, string $code): void
+    {
+        if (self::isTestPhone($phone)) return;
+
+        $templateId = config('services.zalo_zns.otp_template_id');
+
+        if ($templateId) {
+            $sent = ZaloTokenService::sendTemplate($phone, $templateId, [
+                'otp'    => $code,
+                'expiry' => '10 phút',
+            ]);
+
+            if ($sent) {
+                Log::info("[OTP] Zalo ZNS → $phone OK");
+                return;
+            }
+
+            Log::warning("[OTP] Zalo ZNS thất bại, fallback eSMS → $phone");
+        }
+
+        EsmsService::sendOtp($phone, $code);
     }
 
 

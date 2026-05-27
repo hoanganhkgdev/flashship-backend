@@ -11,6 +11,8 @@ use Modules\Pricing\Http\Controllers\PricingController;
 Route::prefix('customer')->group(function () {
 
     Route::prefix('auth')->group(function () {
+        Route::post('/send-otp',             [AuthController::class, 'sendOtp']);
+        Route::post('/verify-otp-register',  [AuthController::class, 'verifyOtpAndRegister']);
         Route::post('/register', [AuthController::class, 'register']);
         Route::post('/login',    [AuthController::class, 'login']);
 

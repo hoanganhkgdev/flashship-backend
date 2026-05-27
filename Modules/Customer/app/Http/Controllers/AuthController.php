@@ -9,9 +9,69 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 use Modules\Core\Models\User;
+use Modules\Customer\Services\OtpService;
 
 class AuthController extends Controller
 {
+    public function sendOtp(Request $request): JsonResponse
+    {
+        $data = $request->validate(['phone' => 'required|string']);
+
+        $phone = $this->normalizePhone($data['phone']);
+
+        if (OtpService::recentlySent($phone, 'register')) {
+            return response()->json(['success' => false, 'message' => 'Vui lòng chờ 60 giây trước khi gửi lại'], 429);
+        }
+
+        OtpService::send($phone, 'register');
+
+        return response()->json(['success' => true, 'message' => 'Mã OTP đã được gửi qua Zalo tới ' . $phone]);
+    }
+
+    public function verifyOtpAndRegister(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'phone'     => 'required|string',
+            'otp'       => 'required|string|size:6',
+            'name'      => 'required|string|max:255',
+            'password'  => 'required|string|min:6',
+            'city_id'   => 'nullable|integer|exists:cities,id',
+            'latitude'  => 'nullable|numeric',
+            'longitude' => 'nullable|numeric',
+        ]);
+
+        $phone = $this->normalizePhone($data['phone']);
+
+        if (!OtpService::verify($phone, $data['otp'], 'register')) {
+            return response()->json(['success' => false, 'message' => 'Mã OTP không hợp lệ hoặc đã hết hạn'], 422);
+        }
+
+        if (User::where('phone', $phone)->whereIn('user_type', ['customer', 'shop'])->exists()) {
+            return response()->json(['success' => false, 'message' => 'Số điện thoại đã được đăng ký'], 422);
+        }
+
+        if (empty($data['city_id']) && !empty($data['latitude']) && !empty($data['longitude'])) {
+            $data['city_id'] = $this->findNearestCity((float)$data['latitude'], (float)$data['longitude']);
+        }
+
+        $user = User::create([
+            'name'      => $data['name'],
+            'phone'     => $phone,
+            'password'  => bcrypt($data['password']),
+            'user_type' => 'customer',
+            'city_id'   => $data['city_id'] ?? null,
+            'status'    => 1,
+        ]);
+
+        $token = $user->createToken('customer_token')->plainTextToken;
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Đăng ký thành công',
+            'data'    => ['token' => $token, 'user' => $this->formatUser($user)],
+        ], 201);
+    }
+
     public function register(Request $request): JsonResponse
     {
         $data = $request->validate([
