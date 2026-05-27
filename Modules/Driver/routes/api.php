@@ -7,7 +7,11 @@ use Modules\Driver\Http\Controllers\WalletController;
 use Modules\Driver\Http\Controllers\DebtController;
 use Modules\Driver\Http\Controllers\OrderController;
 use Modules\Driver\Http\Controllers\ScoreController;
+use Modules\Driver\Http\Controllers\PaymentController;
 use Modules\Driver\Http\Controllers\ScoreResetController;
+
+// Webhook PayOS — public, không cần auth
+Route::post('/payment/webhook/payos', [PaymentController::class, 'webhook']);
 
 Route::middleware('auth:sanctum')->group(function () {
 
@@ -66,6 +70,11 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/',                 [DebtController::class, 'index']);
         Route::get('/{id}',             [DebtController::class, 'show']);
         Route::post('/{id}/pay/wallet', [DebtController::class, 'payWithWallet']);
+    });
+
+    Route::prefix('driver/payment')->group(function () {
+        Route::post('/create',          [PaymentController::class, 'create']);
+        Route::get('/{orderCode}/status', [PaymentController::class, 'status']);
     });
 
     Route::prefix('score-reset')->group(function () {
