@@ -292,11 +292,19 @@ class DispatchService
             ->whereNotNull('delivery_man_id')
             ->pluck('delivery_man_id');
 
+        // Loại tài xế đang được phát offer (chưa phản hồi trong 30s)
+        $receivingOfferIds = Order::where('status', 'pending')
+            ->whereNotNull('dispatching_to_driver_id')
+            ->where('id', '!=', $order->id)
+            ->pluck('dispatching_to_driver_id');
+
+        $unavailableIds = $busyDriverIds->merge($receivingOfferIds)->unique();
+
         $candidates = User::where('user_type', 'driver')
             ->where('city_id', $order->city_id)
             ->where('status', 1)
             ->where('is_online', true)
-            ->whereNotIn('id', $busyDriverIds)
+            ->whereNotIn('id', $unavailableIds)
             ->whereNotIn('id', $excludeIds)
             ->whereNotNull('latitude')
             ->whereNotNull('longitude')
@@ -308,7 +316,7 @@ class DispatchService
             ->with(['debts', 'wallet', 'driverLicenses'])
             ->get();
 
-        Log::debug("     [Candidates] Online trong thành phố: {$candidates->count()} | Bận: {$busyDriverIds->count()} | Đã hỏi: " . count($excludeIds));
+        Log::debug("     [Candidates] Online trong thành phố: {$candidates->count()} | Bận: {$busyDriverIds->count()} | Đang nhận offer: {$receivingOfferIds->count()} | Đã hỏi: " . count($excludeIds));
 
         $beforeDebt  = $candidates->count();
         $afterDebt   = $candidates->filter(fn(User $d) => !$this->hasBlockedDebt($d));
