@@ -103,17 +103,20 @@ class OrderService
             return ['success' => false, 'message' => 'Đơn đã có người nhận trước bạn.', 'status' => 409];
         }
 
-        $orderId = $order->id;
-        $userId  = $user->id;
+        $orderId   = $order->id;
+        $userId    = $user->id;
+        $orderCode = $order->code;
 
-        dispatch(function () use ($orderId, $userId) {
+        // RTDB write đồng bộ — để Flutter listener nhận status ngay lập tức
+        RTDBService::updateOrderStatus($orderCode, 'assigned');
+
+        dispatch(function () use ($orderId, $userId, $orderCode) {
             $freshOrder = Order::find($orderId);
             if (!$freshOrder) return;
             app(DispatchService::class)->handleAccepted($freshOrder, User::find($userId));
-            RTDBService::updateOrderStatus($freshOrder->code, 'assigned');
             $customer = User::find($freshOrder->sender_platform_id);
             if ($customer?->fcm_token) {
-                FCMService::getInstance()->sendOrderStatusUpdate($customer->fcm_token, $freshOrder->code, 'assigned');
+                FCMService::getInstance()->sendOrderStatusUpdate($customer->fcm_token, $orderCode, 'assigned');
             }
             Log::info("✅ Driver #{$userId} accepted order #{$orderId}");
         })->afterResponse();
