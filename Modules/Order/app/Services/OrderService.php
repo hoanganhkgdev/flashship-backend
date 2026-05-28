@@ -107,17 +107,17 @@ class OrderService
         $userId    = $user->id;
         $orderCode = $order->code;
 
-        // RTDB write đồng bộ — để Flutter listener nhận status ngay lập tức
+        // RTDB + FCM đồng bộ — customer app nhận realtime ngay lập tức
         RTDBService::updateOrderStatus($orderCode, 'assigned');
+        $customer = User::find($order->sender_platform_id);
+        if ($customer?->fcm_token) {
+            FCMService::getInstance()->sendOrderStatusUpdate($customer->fcm_token, $orderCode, 'assigned');
+        }
 
-        dispatch(function () use ($orderId, $userId, $orderCode) {
+        dispatch(function () use ($orderId, $userId) {
             $freshOrder = Order::find($orderId);
             if (!$freshOrder) return;
             app(DispatchService::class)->handleAccepted($freshOrder, User::find($userId));
-            $customer = User::find($freshOrder->sender_platform_id);
-            if ($customer?->fcm_token) {
-                FCMService::getInstance()->sendOrderStatusUpdate($customer->fcm_token, $orderCode, 'assigned');
-            }
             Log::info("✅ Driver #{$userId} accepted order #{$orderId}");
         })->afterResponse();
 
