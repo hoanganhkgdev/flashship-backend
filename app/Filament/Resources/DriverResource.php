@@ -24,7 +24,7 @@ class DriverResource extends Resource
     protected static ?string $modelLabel      = 'Tài xế';
     protected static ?string $pluralModelLabel = 'Tài xế';
     protected static ?string $slug            = 'drivers';
-    protected static ?int    $navigationSort  = 1;
+    protected static ?int    $navigationSort  = 2;
 
     public static function getNavigationBadge(): ?string
     {
