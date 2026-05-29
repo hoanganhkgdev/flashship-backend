@@ -8,7 +8,6 @@ use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
 use Modules\Core\Services\OtpService;
-use Modules\Core\Models\Announcement;
 use Modules\Core\Models\City;
 use Modules\Core\Services\RTDBService;
 use Modules\Driver\Models\Bank;
@@ -373,19 +372,6 @@ class DriverController extends Controller
         }
         $user->update(['delete_requested_at' => null]);
         return response()->json(['success' => true, 'message' => 'Đã hủy yêu cầu xóa tài khoản']);
-    }
-
-    public function announcements(Request $request): JsonResponse
-    {
-        $cityId = $request->user()->city_id;
-
-        $items = Announcement::activeFor('driver', $cityId)
-            ->select('id', 'title', 'content', 'type', 'city_id', 'created_at')
-            ->with('city:id,name')
-            ->limit(5)
-            ->get();
-
-        return response()->json(['data' => $items]);
     }
 
     public function hotspots(Request $request): JsonResponse

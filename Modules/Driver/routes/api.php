@@ -27,7 +27,6 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/score',                         [DriverController::class, 'score']);
         Route::get('/score/history',                 [DriverController::class, 'scoreHistory']);
         Route::get('/hotspots',                      [DriverController::class, 'hotspots']);
-        Route::get('/announcements',                 [DriverController::class, 'announcements']);
         Route::get('/notifications',                 [DriverController::class, 'notifications']);
         Route::post('/notifications/mark-read/{id}', [DriverController::class, 'markNotificationAsRead']);
         Route::post('/profile/bank',                 [DriverController::class, 'updateBank']);
