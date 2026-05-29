@@ -73,6 +73,11 @@ class UserResource extends Resource
     {
         return $table
             ->columns([
+                Tables\Columns\TextColumn::make('index')
+                    ->label('#')
+                    ->rowIndex()
+                    ->width(40),
+
                 Tables\Columns\TextColumn::make('name')
                     ->label('Họ tên')
                     ->searchable()
