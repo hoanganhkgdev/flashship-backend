@@ -111,10 +111,18 @@ class VoucherResource extends Resource
                     ->columns(2)
                     ->schema([
                         Forms\Components\TextInput::make('usage_limit')
-                            ->label('Số lượt dùng tối đa')
+                            ->label('Tổng lượt dùng tối đa')
                             ->numeric()
                             ->minValue(1)
-                            ->placeholder('Để trống = không giới hạn'),
+                            ->placeholder('Để trống = không giới hạn')
+                            ->helperText('Tổng số lần mã này được dùng bởi tất cả người dùng'),
+
+                        Forms\Components\TextInput::make('per_user_limit')
+                            ->label('Lượt dùng tối đa / người')
+                            ->numeric()
+                            ->minValue(1)
+                            ->placeholder('Để trống = không giới hạn')
+                            ->helperText('Nhập 1 = mỗi người chỉ dùng được 1 lần'),
 
                         Forms\Components\DateTimePicker::make('expires_at')
                             ->label('Ngày hết hạn')
@@ -124,8 +132,7 @@ class VoucherResource extends Resource
 
                         Forms\Components\Toggle::make('is_active')
                             ->label('Kích hoạt')
-                            ->default(true)
-                            ->columnSpanFull(),
+                            ->default(true),
                     ]),
             ]);
     }
@@ -166,6 +173,12 @@ class VoucherResource extends Resource
                     ->state(fn (Voucher $record) =>
                         $record->used_count . ' / ' . ($record->usage_limit ?? '∞')
                     ),
+
+                Tables\Columns\TextColumn::make('per_user_limit')
+                    ->label('Giới hạn / người')
+                    ->formatStateUsing(fn ($state) => $state ? $state . ' lần' : '∞')
+                    ->badge()
+                    ->color(fn ($state) => $state === 1 ? 'warning' : 'gray'),
 
                 Tables\Columns\TextColumn::make('city.name')
                     ->label('Khu vực')

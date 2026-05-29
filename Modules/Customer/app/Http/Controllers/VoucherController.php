@@ -5,6 +5,7 @@ namespace Modules\Customer\Http\Controllers;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Modules\Core\Models\Voucher;
+use Modules\Core\Models\VoucherUsage;
 
 class VoucherController extends Controller
 {
@@ -51,6 +52,15 @@ class VoucherController extends Controller
         }
         if ($voucher->usage_limit && $voucher->used_count >= $voucher->usage_limit) {
             return response()->json(['valid' => false, 'message' => 'Mã giảm giá đã hết lượt sử dụng'], 422);
+        }
+        if ($voucher->per_user_limit) {
+            $used = $voucher->usageCountByUser($request->user()->id);
+            if ($used >= $voucher->per_user_limit) {
+                $limit = $voucher->per_user_limit === 1
+                    ? 'Mã này chỉ dùng được 1 lần cho mỗi tài khoản'
+                    : "Bạn đã dùng mã này {$used}/{$voucher->per_user_limit} lần";
+                return response()->json(['valid' => false, 'message' => $limit], 422);
+            }
         }
         if ($voucher->service_types && !in_array($data['service_type'], $voucher->service_types)) {
             return response()->json(['valid' => false, 'message' => 'Mã không áp dụng cho dịch vụ này'], 422);

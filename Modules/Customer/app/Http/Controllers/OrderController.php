@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Modules\Order\Models\Order;
 use Modules\Core\Models\Voucher;
+use Modules\Core\Models\VoucherUsage;
 use Modules\Driver\Services\DriverScoreService;
 use Modules\Core\Services\RTDBService;
 use Modules\Order\Services\OrderService;
@@ -102,6 +103,7 @@ class OrderController extends Controller
                 if ($voucher && $voucher->is_active
                     && (!$voucher->expires_at || $voucher->expires_at->isFuture())
                     && (!$voucher->usage_limit || $voucher->used_count < $voucher->usage_limit)
+                    && (!$voucher->per_user_limit || $voucher->usageCountByUser($user->id) < $voucher->per_user_limit)
                     && (!$voucher->service_types || in_array($data['service_type'], $voucher->service_types))
                     && (!$voucher->city_id || $voucher->city_id == $user->city_id)
                     && (!$voucher->min_order_value || $shippingFee >= $voucher->min_order_value)
@@ -121,6 +123,7 @@ class OrderController extends Controller
                     $shippingFee    = $shippingFee - $discountAmount;
                     $voucherCode    = $voucher->code;
                     $voucher->increment('used_count');
+                    $appliedVoucher = $voucher;
                 }
             }
 
@@ -155,6 +158,15 @@ class OrderController extends Controller
                 'sender_platform_id' => $user->id,
                 'scheduled_at'     => $data['scheduled_at'] ?? null,
             ]);
+
+            if (isset($appliedVoucher)) {
+                VoucherUsage::create([
+                    'voucher_id' => $appliedVoucher->id,
+                    'user_id'    => $user->id,
+                    'order_id'   => $order->id,
+                    'used_at'    => now(),
+                ]);
+            }
 
             // Trigger dispatch after response
             $orderId = $order->id;

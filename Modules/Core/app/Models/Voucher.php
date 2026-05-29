@@ -9,7 +9,7 @@ class Voucher extends Model
     protected $fillable = [
         'code', 'type', 'value', 'description',
         'min_order_value', 'max_discount', 'service_types',
-        'city_id', 'expires_at', 'usage_limit', 'used_count', 'is_active',
+        'city_id', 'expires_at', 'usage_limit', 'per_user_limit', 'used_count', 'is_active',
     ];
 
     protected $casts = [
@@ -30,6 +30,13 @@ class Voucher extends Model
     {
         if ($cityId === null) return $query;
         return $query->where(fn ($q) => $q->whereNull('city_id')->orWhere('city_id', $cityId));
+    }
+
+    public function usages() { return $this->hasMany(VoucherUsage::class); }
+
+    public function usageCountByUser(int $userId): int
+    {
+        return $this->usages()->where('user_id', $userId)->count();
     }
 
     public function getDiscountLabelAttribute(): string
