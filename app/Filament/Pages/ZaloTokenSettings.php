@@ -26,7 +26,7 @@ class ZaloTokenSettings extends Page
     public static function getNavigationBadge(): ?string
     {
         $row = DB::table('zalo_tokens')->orderByDesc('id')->first();
-        if ($row?->last_error_at) return 'LỖI';
+        if ($row && isset($row->last_error_at) && $row->last_error_at) return 'LỖI';
         return null;
     }
 
@@ -174,7 +174,7 @@ class ZaloTokenSettings extends Page
         $html = '';
 
         // Cảnh báo lỗi nếu refresh thất bại gần đây
-        if ($row->last_error_at) {
+        if (isset($row->last_error_at) && $row->last_error_at) {
             $errorTime = \Carbon\Carbon::parse($row->last_error_at)->format('d/m/Y H:i');
             $html .= $this->alertHtml('danger',
                 "🚨 Tự động refresh thất bại lúc {$errorTime}",
