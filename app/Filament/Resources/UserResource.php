@@ -17,11 +17,11 @@ class UserResource extends Resource
     protected static ?string $model = User::class;
 
     protected static ?string $navigationIcon  = 'heroicon-o-user-group';
-    protected static ?string $navigationGroup = 'Khách hàng';
+    protected static ?string $navigationGroup = 'Người dùng';
     protected static ?string $modelLabel      = 'Khách hàng';
     protected static ?string $pluralModelLabel = 'Khách hàng';
     protected static ?string $slug            = 'customers';
-    protected static ?int    $navigationSort  = 1;
+    protected static ?int    $navigationSort  = 2;
 
     public static function getEloquentQuery(): Builder
     {

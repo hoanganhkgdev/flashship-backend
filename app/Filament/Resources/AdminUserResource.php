@@ -17,11 +17,11 @@ class AdminUserResource extends Resource
     protected static ?string $model = User::class;
 
     protected static ?string $navigationIcon  = 'heroicon-o-shield-check';
-    protected static ?string $navigationGroup = 'Quản trị viên';
+    protected static ?string $navigationGroup = 'Người dùng';
     protected static ?string $modelLabel      = 'Quản trị viên';
     protected static ?string $pluralModelLabel = 'Quản trị viên';
     protected static ?string $slug            = 'admins';
-    protected static ?int    $navigationSort  = 1;
+    protected static ?int    $navigationSort  = 3;
 
     public static function getEloquentQuery(): Builder
     {
