@@ -2,7 +2,7 @@
 
 namespace App\Filament\Resources;
 
-use App\Filament\Resources\UserResource\Pages;
+use App\Filament\Resources\AdminUserResource\Pages;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Resources\Resource;
@@ -12,20 +12,20 @@ use Filament\Tables\Filters\SelectFilter;
 use Illuminate\Database\Eloquent\Builder;
 use Modules\Core\Models\User;
 
-class UserResource extends Resource
+class AdminUserResource extends Resource
 {
     protected static ?string $model = User::class;
 
-    protected static ?string $navigationIcon  = 'heroicon-o-user-group';
-    protected static ?string $navigationGroup = 'Khách hàng';
-    protected static ?string $modelLabel      = 'Khách hàng';
-    protected static ?string $pluralModelLabel = 'Khách hàng';
-    protected static ?string $slug            = 'customers';
+    protected static ?string $navigationIcon  = 'heroicon-o-shield-check';
+    protected static ?string $navigationGroup = 'Quản trị viên';
+    protected static ?string $modelLabel      = 'Quản trị viên';
+    protected static ?string $pluralModelLabel = 'Quản trị viên';
+    protected static ?string $slug            = 'admins';
     protected static ?int    $navigationSort  = 1;
 
     public static function getEloquentQuery(): Builder
     {
-        return parent::getEloquentQuery()->where('user_type', 'customer');
+        return parent::getEloquentQuery()->whereIn('user_type', ['admin', 'subadmin']);
     }
 
     public static function form(Form $form): Form
@@ -38,21 +38,28 @@ class UserResource extends Resource
 
                 Forms\Components\TextInput::make('phone')
                     ->label('Số điện thoại')
-                    ->tel()
-                    ->required(),
+                    ->tel(),
 
                 Forms\Components\TextInput::make('email')
                     ->label('Email')
                     ->email(),
-
-                Forms\Components\Select::make('city_id')
-                    ->label('Thành phố')
-                    ->relationship('city', 'name')
-                    ->searchable()
-                    ->preload(),
-            ])->columns(2),
+            ])->columns(3),
 
             Forms\Components\Section::make('Tài khoản')->schema([
+                Forms\Components\Select::make('user_type')
+                    ->label('Vai trò')
+                    ->options([
+                        'admin'    => 'Quản trị viên',
+                        'subadmin' => 'Quản trị viên phụ',
+                    ])
+                    ->required(),
+
+                Forms\Components\Select::make('status')
+                    ->label('Trạng thái')
+                    ->options([1 => 'Hoạt động', 2 => 'Bị khóa'])
+                    ->default(1)
+                    ->required(),
+
                 Forms\Components\TextInput::make('password')
                     ->label('Mật khẩu')
                     ->password()
@@ -60,12 +67,7 @@ class UserResource extends Resource
                     ->minLength(6)
                     ->dehydrateStateUsing(fn ($state) => filled($state) ? bcrypt($state) : null)
                     ->dehydrated(fn ($state) => filled($state)),
-
-                Forms\Components\Select::make('status')
-                    ->label('Trạng thái')
-                    ->options([1 => 'Hoạt động', 0 => 'Chờ duyệt', 2 => 'Bị khóa'])
-                    ->required(),
-            ])->columns(2),
+            ])->columns(3),
         ]);
     }
 
@@ -81,49 +83,54 @@ class UserResource extends Resource
                 Tables\Columns\TextColumn::make('phone')
                     ->label('Số điện thoại')
                     ->searchable()
-                    ->copyable(),
+                    ->copyable()
+                    ->default('—'),
 
                 Tables\Columns\TextColumn::make('email')
                     ->label('Email')
                     ->searchable()
-                    ->default('—')
-                    ->toggleable(isToggledHiddenByDefault: true),
-
-                Tables\Columns\TextColumn::make('city.name')
-                    ->label('Thành phố')
-                    ->badge()
-                    ->color('info')
                     ->default('—'),
+
+                Tables\Columns\TextColumn::make('user_type')
+                    ->label('Vai trò')
+                    ->badge()
+                    ->formatStateUsing(fn ($state) => match ($state) {
+                        'admin'    => 'Quản trị viên',
+                        'subadmin' => 'Phụ quản trị',
+                        default    => $state,
+                    })
+                    ->color(fn ($state) => match ($state) {
+                        'admin'    => 'danger',
+                        'subadmin' => 'warning',
+                        default    => 'gray',
+                    }),
 
                 Tables\Columns\TextColumn::make('status')
                     ->label('Trạng thái')
                     ->badge()
                     ->formatStateUsing(fn ($state) => match ((int) $state) {
-                        0 => 'Chờ duyệt',
                         1 => 'Hoạt động',
                         2 => 'Bị khóa',
                         default => 'Không rõ',
                     })
                     ->color(fn ($state) => match ((int) $state) {
-                        0 => 'warning',
                         1 => 'success',
                         2 => 'danger',
                         default => 'gray',
                     }),
 
                 Tables\Columns\TextColumn::make('created_at')
-                    ->label('Ngày đăng ký')
+                    ->label('Ngày tạo')
                     ->dateTime('d/m/Y')
                     ->sortable(),
             ])
             ->filters([
-                SelectFilter::make('status')
-                    ->label('Trạng thái')
-                    ->options([0 => 'Chờ duyệt', 1 => 'Hoạt động', 2 => 'Bị khóa']),
-
-                SelectFilter::make('city_id')
-                    ->label('Thành phố')
-                    ->relationship('city', 'name'),
+                SelectFilter::make('user_type')
+                    ->label('Vai trò')
+                    ->options([
+                        'admin'    => 'Quản trị viên',
+                        'subadmin' => 'Quản trị viên phụ',
+                    ]),
             ])
             ->actions([
                 Tables\Actions\EditAction::make()->label(''),
@@ -145,9 +152,9 @@ class UserResource extends Resource
     public static function getPages(): array
     {
         return [
-            'index'  => Pages\ListUsers::route('/'),
-            'create' => Pages\CreateUser::route('/create'),
-            'edit'   => Pages\EditUser::route('/{record}/edit'),
+            'index'  => Pages\ListAdminUsers::route('/'),
+            'create' => Pages\CreateAdminUser::route('/create'),
+            'edit'   => Pages\EditAdminUser::route('/{record}/edit'),
         ];
     }
 }
