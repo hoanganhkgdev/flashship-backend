@@ -30,9 +30,9 @@ class ListOrders extends ListRecords
 
             $tabs[$key] = Tab::make($cfg['label'])
                 ->badge($count ?: null)
-                ->modifyQueryUsing(fn (Builder $q) => $cfg['value']
-                    ? $q->where('service_type', $cfg['value'])
-                    : $q
+                ->modifyQueryUsing(fn (Builder $query) => $cfg['value']
+                    ? $query->where('service_type', $cfg['value'])
+                    : $query
                 );
         }
 
