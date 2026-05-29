@@ -60,7 +60,7 @@ class AuthController extends Controller
                 'name'               => $data['name'],
                 'phone'              => $data['phone'],
                 'password'           => bcrypt($data['password']),
-                'status'             => 1,
+                'status'             => 0,
                 'user_type'          => 'driver',
                 'city_id'            => $data['city_id'] ?? null,
                 'profile_photo_path' => $path,
@@ -72,7 +72,7 @@ class AuthController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => 'Đăng ký thành công',
+            'message' => 'Đăng ký thành công. Tài khoản đang chờ admin duyệt.',
             'data'    => ['user' => $user->load('city'), 'token' => $token],
         ], 201);
     }
@@ -108,7 +108,7 @@ class AuthController extends Controller
                 'name'               => $data['name'],
                 'phone'              => $data['phone'],
                 'password'           => bcrypt($data['password']),
-                'status'             => 1,
+                'status'             => 0,
                 'user_type'          => 'driver',
                 'city_id'            => $data['city_id'],
                 'profile_photo_path' => $path,
@@ -121,7 +121,7 @@ class AuthController extends Controller
 
         return response()->json([
             'success' => true,
-            'message' => 'Đăng ký thành công',
+            'message' => 'Đăng ký thành công. Tài khoản đang chờ admin duyệt.',
             'data'    => ['user' => $user->load('city'), 'token' => $token],
         ]);
     }
