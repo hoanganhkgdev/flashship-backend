@@ -84,6 +84,11 @@ class DriverResource extends Resource
     {
         return $table
             ->columns([
+                Tables\Columns\TextColumn::make('index')
+                    ->label('#')
+                    ->rowIndex()
+                    ->width(40),
+
                 Tables\Columns\ImageColumn::make('profile_photo_path')
                     ->label('')
                     ->disk('public')
