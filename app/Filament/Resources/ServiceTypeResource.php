@@ -14,8 +14,8 @@ class ServiceTypeResource extends Resource
 {
     protected static ?string $model = ServiceType::class;
     protected static ?string $navigationIcon = 'heroicon-o-squares-2x2';
-    protected static ?string $navigationGroup = 'Hệ thống';
-    protected static ?int $navigationSort = 1;
+    protected static ?string $navigationGroup = 'Cấu hình';
+    protected static ?int $navigationSort = 3;
     protected static ?string $label = 'Dịch vụ';
     protected static ?string $pluralLabel = 'Dịch vụ';
 
