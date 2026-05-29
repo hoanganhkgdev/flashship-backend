@@ -211,8 +211,6 @@ class DriverResource extends Resource
                     })),
             ])
             ->actions([
-                Tables\Actions\ViewAction::make()->label('Xem hồ sơ'),
-
                 Tables\Actions\Action::make('approve')
                     ->label('Duyệt')
                     ->icon('heroicon-o-check-circle')
