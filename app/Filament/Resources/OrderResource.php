@@ -136,7 +136,7 @@ class OrderResource extends Resource
                 Infolists\Components\TextEntry::make('completed_at')
                     ->label('Hoàn thành lúc')
                     ->dateTime('d/m/Y H:i')
-                    ->default('—'),
+                    ->placeholder('—'),
             ])->columns(3),
 
             Infolists\Components\Section::make('Lấy hàng')->schema([
