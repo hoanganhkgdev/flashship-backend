@@ -173,11 +173,6 @@ class DriverResource extends Resource
                         default    => 'gray',
                     }),
 
-                Tables\Columns\TextColumn::make('wallet.balance')
-                    ->label('Số dư')
-                    ->formatStateUsing(fn ($state) => number_format((int) $state) . 'đ')
-                    ->default('0đ')
-                    ->color('warning'),
 
                 Tables\Columns\TextColumn::make('created_at')
                     ->label('Ngày đăng ký')
