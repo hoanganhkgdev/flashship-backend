@@ -139,6 +139,40 @@ class DriverResource extends Resource
                     ->formatStateUsing(fn ($state) => $state ? 'Online' : 'Offline')
                     ->color(fn ($state) => $state ? 'success' : 'gray'),
 
+                Tables\Columns\TextColumn::make('cccd_review')
+                    ->label('CCCD')
+                    ->badge()
+                    ->state(fn ($record) => $record->driverCccdImages()->latest()->value('status'))
+                    ->formatStateUsing(fn ($state) => match ($state) {
+                        'approved' => 'Đã duyệt',
+                        'rejected' => 'Từ chối',
+                        'pending'  => 'Chờ duyệt',
+                        default    => '—',
+                    })
+                    ->color(fn ($state) => match ($state) {
+                        'approved' => 'success',
+                        'rejected' => 'danger',
+                        'pending'  => 'warning',
+                        default    => 'gray',
+                    }),
+
+                Tables\Columns\TextColumn::make('license_review')
+                    ->label('Bằng lái')
+                    ->badge()
+                    ->state(fn ($record) => $record->driverLicenses()->latest()->value('status'))
+                    ->formatStateUsing(fn ($state) => match ($state) {
+                        'approved' => 'Đã duyệt',
+                        'rejected' => 'Từ chối',
+                        'pending'  => 'Chờ duyệt',
+                        default    => '—',
+                    })
+                    ->color(fn ($state) => match ($state) {
+                        'approved' => 'success',
+                        'rejected' => 'danger',
+                        'pending'  => 'warning',
+                        default    => 'gray',
+                    }),
+
                 Tables\Columns\TextColumn::make('wallet.balance')
                     ->label('Số dư')
                     ->formatStateUsing(fn ($state) => number_format((int) $state) . 'đ')
@@ -168,6 +202,13 @@ class DriverResource extends Resource
                     ->label('Trực tuyến')
                     ->trueLabel('Đang online')
                     ->falseLabel('Offline'),
+
+                \Filament\Tables\Filters\Filter::make('pending_docs')
+                    ->label('Có hồ sơ chờ duyệt')
+                    ->query(fn (Builder $query) => $query->where(function ($q) {
+                        $q->whereHas('driverCccdImages', fn ($q) => $q->where('status', 'pending'))
+                          ->orWhereHas('driverLicenses', fn ($q) => $q->where('status', 'pending'));
+                    })),
             ])
             ->actions([
                 Tables\Actions\ViewAction::make()->label('Xem hồ sơ'),
