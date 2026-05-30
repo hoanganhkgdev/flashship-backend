@@ -6,6 +6,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\DB;
+use Modules\Core\Services\RTDBService;
 
 class CustomerNotificationController extends Controller
 {
@@ -60,6 +61,8 @@ class CustomerNotificationController extends Controller
             'order_code' => $orderCode,
             'created_at' => now(),
         ]);
+        // Ping RTDB để Flutter app biết có notification mới
+        RTDBService::pingCustomerNotification($userId);
     }
 
     // Helper: gửi broadcast cho tất cả customer
@@ -86,6 +89,10 @@ class CustomerNotificationController extends Controller
 
         foreach (array_chunk($rows, 500) as $chunk) {
             DB::table('customer_notifications')->insert($chunk);
+        }
+        // Ping RTDB cho từng user
+        foreach ($userIds as $id) {
+            RTDBService::pingCustomerNotification($id);
         }
     }
 }

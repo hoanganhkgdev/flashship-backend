@@ -19,6 +19,17 @@ class RTDBService
         return self::$db;
     }
 
+    public static function pingCustomerNotification(int $userId): void
+    {
+        try {
+            self::db()->getReference("customer_notifications/{$userId}")->set([
+                'updated_at' => now()->timestamp,
+            ]);
+        } catch (\Throwable $e) {
+            Log::error('[RTDB] pingCustomerNotification failed: ' . $e->getMessage());
+        }
+    }
+
     public static function updateOrderStatus(string $orderCode, string $status): void
     {
         try {
