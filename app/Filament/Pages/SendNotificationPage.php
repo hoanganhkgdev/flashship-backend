@@ -70,24 +70,35 @@ class SendNotificationPage extends Page
             ->statePath('data');
     }
 
+    private function buildQuery(array $data): \Illuminate\Database\Eloquent\Builder
+    {
+        $q = User::whereNotNull('fcm_token')->where('fcm_token', '!=', '');
+
+        if ($data['target'] === 'all_drivers') {
+            $q->where('user_type', 'driver');
+        } elseif ($data['target'] === 'all_customers') {
+            $q->where('user_type', 'customer');
+        } elseif ($data['target'] === 'drivers_city') {
+            $q->where('user_type', 'driver')->where('city_id', $data['city_id']);
+        } elseif ($data['target'] === 'customers_city') {
+            $q->where('user_type', 'customer')->where('city_id', $data['city_id']);
+        } else {
+            $q->whereRaw('1=0');
+        }
+
+        return $q;
+    }
+
     public function send(): void
     {
-        $data = $this->form->getState();
-
-        $query = User::whereNotNull('fcm_token')->where('fcm_token', '!=', '');
-
-        match ($data['target']) {
-            'all_drivers'    => $query->where('user_type', 'driver'),
-            'all_customers'  => $query->where('user_type', 'customer'),
-            'drivers_city'   => $query->where('user_type', 'driver')->where('city_id', $data['city_id']),
-            'customers_city' => $query->where('user_type', 'customer')->where('city_id', $data['city_id']),
-            default          => $query->whereRaw('1=0'),
-        };
-
-        $tokens = $query->pluck('fcm_token')->filter()->values()->toArray();
+        $data   = $this->form->getState();
+        $tokens = $this->buildQuery($data)->pluck('fcm_token')->filter()->values()->toArray();
 
         if (empty($tokens)) {
-            Notification::make()->warning()->title('Không có người nhận nào có FCM token.')->send();
+            Notification::make()->warning()
+                ->title('Không có người nhận')
+                ->body('Không tìm thấy người dùng nào có FCM token cho đối tượng này.')
+                ->send();
             return;
         }
 
@@ -99,7 +110,10 @@ class SendNotificationPage extends Page
                 ->send();
             $this->form->fill();
         } catch (\Throwable $e) {
-            Notification::make()->danger()->title('Lỗi: ' . $e->getMessage())->send();
+            Notification::make()->danger()
+                ->title('Lỗi FCM')
+                ->body($e->getMessage())
+                ->send();
         }
     }
 

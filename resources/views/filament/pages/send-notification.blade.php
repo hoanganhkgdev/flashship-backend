@@ -2,7 +2,7 @@
     <form wire:submit="send">
         {{ $this->form }}
 
-        <div class="mt-6">
+        <div class="mt-6 flex items-center gap-4">
             <x-filament::button type="submit" icon="heroicon-o-paper-airplane" size="lg">
                 Gửi thông báo
             </x-filament::button>
