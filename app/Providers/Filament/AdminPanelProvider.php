@@ -54,6 +54,8 @@ class AdminPanelProvider extends PanelProvider
             ->widgets([
                 Widgets\AccountWidget::class,
                 \App\Filament\Widgets\StatsOverviewWidget::class,
+                \App\Filament\Widgets\OnlineDriversWidget::class,
+                \App\Filament\Widgets\OrdersByHourWidget::class,
             ])
             ->middleware([
                 EncryptCookies::class,

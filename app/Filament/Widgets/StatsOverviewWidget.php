@@ -9,6 +9,8 @@ use Modules\Order\Models\Order;
 
 class StatsOverviewWidget extends BaseWidget
 {
+    protected static ?string $pollingInterval = '15s';
+    protected int | string | array $columnSpan = 'full';
     protected function getStats(): array
     {
         $today = now()->toDateString();
