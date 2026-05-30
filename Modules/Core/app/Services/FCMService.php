@@ -222,7 +222,7 @@ class FCMService
             'headers' => ['apns-priority' => '10', 'apns-push-type' => 'alert'],
             'payload' => ['aps' => ['sound' => 'default', 'badge' => 1]],
         ]);
-        $payload = array_merge(['type' => 'broadcast'], $data);
+        $payload = array_merge(['type' => 'broadcast', 'title' => $title, 'body' => $body], $data);
 
         foreach (array_chunk($tokens, 500) as $batch) {
             try {
