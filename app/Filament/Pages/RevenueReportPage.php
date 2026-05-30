@@ -128,7 +128,7 @@ class RevenueReportPage extends Page
     private function baseQuery()
     {
         $q = Order::query()
-            ->whereBetween('created_at', [
+            ->whereBetween('orders.created_at', [
                 \Carbon\Carbon::parse($this->from)->startOfDay(),
                 \Carbon\Carbon::parse($this->to)->endOfDay(),
             ]);
