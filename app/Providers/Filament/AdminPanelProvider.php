@@ -36,6 +36,7 @@ class AdminPanelProvider extends PanelProvider
                 'primary' => Color::Orange,
             ])
             ->navigationGroups([
+                NavigationGroup::make('Tổng quan'),
                 NavigationGroup::make('Đơn hàng'),
                 NavigationGroup::make('Người dùng'),
                 NavigationGroup::make('Quản lý ví'),

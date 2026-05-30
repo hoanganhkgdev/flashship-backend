@@ -208,6 +208,33 @@ class FCMService
         ]);
     }
 
+    /**
+     * Gửi thông báo thông thường đến nhiều token cùng lúc.
+     */
+    public function broadcast(array $tokens, string $title, string $body, array $data = []): array
+    {
+        $sent = $failed = 0;
+        foreach (array_chunk($tokens, 500) as $batch) {
+            try {
+                $message = CloudMessage::new()
+                    ->withNotification(Notification::create($title, $body))
+                    ->withData(array_merge(['type' => 'broadcast'], $data))
+                    ->withAndroidConfig(AndroidConfig::fromArray(['priority' => 'high', 'ttl' => '3600s']))
+                    ->withApnsConfig(ApnsConfig::fromArray([
+                        'headers' => ['apns-priority' => '10', 'apns-push-type' => 'alert'],
+                        'payload' => ['aps' => ['sound' => 'default', 'badge' => 1]],
+                    ]));
+                $report = $this->messaging->sendMulticast($message, $batch);
+                $sent   += $report->successes()->count();
+                $failed += $report->failures()->count();
+            } catch (\Throwable $e) {
+                Log::error('[FCM] Broadcast batch failed: ' . $e->getMessage());
+                $failed += count($batch);
+            }
+        }
+        return ['sent' => $sent, 'failed' => $failed];
+    }
+
     private function send(string $token, array $payload): void
     {
         try {
