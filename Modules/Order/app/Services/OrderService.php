@@ -6,6 +6,7 @@ use Modules\Order\Models\OrderDispatchLog;
 use Modules\Order\Services\DispatchService;
 use Modules\Core\Models\User;
 use Modules\Core\Services\FCMService;
+use Modules\Customer\Http\Controllers\CustomerNotificationController;
 use Modules\Core\Services\RTDBService;
 use Modules\Driver\Services\DriverScoreService;
 use Modules\Driver\Services\DriverWalletService;
@@ -113,6 +114,15 @@ class OrderService
         if ($customer?->fcm_token) {
             FCMService::getInstance()->sendOrderStatusUpdate($customer->fcm_token, $orderCode, 'assigned');
         }
+        if ($customer) {
+            CustomerNotificationController::create(
+                $customer->id,
+                "Đơn #{$orderCode}",
+                'Tài xế đã nhận đơn và đang trên đường đến',
+                'order_status',
+                $orderCode
+            );
+        }
 
         dispatch(function () use ($orderId, $userId) {
             $freshOrder = Order::find($orderId);
@@ -178,6 +188,21 @@ class OrderService
         if ($customer?->fcm_token) {
             FCMService::getInstance()->sendOrderStatusUpdate($customer->fcm_token, $order->code, $status);
         }
+        if ($customer) {
+            $statusLabel = match ($status) {
+                'processing' => 'Tài xế đang lấy hàng',
+                'on_the_way' => 'Đơn hàng đang được giao',
+                'cancelled'  => 'Đơn hàng đã bị hủy',
+                default      => "Đơn hàng cập nhật trạng thái",
+            };
+            CustomerNotificationController::create(
+                $customer->id,
+                "Đơn #{$order->code}",
+                $statusLabel,
+                'order_status',
+                $order->code
+            );
+        }
 
         Log::info("🔄 Order #{$order->id} status → {$status} by driver #{$user->id}");
 
@@ -225,6 +250,15 @@ class OrderService
         $customer = User::find($order->sender_platform_id);
         if ($customer?->fcm_token) {
             FCMService::getInstance()->sendOrderStatusUpdate($customer->fcm_token, $order->code, 'completed');
+        }
+        if ($customer) {
+            CustomerNotificationController::create(
+                $customer->id,
+                "Đơn #{$order->code}",
+                'Đơn hàng đã được giao thành công',
+                'order_status',
+                $order->code
+            );
         }
 
         return ['success' => true, 'message' => 'Hoàn thành đơn thành công', 'data' => $order->fresh(), 'status' => 200];

@@ -9,6 +9,7 @@ use Filament\Pages\Page;
 use Modules\Core\Models\City;
 use Modules\Core\Models\User;
 use Modules\Core\Services\FCMService;
+use Modules\Customer\Http\Controllers\CustomerNotificationController;
 
 class SendNotificationPage extends Page
 {
@@ -104,6 +105,14 @@ class SendNotificationPage extends Page
 
         try {
             $result = FCMService::getInstance()->broadcast($tokens, $data['title'], $data['body']);
+
+            // Lưu vào DB để app fetch được
+            $cityId = isset($data['city_id']) && str_contains($data['target'], 'city')
+                ? (int) $data['city_id'] : null;
+            if (str_contains($data['target'], 'customer')) {
+                CustomerNotificationController::broadcast($data['title'], $data['body'], $cityId);
+            }
+
             Notification::make()->success()
                 ->title('Đã gửi thông báo')
                 ->body("Thành công: {$result['sent']} · Thất bại: {$result['failed']} / " . count($tokens) . ' người nhận')

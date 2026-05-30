@@ -5,6 +5,7 @@ use Modules\Customer\Http\Controllers\AddressController;
 use Modules\Customer\Http\Controllers\AuthController;
 use Modules\Customer\Http\Controllers\OrderController;
 use Modules\Customer\Http\Controllers\NearbyDriversController;
+use Modules\Customer\Http\Controllers\CustomerNotificationController;
 use Modules\Customer\Http\Controllers\LegalController;
 use Modules\Customer\Http\Controllers\SupportController;
 use Modules\Customer\Http\Controllers\VoucherController;
@@ -33,6 +34,13 @@ Route::prefix('customer')->group(function () {
         Route::get('/pricing/estimate',  [PricingController::class, 'estimate']);
         Route::get('/drivers/nearby',    [NearbyDriversController::class, 'index']);
         Route::get('/support',            [SupportController::class, 'index']);
+
+        Route::prefix('notifications')->group(function () {
+            Route::get('/',         [CustomerNotificationController::class, 'index']);
+            Route::post('/mark-all-read', [CustomerNotificationController::class, 'markAllRead']);
+            Route::patch('/{id}/read',    [CustomerNotificationController::class, 'markRead']);
+            Route::delete('/{id}',        [CustomerNotificationController::class, 'delete']);
+        });
         Route::get('/legal/{slug}',       [LegalController::class, 'show']);
         Route::get('/vouchers',          [VoucherController::class, 'index']);
         Route::post('/vouchers/validate', [VoucherController::class, 'validate']);
