@@ -221,7 +221,7 @@ class FCMService
         $android = AndroidConfig::fromArray(['priority' => 'high', 'ttl' => '3600s']);
         $apns    = ApnsConfig::fromArray([
             'headers' => ['apns-priority' => '10', 'apns-push-type' => 'alert'],
-            'payload' => ['aps' => ['sound' => 'default', 'badge' => 1, 'content-available' => 1]],
+            'payload' => ['aps' => ['sound' => 'default', 'badge' => 1]],
         ]);
 
         foreach (array_chunk($tokens, 500) as $batch) {
