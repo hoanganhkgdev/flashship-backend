@@ -5,6 +5,7 @@ use Modules\Customer\Http\Controllers\AddressController;
 use Modules\Customer\Http\Controllers\AuthController;
 use Modules\Customer\Http\Controllers\OrderController;
 use Modules\Customer\Http\Controllers\NearbyDriversController;
+use Modules\Customer\Http\Controllers\LegalController;
 use Modules\Customer\Http\Controllers\SupportController;
 use Modules\Customer\Http\Controllers\VoucherController;
 use Modules\Pricing\Http\Controllers\PricingController;
@@ -32,6 +33,7 @@ Route::prefix('customer')->group(function () {
         Route::get('/pricing/estimate',  [PricingController::class, 'estimate']);
         Route::get('/drivers/nearby',    [NearbyDriversController::class, 'index']);
         Route::get('/support',            [SupportController::class, 'index']);
+        Route::get('/legal/{slug}',       [LegalController::class, 'show']);
         Route::get('/vouchers',          [VoucherController::class, 'index']);
         Route::post('/vouchers/validate', [VoucherController::class, 'validate']);
 
