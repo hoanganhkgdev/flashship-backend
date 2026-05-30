@@ -21,7 +21,7 @@ class OrderController extends Controller
     {
         $orders = Order::where('sender_platform_id', $request->user()->id)
             ->where('platform', 'customer_app')
-            ->with('driver:id,name,phone,latitude,longitude,avatar_url')
+            ->with('driver:id,name,phone,latitude,longitude,profile_photo_path')
             ->latest()->paginate(20);
 
         return response()->json([
@@ -190,7 +190,7 @@ class OrderController extends Controller
         $order = Order::where('code', $code)
             ->where('sender_platform_id', $request->user()->id)
             ->where('platform', 'customer_app')
-            ->with('driver:id,name,phone,latitude,longitude,avatar_url')->first();
+            ->with('driver:id,name,phone,latitude,longitude,profile_photo_path')->first();
 
         if (!$order) return response()->json(['success' => false, 'message' => 'Không tìm thấy đơn hàng'], 404);
 
@@ -279,7 +279,9 @@ class OrderController extends Controller
                 'id'         => $order->driver->id,
                 'name'       => $order->driver->name,
                 'phone'      => $order->driver->phone,
-                'avatar_url' => $order->driver->avatar_url,
+                'avatar_url' => $order->driver->profile_photo_path
+                    ? asset('storage/' . $order->driver->profile_photo_path)
+                    : null,
                 'latitude'   => $order->driver->latitude  ? (float) $order->driver->latitude  : null,
                 'longitude'  => $order->driver->longitude ? (float) $order->driver->longitude : null,
             ] : null,
