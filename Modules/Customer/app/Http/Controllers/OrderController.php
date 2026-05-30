@@ -47,7 +47,6 @@ class OrderController extends Controller
             'delivery_name'    => 'nullable|string',
             'order_note'       => 'nullable|string',
             'store_name'       => 'nullable|string',
-            'payment_method'   => 'nullable|in:cod,prepaid,wallet',
             'cod_amount'       => 'nullable|integer|min:0',
             'scheduled_at'     => 'nullable|date',
             'topup_amount'     => 'nullable|integer|min:1000',
@@ -145,10 +144,10 @@ class OrderController extends Controller
                 'service_type'     => $data['service_type'],
                 'order_note'       => $data['order_note'] ?? '',
                 'store_name'       => $data['store_name'] ?? null,
-                'payment_method'   => $data['payment_method'] ?? 'prepaid',
+                'payment_method'   => 'cod',
                 'cod_amount'       => $data['service_type'] === 'topup'
                     ? (int) ($data['topup_amount'] ?? 0)
-                    : (($data['payment_method'] ?? '') === 'cod' ? ($data['cod_amount'] ?? 0) : null),
+                    : ($data['service_type'] === 'shopping' ? ($data['cod_amount'] ?? null) : null),
                 'city_id'          => $user->city_id,
                 'shipping_fee'     => $shippingFee,
                 'night_surcharge'  => $nightSurcharge,
