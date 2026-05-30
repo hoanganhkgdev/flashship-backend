@@ -21,7 +21,7 @@ class OrderController extends Controller
     {
         $orders = Order::where('sender_platform_id', $request->user()->id)
             ->where('platform', 'customer_app')
-            ->with('driver:id,name,phone,latitude,longitude')
+            ->with('driver:id,name,phone,latitude,longitude,avatar_url')
             ->latest()->paginate(20);
 
         return response()->json([
@@ -190,7 +190,7 @@ class OrderController extends Controller
         $order = Order::where('code', $code)
             ->where('sender_platform_id', $request->user()->id)
             ->where('platform', 'customer_app')
-            ->with('driver:id,name,phone,latitude,longitude')->first();
+            ->with('driver:id,name,phone,latitude,longitude,avatar_url')->first();
 
         if (!$order) return response()->json(['success' => false, 'message' => 'Không tìm thấy đơn hàng'], 404);
 
@@ -276,11 +276,12 @@ class OrderController extends Controller
             'scheduled_at'     => $order->scheduled_at?->toIso8601String(),
             'created_at'       => $order->created_at->toIso8601String(),
             'driver'           => $order->driver ? [
-                'id'        => $order->driver->id,
-                'name'      => $order->driver->name,
-                'phone'     => $order->driver->phone,
-                'latitude'  => $order->driver->latitude  ? (float) $order->driver->latitude  : null,
-                'longitude' => $order->driver->longitude ? (float) $order->driver->longitude : null,
+                'id'         => $order->driver->id,
+                'name'       => $order->driver->name,
+                'phone'      => $order->driver->phone,
+                'avatar_url' => $order->driver->avatar_url,
+                'latitude'   => $order->driver->latitude  ? (float) $order->driver->latitude  : null,
+                'longitude'  => $order->driver->longitude ? (float) $order->driver->longitude : null,
             ] : null,
         ];
 
