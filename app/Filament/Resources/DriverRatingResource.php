@@ -3,39 +3,35 @@
 namespace App\Filament\Resources;
 
 use App\Filament\Resources\DriverRatingResource\Pages;
-use Filament\Forms;
+use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Form;
+use Filament\Infolists;
+use Filament\Infolists\Infolist;
 use Filament\Resources\Resource;
 use Filament\Tables;
-use Filament\Tables\Table;
-use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Filters\Filter;
-use Filament\Forms\Components\DatePicker;
+use Filament\Tables\Filters\SelectFilter;
+use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Modules\Order\Models\Order;
 
 class DriverRatingResource extends Resource
 {
-    protected static ?string $model = Order::class;
-
-    protected static ?string $navigationIcon  = 'heroicon-o-star';
-    protected static ?string $navigationGroup = 'Đơn hàng';
-    protected static ?string $modelLabel      = 'Đánh giá tài xế';
+    protected static ?string $model            = Order::class;
+    protected static ?string $navigationIcon   = 'heroicon-o-star';
+    protected static ?string $navigationGroup  = 'Đơn hàng';
+    protected static ?string $modelLabel       = 'Đánh giá tài xế';
     protected static ?string $pluralModelLabel = 'Đánh giá tài xế';
-    protected static ?string $slug            = 'driver-ratings';
-    protected static ?int    $navigationSort  = 3;
+    protected static ?string $slug             = 'driver-ratings';
+    protected static ?int    $navigationSort   = 3;
 
     public static function getNavigationBadge(): ?string
     {
-        return static::getModel()::whereNotNull('driver_rating')
-            ->where('driver_rating', '<=', 2)
-            ->count() ?: null;
+        $count = static::getModel()::whereNotNull('driver_rating')->where('driver_rating', '<=', 2)->count();
+        return $count > 0 ? (string) $count : null;
     }
 
-    public static function getNavigationBadgeColor(): ?string
-    {
-        return 'danger';
-    }
+    public static function getNavigationBadgeColor(): ?string { return 'danger'; }
 
     public static function getEloquentQuery(): Builder
     {
@@ -47,38 +43,74 @@ class DriverRatingResource extends Resource
 
     public static function form(Form $form): Form
     {
-        return $form->schema([
-            Forms\Components\Section::make('Thông tin đơn hàng')
-                ->columns(2)
+        return $form->schema([]);
+    }
+
+    public static function infolist(Infolist $infolist): Infolist
+    {
+        return $infolist->schema([
+            Infolists\Components\Section::make('Thông tin đơn')
+                ->columns(3)
                 ->schema([
-                    Forms\Components\TextInput::make('code')
+                    Infolists\Components\TextEntry::make('code')
                         ->label('Mã đơn')
-                        ->disabled(),
+                        ->weight('bold')
+                        ->copyable(),
 
-                    Forms\Components\TextInput::make('service_type')
+                    Infolists\Components\TextEntry::make('service_type')
                         ->label('Dịch vụ')
-                        ->disabled(),
+                        ->badge()
+                        ->formatStateUsing(fn ($state) => match ($state) {
+                            'delivery' => 'Lấy hộ',
+                            'shopping' => 'Mua hộ',
+                            'topup'    => 'Nạp tiền',
+                            'bike'     => 'Xe ôm',
+                            'motor'    => 'Lái hộ xe máy',
+                            'car'      => 'Lái hộ ô tô',
+                            default    => $state,
+                        })
+                        ->color('info'),
 
-                    Forms\Components\TextInput::make('driver.name')
-                        ->label('Tài xế')
-                        ->disabled(),
-
-                    Forms\Components\TextInput::make('sender.name')
-                        ->label('Khách hàng')
-                        ->disabled(),
+                    Infolists\Components\TextEntry::make('completed_at')
+                        ->label('Ngày hoàn thành')
+                        ->dateTime('d/m/Y H:i')
+                        ->placeholder('—'),
                 ]),
 
-            Forms\Components\Section::make('Đánh giá')
+            Infolists\Components\Section::make('Tài xế & Khách hàng')
+                ->columns(2)
                 ->schema([
-                    Forms\Components\TextInput::make('driver_rating')
-                        ->label('Số sao')
-                        ->disabled()
-                        ->suffix('/ 5'),
+                    Infolists\Components\TextEntry::make('driver.name')
+                        ->label('Tài xế')
+                        ->weight('bold')
+                        ->default('—'),
 
-                    Forms\Components\Textarea::make('driver_rating_note')
+                    Infolists\Components\TextEntry::make('driver.phone')
+                        ->label('SĐT tài xế')
+                        ->default('—'),
+
+                    Infolists\Components\TextEntry::make('sender.name')
+                        ->label('Khách hàng')
+                        ->weight('bold')
+                        ->default('—'),
+
+                    Infolists\Components\TextEntry::make('sender.phone')
+                        ->label('SĐT khách')
+                        ->default('—'),
+                ]),
+
+            Infolists\Components\Section::make('Đánh giá')
+                ->columns(2)
+                ->schema([
+                    Infolists\Components\TextEntry::make('driver_rating')
+                        ->label('Số sao')
+                        ->formatStateUsing(fn ($state) => str_repeat('⭐', (int) $state) . ' (' . $state . '/5)')
+                        ->color(fn ($state) => $state <= 2 ? 'danger' : ($state >= 4 ? 'success' : 'warning')),
+
+                    Infolists\Components\TextEntry::make('driver_rating_note')
                         ->label('Nhận xét')
-                        ->disabled()
-                        ->rows(3),
+                        ->default('Không có nhận xét')
+                        ->columnSpanFull(),
                 ]),
         ]);
     }
@@ -87,8 +119,15 @@ class DriverRatingResource extends Resource
     {
         return $table
             ->columns([
+                Tables\Columns\TextColumn::make('index')
+                    ->rowIndex()
+                    ->label('#')
+                    ->alignCenter()
+                    ->width(40),
+
                 Tables\Columns\TextColumn::make('code')
                     ->label('Mã đơn')
+                    ->alignCenter()
                     ->searchable()
                     ->copyable()
                     ->weight('bold'),
@@ -108,40 +147,34 @@ class DriverRatingResource extends Resource
                 Tables\Columns\TextColumn::make('service_type')
                     ->label('Dịch vụ')
                     ->badge()
-                    ->formatStateUsing(fn (string $state) => match ($state) {
+                    ->formatStateUsing(fn ($state) => match ($state) {
                         'delivery' => 'Lấy hộ',
                         'shopping' => 'Mua hộ',
                         'topup'    => 'Nạp tiền',
-                        'bike'     => 'Xe ôm (xe máy)',
-                        'motor'    => 'Xe ôm (mô tô)',
-                        'car'      => 'Xe hơi',
+                        'bike'     => 'Xe ôm',
+                        'motor'    => 'Lái hộ xe máy',
+                        'car'      => 'Lái hộ ô tô',
                         default    => $state,
                     })
-                    ->color(fn (string $state) => match ($state) {
-                        'delivery' => 'warning',
-                        'shopping' => 'primary',
-                        'topup'    => 'success',
-                        'bike', 'motor' => 'info',
-                        'car'      => 'danger',
-                        default    => 'gray',
-                    }),
+                    ->color('info'),
 
-                Tables\Columns\ViewColumn::make('driver_rating')
+                Tables\Columns\TextColumn::make('driver_rating')
                     ->label('Đánh giá')
-                    ->view('filament.tables.columns.star-rating'),
+                    ->alignCenter()
+                    ->formatStateUsing(fn ($state) => str_repeat('⭐', (int) $state))
+                    ->color(fn ($state) => $state <= 2 ? 'danger' : ($state >= 4 ? 'success' : 'warning')),
 
                 Tables\Columns\TextColumn::make('driver_rating_note')
                     ->label('Nhận xét')
                     ->limit(60)
-                    ->placeholder('Không có nhận xét')
+                    ->placeholder('—')
                     ->wrap(),
 
                 Tables\Columns\TextColumn::make('completed_at')
                     ->label('Ngày đánh giá')
-                    ->dateTime('d/m/Y H:i')
-                    ->sortable(),
+                    ->alignCenter()
+                    ->dateTime('d/m/Y H:i'),
             ])
-            ->defaultSort('completed_at', 'desc')
             ->filters([
                 SelectFilter::make('driver_rating')
                     ->label('Số sao')
@@ -159,9 +192,9 @@ class DriverRatingResource extends Resource
                         'delivery' => 'Lấy hộ',
                         'shopping' => 'Mua hộ',
                         'topup'    => 'Nạp tiền',
-                        'bike'     => 'Xe ôm (xe máy)',
-                        'motor'    => 'Xe ôm (mô tô)',
-                        'car'      => 'Xe hơi',
+                        'bike'     => 'Xe ôm',
+                        'motor'    => 'Lái hộ xe máy',
+                        'car'      => 'Lái hộ ô tô',
                     ]),
 
                 Filter::make('date_range')
@@ -170,11 +203,10 @@ class DriverRatingResource extends Resource
                         DatePicker::make('from')->label('Từ ngày'),
                         DatePicker::make('to')->label('Đến ngày'),
                     ])
-                    ->query(function (Builder $query, array $data) {
-                        return $query
-                            ->when($data['from'], fn ($q) => $q->whereDate('completed_at', '>=', $data['from']))
-                            ->when($data['to'],   fn ($q) => $q->whereDate('completed_at', '<=', $data['to']));
-                    }),
+                    ->query(fn (Builder $query, array $data) => $query
+                        ->when($data['from'], fn ($q) => $q->whereDate('completed_at', '>=', $data['from']))
+                        ->when($data['to'],   fn ($q) => $q->whereDate('completed_at', '<=', $data['to']))
+                    ),
 
                 Filter::make('low_rating')
                     ->label('Đánh giá thấp (≤ 2 sao)')
@@ -187,14 +219,16 @@ class DriverRatingResource extends Resource
                     ->toggle(),
             ])
             ->actions([
-                Tables\Actions\ViewAction::make()->label('Xem'),
+                Tables\Actions\ViewAction::make()->label(''),
+
                 Tables\Actions\Action::make('delete_rating')
-                    ->label('Xóa đánh giá')
+                    ->label('')
                     ->icon('heroicon-o-trash')
                     ->color('danger')
+                    ->tooltip('Xóa đánh giá')
                     ->requiresConfirmation()
                     ->modalHeading('Xóa đánh giá')
-                    ->modalDescription('Bạn có chắc muốn xóa đánh giá này? Hành động không thể hoàn tác.')
+                    ->modalDescription('Bạn có chắc muốn xóa đánh giá này?')
                     ->action(fn (Order $record) => $record->update([
                         'driver_rating'      => null,
                         'driver_rating_note' => null,
@@ -206,8 +240,6 @@ class DriverRatingResource extends Resource
                     ->icon('heroicon-o-trash')
                     ->color('danger')
                     ->requiresConfirmation()
-                    ->modalHeading('Xóa các đánh giá đã chọn')
-                    ->modalDescription('Bạn có chắc muốn xóa tất cả đánh giá đã chọn?')
                     ->action(fn ($records) => $records->each->update([
                         'driver_rating'      => null,
                         'driver_rating_note' => null,

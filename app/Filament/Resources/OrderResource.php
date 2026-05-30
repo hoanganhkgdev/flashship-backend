@@ -220,6 +220,7 @@ class OrderResource extends Resource
             ->columns([
                 Tables\Columns\TextColumn::make('code')
                     ->label('Mã đơn')
+                    ->alignCenter()
                     ->searchable()
                     ->copyable()
                     ->weight('semibold'),
@@ -232,6 +233,7 @@ class OrderResource extends Resource
 
                 Tables\Columns\TextColumn::make('status')
                     ->label('Trạng thái')
+                    ->alignCenter()
                     ->badge()
                     ->formatStateUsing(fn ($state) => self::$statusLabels[$state] ?? $state)
                     ->color(fn ($state) => self::$statusColors[$state] ?? 'gray'),
@@ -253,30 +255,33 @@ class OrderResource extends Resource
 
                 Tables\Columns\TextColumn::make('shipping_fee')
                     ->label('Phí ship')
-                    ->formatStateUsing(fn ($state) => number_format((int) $state) . 'đ')
-                    ->sortable(),
+                    ->alignCenter()
+                    ->formatStateUsing(fn ($state) => number_format((int) $state) . 'đ'),
 
                 Tables\Columns\TextColumn::make('distance')
                     ->label('km')
+                    ->alignCenter()
                     ->formatStateUsing(fn ($state) => $state ? number_format((float) $state, 1) : '—')
                     ->toggleable(isToggledHiddenByDefault: true),
 
                 Tables\Columns\TextColumn::make('payment_method')
                     ->label('TT')
+                    ->alignCenter()
                     ->badge()
                     ->formatStateUsing(fn ($state) => self::$paymentLabels[$state] ?? $state)
                     ->color('gray'),
 
                 Tables\Columns\TextColumn::make('city.name')
                     ->label('Thành phố')
+                    ->alignCenter()
                     ->badge()
                     ->color('gray')
                     ->toggleable(isToggledHiddenByDefault: true),
 
                 Tables\Columns\TextColumn::make('created_at')
                     ->label('Tạo lúc')
-                    ->dateTime('d/m H:i')
-                    ->sortable(),
+                    ->alignCenter()
+                    ->dateTime('d/m H:i'),
             ])
             ->filters([
                 SelectFilter::make('status')
@@ -319,7 +324,6 @@ class OrderResource extends Resource
                     Tables\Actions\DeleteBulkAction::make(),
                 ]),
             ])
-            ->defaultSort('created_at', 'desc')
             ->poll('15s');
     }
 

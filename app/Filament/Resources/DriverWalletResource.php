@@ -6,41 +6,80 @@ use App\Filament\Resources\DriverWalletResource\Pages;
 use App\Filament\Resources\DriverWalletResource\RelationManagers;
 use Filament\Forms;
 use Filament\Forms\Form;
+use Filament\Infolists;
+use Filament\Infolists\Infolist;
 use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
+use Modules\Core\Models\City;
 use Modules\Driver\Models\DriverWallet;
 use Modules\Driver\Services\DriverWalletService;
 
 class DriverWalletResource extends Resource
 {
-    protected static ?string $model = DriverWallet::class;
+    protected static ?string $model             = DriverWallet::class;
+    protected static ?string $navigationIcon    = 'heroicon-o-wallet';
+    protected static ?string $navigationGroup   = 'Quản lý ví';
+    protected static ?string $modelLabel        = 'Ví tài xế';
+    protected static ?string $pluralModelLabel  = 'Ví tài xế';
+    protected static ?int    $navigationSort    = 1;
 
-    protected static ?string $navigationIcon = 'heroicon-o-wallet';
-
-    protected static ?string $navigationGroup = 'Quản lý ví';
-
-    protected static ?string $modelLabel = 'Ví tài xế';
-
-    protected static ?string $pluralModelLabel = 'Ví tài xế';
-
-    protected static ?int $navigationSort = 1;
-
-    public static function canCreate(): bool
-    {
-        return false;
-    }
+    public static function canCreate(): bool { return false; }
 
     public static function form(Form $form): Form
     {
         return $form->schema([]);
     }
 
+    public static function infolist(Infolist $infolist): Infolist
+    {
+        return $infolist->schema([
+            Infolists\Components\Section::make('Thông tin tài xế')
+                ->columns(3)
+                ->schema([
+                    Infolists\Components\TextEntry::make('driver.name')
+                        ->label('Tên tài xế')
+                        ->weight('bold'),
+
+                    Infolists\Components\TextEntry::make('driver.phone')
+                        ->label('Số điện thoại')
+                        ->default('—'),
+
+                    Infolists\Components\TextEntry::make('driver.city.name')
+                        ->label('Khu vực')
+                        ->default('—'),
+
+                    Infolists\Components\TextEntry::make('driver.is_online')
+                        ->label('Trạng thái')
+                        ->badge()
+                        ->formatStateUsing(fn ($state) => $state ? 'Đang online' : 'Offline')
+                        ->color(fn ($state) => $state ? 'success' : 'gray'),
+
+                    Infolists\Components\TextEntry::make('balance')
+                        ->label('Số dư hiện tại')
+                        ->formatStateUsing(fn ($state) => number_format($state, 0, ',', '.') . ' ₫')
+                        ->weight('bold')
+                        ->size('lg')
+                        ->color(fn ($state) => $state < 100_000 ? 'danger' : 'success'),
+
+                    Infolists\Components\TextEntry::make('updated_at')
+                        ->label('Cập nhật lần cuối')
+                        ->dateTime('d/m/Y H:i'),
+                ]),
+        ]);
+    }
+
     public static function table(Table $table): Table
     {
         return $table
             ->columns([
+                Tables\Columns\TextColumn::make('index')
+                    ->rowIndex()
+                    ->label('#')
+                    ->alignCenter()
+                    ->width(40),
+
                 Tables\Columns\TextColumn::make('driver.name')
                     ->label('Tài xế')
                     ->searchable()
@@ -52,25 +91,33 @@ class DriverWalletResource extends Resource
 
                 Tables\Columns\TextColumn::make('driver.city.name')
                     ->label('Khu vực')
+                    ->alignCenter()
                     ->default('—'),
 
-                Tables\Columns\IconColumn::make('driver.is_online')
+                Tables\Columns\TextColumn::make('driver.is_online')
                     ->label('Online')
-                    ->boolean()
-                    ->trueColor('success')
-                    ->falseColor('gray'),
+                    ->alignCenter()
+                    ->badge()
+                    ->formatStateUsing(fn ($state) => $state ? 'Online' : 'Offline')
+                    ->color(fn ($state) => $state ? 'success' : 'gray'),
 
                 Tables\Columns\TextColumn::make('balance')
                     ->label('Số dư')
+                    ->alignCenter()
                     ->formatStateUsing(fn ($state) => number_format($state, 0, ',', '.') . ' ₫')
-                    ->sortable()
                     ->weight('bold')
-                    ->color(fn ($state) => $state < 100000 ? 'danger' : 'success'),
+                    ->color(fn ($state) => $state < 100_000 ? 'danger' : 'success'),
 
                 Tables\Columns\TextColumn::make('updated_at')
                     ->label('Cập nhật lần cuối')
-                    ->dateTime('d/m/Y H:i')
-                    ->sortable(),
+                    ->alignCenter()
+                    ->dateTime('d/m/Y H:i'),
+            ])
+            ->filters([
+                Tables\Filters\SelectFilter::make('city')
+                    ->label('Khu vực')
+                    ->relationship('driver.city', 'name')
+                    ->options(fn () => City::where('is_active', true)->pluck('name', 'id')),
             ])
             ->actions([
                 Tables\Actions\Action::make('adjust')
@@ -81,37 +128,32 @@ class DriverWalletResource extends Resource
                     ->form([
                         Forms\Components\Select::make('type')
                             ->label('Loại')
-                            ->options([
-                                'credit' => 'Cộng tiền',
-                                'debit'  => 'Trừ tiền',
-                            ])
+                            ->options(['credit' => 'Cộng tiền', 'debit' => 'Trừ tiền'])
                             ->required(),
 
                         Forms\Components\TextInput::make('amount')
-                            ->label('Số tiền (₫)')
+                            ->label('Số tiền')
                             ->numeric()
                             ->minValue(1000)
                             ->required()
                             ->suffix('₫'),
 
                         Forms\Components\Textarea::make('description')
-                            ->label('Lý do / Mô tả')
+                            ->label('Lý do')
                             ->required()
                             ->rows(2),
                     ])
                     ->action(function (DriverWallet $record, array $data) {
                         try {
-                            $ref = 'admin_adj_' . $record->driver_id . '_' . now()->timestamp;
                             DriverWalletService::adjust(
                                 $record->driver_id,
                                 (float) $data['amount'],
                                 $data['type'],
                                 $data['description'] . ' (admin)',
-                                $ref
+                                'admin_adj_' . $record->driver_id . '_' . now()->timestamp
                             );
                             $record->refresh();
-                            Notification::make()
-                                ->success()
+                            Notification::make()->success()
                                 ->title('Đã ' . ($data['type'] === 'credit' ? 'cộng' : 'trừ') . ' ' . number_format($data['amount'], 0, ',', '.') . ' ₫')
                                 ->body('Số dư mới: ' . number_format($record->balance, 0, ',', '.') . ' ₫')
                                 ->send();
@@ -120,10 +162,8 @@ class DriverWalletResource extends Resource
                         }
                     }),
 
-                Tables\Actions\ViewAction::make()
-                    ->label('Giao dịch'),
-            ])
-            ->defaultSort('balance', 'desc');
+                Tables\Actions\ViewAction::make()->label('Giao dịch'),
+            ]);
     }
 
     public static function getRelations(): array

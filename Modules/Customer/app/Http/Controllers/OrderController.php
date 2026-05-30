@@ -5,7 +5,6 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Str;
 use Modules\Order\Models\Order;
 use Modules\Core\Models\Voucher;
 use Modules\Core\Models\VoucherUsage;
@@ -69,9 +68,11 @@ class OrderController extends Controller
             $cityId = $user->city_id;
 
             if ($data['service_type'] === 'topup') {
+                $surcharge = PricingService::nightSurcharge();
                 $pricing = [
-                    'fee'         => PricingService::topupFee((int) ($data['topup_amount'] ?? 0), $cityId),
-                    'distance_km' => 0,
+                    'fee'             => PricingService::topupFee((int) ($data['topup_amount'] ?? 0), $cityId) + $surcharge,
+                    'distance_km'     => 0,
+                    'night_surcharge' => $surcharge,
                 ];
             } elseif (isset($data['pickup_lat'], $data['pickup_lng'], $data['delivery_lat'], $data['delivery_lng'])) {
                 $pricing = PricingService::estimateFromCoords(
@@ -91,6 +92,8 @@ class OrderController extends Controller
                 $stopCount       = max(1, (int) ($data['stop_count'] ?? 1));
                 $pricing['fee'] += ($stopCount - 1) * 5000;
             }
+
+            $nightSurcharge = (int) ($pricing['night_surcharge'] ?? 0);
 
             // Apply voucher
             $voucherCode    = null;
@@ -128,7 +131,7 @@ class OrderController extends Controller
             }
 
             $order = Order::create([
-                'code'             => 'FS' . now()->format('ymdHis') . strtoupper(Str::random(3)),
+                'code'             => '',
                 'sender_name'      => $data['pickup_name'] ?? '',
                 'pickup_phone'     => $data['pickup_phone'] ?? '',
                 'pickup_address'   => $data['pickup_address'],
@@ -148,6 +151,7 @@ class OrderController extends Controller
                     : (($data['payment_method'] ?? '') === 'cod' ? ($data['cod_amount'] ?? 0) : null),
                 'city_id'          => $user->city_id,
                 'shipping_fee'     => $shippingFee,
+                'night_surcharge'  => $nightSurcharge,
                 'distance'         => $pricing['distance_km'],
                 'voucher_code'     => $voucherCode,
                 'discount_amount'  => $discountAmount,
@@ -267,6 +271,7 @@ class OrderController extends Controller
             'cod_amount'       => $order->cod_amount,
             'voucher_code'     => $order->voucher_code,
             'discount_amount'  => $order->discount_amount,
+            'night_surcharge'  => $order->night_surcharge ?? 0,
             'driver_rating'    => $order->driver_rating,
             'scheduled_at'     => $order->scheduled_at?->toIso8601String(),
             'created_at'       => $order->created_at->toIso8601String(),

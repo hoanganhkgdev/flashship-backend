@@ -10,9 +10,8 @@ use Filament\Tables\Table;
 
 class TransactionsRelationManager extends RelationManager
 {
-    protected static string $relationship = 'transactions';
-
-    protected static ?string $title = 'Lịch sử giao dịch';
+    protected static string  $relationship = 'transactions';
+    protected static ?string $title        = 'Lịch sử giao dịch';
 
     public function form(Form $form): Form
     {
@@ -23,18 +22,16 @@ class TransactionsRelationManager extends RelationManager
     {
         return $table
             ->columns([
-                Tables\Columns\TextColumn::make('id')
-                    ->label('#')
-                    ->sortable(),
-
                 Tables\Columns\TextColumn::make('type')
                     ->label('Loại')
                     ->badge()
+                    ->alignCenter()
                     ->formatStateUsing(fn ($state) => $state === 'credit' ? 'Cộng tiền' : 'Trừ tiền')
                     ->color(fn ($state) => $state === 'credit' ? 'success' : 'danger'),
 
                 Tables\Columns\TextColumn::make('amount')
                     ->label('Số tiền')
+                    ->alignCenter()
                     ->formatStateUsing(fn ($state, $record) =>
                         ($record->type === 'credit' ? '+' : '-') . number_format($state, 0, ',', '.') . ' ₫'
                     )
@@ -54,23 +51,17 @@ class TransactionsRelationManager extends RelationManager
 
                 Tables\Columns\TextColumn::make('created_at')
                     ->label('Thời gian')
-                    ->dateTime('d/m/Y H:i:s')
-                    ->sortable(),
+                    ->alignCenter()
+                    ->dateTime('d/m/Y H:i:s'),
             ])
             ->filters([
                 SelectFilter::make('type')
                     ->label('Loại giao dịch')
-                    ->options([
-                        'credit' => 'Cộng tiền',
-                        'debit'  => 'Trừ tiền',
-                    ]),
+                    ->options(['credit' => 'Cộng tiền', 'debit' => 'Trừ tiền']),
             ])
             ->defaultSort('created_at', 'desc')
             ->paginated([15, 30, 50]);
     }
 
-    public function canCreate(): bool
-    {
-        return false;
-    }
+    public function canCreate(): bool { return false; }
 }

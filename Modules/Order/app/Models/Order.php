@@ -16,7 +16,7 @@ class Order extends Model
             $order->is_freeship  = $order->is_freeship ?? false;
         });
         static::created(function ($order) {
-            $order->updateQuietly(['code' => 'FS' . str_pad($order->id, 6, '0', STR_PAD_LEFT)]);
+            $order->updateQuietly(['code' => (string) $order->id]);
         });
         static::saving(function ($order) {
             $order->bonus_fee    = $order->bonus_fee ?? 0;
@@ -30,7 +30,7 @@ class Order extends Model
         'dispatch_attempts', 'sender_platform_id', 'platform', 'created_by', 'status', 'cancel_reason',
         'pickup_address', 'pickup_lat', 'pickup_lng', 'pickup_phone', 'sender_name', 'store_name',
         'delivery_address', 'delivery_lat', 'delivery_lng', 'delivery_phone', 'receiver_name',
-        'shipping_fee', 'bonus_fee', 'is_freeship', 'distance', 'payment_method', 'cod_amount',
+        'shipping_fee', 'bonus_fee', 'night_surcharge', 'is_freeship', 'distance', 'payment_method', 'cod_amount',
         'order_note', 'voucher_code', 'discount_amount',
         'driver_rating', 'driver_rating_note', 'scheduled_at', 'completed_at', 'delivered_at',
     ];

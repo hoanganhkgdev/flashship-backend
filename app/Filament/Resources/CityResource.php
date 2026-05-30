@@ -3,23 +3,19 @@
 namespace App\Filament\Resources;
 
 use App\Filament\Resources\CityResource\Pages;
-use Filament\Forms\Components\TextInput;
-use Filament\Forms\Components\Toggle;
-use Filament\Forms\Components\View;
+use Filament\Forms;
 use Filament\Forms\Form;
+use Filament\Infolists;
+use Filament\Infolists\Infolist;
 use Filament\Resources\Resource;
-use Filament\Tables\Actions\DeleteAction;
-use Filament\Tables\Actions\EditAction;
-use Filament\Tables\Columns\IconColumn;
-use Filament\Tables\Columns\TextColumn;
-use Filament\Tables\Filters\TernaryFilter;
+use Filament\Tables;
 use Filament\Tables\Table;
 use Modules\Core\Models\City;
 
 class CityResource extends Resource
 {
-    protected static ?string $model = City::class;
-    protected static ?string $navigationIcon  = 'heroicon-o-map-pin';
+    protected static ?string $model          = City::class;
+    protected static ?string $navigationIcon = 'heroicon-o-map-pin';
     protected static ?string $navigationGroup = 'Cấu hình';
     protected static ?string $modelLabel      = 'Khu vực';
     protected static ?string $pluralModelLabel = 'Khu vực';
@@ -28,39 +24,113 @@ class CityResource extends Resource
     public static function form(Form $form): Form
     {
         return $form->schema([
-            TextInput::make('name')
-                ->label('Tên khu vực')
-                ->required()
-                ->maxLength(255),
+            Forms\Components\Section::make('Thông tin khu vực')
+                ->columns(2)
+                ->schema([
+                    Forms\Components\TextInput::make('name')
+                        ->label('Tên khu vực')
+                        ->required()
+                        ->maxLength(100)
+                        ->placeholder('VD: Rạch Giá'),
 
-            TextInput::make('slug')
-                ->label('Slug')
-                ->maxLength(100),
+                    Forms\Components\TextInput::make('slug')
+                        ->label('Slug')
+                        ->maxLength(100)
+                        ->placeholder('VD: rach-gia')
+                        ->helperText('Dùng để phân biệt nội bộ'),
 
-            View::make('filament.forms.components.map-picker')
-                ->columnSpanFull(),
+                    Forms\Components\Toggle::make('is_active')
+                        ->label('Đang hoạt động')
+                        ->default(true)
+                        ->columnSpanFull(),
+                ]),
 
-            TextInput::make('weekly_fee')
-                ->label('Phí tuần (VNĐ)')
-                ->numeric()
-                ->default(0)
-                ->minValue(0)
-                ->suffix('đ')
-                ->placeholder('0'),
+            Forms\Components\Section::make('Cấu hình')
+                ->columns(2)
+                ->schema([
+                    Forms\Components\TextInput::make('weekly_fee')
+                        ->label('Phí duy trì tài xế / tuần')
+                        ->numeric()
+                        ->default(0)
+                        ->minValue(0)
+                        ->suffix('đ')
+                        ->helperText('Số tiền trừ ví tài xế mỗi tuần để duy trì hoạt động'),
+                ]),
 
-            TextInput::make('lat')
-                ->label('Vĩ độ (Latitude)')
-                ->numeric()
-                ->placeholder('10.7769'),
+            Forms\Components\Section::make('Tọa độ trung tâm')
+                ->description('Dùng để hiển thị bản đồ và tính khoảng cách mặc định')
+                ->columns(2)
+                ->collapsed()
+                ->schema([
+                    Forms\Components\TextInput::make('lat')
+                        ->label('Vĩ độ (Latitude)')
+                        ->numeric()
+                        ->placeholder('10.0000'),
 
-            TextInput::make('lng')
-                ->label('Kinh độ (Longitude)')
-                ->numeric()
-                ->placeholder('106.7009'),
+                    Forms\Components\TextInput::make('lng')
+                        ->label('Kinh độ (Longitude)')
+                        ->numeric()
+                        ->placeholder('105.0000'),
+                ]),
+        ]);
+    }
 
-            Toggle::make('is_active')
-                ->label('Hoạt động')
-                ->default(true),
+    public static function infolist(Infolist $infolist): Infolist
+    {
+        return $infolist->schema([
+            Infolists\Components\Section::make('Thông tin khu vực')
+                ->columns(3)
+                ->schema([
+                    Infolists\Components\TextEntry::make('name')
+                        ->label('Tên khu vực')
+                        ->weight('bold')
+                        ->size('lg'),
+
+                    Infolists\Components\TextEntry::make('slug')
+                        ->label('Slug')
+                        ->default('—'),
+
+                    Infolists\Components\IconEntry::make('is_active')
+                        ->label('Trạng thái')
+                        ->boolean(),
+
+                    Infolists\Components\TextEntry::make('weekly_fee')
+                        ->label('Phí duy trì / tuần')
+                        ->formatStateUsing(fn ($state) => number_format((int) $state) . 'đ'),
+
+                    Infolists\Components\TextEntry::make('lat')
+                        ->label('Vĩ độ')
+                        ->default('—'),
+
+                    Infolists\Components\TextEntry::make('lng')
+                        ->label('Kinh độ')
+                        ->default('—'),
+                ]),
+
+            Infolists\Components\Section::make('Thống kê')
+                ->columns(3)
+                ->schema([
+                    Infolists\Components\TextEntry::make('users_count')
+                        ->label('Tài xế')
+                        ->state(fn (City $record) => $record->users()->count())
+                        ->badge()
+                        ->color('info')
+                        ->suffix(' tài xế'),
+
+                    Infolists\Components\TextEntry::make('customers_count')
+                        ->label('Khách hàng')
+                        ->state(fn (City $record) => $record->customers()->count())
+                        ->badge()
+                        ->color('success')
+                        ->suffix(' khách'),
+
+                    Infolists\Components\TextEntry::make('orders_count')
+                        ->label('Tổng đơn hàng')
+                        ->state(fn (City $record) => $record->orders()->count())
+                        ->badge()
+                        ->color('warning')
+                        ->suffix(' đơn'),
+                ]),
         ]);
     }
 
@@ -68,38 +138,68 @@ class CityResource extends Resource
     {
         return $table
             ->columns([
-                TextColumn::make('name')
-                    ->label('Tên khu vực')
-                    ->searchable()
-                    ->sortable(),
+                Tables\Columns\TextColumn::make('index')
+                    ->rowIndex()
+                    ->label('#')
+                    ->alignCenter()
+                    ->width(40),
 
-                TextColumn::make('lat')
-                    ->label('Vĩ độ'),
+                Tables\Columns\TextColumn::make('name')
+                    ->label('Khu vực')
+                    ->weight('bold')
+                    ->alignCenter()
+                    ->searchable(),
 
-                TextColumn::make('lng')
-                    ->label('Kinh độ'),
+                Tables\Columns\TextColumn::make('weekly_fee')
+                    ->label('Phí / tuần')
+                    ->alignCenter()
+                    ->formatStateUsing(fn ($state) => $state ? number_format((int) $state) . 'đ' : '—'),
 
-                TextColumn::make('users_count')
+                Tables\Columns\TextColumn::make('users_count')
                     ->label('Tài xế')
                     ->counts('users')
-                    ->sortable(),
+                    ->badge()
+                    ->alignCenter()
+                    ->color('info'),
 
-                IconColumn::make('is_active')
+                Tables\Columns\TextColumn::make('customers_count')
+                    ->label('Khách hàng')
+                    ->counts('customers')
+                    ->badge()
+                    ->alignCenter()
+                    ->color('success'),
+
+                Tables\Columns\TextColumn::make('orders_count')
+                    ->label('Tổng đơn')
+                    ->counts('orders')
+                    ->badge()
+                    ->alignCenter()
+                    ->color('warning'),
+
+                Tables\Columns\ToggleColumn::make('is_active')
                     ->label('Hoạt động')
-                    ->boolean(),
+                    ->alignCenter(),
 
-                TextColumn::make('created_at')
-                    ->label('Ngày tạo')
+                Tables\Columns\TextColumn::make('created_at')
+                    ->label('Tạo lúc')
                     ->dateTime('d/m/Y')
-                    ->sortable(),
+                    ->alignCenter()
+                    ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
-                TernaryFilter::make('is_active')->label('Trạng thái'),
+                Tables\Filters\TernaryFilter::make('is_active')->label('Trạng thái'),
             ])
             ->actions([
-                EditAction::make(),
-                DeleteAction::make(),
-            ]);
+                Tables\Actions\ViewAction::make()->label(''),
+                Tables\Actions\EditAction::make()->label(''),
+                Tables\Actions\DeleteAction::make()->label(''),
+            ])
+;
+    }
+
+    public static function getRelations(): array
+    {
+        return [];
     }
 
     public static function getPages(): array
@@ -107,6 +207,7 @@ class CityResource extends Resource
         return [
             'index'  => Pages\ListCities::route('/'),
             'create' => Pages\CreateCity::route('/create'),
+            'view'   => Pages\ViewCity::route('/{record}'),
             'edit'   => Pages\EditCity::route('/{record}/edit'),
         ];
     }

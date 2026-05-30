@@ -121,6 +121,11 @@ class User extends Authenticatable implements FilamentUser
         return $this->hasMany(\Modules\Driver\Models\DriverCccdImage::class, 'user_id');
     }
 
+    public function scoreLogs()
+    {
+        return $this->hasMany(\Modules\Driver\Models\DriverScoreLog::class, 'driver_id')->latest('created_at');
+    }
+
     // =========================================================================
     // SCOPES
     // =========================================================================

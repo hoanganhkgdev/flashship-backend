@@ -17,17 +17,12 @@ use Modules\Driver\Services\DriverWalletService;
 
 class WithdrawRequestResource extends Resource
 {
-    protected static ?string $model = WithdrawRequest::class;
-
-    protected static ?string $navigationIcon = 'heroicon-o-arrow-down-tray';
-
-    protected static ?string $navigationGroup = 'Quản lý ví';
-
-    protected static ?string $modelLabel = 'Yêu cầu rút tiền';
-
+    protected static ?string $model            = WithdrawRequest::class;
+    protected static ?string $navigationIcon   = 'heroicon-o-arrow-down-tray';
+    protected static ?string $navigationGroup  = 'Quản lý ví';
+    protected static ?string $modelLabel       = 'Yêu cầu rút tiền';
     protected static ?string $pluralModelLabel = 'Yêu cầu rút tiền';
-
-    protected static ?int $navigationSort = 2;
+    protected static ?int    $navigationSort   = 2;
 
     public static function getNavigationBadge(): ?string
     {
@@ -40,10 +35,7 @@ class WithdrawRequestResource extends Resource
         return 'warning';
     }
 
-    public static function canCreate(): bool
-    {
-        return false;
-    }
+    public static function canCreate(): bool { return false; }
 
     public static function form(Form $form): Form
     {
@@ -54,9 +46,11 @@ class WithdrawRequestResource extends Resource
     {
         return $table
             ->columns([
-                Tables\Columns\TextColumn::make('id')
+                Tables\Columns\TextColumn::make('index')
+                    ->rowIndex()
                     ->label('#')
-                    ->sortable(),
+                    ->alignCenter()
+                    ->width(40),
 
                 Tables\Columns\TextColumn::make('driver.name')
                     ->label('Tài xế')
@@ -69,13 +63,14 @@ class WithdrawRequestResource extends Resource
 
                 Tables\Columns\TextColumn::make('amount')
                     ->label('Số tiền')
+                    ->alignCenter()
                     ->formatStateUsing(fn ($state) => number_format($state, 0, ',', '.') . ' ₫')
-                    ->sortable()
                     ->weight('bold')
                     ->color('warning'),
 
                 Tables\Columns\TextColumn::make('status')
                     ->label('Trạng thái')
+                    ->alignCenter()
                     ->badge()
                     ->formatStateUsing(fn ($state) => match ($state) {
                         'pending'  => 'Chờ duyệt',
@@ -102,11 +97,12 @@ class WithdrawRequestResource extends Resource
 
                 Tables\Columns\TextColumn::make('created_at')
                     ->label('Ngày yêu cầu')
-                    ->dateTime('d/m/Y H:i')
-                    ->sortable(),
+                    ->alignCenter()
+                    ->dateTime('d/m/Y H:i'),
 
                 Tables\Columns\TextColumn::make('processed_at')
                     ->label('Ngày xử lý')
+                    ->alignCenter()
                     ->dateTime('d/m/Y H:i')
                     ->placeholder('—'),
             ])
@@ -179,8 +175,7 @@ class WithdrawRequestResource extends Resource
                         ]);
                         Notification::make()->success()->title('Đã từ chối yêu cầu.')->send();
                     }),
-            ])
-            ->defaultSort('created_at', 'desc');
+            ]);
     }
 
     public static function getRelations(): array

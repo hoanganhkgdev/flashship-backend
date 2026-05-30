@@ -11,6 +11,6 @@ class ListPricingConfigs extends ListRecords
 
     protected function getHeaderActions(): array
     {
-        return [];
+        return [\Filament\Actions\CreateAction::make()];
     }
 }

@@ -33,11 +33,13 @@ class PricingController extends Controller
         $cityId = $request->user()?->city_id;
 
         if ($data['service_type'] === 'topup') {
-            $amount = (int) ($data['topup_amount'] ?? 0);
+            $amount    = (int) ($data['topup_amount'] ?? 0);
+            $surcharge = PricingService::nightSurcharge();
             return response()->json(['success' => true, 'data' => [
-                'service_type' => 'topup',
-                'distance_km'  => 0,
-                'fee'          => PricingService::topupFee($amount, $cityId),
+                'service_type'    => 'topup',
+                'distance_km'     => 0,
+                'fee'             => PricingService::topupFee($amount, $cityId) + $surcharge,
+                'night_surcharge' => $surcharge,
             ]]);
         }
 

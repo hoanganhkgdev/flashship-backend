@@ -2,6 +2,7 @@
 namespace Modules\Core\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class City extends Model
 {
@@ -10,8 +11,18 @@ class City extends Model
 
     public function scopeActive(Builder $q): Builder { return $q->where('is_active', true); }
 
-    public function users(): \Illuminate\Database\Eloquent\Relations\HasMany
+    public function users(): HasMany
     {
         return $this->hasMany(User::class)->where('user_type', 'driver');
+    }
+
+    public function customers(): HasMany
+    {
+        return $this->hasMany(User::class)->where('user_type', 'customer');
+    }
+
+    public function orders(): HasMany
+    {
+        return $this->hasMany(\Modules\Order\Models\Order::class);
     }
 }

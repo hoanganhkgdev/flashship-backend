@@ -189,7 +189,7 @@ class ZaloTokenSettings extends Page
         // Trạng thái access token
         $minutesLeft = $row->expires_at ? now()->diffInMinutes($row->expires_at, false) : null;
         $expiresAt   = $row->expires_at ? \Carbon\Carbon::parse($row->expires_at)->format('d/m/Y H:i') : '—';
-        $lastRefresh = $row->last_refreshed_at
+        $lastRefresh = isset($row->last_refreshed_at) && $row->last_refreshed_at
             ? \Carbon\Carbon::parse($row->last_refreshed_at)->format('d/m/Y H:i')
             : '—';
 

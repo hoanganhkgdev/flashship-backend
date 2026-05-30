@@ -111,9 +111,17 @@ class PricingService
 
     // ── Public API ─────────────────────────────────────────────────────────────
 
+    public static function nightSurcharge(): int
+    {
+        $hour = (int) now()->format('G');
+        if ($hour === 23 || $hour === 0) return 5_000;
+        if ($hour >= 1 && $hour <= 3)   return 10_000;
+        return 0;
+    }
+
     public static function estimate(string $serviceType, float $distanceKm, ?int $cityId = null): array
     {
-        $fee = match ($serviceType) {
+        $base = match ($serviceType) {
             'delivery', 'shopping' => self::slabFee($distanceKm, $serviceType, $cityId),
             'bike'                 => self::bikeFee($distanceKm, $cityId),
             'motor'                => self::motorFee($distanceKm, $cityId),
@@ -121,10 +129,13 @@ class PricingService
             default                => self::slabFee($distanceKm, 'delivery', $cityId),
         };
 
+        $surcharge = self::nightSurcharge();
+
         return [
-            'service_type' => $serviceType,
-            'distance_km'  => round($distanceKm, 2),
-            'fee'          => $fee,
+            'service_type'   => $serviceType,
+            'distance_km'    => round($distanceKm, 2),
+            'fee'            => $base + $surcharge,
+            'night_surcharge' => $surcharge,
         ];
     }
 

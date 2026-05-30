@@ -3,20 +3,11 @@
 namespace App\Filament\Resources;
 
 use App\Filament\Resources\PricingResource\Pages;
-use Filament\Forms\Components\Repeater;
-use Filament\Forms\Components\Section;
-use Filament\Forms\Components\Select;
-use Filament\Forms\Components\TextInput;
-use Filament\Forms\Components\Toggle;
+use Filament\Forms;
 use Filament\Forms\Form;
+use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
-use Filament\Tables\Actions\Action;
-use Filament\Tables\Actions\CreateAction;
-use Filament\Tables\Actions\DeleteAction;
-use Filament\Tables\Actions\EditAction;
-use Filament\Tables\Columns\IconColumn;
-use Filament\Tables\Columns\TextColumn;
-use Filament\Tables\Filters\SelectFilter;
+use Filament\Tables;
 use Filament\Tables\Table;
 use Modules\Core\Models\City;
 use Modules\Pricing\Models\PricingConfig;
@@ -30,52 +21,68 @@ class PricingResource extends Resource
     protected static ?string $pluralModelLabel = 'Bảng giá';
     protected static ?int    $navigationSort  = 2;
 
+    private static array $serviceLabels = [
+        'delivery' => 'Lấy đồ hộ',
+        'shopping' => 'Mua hộ',
+        'bike'     => 'Xe ôm',
+        'motor'    => 'Lái hộ xe máy',
+        'car'      => 'Lái hộ ô tô',
+        'topup'    => 'Nạp tiền',
+    ];
+
+    private static array $serviceColors = [
+        'delivery' => 'info',
+        'shopping' => 'warning',
+        'bike'     => 'success',
+        'motor'    => 'primary',
+        'car'      => 'danger',
+        'topup'    => 'gray',
+    ];
+
     public static function form(Form $form): Form
     {
         return $form->schema([
-            Select::make('city_id')
-                ->label('Khu vực')
-                ->placeholder('Mặc định (tất cả khu vực)')
-                ->options(fn () => City::where('is_active', true)->pluck('name', 'id'))
-                ->searchable()
-                ->nullable(),
+            Forms\Components\Section::make('Thông tin chung')
+                ->columns(2)
+                ->schema([
+                    Forms\Components\Select::make('city_id')
+                        ->label('Khu vực')
+                        ->placeholder('Mặc định (tất cả khu vực)')
+                        ->options(fn () => City::where('is_active', true)->pluck('name', 'id'))
+                        ->searchable()
+                        ->nullable(),
 
-            Select::make('service_type')
-                ->label('Dịch vụ')
-                ->options([
-                    'delivery' => 'Lấy Đồ Hộ',
-                    'shopping' => 'Mua Hộ',
-                    'bike'     => 'Xe Ôm',
-                    'motor'    => 'Lái Hộ Xe Máy',
-                    'car'      => 'Lái Hộ Ô Tô',
-                    'topup'    => 'Nạp Tiền',
-                ])
-                ->required()
-                ->disabledOn('edit'),
+                    Forms\Components\Select::make('service_type')
+                        ->label('Dịch vụ')
+                        ->options(self::$serviceLabels)
+                        ->required()
+                        ->disabledOn('edit'),
 
-            TextInput::make('label')
-                ->label('Tên hiển thị')
-                ->required()
-                ->maxLength(100),
+                    Forms\Components\TextInput::make('label')
+                        ->label('Tên hiển thị')
+                        ->required()
+                        ->maxLength(100),
 
-            Toggle::make('is_active')
-                ->label('Kích hoạt')
-                ->inline(false),
+                    Forms\Components\Toggle::make('is_active')
+                        ->label('Kích hoạt')
+                        ->default(true)
+                        ->inline(false),
+                ]),
 
             // ── Slab bậc thang (delivery, shopping) ───────────────────────────
-            Section::make('Bảng giá bậc thang')
+            Forms\Components\Section::make('Bảng giá bậc thang')
                 ->description('Mỗi bậc áp dụng khi quãng đường ≤ "Đến km"')
                 ->schema([
-                    Repeater::make('config_json.slabs')
+                    Forms\Components\Repeater::make('config_json.slabs')
                         ->label('Các bậc')
                         ->schema([
-                            TextInput::make('max_km')
+                            Forms\Components\TextInput::make('max_km')
                                 ->label('Đến km')
                                 ->numeric()
                                 ->required()
                                 ->step(0.5)
                                 ->suffix('km'),
-                            TextInput::make('fee')
+                            Forms\Components\TextInput::make('fee')
                                 ->label('Phí')
                                 ->numeric()
                                 ->required()
@@ -87,7 +94,7 @@ class PricingResource extends Resource
                         ->collapsible()
                         ->defaultItems(0),
 
-                    TextInput::make('config_json.over_max_per_km')
+                    Forms\Components\TextInput::make('config_json.over_max_per_km')
                         ->label('Phí mỗi km vượt bậc cuối')
                         ->numeric()
                         ->suffix('₫/km'),
@@ -97,72 +104,50 @@ class PricingResource extends Resource
                 ),
 
             // ── Tuyến tính 2 bậc (bike) ───────────────────────────────────────
-            Section::make('Bảng giá xe ôm')
-                ->schema([
-                    TextInput::make('config_json.base_km')
-                        ->label('Km cơ bản')
-                        ->numeric()
-                        ->suffix('km'),
-                    TextInput::make('config_json.base_fee')
-                        ->label('Phí cơ bản')
-                        ->numeric()
-                        ->suffix('₫'),
-                    TextInput::make('config_json.per_km_fee')
-                        ->label('Phí/km (bình thường)')
-                        ->numeric()
-                        ->suffix('₫/km'),
-                    TextInput::make('config_json.higher_from_km')
-                        ->label('Áp giá cao từ km')
-                        ->numeric()
-                        ->suffix('km'),
-                    TextInput::make('config_json.higher_per_km_fee')
-                        ->label('Phí/km (giá cao)')
-                        ->numeric()
-                        ->suffix('₫/km'),
-                ])
+            Forms\Components\Section::make('Bảng giá xe ôm')
                 ->columns(2)
+                ->schema([
+                    Forms\Components\TextInput::make('config_json.base_km')
+                        ->label('Km cơ bản')->numeric()->suffix('km'),
+                    Forms\Components\TextInput::make('config_json.base_fee')
+                        ->label('Phí cơ bản')->numeric()->suffix('₫'),
+                    Forms\Components\TextInput::make('config_json.per_km_fee')
+                        ->label('Phí/km (bình thường)')->numeric()->suffix('₫/km'),
+                    Forms\Components\TextInput::make('config_json.higher_from_km')
+                        ->label('Áp giá cao từ km')->numeric()->suffix('km'),
+                    Forms\Components\TextInput::make('config_json.higher_per_km_fee')
+                        ->label('Phí/km (giá cao)')->numeric()->suffix('₫/km'),
+                ])
                 ->visible(fn ($record, $get) =>
                     ($record?->service_type ?? $get('service_type')) === 'bike'
                 ),
 
             // ── Tuyến tính đơn giản (motor, car) ──────────────────────────────
-            Section::make('Bảng giá tuyến tính')
-                ->schema([
-                    TextInput::make('config_json.base_km')
-                        ->label('Km cơ bản (trong phí nền)')
-                        ->numeric()
-                        ->suffix('km'),
-                    TextInput::make('config_json.base_fee')
-                        ->label('Phí cơ bản')
-                        ->numeric()
-                        ->suffix('₫'),
-                    TextInput::make('config_json.per_km_fee')
-                        ->label('Phí mỗi km tiếp theo')
-                        ->numeric()
-                        ->suffix('₫/km'),
-                ])
+            Forms\Components\Section::make('Bảng giá tuyến tính')
                 ->columns(3)
+                ->schema([
+                    Forms\Components\TextInput::make('config_json.base_km')
+                        ->label('Km cơ bản')->numeric()->suffix('km'),
+                    Forms\Components\TextInput::make('config_json.base_fee')
+                        ->label('Phí cơ bản')->numeric()->suffix('₫'),
+                    Forms\Components\TextInput::make('config_json.per_km_fee')
+                        ->label('Phí/km tiếp theo')->numeric()->suffix('₫/km'),
+                ])
                 ->visible(fn ($record, $get) =>
                     in_array($record?->service_type ?? $get('service_type'), ['motor', 'car'])
                 ),
 
             // ── Nạp tiền (topup) ───────────────────────────────────────────────
-            Section::make('Bảng phí nạp tiền')
+            Forms\Components\Section::make('Bảng phí nạp tiền')
                 ->description('Áp dụng theo số tiền nạp')
                 ->schema([
-                    Repeater::make('config_json.tiers')
+                    Forms\Components\Repeater::make('config_json.tiers')
                         ->label('Các mức phí')
                         ->schema([
-                            TextInput::make('max_amount')
-                                ->label('Dưới số tiền')
-                                ->numeric()
-                                ->required()
-                                ->suffix('₫'),
-                            TextInput::make('fee')
-                                ->label('Phí')
-                                ->numeric()
-                                ->required()
-                                ->suffix('₫'),
+                            Forms\Components\TextInput::make('max_amount')
+                                ->label('Dưới số tiền')->numeric()->required()->suffix('₫'),
+                            Forms\Components\TextInput::make('fee')
+                                ->label('Phí')->numeric()->required()->suffix('₫'),
                         ])
                         ->columns(2)
                         ->addActionLabel('+ Thêm mức')
@@ -170,14 +155,10 @@ class PricingResource extends Resource
                         ->collapsible()
                         ->defaultItems(0),
 
-                    TextInput::make('config_json.over_max_per_unit')
-                        ->label('Mỗi đơn vị vượt')
-                        ->numeric()
-                        ->suffix('₫'),
-                    TextInput::make('config_json.over_max_fee_step')
-                        ->label('Phí mỗi đơn vị vượt')
-                        ->numeric()
-                        ->suffix('₫'),
+                    Forms\Components\TextInput::make('config_json.over_max_per_unit')
+                        ->label('Mỗi đơn vị vượt')->numeric()->suffix('₫'),
+                    Forms\Components\TextInput::make('config_json.over_max_fee_step')
+                        ->label('Phí mỗi đơn vị vượt')->numeric()->suffix('₫'),
                 ])
                 ->visible(fn ($record, $get) =>
                     ($record?->service_type ?? $get('service_type')) === 'topup'
@@ -189,62 +170,52 @@ class PricingResource extends Resource
     {
         return $table
             ->columns([
-                TextColumn::make('city.name')
+                Tables\Columns\TextColumn::make('index')
+                    ->rowIndex()
+                    ->label('#')
+                    ->alignCenter()
+                    ->width(40),
+
+                Tables\Columns\TextColumn::make('city.name')
                     ->label('Khu vực')
                     ->default('Mặc định')
                     ->badge()
-                    ->color(fn ($record) => $record->city_id ? 'info' : 'gray')
-                    ->sortable(),
+                    ->alignCenter()
+                    ->color(fn (PricingConfig $record) => $record->city_id ? 'info' : 'gray'),
 
-                TextColumn::make('label')
+                Tables\Columns\TextColumn::make('label')
                     ->label('Dịch vụ')
                     ->weight('bold'),
 
-                TextColumn::make('service_type')
+                Tables\Columns\TextColumn::make('service_type')
                     ->label('Mã')
                     ->badge()
-                    ->color('gray'),
+                    ->formatStateUsing(fn ($state) => self::$serviceLabels[$state] ?? $state)
+                    ->color(fn ($state) => self::$serviceColors[$state] ?? 'gray'),
 
-                TextColumn::make('base_fee')
-                    ->label('Phí cơ bản')
-                    ->formatStateUsing(fn ($state) => number_format((int) $state) . '₫'),
-
-                TextColumn::make('base_km')
-                    ->label('Km cơ bản')
-                    ->formatStateUsing(fn ($state) => $state ? "{$state} km" : '—'),
-
-                TextColumn::make('per_km_fee')
-                    ->label('Phí/km')
-                    ->formatStateUsing(fn ($state) => $state ? number_format((int) $state) . '₫' : '—'),
-
-                IconColumn::make('is_active')
+                Tables\Columns\ToggleColumn::make('is_active')
                     ->label('Hoạt động')
-                    ->boolean()
-                    ->trueColor('success')
-                    ->falseColor('danger'),
+                    ->alignCenter(),
             ])
-            ->defaultSort(fn ($query) => $query->orderByRaw('city_id IS NOT NULL')->orderBy('service_type'))
             ->filters([
-                SelectFilter::make('city_id')
+                Tables\Filters\SelectFilter::make('city_id')
                     ->label('Khu vực')
                     ->placeholder('Tất cả')
-                    ->options(fn () => ['' => 'Mặc định'] + City::where('is_active', true)->pluck('name', 'id')->toArray()),
-            ])
-            ->headerActions([
-                Action::make('create_city_pricing')
-                    ->label('Tạo giá riêng cho khu vực')
-                    ->icon('heroicon-o-plus')
-                    ->url(fn () => static::getUrl('create')),
+                    ->options(fn () => ['0' => 'Mặc định'] + City::where('is_active', true)->pluck('name', 'id')->toArray()),
+
+                Tables\Filters\SelectFilter::make('service_type')
+                    ->label('Dịch vụ')
+                    ->options(self::$serviceLabels),
             ])
             ->actions([
-                EditAction::make()->label('Chỉnh giá'),
+                Tables\Actions\EditAction::make()->label('Chỉnh giá'),
 
-                Action::make('clone')
+                Tables\Actions\Action::make('clone')
                     ->label('Nhân bản')
                     ->icon('heroicon-o-document-duplicate')
                     ->color('gray')
                     ->form([
-                        Select::make('city_id')
+                        Forms\Components\Select::make('city_id')
                             ->label('Khu vực đích')
                             ->options(fn () => City::where('is_active', true)->pluck('name', 'id'))
                             ->required()
@@ -256,11 +227,9 @@ class PricingResource extends Resource
                             ->exists();
 
                         if ($exists) {
-                            \Filament\Notifications\Notification::make()
-                                ->title('Đã tồn tại')
+                            Notification::make()->title('Đã tồn tại')
                                 ->body('Khu vực này đã có bảng giá cho dịch vụ ' . $record->label)
-                                ->warning()
-                                ->send();
+                                ->warning()->send();
                             return;
                         }
 
@@ -276,23 +245,12 @@ class PricingResource extends Resource
                             'config_json'  => $record->config_json,
                         ]);
 
-                        \Filament\Notifications\Notification::make()
-                            ->title('Đã nhân bản')
+                        Notification::make()->title('Đã nhân bản')
                             ->body('Bạn có thể chỉnh giá riêng cho khu vực này')
-                            ->success()
-                            ->send();
-                    })
-                    ->requiresConfirmation(false),
+                            ->success()->send();
+                    }),
 
-                Action::make('toggle')
-                    ->label(fn (PricingConfig $record) => $record->is_active ? 'Tắt' : 'Bật')
-                    ->icon(fn (PricingConfig $record) => $record->is_active ? 'heroicon-o-pause-circle' : 'heroicon-o-play-circle')
-                    ->color(fn (PricingConfig $record) => $record->is_active ? 'warning' : 'success')
-                    ->requiresConfirmation()
-                    ->modalHeading(fn (PricingConfig $record) => ($record->is_active ? 'Tắt' : 'Bật') . ' ' . $record->label)
-                    ->action(fn (PricingConfig $record) => $record->update(['is_active' => !$record->is_active])),
-
-                DeleteAction::make()
+                Tables\Actions\DeleteAction::make()
                     ->visible(fn (PricingConfig $record) => $record->city_id !== null),
             ])
             ->paginated(false);
