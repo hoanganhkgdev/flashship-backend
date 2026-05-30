@@ -133,17 +133,19 @@ class FCMService
             'offered_at'       => $offeredAt ?: now()->toIso8601String(),
         ];
 
+        $notif   = Notification::create('Có đơn hàng mới!', "Từ: {$order['pickup_address']}");
+        $android = AndroidConfig::fromArray(['priority' => 'high', 'ttl' => "{$ttl}s"]);
+
         foreach (array_chunk($tokens, 500) as $batch) {
             try {
-                $message = CloudMessage::new()
-                    ->withNotification(Notification::create('Có đơn hàng mới!', "Từ: {$order['pickup_address']}"))
-                    ->withData($data)
-                    ->withAndroidConfig(AndroidConfig::fromArray([
-                        'priority' => 'high',
-                        'ttl'      => "{$ttl}s",
-                    ]));
-
-                $this->messaging->sendMulticast($message, $batch);
+                $messages = array_map(
+                    fn (string $token) => CloudMessage::withTarget('token', $token)
+                        ->withNotification($notif)
+                        ->withData($data)
+                        ->withAndroidConfig($android),
+                    $batch
+                );
+                $this->messaging->sendAll($messages);
             } catch (\Throwable $e) {
                 Log::error('[FCM] Multicast failed: ' . $e->getMessage());
             }
@@ -214,17 +216,25 @@ class FCMService
     public function broadcast(array $tokens, string $title, string $body, array $data = []): array
     {
         $sent = $failed = 0;
+        $notif   = Notification::create($title, $body);
+        $android = AndroidConfig::fromArray(['priority' => 'high', 'ttl' => '3600s']);
+        $apns    = ApnsConfig::fromArray([
+            'headers' => ['apns-priority' => '10', 'apns-push-type' => 'alert'],
+            'payload' => ['aps' => ['sound' => 'default', 'badge' => 1]],
+        ]);
+        $payload = array_merge(['type' => 'broadcast'], $data);
+
         foreach (array_chunk($tokens, 500) as $batch) {
             try {
-                $message = CloudMessage::new()
-                    ->withNotification(Notification::create($title, $body))
-                    ->withData(array_merge(['type' => 'broadcast'], $data))
-                    ->withAndroidConfig(AndroidConfig::fromArray(['priority' => 'high', 'ttl' => '3600s']))
-                    ->withApnsConfig(ApnsConfig::fromArray([
-                        'headers' => ['apns-priority' => '10', 'apns-push-type' => 'alert'],
-                        'payload' => ['aps' => ['sound' => 'default', 'badge' => 1]],
-                    ]));
-                $report = $this->messaging->sendMulticast($message, $batch);
+                $messages = array_map(
+                    fn (string $token) => CloudMessage::withTarget('token', $token)
+                        ->withNotification($notif)
+                        ->withData($payload)
+                        ->withAndroidConfig($android)
+                        ->withApnsConfig($apns),
+                    $batch
+                );
+                $report  = $this->messaging->sendAll($messages);
                 $sent   += $report->successes()->count();
                 $failed += $report->failures()->count();
             } catch (\Throwable $e) {
