@@ -216,19 +216,28 @@ class FCMService
     public function broadcast(array $tokens, string $title, string $body, array $data = []): array
     {
         $sent = $failed = 0;
-        $notif   = Notification::create($title, $body);
-        $android = AndroidConfig::fromArray(['priority' => 'high', 'ttl' => '3600s']);
-        $apns    = ApnsConfig::fromArray([
-            'headers' => ['apns-priority' => '10', 'apns-push-type' => 'alert'],
-            'payload' => ['aps' => ['sound' => 'default', 'badge' => 1]],
+        // Pure data message — đảm bảo onMessage luôn fire trên iOS foreground
+        $payload = array_merge([
+            'type'  => 'broadcast',
+            'title' => $title,
+            'body'  => $body,
+        ], $data);
+        $android = AndroidConfig::fromArray([
+            'priority' => 'high',
+            'ttl'      => '3600s',
         ]);
-        $payload = array_merge(['type' => 'broadcast', 'title' => $title, 'body' => $body], $data);
+        $apns = ApnsConfig::fromArray([
+            'headers' => [
+                'apns-priority'  => '10',
+                'apns-push-type' => 'background',
+            ],
+            'payload' => ['aps' => ['content-available' => 1]],
+        ]);
 
         foreach (array_chunk($tokens, 500) as $batch) {
             try {
                 $messages = array_map(
                     fn (string $token) => CloudMessage::withTarget('token', $token)
-                        ->withNotification($notif)
                         ->withData($payload)
                         ->withAndroidConfig($android)
                         ->withApnsConfig($apns),
