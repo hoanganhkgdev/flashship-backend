@@ -106,6 +106,18 @@ class DispatchService
         $driver = User::find($driverId);
         $name   = $driver?->name ?? "#{$driverId}";
 
+        // Kiểm tra log còn pending không — tránh race condition với declineOrder
+        $updated = OrderDispatchLog::where('order_id', $order->id)
+            ->where('driver_id', $driverId)
+            ->where('result', 'pending')
+            ->update(['result' => 'expired', 'responded_at' => now()]);
+
+        // Nếu 0 row được update → driver đã decline trước đó → không xử lý nữa
+        if (!$updated) {
+            Log::info("⏱  [Dispatch] Đơn #{$order->id}: Tài xế {$name} đã xử lý trước (decline) → bỏ qua timeout");
+            return;
+        }
+
         // Chỉ trừ điểm nếu tài xế đã MỞ xem offer nhưng không phản hồi (-1 điểm)
         // Nếu tài xế chưa thấy thông báo (offer_viewed_at = null) → không trừ điểm
         if ($order->offer_viewed_at !== null) {
@@ -114,11 +126,6 @@ class DispatchService
         } else {
             Log::info("⏱  [Dispatch] Đơn #{$order->id}: Tài xế {$name} chưa thấy thông báo → không trừ điểm");
         }
-
-        OrderDispatchLog::where('order_id', $order->id)
-            ->where('driver_id', $driverId)
-            ->where('result', 'pending')
-            ->update(['result' => 'expired', 'responded_at' => now()]);
 
         // Xóa offer trên RTDB — driver app tự dismiss màn hình offer
         RTDBService::clearDriverOffer($driverId);

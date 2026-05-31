@@ -151,7 +151,11 @@ class OrderService
 
         $log->update(['result' => 'declined', 'responded_at' => now()]);
 
-        DriverScoreService::onDecline($user->id);
+        // Chỉ trừ điểm nếu tài xế đã MỞ xem offer (offer_viewed_at != null)
+        // Nếu chưa mở → không trừ điểm (tài xế không thấy thông báo)
+        if ($order->offer_viewed_at !== null) {
+            DriverScoreService::onDecline($user->id);
+        }
 
         // Xóa offer RTDB ngay lập tức — app dismiss màn hình offer
         RTDBService::clearDriverOffer($user->id);
