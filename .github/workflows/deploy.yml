@@ -20,7 +20,7 @@ jobs:
           username: deploy
           key: ${{ secrets.VPS_SSH_KEY }}
           port: 22
-          envs: APNS_PRIVATE_KEY
+          envs: APNS_PRIVATE_KEY,PAYOS_CLIENT_ID,PAYOS_API_KEY,PAYOS_CHECKSUM_KEY
           script: |
             cd /var/www/flashship
             git pull origin main
