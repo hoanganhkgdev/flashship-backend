@@ -12,13 +12,24 @@ class CustomerNotificationController extends Controller
 {
     public function index(Request $request): JsonResponse
     {
+        $perPage = 20;
+        $page    = max(1, (int) $request->query('page', 1));
+
+        $total = DB::table('customer_notifications')
+            ->where('user_id', $request->user()->id)
+            ->count();
+
         $items = DB::table('customer_notifications')
             ->where('user_id', $request->user()->id)
             ->orderByDesc('created_at')
-            ->limit(50)
+            ->offset(($page - 1) * $perPage)
+            ->limit($perPage)
             ->get(['id', 'title', 'body', 'type', 'order_code', 'is_read', 'created_at']);
 
-        return response()->json(['data' => $items]);
+        return response()->json([
+            'data'     => $items,
+            'has_more' => ($page * $perPage) < $total,
+        ]);
     }
 
     public function markRead(Request $request, int $id): JsonResponse
