@@ -227,8 +227,17 @@ class OrderService
             return ['success' => true, 'message' => 'Đơn này đã hoàn thành trước đó.', 'data' => $order, 'status' => 200];
         }
 
-        $order->update(['status' => 'completed', 'completed_at' => now(), 'delivered_at' => now()]);
+        // Atomic update — chỉ tiếp tục nếu row thực sự được update (tránh race condition)
+        $affected = \DB::table('orders')
+            ->where('id', $order->id)
+            ->where('status', '!=', 'completed')
+            ->update(['status' => 'completed', 'completed_at' => now(), 'delivered_at' => now(), 'updated_at' => now()]);
 
+        if (!$affected) {
+            return ['success' => true, 'message' => 'Đơn này đã hoàn thành trước đó.', 'data' => $order->fresh(), 'status' => 200];
+        }
+
+        $order->refresh();
         $shippingFee = (float) ($order->shipping_fee ?? 0);
         $bonusFee    = (float) ($order->bonus_fee ?? 0);
         $discountAmt = (float) ($order->discount_amount ?? 0);

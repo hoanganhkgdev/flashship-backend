@@ -20,7 +20,19 @@ class DecayDriverScoresCommand extends Command
 
     public function handle(): void
     {
-        $now = now();
+        $now   = now();
+        $today = $now->toDateString();
+
+        // Guard: chỉ chạy 1 lần/ngày — tránh trừ điểm 2 lần nếu cron bị lỗi
+        $ranToday = DB::table('driver_score_logs')
+            ->where('reason', 'like', 'inactivity_%')
+            ->whereDate('created_at', $today)
+            ->exists();
+
+        if ($ranToday) {
+            $this->info("[DecayDriverScores] Đã chạy hôm nay ({$today}), bỏ qua.");
+            return;
+        }
 
         // Lấy ngày hoàn thành đơn gần nhất của mỗi tài xế
         $lastCompleted = DB::table('orders')

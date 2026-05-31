@@ -235,9 +235,17 @@ class OrderController extends Controller
             return response()->json(['success' => false, 'message' => 'Đã quá 24 giờ, không thể đánh giá đơn hàng này.'], 400);
         }
 
-        $order->update(['driver_rating' => $data['rating'], 'driver_rating_note' => $data['note'] ?? null]);
+        // Atomic update — chỉ apply nếu chưa có rating (tránh race condition double-rate)
+        $affected = \DB::table('orders')
+            ->where('id', $order->id)
+            ->whereNull('driver_rating')
+            ->update([
+                'driver_rating'      => $data['rating'],
+                'driver_rating_note' => $data['note'] ?? null,
+                'updated_at'         => now(),
+            ]);
 
-        if ($order->delivery_man_id) {
+        if ($affected > 0 && $order->delivery_man_id) {
             DriverScoreService::onRated($order->delivery_man_id, (int) $data['rating']);
         }
 
