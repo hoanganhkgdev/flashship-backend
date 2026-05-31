@@ -69,7 +69,17 @@ Route::get('/service-types', function () {
     return response()->json(['success' => true, 'data' => $items]);
 });
 
-Route::get('/app-version', fn() => response()->json(['version' => config('app.version', '1.0.0')]));
+Route::get('/app-version', function () {
+    $s = \App\Models\AppVersionSetting::current();
+    return response()->json([
+        'min_version'    => $s->min_version,
+        'latest_version' => $s->latest_version,
+        'android_url'    => $s->android_url,
+        'ios_url'        => $s->ios_url,
+        'force_update'   => $s->force_update,
+        'force_message'  => $s->force_message,
+    ]);
+});
 
 Route::get('/banners', function () {
     return response()->json(['success' => true, 'data' => \Modules\Admin\Models\Banner::where('is_active', true)->orderBy('sort_order')->get()]);
