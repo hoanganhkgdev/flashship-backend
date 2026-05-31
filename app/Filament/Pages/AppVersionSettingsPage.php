@@ -25,29 +25,27 @@ class AppVersionSettingsPage extends Page implements HasForms
 
     protected static string $view = 'filament.pages.app-version-settings';
 
-    public ?string $min_version    = null;
-    public ?string $latest_version = null;
-    public ?string $android_url    = null;
-    public ?string $ios_url        = null;
-    public bool    $force_update   = false;
-    public ?string $force_message  = null;
+    public array $data = [];
 
     public function mount(): void
     {
-        $s = AppVersionSetting::current();
-        $this->min_version    = $s->min_version;
-        $this->latest_version = $s->latest_version;
-        $this->android_url    = $s->android_url;
-        $this->ios_url        = $s->ios_url;
-        $this->force_update   = $s->force_update;
-        $this->force_message  = $s->force_message;
+        $customer = AppVersionSetting::forPlatform('customer');
+        $driver   = AppVersionSetting::forPlatform('driver');
+
         $this->form->fill([
-            'min_version'    => $s->min_version,
-            'latest_version' => $s->latest_version,
-            'android_url'    => $s->android_url,
-            'ios_url'        => $s->ios_url,
-            'force_update'   => $s->force_update,
-            'force_message'  => $s->force_message,
+            'customer_min_version'    => $customer->min_version,
+            'customer_latest_version' => $customer->latest_version,
+            'customer_android_url'    => $customer->android_url,
+            'customer_ios_url'        => $customer->ios_url,
+            'customer_force_update'   => $customer->force_update,
+            'customer_force_message'  => $customer->force_message,
+
+            'driver_min_version'    => $driver->min_version,
+            'driver_latest_version' => $driver->latest_version,
+            'driver_android_url'    => $driver->android_url,
+            'driver_ios_url'        => $driver->ios_url,
+            'driver_force_update'   => $driver->force_update,
+            'driver_force_message'  => $driver->force_message,
         ]);
     }
 
@@ -55,54 +53,74 @@ class AppVersionSettingsPage extends Page implements HasForms
     {
         return $form->schema([
 
-            Section::make('Phiên bản')
-                ->description('Quản lý phiên bản tối thiểu và mới nhất của app.')
+            Section::make('App Khách hàng')
+                ->icon('heroicon-o-user')
                 ->schema([
-                    TextInput::make('min_version')
+                    TextInput::make('customer_min_version')
                         ->label('Phiên bản tối thiểu')
-                        ->placeholder('1.0.0')
-                        ->helperText('App thấp hơn version này sẽ bị bắt buộc cập nhật.')
-                        ->required(),
-                    TextInput::make('latest_version')
+                        ->placeholder('1.0.0')->required(),
+                    TextInput::make('customer_latest_version')
                         ->label('Phiên bản mới nhất')
-                        ->placeholder('1.0.1')
-                        ->required(),
-                ])->columns(2),
-
-            Section::make('Store URL')
-                ->schema([
-                    TextInput::make('android_url')
-                        ->label('Google Play URL')
-                        ->placeholder('https://play.google.com/store/apps/details?id=...')
-                        ->url(),
-                    TextInput::make('ios_url')
-                        ->label('App Store URL')
-                        ->placeholder('https://apps.apple.com/app/...')
-                        ->url(),
-                ])->columns(2),
-
-            Section::make('Force Update')
-                ->schema([
-                    Toggle::make('force_update')
+                        ->placeholder('1.0.1')->required(),
+                    TextInput::make('customer_android_url')
+                        ->label('Google Play URL')->url()->columnSpan(2),
+                    TextInput::make('customer_ios_url')
+                        ->label('App Store URL')->url()->columnSpan(2),
+                    Toggle::make('customer_force_update')
                         ->label('Bật force update')
-                        ->helperText('Khi bật, user dùng app < min_version sẽ thấy dialog bắt buộc cập nhật.')
-                        ->live(),
-                    Textarea::make('force_message')
+                        ->helperText('User dùng app < min_version sẽ bị bắt buộc cập nhật.')
+                        ->columnSpan(2),
+                    Textarea::make('customer_force_message')
                         ->label('Nội dung thông báo')
-                        ->placeholder('Vui lòng cập nhật ứng dụng để tiếp tục sử dụng.')
-                        ->rows(3),
-                ]),
+                        ->rows(2)->columnSpan(2),
+                ])->columns(2),
+
+            Section::make('App Tài xế')
+                ->icon('heroicon-o-truck')
+                ->schema([
+                    TextInput::make('driver_min_version')
+                        ->label('Phiên bản tối thiểu')
+                        ->placeholder('1.0.0')->required(),
+                    TextInput::make('driver_latest_version')
+                        ->label('Phiên bản mới nhất')
+                        ->placeholder('1.0.1')->required(),
+                    TextInput::make('driver_android_url')
+                        ->label('Google Play URL')->url()->columnSpan(2),
+                    TextInput::make('driver_ios_url')
+                        ->label('App Store URL')->url()->columnSpan(2),
+                    Toggle::make('driver_force_update')
+                        ->label('Bật force update')
+                        ->helperText('Tài xế dùng app < min_version sẽ bị bắt buộc cập nhật.')
+                        ->columnSpan(2),
+                    Textarea::make('driver_force_message')
+                        ->label('Nội dung thông báo')
+                        ->rows(2)->columnSpan(2),
+                ])->columns(2),
 
         ])->statePath('data');
     }
 
-    public array $data = [];
-
     public function save(): void
     {
         $values = $this->form->getState();
-        $s      = AppVersionSetting::current();
-        $s->update($values);
+
+        AppVersionSetting::forPlatform('customer')->update([
+            'min_version'    => $values['customer_min_version'],
+            'latest_version' => $values['customer_latest_version'],
+            'android_url'    => $values['customer_android_url'] ?: null,
+            'ios_url'        => $values['customer_ios_url'] ?: null,
+            'force_update'   => $values['customer_force_update'],
+            'force_message'  => $values['customer_force_message'],
+        ]);
+
+        AppVersionSetting::forPlatform('driver')->update([
+            'min_version'    => $values['driver_min_version'],
+            'latest_version' => $values['driver_latest_version'],
+            'android_url'    => $values['driver_android_url'] ?: null,
+            'ios_url'        => $values['driver_ios_url'] ?: null,
+            'force_update'   => $values['driver_force_update'],
+            'force_message'  => $values['driver_force_message'],
+        ]);
 
         Notification::make()
             ->title('Đã lưu cài đặt phiên bản')

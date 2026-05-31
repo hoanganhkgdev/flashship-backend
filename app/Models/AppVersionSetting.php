@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 class AppVersionSetting extends Model
 {
     protected $fillable = [
+        'platform',
         'min_version',
         'latest_version',
         'android_url',
@@ -19,13 +20,16 @@ class AppVersionSetting extends Model
         'force_update' => 'boolean',
     ];
 
-    public static function current(): self
+    public static function forPlatform(string $platform = 'customer'): self
     {
-        return static::firstOrCreate([], [
-            'min_version'    => '1.0.0',
-            'latest_version' => '1.0.0',
-            'force_update'   => false,
-            'force_message'  => 'Vui lòng cập nhật ứng dụng để tiếp tục sử dụng.',
-        ]);
+        return static::firstOrCreate(
+            ['platform' => $platform],
+            [
+                'min_version'    => '1.0.0',
+                'latest_version' => '1.0.0',
+                'force_update'   => false,
+                'force_message'  => 'Vui lòng cập nhật ứng dụng để tiếp tục sử dụng.',
+            ]
+        );
     }
 }

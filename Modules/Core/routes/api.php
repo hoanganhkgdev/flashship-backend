@@ -69,8 +69,11 @@ Route::get('/service-types', function () {
     return response()->json(['success' => true, 'data' => $items]);
 });
 
-Route::get('/app-version', function () {
-    $s = \App\Models\AppVersionSetting::current();
+Route::get('/app-version', function (\Illuminate\Http\Request $request) {
+    $platform = in_array($request->query('platform'), ['customer', 'driver'])
+        ? $request->query('platform')
+        : 'customer';
+    $s = \App\Models\AppVersionSetting::forPlatform($platform);
     return response()->json([
         'min_version'    => $s->min_version,
         'latest_version' => $s->latest_version,
