@@ -42,6 +42,8 @@ class DriverController extends Controller
         $cccd = $user->driverCccdImages->sortByDesc('id')->first();
         $data['cccd_image_status'] = $cccd?->status;
         $data['cccd_image_url']    = $cccd?->image_path ? url('storage/' . $cccd->image_path) : null;
+        $data['name_locked']       = (bool) $user->name_updated_at;
+        $data['avatar_locked']     = (bool) $user->avatar_locked;
 
         return response()->json(['success' => true, 'data' => ['user' => $data]]);
     }
@@ -114,15 +116,36 @@ class DriverController extends Controller
 
         $user = $request->user();
 
+        // Tên chỉ được đổi 1 lần
+        if (isset($data['name']) && $data['name'] !== $user->name) {
+            if ($user->name_updated_at) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Tên chỉ được thay đổi một lần.',
+                ], 403);
+            }
+            $data['name_updated_at'] = now();
+        } else {
+            unset($data['name']);
+        }
+
+        // Avatar chỉ được upload 1 lần
         if ($request->hasFile('avatar')) {
+            if ($user->avatar_locked) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Ảnh đại diện chỉ được thay đổi một lần.',
+                ], 403);
+            }
             if ($user->profile_photo_path) {
                 Storage::disk('public')->delete($user->profile_photo_path);
             }
             $data['profile_photo_path'] = $request->file('avatar')->store('profile-photos', 'public');
+            $data['avatar_locked'] = true;
         }
         unset($data['avatar']);
 
-        $user->update(array_filter($data));
+        $user->update(array_filter($data, fn($v) => $v !== null));
         $user->refresh();
 
         $userData = $user->toArray();

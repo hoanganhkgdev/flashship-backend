@@ -41,6 +41,7 @@ class User extends Authenticatable implements FilamentUser
         'status',
         'uid',
         'profile_photo_path',
+        'avatar_locked',
         'last_login_at',
         'player_id',          // Deprecated — kept for backward compatibility
         'fcm_token',
