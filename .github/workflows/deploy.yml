@@ -12,6 +12,9 @@ jobs:
         uses: appleboy/ssh-action@v1.0.3
         env:
           APNS_PRIVATE_KEY: ${{ secrets.APNS_PRIVATE_KEY }}
+          PAYOS_CLIENT_ID: ${{ secrets.PAYOS_CLIENT_ID }}
+          PAYOS_API_KEY: ${{ secrets.PAYOS_API_KEY }}
+          PAYOS_CHECKSUM_KEY: ${{ secrets.PAYOS_CHECKSUM_KEY }}
         with:
           host: 103.200.20.95
           username: deploy
@@ -23,12 +26,22 @@ jobs:
             git pull origin main
             composer install --no-dev --optimize-autoloader --ignore-platform-req=ext-intl
 
-            # Inject APNS_PRIVATE_KEY vào .env nếu chưa có
+            # Inject APNS_PRIVATE_KEY
             if ! grep -q "APNS_PRIVATE_KEY" .env; then
               echo "APNS_PRIVATE_KEY=\"$APNS_PRIVATE_KEY\"" >> .env
             else
               sed -i "s|^APNS_PRIVATE_KEY=.*|APNS_PRIVATE_KEY=\"$APNS_PRIVATE_KEY\"|" .env
             fi
+
+            # Inject PayOS keys
+            for key in PAYOS_CLIENT_ID PAYOS_API_KEY PAYOS_CHECKSUM_KEY; do
+              val="${!key}"
+              if ! grep -q "^${key}=" .env; then
+                echo "${key}=${val}" >> .env
+              else
+                sed -i "s|^${key}=.*|${key}=${val}|" .env
+              fi
+            done
 
             php artisan migrate --force
             php artisan storage:link --quiet || true
