@@ -106,7 +106,14 @@ class DispatchService
         $driver = User::find($driverId);
         $name   = $driver?->name ?? "#{$driverId}";
 
-        DriverScoreService::onDecline($driverId);
+        // Chỉ trừ điểm nếu tài xế đã MỞ xem offer nhưng không phản hồi (-1 điểm)
+        // Nếu tài xế chưa thấy thông báo (offer_viewed_at = null) → không trừ điểm
+        if ($order->offer_viewed_at !== null) {
+            DriverScoreService::onTimeout($driverId);
+            Log::info("⏱  [Dispatch] Đơn #{$order->id}: Tài xế {$name} đã xem nhưng không phản hồi → trừ 1 điểm");
+        } else {
+            Log::info("⏱  [Dispatch] Đơn #{$order->id}: Tài xế {$name} chưa thấy thông báo → không trừ điểm");
+        }
 
         OrderDispatchLog::where('order_id', $order->id)
             ->where('driver_id', $driverId)
@@ -115,8 +122,6 @@ class DispatchService
 
         // Xóa offer trên RTDB — driver app tự dismiss màn hình offer
         RTDBService::clearDriverOffer($driverId);
-
-        Log::info("⏱  [Dispatch] Đơn #{$order->id}: Tài xế {$name} HẾT THỜI GIAN (30s) → chuyển tài xế tiếp theo");
 
         $this->sendToNextDriver($order->fresh());
     }
