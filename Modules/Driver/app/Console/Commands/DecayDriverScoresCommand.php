@@ -33,7 +33,7 @@ class DecayDriverScoresCommand extends Command
         $drivers = DB::table('users')
             ->where('user_type', 'driver')
             ->where('status', 1)
-            ->select('id', 'name', 'driver_score')
+            ->select('id', 'name', 'driver_score', 'created_at')
             ->get();
 
         $mild   = 0;
@@ -42,11 +42,12 @@ class DecayDriverScoresCommand extends Command
         foreach ($drivers as $driver) {
             $lastAt = $lastCompleted[$driver->id] ?? null;
 
-            if (!$lastAt) {
-                // Chưa hoàn thành đơn nào → xem như inactive từ lúc tạo tài khoản
-                $daysSince = PHP_INT_MAX;
-            } else {
+            if ($lastAt) {
+                // Tính từ lần cuối hoàn thành đơn
                 $daysSince = $now->diffInDays(\Carbon\Carbon::parse($lastAt));
+            } else {
+                // Chưa hoàn thành đơn nào → tính từ ngày đăng ký
+                $daysSince = $now->diffInDays(\Carbon\Carbon::parse($driver->created_at));
             }
 
             if ($daysSince >= self::DAYS_SEVERE) {
