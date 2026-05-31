@@ -269,13 +269,25 @@ class DriverController extends Controller
 
     public function scoreHistory(Request $request): JsonResponse
     {
+        $perPage = 10;
+        $page    = max(1, (int) $request->query('page', 1));
+
+        $total = \DB::table('driver_score_logs')
+            ->where('driver_id', $request->user()->id)
+            ->count();
+
         $logs = \DB::table('driver_score_logs')
             ->where('driver_id', $request->user()->id)
             ->orderByDesc('created_at')
-            ->limit(50)
+            ->offset(($page - 1) * $perPage)
+            ->limit($perPage)
             ->get(['delta', 'score_before', 'score_after', 'reason', 'created_at']);
 
-        return response()->json(['success' => true, 'data' => $logs]);
+        return response()->json([
+            'success'  => true,
+            'data'     => $logs,
+            'has_more' => ($page * $perPage) < $total,
+        ]);
     }
 
     public function updateBank(Request $request): JsonResponse
