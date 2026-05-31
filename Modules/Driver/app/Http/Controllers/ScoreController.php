@@ -36,15 +36,26 @@ class ScoreController extends Controller
 
     public function history(Request $request): JsonResponse
     {
-        $driver = $request->user();
+        $driver  = $request->user();
+        $perPage = 10;
+        $page    = max(1, (int) $request->query('page', 1));
+
+        $total = DB::table('driver_score_logs')
+            ->where('driver_id', $driver->id)
+            ->count();
 
         $logs = DB::table('driver_score_logs')
             ->where('driver_id', $driver->id)
             ->orderByDesc('id')
-            ->limit(50)
+            ->offset(($page - 1) * $perPage)
+            ->limit($perPage)
             ->get(['delta', 'score_before', 'score_after', 'reason', 'created_at']);
 
-        return response()->json(['success' => true, 'data' => $logs]);
+        return response()->json([
+            'success'  => true,
+            'data'     => $logs,
+            'has_more' => ($page * $perPage) < $total,
+        ]);
     }
 
     private function labelFor(int $score): string
