@@ -55,7 +55,7 @@ class PayOSService
     public static function getPaymentStatus(int $orderCode): ?string
     {
         try {
-            $data   = self::client()->getPaymentLinkInfomation($orderCode);
+            $data   = self::client()->getPaymentLinkInformation($orderCode);
             return strtoupper($data['status'] ?? 'PENDING');
         } catch (\Throwable $e) {
             Log::error('[PayOS] getPaymentStatus error: ' . $e->getMessage());
