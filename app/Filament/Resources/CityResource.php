@@ -71,6 +71,7 @@ class CityResource extends Resource
                         ->helperText('Chọn địa chỉ từ gợi ý để tự động điền tọa độ')
                         ->columnSpanFull()
                         ->searchable()
+                        ->live()
                         ->noSearchResultsMessage('Không tìm thấy địa chỉ')
                         ->searchPrompt('Nhập ít nhất 3 ký tự...')
                         ->loadingMessage('Đang tìm kiếm...')
