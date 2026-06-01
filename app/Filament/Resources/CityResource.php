@@ -7,9 +7,11 @@ use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Infolists;
 use Filament\Infolists\Infolist;
+use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
+use Illuminate\Support\Facades\Http;
 use Modules\Core\Models\City;
 
 class CityResource extends Resource
@@ -62,6 +64,57 @@ class CityResource extends Resource
                 ->columns(2)
                 ->collapsed()
                 ->schema([
+                    // Input địa chỉ + nút geocode
+                    Forms\Components\TextInput::make('address_search')
+                        ->label('Tìm theo địa chỉ')
+                        ->placeholder('VD: Rạch Giá, Kiên Giang')
+                        ->helperText('Nhập địa chỉ rồi bấm nút để tự động điền tọa độ')
+                        ->columnSpanFull()
+                        ->suffixAction(
+                            Forms\Components\Actions\Action::make('geocode')
+                                ->icon('heroicon-o-map-pin')
+                                ->label('Lấy tọa độ')
+                                ->color('info')
+                                ->action(function (Forms\Get $get, Forms\Set $set) {
+                                    $address = $get('address_search');
+                                    if (empty($address)) {
+                                        Notification::make()
+                                            ->title('Vui lòng nhập địa chỉ')
+                                            ->warning()
+                                            ->send();
+                                        return;
+                                    }
+
+                                    $apiKey = config('services.google_maps.api_key');
+                                    $res = Http::get('https://maps.googleapis.com/maps/api/geocode/json', [
+                                        'address' => $address,
+                                        'key'     => $apiKey,
+                                        'language' => 'vi',
+                                    ]);
+
+                                    $data = $res->json();
+
+                                    if (($data['status'] ?? '') !== 'OK' || empty($data['results'])) {
+                                        Notification::make()
+                                            ->title('Không tìm thấy địa chỉ')
+                                            ->body($data['status'] ?? 'Lỗi không xác định')
+                                            ->danger()
+                                            ->send();
+                                        return;
+                                    }
+
+                                    $loc = $data['results'][0]['geometry']['location'];
+                                    $set('lat', round($loc['lat'], 6));
+                                    $set('lng', round($loc['lng'], 6));
+
+                                    Notification::make()
+                                        ->title('Đã điền tọa độ')
+                                        ->body($data['results'][0]['formatted_address'])
+                                        ->success()
+                                        ->send();
+                                })
+                        ),
+
                     Forms\Components\TextInput::make('lat')
                         ->label('Vĩ độ (Latitude)')
                         ->numeric()
