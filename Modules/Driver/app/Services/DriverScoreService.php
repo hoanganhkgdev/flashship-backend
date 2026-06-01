@@ -3,6 +3,7 @@ namespace Modules\Driver\Services;
 
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Modules\Core\Services\RTDBService;
 
 class DriverScoreService
 {
@@ -81,6 +82,9 @@ class DriverScoreService
         ]);
 
         Log::info("[DriverScore] Driver #{$driverId} {$reason}: {$current} → {$newScore} (Δ{$delta})");
+
+        // Ping RTDB để driver app tự refresh điểm
+        RTDBService::pingDriverScore($driverId);
     }
 
     public static function onRated(int $driverId, int $stars): void

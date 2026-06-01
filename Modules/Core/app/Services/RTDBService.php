@@ -19,6 +19,17 @@ class RTDBService
         return self::$db;
     }
 
+    public static function pingDriverScore(int $driverId): void
+    {
+        try {
+            self::db()->getReference("driver_score/{$driverId}")->set([
+                'updated_at' => now()->timestamp,
+            ]);
+        } catch (\Throwable $e) {
+            Log::error('[RTDB] pingDriverScore failed: ' . $e->getMessage());
+        }
+    }
+
     public static function pingCustomerNotification(int $userId): void
     {
         try {
