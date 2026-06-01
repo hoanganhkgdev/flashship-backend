@@ -64,56 +64,61 @@ class CityResource extends Resource
                 ->columns(2)
                 ->collapsed()
                 ->schema([
-                    // Input địa chỉ + nút geocode
-                    Forms\Components\TextInput::make('address_search')
+                    // Autocomplete địa chỉ → tự fill lat/lng
+                    Forms\Components\Select::make('address_search')
                         ->label('Tìm theo địa chỉ')
-                        ->placeholder('VD: Rạch Giá, Kiên Giang')
-                        ->helperText('Nhập địa chỉ rồi bấm nút để tự động điền tọa độ')
+                        ->placeholder('Nhập địa chỉ để tìm kiếm...')
+                        ->helperText('Chọn địa chỉ từ gợi ý để tự động điền tọa độ')
                         ->columnSpanFull()
-                        ->suffixAction(
-                            Forms\Components\Actions\Action::make('geocode')
-                                ->icon('heroicon-o-map-pin')
-                                ->label('Lấy tọa độ')
-                                ->color('info')
-                                ->action(function (Forms\Get $get, Forms\Set $set) {
-                                    $address = $get('address_search');
-                                    if (empty($address)) {
-                                        Notification::make()
-                                            ->title('Vui lòng nhập địa chỉ')
-                                            ->warning()
-                                            ->send();
-                                        return;
-                                    }
+                        ->searchable()
+                        ->noSearchResultsMessage('Không tìm thấy địa chỉ')
+                        ->searchPrompt('Nhập ít nhất 3 ký tự...')
+                        ->loadingMessage('Đang tìm kiếm...')
+                        ->getSearchResultsUsing(function (string $search): array {
+                            if (mb_strlen($search) < 3) return [];
 
-                                    $apiKey = config('services.google_maps.api_key');
-                                    $res = Http::get('https://maps.googleapis.com/maps/api/geocode/json', [
-                                        'address' => $address,
-                                        'key'     => $apiKey,
-                                        'language' => 'vi',
-                                    ]);
+                            $apiKey = config('services.google_maps.api_key');
+                            $res = Http::get('https://maps.googleapis.com/maps/api/place/autocomplete/json', [
+                                'input'    => $search,
+                                'key'      => $apiKey,
+                                'language' => 'vi',
+                                'components' => 'country:vn',
+                            ]);
 
-                                    $data = $res->json();
+                            $predictions = $res->json()['predictions'] ?? [];
+                            $results = [];
+                            foreach ($predictions as $p) {
+                                // value = place_id|description để dùng trong afterStateUpdated
+                                $results[$p['place_id'] . '|' . $p['description']] = $p['description'];
+                            }
+                            return $results;
+                        })
+                        ->afterStateUpdated(function (?string $state, Forms\Set $set) {
+                            if (empty($state) || !str_contains($state, '|')) return;
 
-                                    if (($data['status'] ?? '') !== 'OK' || empty($data['results'])) {
-                                        Notification::make()
-                                            ->title('Không tìm thấy địa chỉ')
-                                            ->body($data['status'] ?? 'Lỗi không xác định')
-                                            ->danger()
-                                            ->send();
-                                        return;
-                                    }
+                            $placeId = explode('|', $state)[0];
+                            $apiKey  = config('services.google_maps.api_key');
 
-                                    $loc = $data['results'][0]['geometry']['location'];
-                                    $set('lat', round($loc['lat'], 6));
-                                    $set('lng', round($loc['lng'], 6));
+                            $res = Http::get('https://maps.googleapis.com/maps/api/place/details/json', [
+                                'place_id' => $placeId,
+                                'fields'   => 'geometry,formatted_address',
+                                'key'      => $apiKey,
+                                'language' => 'vi',
+                            ]);
 
-                                    Notification::make()
-                                        ->title('Đã điền tọa độ')
-                                        ->body($data['results'][0]['formatted_address'])
-                                        ->success()
-                                        ->send();
-                                })
-                        ),
+                            $result = $res->json()['result'] ?? null;
+                            if (!$result) return;
+
+                            $loc = $result['geometry']['location'];
+                            $set('lat', round($loc['lat'], 6));
+                            $set('lng', round($loc['lng'], 6));
+
+                            Notification::make()
+                                ->title('Đã điền tọa độ')
+                                ->body($result['formatted_address'])
+                                ->success()
+                                ->send();
+                        }),
 
                     Forms\Components\TextInput::make('lat')
                         ->label('Vĩ độ (Latitude)')
