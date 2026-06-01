@@ -82,8 +82,8 @@ class OrderService
         }
 
         $activeOrders = Order::where('delivery_man_id', $user->id)->whereIn('status', ['assigned', 'processing', 'on_the_way'])->count();
-        if ($activeOrders >= 1) {
-            return ['success' => false, 'message' => 'Bạn đang có đơn hàng chưa hoàn thành. Vui lòng hoàn thành đơn hiện tại trước.', 'status' => 400];
+        if ($activeOrders >= 2) {
+            return ['success' => false, 'message' => 'Bạn đang có 2 đơn hàng chưa hoàn thành. Vui lòng hoàn thành bớt trước.', 'status' => 400];
         }
 
         if ($order->service_type === 'car' && !$user->has_car_license) {

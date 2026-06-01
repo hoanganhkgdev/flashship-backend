@@ -300,8 +300,12 @@ class DispatchService
         }
 
         $now           = now();
-        $busyDriverIds = Order::whereIn('status', ['assigned', 'processing', 'on_the_way'])
+        // Chỉ loại tài xế đang có 2+ đơn active (tối đa 2 đơn/lần)
+        $busyDriverIds = Order::selectRaw('delivery_man_id, COUNT(*) as cnt')
+            ->whereIn('status', ['assigned', 'processing', 'on_the_way'])
             ->whereNotNull('delivery_man_id')
+            ->groupBy('delivery_man_id')
+            ->havingRaw('cnt >= 2')
             ->pluck('delivery_man_id');
 
         // Loại tài xế đang được phát offer (chưa phản hồi trong 30s)
