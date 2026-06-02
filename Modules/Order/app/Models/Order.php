@@ -31,7 +31,7 @@ class Order extends Model
         'pickup_address', 'pickup_lat', 'pickup_lng', 'pickup_phone', 'sender_name', 'store_name',
         'delivery_address', 'delivery_lat', 'delivery_lng', 'delivery_phone', 'receiver_name',
         'shipping_fee', 'bonus_fee', 'night_surcharge', 'is_freeship', 'distance', 'payment_method', 'cod_amount',
-        'order_note', 'cargo_type', 'cargo_note', 'voucher_code', 'discount_amount',
+        'order_note', 'cargo_type', 'cargo_note', 'cargo_weight', 'voucher_code', 'discount_amount',
         'driver_rating', 'driver_rating_note', 'scheduled_at', 'completed_at', 'delivered_at',
     ];
 
