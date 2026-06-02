@@ -47,8 +47,8 @@ class AuthController extends Controller
             return response()->json(['success' => false, 'message' => 'Mã OTP không hợp lệ hoặc đã hết hạn'], 422);
         }
 
-        if (User::where('phone', $phone)->whereIn('user_type', ['customer', 'shop'])->exists()) {
-            return response()->json(['success' => false, 'message' => 'Số điện thoại đã được đăng ký'], 422);
+        if (User::where('phone', $phone)->where('user_type', 'shop')->exists()) {
+            return response()->json(['success' => false, 'message' => 'Số điện thoại đã được đăng ký shop'], 422);
         }
 
         if (empty($data['city_id']) && !empty($data['latitude']) && !empty($data['longitude'])) {

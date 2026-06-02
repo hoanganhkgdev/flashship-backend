@@ -46,7 +46,7 @@ class AuthController extends Controller
             return response()->json(['success' => false, 'message' => 'Mã OTP không hợp lệ hoặc đã hết hạn'], 422);
         }
 
-        if (User::where('phone', $phone)->whereIn('user_type', ['customer', 'shop'])->exists()) {
+        if (User::where('phone', $phone)->where('user_type', 'customer')->exists()) {
             return response()->json(['success' => false, 'message' => 'Số điện thoại đã được đăng ký'], 422);
         }
 
@@ -85,7 +85,7 @@ class AuthController extends Controller
 
         $phone = $this->normalizePhone($data['phone']);
 
-        if (User::where('phone', $phone)->whereIn('user_type', ['customer', 'shop'])->exists()) {
+        if (User::where('phone', $phone)->where('user_type', 'customer')->exists()) {
             return response()->json(['success' => false, 'message' => 'Số điện thoại đã được đăng ký'], 422);
         }
 
@@ -130,7 +130,7 @@ class AuthController extends Controller
             'device_id' => 'nullable|string',
         ]);
 
-        $user = User::where('phone', $data['phone'])->whereIn('user_type', ['customer', 'shop'])->first();
+        $user = User::where('phone', $data['phone'])->where('user_type', 'customer')->first();
 
         if (!$user || !Hash::check($data['password'], $user->password)) {
             throw ValidationException::withMessages(['phone' => ['Số điện thoại hoặc mật khẩu không đúng']]);
