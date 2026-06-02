@@ -4,5 +4,6 @@
     "Driver": true,
     "Customer": true,
     "Pricing": true,
-    "Admin": true
+    "Admin": true,
+    "Shop": true
 }

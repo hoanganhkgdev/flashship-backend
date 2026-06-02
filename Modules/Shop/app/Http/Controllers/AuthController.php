@@ -1,0 +1,256 @@
+<?php
+
+namespace Modules\Shop\Http\Controllers;
+
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Routing\Controller;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\ValidationException;
+use Modules\Core\Models\User;
+use Modules\Customer\Services\OtpService;
+
+class AuthController extends Controller
+{
+    public function sendOtp(Request $request): JsonResponse
+    {
+        $data = $request->validate(['phone' => 'required|string']);
+        $phone = $this->normalizePhone($data['phone']);
+
+        if (OtpService::recentlySent($phone, 'register')) {
+            return response()->json(['success' => false, 'message' => 'Vui lòng chờ 60 giây trước khi gửi lại'], 429);
+        }
+
+        OtpService::send($phone, 'register');
+
+        return response()->json(['success' => true, 'message' => 'Mã OTP đã được gửi tới ' . $phone]);
+    }
+
+    public function verifyOtpAndRegister(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'phone'         => 'required|string',
+            'otp'           => 'required|string|size:6',
+            'name'          => 'required|string|max:255',
+            'address'       => 'nullable|string|max:500',
+            'password'      => 'required|string|min:6',
+            'city_id'       => 'nullable|integer|exists:cities,id',
+            'latitude'      => 'nullable|numeric',
+            'longitude'     => 'nullable|numeric',
+        ]);
+
+        $phone = $this->normalizePhone($data['phone']);
+
+        if (!OtpService::verify($phone, $data['otp'], 'register')) {
+            return response()->json(['success' => false, 'message' => 'Mã OTP không hợp lệ hoặc đã hết hạn'], 422);
+        }
+
+        if (User::where('phone', $phone)->whereIn('user_type', ['customer', 'shop'])->exists()) {
+            return response()->json(['success' => false, 'message' => 'Số điện thoại đã được đăng ký'], 422);
+        }
+
+        if (empty($data['city_id']) && !empty($data['latitude']) && !empty($data['longitude'])) {
+            $data['city_id'] = $this->findNearestCity((float)$data['latitude'], (float)$data['longitude']);
+        }
+
+        $user = User::create([
+            'name'      => $data['name'],
+            'phone'     => $phone,
+            'address'   => $data['address'] ?? null,
+            'password'  => bcrypt($data['password']),
+            'user_type' => 'shop',
+            'city_id'   => $data['city_id'] ?? null,
+            'status'    => 1,
+        ]);
+
+        $token = $user->createToken('shop_token')->plainTextToken;
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Đăng ký thành công',
+            'data'    => ['token' => $token, 'user' => $this->formatUser($user)],
+        ], 201);
+    }
+
+    public function login(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'phone'     => 'required|string',
+            'password'  => 'required|string',
+            'fcm_token' => 'nullable|string',
+            'device_id' => 'nullable|string',
+        ]);
+
+        $user = User::where('phone', $this->normalizePhone($data['phone']))
+            ->where('user_type', 'shop')
+            ->first();
+
+        if (!$user || !Hash::check($data['password'], $user->password)) {
+            throw ValidationException::withMessages(['phone' => ['Số điện thoại hoặc mật khẩu không đúng']]);
+        }
+
+        if ($user->status == 2) {
+            return response()->json(['success' => false, 'message' => 'Tài khoản bị khóa'], 403);
+        }
+
+        if (!empty($data['fcm_token'])) {
+            User::where('fcm_token', $data['fcm_token'])->where('id', '!=', $user->id)->update(['fcm_token' => null]);
+            $user->fcm_token = $data['fcm_token'];
+            $user->save();
+        }
+
+        $tokenName = !empty($data['device_id']) ? "shop_token_{$data['device_id']}" : 'shop_token';
+        $user->tokens()->where('name', 'like', 'shop_token%')->delete();
+        $token = $user->createToken($tokenName)->plainTextToken;
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Đăng nhập thành công',
+            'data'    => ['token' => $token, 'user' => $this->formatUser($user)],
+        ]);
+    }
+
+    public function me(Request $request): JsonResponse
+    {
+        return response()->json(['success' => true, 'data' => $this->formatUser($request->user())]);
+    }
+
+    public function logout(Request $request): JsonResponse
+    {
+        $user = $request->user();
+        $user->update(['fcm_token' => null]);
+        $user->currentAccessToken()->delete();
+        return response()->json(['success' => true, 'message' => 'Đăng xuất thành công']);
+    }
+
+    public function updateProfile(Request $request): JsonResponse
+    {
+        $user = $request->user();
+        $data = $request->validate([
+            'name'    => 'sometimes|string|max:255',
+            'address' => 'sometimes|nullable|string|max:500',
+            'email'   => 'sometimes|nullable|email|unique:users,email,' . $user->id,
+            'city_id' => 'sometimes|integer|exists:cities,id',
+        ]);
+
+        $user->update($data);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Cập nhật thành công',
+            'data'    => $this->formatUser($user->fresh()),
+        ]);
+    }
+
+    public function uploadAvatar(Request $request): JsonResponse
+    {
+        $request->validate(['image' => 'required|image|mimes:jpg,jpeg,png,webp|max:2048']);
+        $user = $request->user();
+
+        if ($user->profile_photo_path) {
+            Storage::disk('public')->delete($user->profile_photo_path);
+        }
+
+        $path = $request->file('image')->store("avatars/shop/{$user->id}", 'public');
+        $user->update(['profile_photo_path' => $path]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Cập nhật ảnh thành công',
+            'data'    => $this->formatUser($user->fresh()),
+        ]);
+    }
+
+    public function changePassword(Request $request): JsonResponse
+    {
+        $request->validate([
+            'current_password' => 'required|string',
+            'new_password'     => 'required|string|min:6|confirmed',
+        ]);
+
+        $user = $request->user();
+
+        if (!Hash::check($request->current_password, $user->password)) {
+            return response()->json(['success' => false, 'message' => 'Mật khẩu hiện tại không đúng'], 422);
+        }
+
+        $user->update(['password' => bcrypt($request->new_password)]);
+
+        return response()->json(['success' => true, 'message' => 'Đổi mật khẩu thành công']);
+    }
+
+    public function updateFcmToken(Request $request): JsonResponse
+    {
+        $request->validate(['fcm_token' => 'required|string']);
+        $fcmToken = $request->fcm_token;
+        User::where('fcm_token', $fcmToken)->where('id', '!=', $request->user()->id)->update(['fcm_token' => null]);
+        $request->user()->update(['fcm_token' => $fcmToken]);
+        return response()->json(['success' => true]);
+    }
+
+    public function deleteAccount(Request $request): JsonResponse
+    {
+        $user = $request->user();
+
+        \Modules\Order\Models\Order::where('sender_platform_id', $user->id)
+            ->where('status', 'pending')
+            ->update(['status' => 'cancelled']);
+
+        $user->tokens()->delete();
+        $user->delete();
+
+        return response()->json(['success' => true, 'message' => 'Tài khoản đã được xóa vĩnh viễn']);
+    }
+
+    private function formatUser(User $user): array
+    {
+        $user->loadMissing('city');
+        return [
+            'id'                 => $user->id,
+            'name'               => $user->name,
+            'phone'              => $user->phone,
+            'email'              => $user->email,
+            'address'            => $user->address,
+            'profile_photo_path' => $user->profile_photo_path,
+            'avatar_url'         => $user->profile_photo_path
+                ? Storage::disk('public')->url($user->profile_photo_path)
+                : null,
+            'user_type'          => $user->user_type,
+            'city_id'            => $user->city_id,
+            'city_name'          => $user->city?->name ?? '',
+            'status'             => $user->status,
+        ];
+    }
+
+    private function normalizePhone(string $phone): string
+    {
+        $digits = preg_replace('/\D/', '', $phone);
+        if (strlen($digits) === 11 && str_starts_with($digits, '84')) {
+            $digits = '0' . substr($digits, 2);
+        }
+        return $digits;
+    }
+
+    private function findNearestCity(float $lat, float $lng): ?int
+    {
+        $cities = \Modules\Core\Models\City::where('is_active', true)
+            ->whereNotNull('lat')->whereNotNull('lng')
+            ->get(['id', 'lat', 'lng']);
+
+        if ($cities->isEmpty()) {
+            return \Modules\Core\Models\City::where('is_active', true)->value('id');
+        }
+
+        $nearest = null;
+        $minDist = PHP_FLOAT_MAX;
+        foreach ($cities as $city) {
+            $dLat = deg2rad((float)$city->lat - $lat);
+            $dLng = deg2rad((float)$city->lng - $lng);
+            $d    = $dLat * $dLat + $dLng * $dLng;
+            if ($d < $minDist) { $minDist = $d; $nearest = $city->id; }
+        }
+        return $nearest;
+    }
+}
