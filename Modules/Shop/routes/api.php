@@ -1,9 +1,9 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
-use Modules\Pricing\Http\Controllers\PricingController;
 use Modules\Shop\Http\Controllers\AuthController;
 use Modules\Shop\Http\Controllers\OrderController;
+use Modules\Shop\Http\Controllers\PricingController;
 
 Route::prefix('shop')->group(function () {
 

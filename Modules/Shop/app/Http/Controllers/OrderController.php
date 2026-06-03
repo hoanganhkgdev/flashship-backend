@@ -10,7 +10,7 @@ use Modules\Core\Services\RTDBService;
 use Modules\Driver\Services\DriverScoreService;
 use Modules\Order\Models\Order;
 use Modules\Order\Services\OrderService;
-use Modules\Pricing\Services\PricingService;
+use Modules\Shop\Services\ShopPricingService;
 
 class OrderController extends Controller
 {
@@ -104,16 +104,22 @@ class OrderController extends Controller
         }
 
         try {
+            $cargoType = $data['cargo_type'] ?? 'food';
+            $weightKg  = isset($data['cargo_weight']) ? (float) $data['cargo_weight'] : null;
+
             if (isset($data['pickup_lat'], $data['pickup_lng'], $data['delivery_lat'], $data['delivery_lng'])) {
-                $pricing = PricingService::estimateFromCoords(
-                    'delivery',
+                $pricing = ShopPricingService::estimateFromCoords(
+                    $cargoType,
                     (float) $data['pickup_lat'], (float) $data['pickup_lng'],
                     (float) $data['delivery_lat'], (float) $data['delivery_lng'],
-                    $user->city_id
+                    $weightKg
                 );
             } else {
-                $pricing = PricingService::estimateFromAddresses(
-                    'delivery', $data['pickup_address'], $data['delivery_address'], $user->city?->name, $user->city_id
+                $pricing = ShopPricingService::estimateFromAddresses(
+                    $cargoType,
+                    $data['pickup_address'],
+                    $data['delivery_address'],
+                    $weightKg
                 );
             }
 
