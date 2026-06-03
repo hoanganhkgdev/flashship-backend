@@ -3,62 +3,51 @@
 namespace Modules\Shop\Services;
 
 use Modules\Core\Services\VietmapService;
+use Modules\Shop\Models\ShopPricingConfig;
 
 class ShopPricingService
 {
-    // ── Slab tables ────────────────────────────────────────────────────────────
+    // ── Hardcoded fallback (dùng khi chưa seed DB) ─────────────────────────────
 
-    // Đồ ăn / nước uống  &  Bưu kiện (base, trước weight surcharge)
-    private static array $slabDefault = [
-        ['max_km' => 3.4,  'fee' => 10_000],
-        ['max_km' => 4.4,  'fee' => 13_000],
-        ['max_km' => 5.4,  'fee' => 15_000],
-        ['max_km' => 6.4,  'fee' => 18_000],
-        ['max_km' => 7.4,  'fee' => 20_000],
-        ['max_km' => 8.4,  'fee' => 23_000],
-        ['max_km' => 10.0, 'fee' => 25_000],
+    private static array $fallbackFood = [
+        ['max_km' => 3.4,  'fee' => 10000],
+        ['max_km' => 4.4,  'fee' => 13000],
+        ['max_km' => 5.4,  'fee' => 15000],
+        ['max_km' => 6.4,  'fee' => 18000],
+        ['max_km' => 7.4,  'fee' => 20000],
+        ['max_km' => 8.4,  'fee' => 23000],
+        ['max_km' => 10.0, 'fee' => 25000],
     ];
 
-    // Giỏ hoa / trái cây / bó hoa
-    private static array $slabFlowers = [
-        ['max_km' => 3.4,  'fee' => 15_000],
-        ['max_km' => 4.4,  'fee' => 18_000],
-        ['max_km' => 5.4,  'fee' => 20_000],
-        ['max_km' => 6.4,  'fee' => 23_000],
-        ['max_km' => 7.4,  'fee' => 25_000],
-        ['max_km' => 8.4,  'fee' => 28_000],
-        ['max_km' => 10.0, 'fee' => 30_000],
+    private static array $fallbackFlowers = [
+        ['max_km' => 3.4,  'fee' => 15000],
+        ['max_km' => 4.4,  'fee' => 18000],
+        ['max_km' => 5.4,  'fee' => 20000],
+        ['max_km' => 6.4,  'fee' => 23000],
+        ['max_km' => 7.4,  'fee' => 25000],
+        ['max_km' => 8.4,  'fee' => 28000],
+        ['max_km' => 10.0, 'fee' => 30000],
     ];
-
-    // Phụ phí vượt 10km (mỗi km thêm)
-    private const OVER_MAX_PER_KM = 3_000;
-
-    // Bưu kiện: phụ phí theo kg (làm tròn lên)
-    private const PARCEL_PER_KG = 1_000;
 
     // ── Public API ─────────────────────────────────────────────────────────────
 
-    /**
-     * Tính phí từ tọa độ.
-     */
     public static function estimateFromCoords(
         string $cargoType,
         float $pickupLat, float $pickupLng,
         float $deliveryLat, float $deliveryLng,
-        ?float $cargoWeightKg = null
+        ?float $cargoWeightKg = null,
+        ?int $cityId = null
     ): array {
         $km = VietmapService::roadDistanceKm($pickupLat, $pickupLng, $deliveryLat, $deliveryLng);
-        return self::calculate($cargoType, $km, $cargoWeightKg);
+        return self::calculate($cargoType, $km, $cargoWeightKg, $cityId);
     }
 
-    /**
-     * Tính phí từ địa chỉ text (geocode → roadDistance).
-     */
     public static function estimateFromAddresses(
         string $cargoType,
         string $pickupAddress,
         string $deliveryAddress,
-        ?float $cargoWeightKg = null
+        ?float $cargoWeightKg = null,
+        ?int $cityId = null
     ): array {
         $pickup   = VietmapService::geocode($pickupAddress);
         $delivery = VietmapService::geocode($deliveryAddress);
@@ -68,27 +57,45 @@ class ShopPricingService
                 $cargoType,
                 $pickup['lat'],   $pickup['lng'],
                 $delivery['lat'], $delivery['lng'],
-                $cargoWeightKg
+                $cargoWeightKg,
+                $cityId
             );
         }
 
-        // Fallback 3km nếu geocode thất bại
-        $result = self::calculate($cargoType, 3.0, $cargoWeightKg);
+        $result = self::calculate($cargoType, 3.0, $cargoWeightKg, $cityId);
         $result['geocode_failed'] = true;
         return $result;
     }
 
     // ── Internal ───────────────────────────────────────────────────────────────
 
-    private static function calculate(string $cargoType, float $km, ?float $weightKg): array
-    {
-        $slabs   = $cargoType === 'flowers' ? self::$slabFlowers : self::$slabDefault;
-        $baseFee = self::slabFee($km, $slabs);
+    private static function calculate(
+        string $cargoType,
+        float $km,
+        ?float $weightKg,
+        ?int $cityId
+    ): array {
+        // Lấy config từ DB
+        $cfg = ShopPricingConfig::forCargo($cargoType, $cityId);
 
-        // Bưu kiện: cộng phụ phí theo kg
+        if ($cfg) {
+            $slabs          = $cfg->slabs;
+            $overMaxPerKm   = $cfg->over_max_per_km;
+            $weightPerKg    = $cfg->weight_per_kg;
+        } else {
+            // Fallback hardcode
+            $slabs        = $cargoType === 'flowers'
+                ? self::$fallbackFlowers
+                : self::$fallbackFood;
+            $overMaxPerKm = 3000;
+            $weightPerKg  = $cargoType === 'parcel' ? 1000 : 0;
+        }
+
+        $baseFee = self::slabFee($km, $slabs, $overMaxPerKm);
+
         $weightSurcharge = 0;
-        if ($cargoType === 'parcel' && $weightKg !== null && $weightKg > 0) {
-            $weightSurcharge = (int) (ceil($weightKg) * self::PARCEL_PER_KG);
+        if ($weightPerKg > 0 && $weightKg !== null && $weightKg > 0) {
+            $weightSurcharge = (int) (ceil($weightKg) * $weightPerKg);
         }
 
         $nightSurcharge = self::nightSurcharge();
@@ -103,17 +110,16 @@ class ShopPricingService
         ];
     }
 
-    private static function slabFee(float $km, array $slabs): int
+    private static function slabFee(float $km, array $slabs, int $overMaxPerKm): int
     {
         foreach ($slabs as $slab) {
-            if ($km <= $slab['max_km']) {
+            if ($km <= (float) $slab['max_km']) {
                 return (int) $slab['fee'];
             }
         }
-        // Vượt 10km: lấy mức cao nhất + (km vượt × 3k/km)
-        $last    = end($slabs);
-        $overKm  = $km - $last['max_km'];
-        return (int) $last['fee'] + (int) (ceil($overKm) * self::OVER_MAX_PER_KM);
+        $last   = end($slabs);
+        $overKm = $km - (float) $last['max_km'];
+        return (int) $last['fee'] + (int) (ceil($overKm) * $overMaxPerKm);
     }
 
     private static function nightSurcharge(): int
