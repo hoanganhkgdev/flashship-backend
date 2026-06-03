@@ -156,6 +156,20 @@ class PricingService
         ?string $cityName = null,
         ?int $cityId = null
     ): array {
+        // Geocode cả 2 địa chỉ → tính khoảng cách thật
+        $pickup   = VietmapService::geocode($pickupAddress);
+        $delivery = VietmapService::geocode($deliveryAddress);
+
+        if ($pickup && $delivery) {
+            return self::estimateFromCoords(
+                $serviceType,
+                $pickup['lat'],  $pickup['lng'],
+                $delivery['lat'], $delivery['lng'],
+                $cityId
+            );
+        }
+
+        // Nếu geocode thất bại → fallback 3km
         $result = self::estimate($serviceType, 3.0, $cityId);
         $result['geocode_failed'] = true;
         return $result;

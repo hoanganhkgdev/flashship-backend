@@ -52,6 +52,39 @@ class VietmapService
         });
     }
 
+    /**
+     * Geocode một địa chỉ → trả về ['lat', 'lng'] hoặc null nếu thất bại.
+     * Cache 24 giờ vì địa chỉ thường không đổi.
+     */
+    public static function geocode(string $address): ?array
+    {
+        $cacheKey = 'geocode_' . md5($address);
+
+        return Cache::remember($cacheKey, 86400, function () use ($address) {
+            try {
+                $res = Http::timeout(5)->get(
+                    'https://maps.googleapis.com/maps/api/geocode/json',
+                    [
+                        'address'    => $address,
+                        'key'        => config('services.google_maps.api_key'),
+                        'language'   => 'vi',
+                        'components' => 'country:VN',
+                    ]
+                );
+
+                if ($res->successful() && $res->json('status') === 'OK') {
+                    $loc = $res->json('results.0.geometry.location');
+                    if ($loc) {
+                        return ['lat' => (float) $loc['lat'], 'lng' => (float) $loc['lng']];
+                    }
+                }
+            } catch (\Throwable $e) {
+                Log::warning('Geocode exception', ['address' => $address, 'error' => $e->getMessage()]);
+            }
+            return null;
+        });
+    }
+
     public static function haversineKm(float $lat1, float $lng1, float $lat2, float $lng2): float
     {
         $R    = 6371;
