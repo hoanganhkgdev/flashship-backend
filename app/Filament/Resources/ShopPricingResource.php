@@ -20,9 +20,9 @@ class ShopPricingResource extends Resource
     protected static ?int    $navigationSort   = 3;
 
     private static array $cargoLabels = [
-        'food'    => '🍱 Đồ ăn / Nước uống',
-        'flowers' => '🌸 Hoa / Giỏ trái cây / Bó hoa',
-        'parcel'  => '📦 Bưu kiện / Kệ hoa / Hàng thùng',
+        'food'    => 'Đồ ăn / Nước uống',
+        'flowers' => 'Hoa / Giỏ trái cây / Bó hoa',
+        'parcel'  => 'Bưu kiện / Kệ hoa / Hàng thùng',
     ];
 
     public static function form(Form $form): Form
