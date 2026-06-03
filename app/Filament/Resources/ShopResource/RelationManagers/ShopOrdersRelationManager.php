@@ -11,7 +11,7 @@ class ShopOrdersRelationManager extends RelationManager
 {
     protected static string $relationship = 'shopOrders';
     protected static ?string $title       = 'Đơn hàng';
-    protected static ?string $label       = 'đơn hàng';
+    protected static ?string $label       = 'đơn hàng của cửa hàng';
 
     public function table(Table $table): Table
     {

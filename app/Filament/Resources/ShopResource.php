@@ -19,8 +19,8 @@ class ShopResource extends Resource
 
     protected static ?string $navigationIcon   = 'heroicon-o-building-storefront';
     protected static ?string $navigationGroup  = 'Người dùng';
-    protected static ?string $modelLabel       = 'Shop';
-    protected static ?string $pluralModelLabel = 'Shop';
+    protected static ?string $modelLabel       = 'Cửa hàng';
+    protected static ?string $pluralModelLabel = 'Cửa hàng';
     protected static ?string $slug             = 'shops';
     protected static ?int    $navigationSort   = 2;
 

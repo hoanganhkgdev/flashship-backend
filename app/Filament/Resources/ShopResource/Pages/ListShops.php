@@ -17,7 +17,7 @@ class ListShops extends ListRecords
     protected function getHeaderActions(): array
     {
         return [
-            Actions\CreateAction::make()->label('Thêm shop'),
+            Actions\CreateAction::make()->label('Thêm cửa hàng'),
         ];
     }
 
