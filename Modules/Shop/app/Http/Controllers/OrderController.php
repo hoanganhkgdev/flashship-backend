@@ -34,6 +34,45 @@ class OrderController extends Controller
         ]);
     }
 
+    public function stats(Request $request): JsonResponse
+    {
+        $userId = $request->user()->id;
+        $base   = Order::where('sender_platform_id', $userId)->where('platform', 'shop_app');
+
+        $total     = (clone $base)->count();
+        $active    = (clone $base)->whereIn('status', ['pending','assigned','processing','on_the_way'])->count();
+        $completed = (clone $base)->where('status', 'completed')->count();
+        $cancelled = (clone $base)->where('status', 'cancelled')->count();
+        $revenue   = (clone $base)->where('status', 'completed')->sum('shipping_fee');
+
+        // Thống kê theo loại hàng
+        $byCargoType = (clone $base)->where('status', 'completed')
+            ->selectRaw('cargo_type, COUNT(*) as count')
+            ->groupBy('cargo_type')
+            ->pluck('count', 'cargo_type');
+
+        // 7 ngày gần nhất
+        $dailyOrders = (clone $base)
+            ->where('created_at', '>=', now()->subDays(7))
+            ->selectRaw('DATE(created_at) as date, COUNT(*) as count, SUM(CASE WHEN status = \'completed\' THEN shipping_fee ELSE 0 END) as revenue')
+            ->groupBy('date')
+            ->orderBy('date')
+            ->get();
+
+        return response()->json([
+            'success' => true,
+            'data'    => [
+                'total'         => $total,
+                'active'        => $active,
+                'completed'     => $completed,
+                'cancelled'     => $cancelled,
+                'revenue'       => (int) $revenue,
+                'by_cargo_type' => $byCargoType,
+                'daily'         => $dailyOrders,
+            ],
+        ]);
+    }
+
     public function store(Request $request): JsonResponse
     {
         $data = $request->validate([

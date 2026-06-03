@@ -28,6 +28,7 @@ Route::prefix('shop')->group(function () {
 
         Route::prefix('orders')->group(function () {
             Route::get('/',               [OrderController::class, 'index']);
+            Route::get('/stats',          [OrderController::class, 'stats']);
             Route::post('/',              [OrderController::class, 'store']);
             Route::get('/{code}',         [OrderController::class, 'show']);
             Route::post('/{code}/cancel', [OrderController::class, 'cancel']);
