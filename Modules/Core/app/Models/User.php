@@ -92,6 +92,12 @@ class User extends Authenticatable implements FilamentUser
             ->where('platform', 'customer_app');
     }
 
+    public function shopOrders()
+    {
+        return $this->hasMany(\Modules\Order\Models\Order::class, 'sender_platform_id')
+            ->where('platform', 'shop_app');
+    }
+
     public function bank()
     {
         return $this->hasOne(\Modules\Driver\Models\Bank::class);
