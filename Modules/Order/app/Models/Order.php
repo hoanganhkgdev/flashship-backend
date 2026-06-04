@@ -32,7 +32,7 @@ class Order extends Model
         'delivery_address', 'delivery_lat', 'delivery_lng', 'delivery_phone', 'receiver_name',
         'shipping_fee', 'bonus_fee', 'night_surcharge', 'is_freeship', 'distance', 'payment_method', 'cod_amount',
         'order_note', 'cargo_type', 'cargo_note', 'cargo_weight',
-        'is_batch', 'stops',
+        'is_batch', 'stops', 'shop_service_type',
         'voucher_code', 'discount_amount',
         'driver_rating', 'driver_rating_note', 'scheduled_at', 'completed_at', 'delivered_at',
     ];

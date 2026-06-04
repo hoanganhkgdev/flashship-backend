@@ -88,6 +88,7 @@ class OrderController extends Controller
     public function store(Request $request): JsonResponse
     {
         $data = $request->validate([
+            'is_outbound'      => 'nullable|boolean',
             'pickup_address'   => 'required|string',
             'pickup_lat'       => 'nullable|numeric',
             'pickup_lng'       => 'nullable|numeric',
@@ -272,11 +273,13 @@ class OrderController extends Controller
                 'delivery_address' => $firstStop['address'],
                 'delivery_lat'     => $firstStop['lat'],
                 'delivery_lng'     => $firstStop['lng'],
-                'service_type'     => 'delivery',
-                'order_note'       => $data['order_note'] ?? '',
-                'cargo_type'       => $cargoType,
+                'service_type'      => 'delivery',
+                'shop_service_type' => ($data['is_outbound'] ?? true) ? 'shop_delivery' : 'shop_pickup',
+                'order_note'        => $data['order_note'] ?? '',
+                'cargo_type'        => $cargoType,
                 'cargo_weight'     => $weightKg,
-                'is_batch'         => true,
+                'is_batch'          => true,
+                'shop_service_type' => 'shop_batch',
                 'stops'            => $stops,
                 'payment_method'   => 'cod',
                 'cod_amount'       => array_sum(array_column($stops, 'cod_amount')),
@@ -445,8 +448,9 @@ class OrderController extends Controller
             'cod_amount'       => $order->cod_amount,
             'night_surcharge'  => $order->night_surcharge ?? 0,
             'driver_rating'    => $order->driver_rating,
-            'is_batch'         => (bool) $order->is_batch,
-            'stops'            => $order->stops ?? [],
+            'is_batch'          => (bool) $order->is_batch,
+            'shop_service_type' => $order->shop_service_type ?? null,
+            'stops'             => $order->stops ?? [],
             'scheduled_at'     => $order->scheduled_at?->toIso8601String(),
             'created_at'       => $order->created_at->toIso8601String(),
             'driver'           => $order->driver ? [
