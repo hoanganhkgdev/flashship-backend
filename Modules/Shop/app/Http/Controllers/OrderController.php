@@ -433,6 +433,8 @@ class OrderController extends Controller
             'cod_amount'       => $order->cod_amount,
             'night_surcharge'  => $order->night_surcharge ?? 0,
             'driver_rating'    => $order->driver_rating,
+            'is_batch'         => (bool) $order->is_batch,
+            'stops'            => $order->stops ?? [],
             'scheduled_at'     => $order->scheduled_at?->toIso8601String(),
             'created_at'       => $order->created_at->toIso8601String(),
             'driver'           => $order->driver ? [
