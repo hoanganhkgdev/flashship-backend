@@ -173,6 +173,158 @@ class OrderController extends Controller
         }
     }
 
+    // ── Đơn gộp nhiều điểm ────────────────────────────────────────────────────
+
+    public function storeBatch(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'pickup_address'     => 'required|string',
+            'pickup_lat'         => 'nullable|numeric',
+            'pickup_lng'         => 'nullable|numeric',
+            'pickup_phone'       => 'nullable|string',
+            'pickup_name'        => 'nullable|string',
+            'cargo_type'         => 'nullable|in:food,flowers,parcel',
+            'cargo_weight'       => 'nullable|numeric|min:0',
+            'order_note'         => 'nullable|string',
+            'stops'              => 'required|array|min:1|max:10',
+            'stops.*.address'    => 'required|string',
+            'stops.*.lat'        => 'nullable|numeric',
+            'stops.*.lng'        => 'nullable|numeric',
+            'stops.*.phone'      => 'required|string',
+            'stops.*.name'       => 'nullable|string',
+            'stops.*.cod_amount' => 'nullable|integer|min:0',
+            'stops.*.note'       => 'nullable|string',
+        ]);
+
+        $user = $request->user();
+        if (!$user->city_id) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Tài khoản chưa được gán thành phố.',
+            ], 422);
+        }
+
+        try {
+            $cargoType = $data['cargo_type'] ?? 'food';
+            $weightKg  = isset($data['cargo_weight']) ? (float) $data['cargo_weight'] : null;
+            $pickupLat = $data['pickup_lat'] ?? null;
+            $pickupLng = $data['pickup_lng'] ?? null;
+
+            // Tính phí từng stop độc lập (shop → stop)
+            $stops    = [];
+            $totalFee = 0;
+
+            foreach ($data['stops'] as $i => $stop) {
+                if ($pickupLat && isset($stop['lat'], $stop['lng'])) {
+                    $pricing = ShopPricingService::estimateFromCoords(
+                        $cargoType,
+                        (float) $pickupLat, (float) $pickupLng,
+                        (float) $stop['lat'], (float) $stop['lng'],
+                        $weightKg
+                    );
+                } else {
+                    $pricing = ShopPricingService::estimateFromAddresses(
+                        $cargoType, $data['pickup_address'], $stop['address'], $weightKg
+                    );
+                }
+
+                $stops[] = [
+                    'seq'          => $i + 1,
+                    'address'      => $stop['address'],
+                    'lat'          => $stop['lat'] ?? null,
+                    'lng'          => $stop['lng'] ?? null,
+                    'phone'        => $stop['phone'],
+                    'name'         => $stop['name'] ?? '',
+                    'cod_amount'   => $stop['cod_amount'] ?? null,
+                    'note'         => $stop['note'] ?? '',
+                    'fee'          => $pricing['fee'],
+                    'distance_km'  => $pricing['distance_km'],
+                    'delivered_at' => null,
+                ];
+                $totalFee += $pricing['fee'];
+            }
+
+            $firstStop = $stops[0];
+
+            $order = Order::create([
+                'code'             => '',
+                'sender_name'      => $data['pickup_name'] ?? $user->name,
+                'store_name'       => $user->name,
+                'pickup_phone'     => $data['pickup_phone'] ?? $user->phone,
+                'pickup_address'   => $data['pickup_address'],
+                'pickup_lat'       => $pickupLat,
+                'pickup_lng'       => $pickupLng,
+                // Điểm giao chính = stop đầu tiên
+                'receiver_name'    => $firstStop['name'],
+                'delivery_phone'   => $firstStop['phone'],
+                'delivery_address' => $firstStop['address'],
+                'delivery_lat'     => $firstStop['lat'],
+                'delivery_lng'     => $firstStop['lng'],
+                'service_type'     => 'delivery',
+                'order_note'       => $data['order_note'] ?? '',
+                'cargo_type'       => $cargoType,
+                'cargo_weight'     => $weightKg,
+                'is_batch'         => true,
+                'stops'            => $stops,
+                'payment_method'   => 'cod',
+                'cod_amount'       => array_sum(array_column($stops, 'cod_amount')),
+                'city_id'          => $user->city_id,
+                'shipping_fee'     => $totalFee,
+                'night_surcharge'  => 0,
+                'distance'         => $stops[0]['distance_km'],
+                'bonus_fee'        => 0,
+                'is_freeship'      => false,
+                'status'           => 'pending',
+                'platform'         => 'shop_app',
+                'sender_platform_id' => $user->id,
+            ]);
+
+            $orderId = $order->id;
+            dispatch(function () use ($orderId) {
+                app(OrderService::class)->dispatchNewOrder($orderId);
+            })->afterResponse();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Tạo đơn gộp thành công',
+                'data'    => $this->formatOrder($order),
+            ], 201);
+        } catch (\Throwable $e) {
+            Log::error('Shop storeBatch: ' . $e->getMessage());
+            return response()->json(['success' => false, 'message' => 'Có lỗi xảy ra'], 500);
+        }
+    }
+
+    public function deliverStop(string $code, int $seq, Request $request): JsonResponse
+    {
+        $order = Order::where('code', $code)
+            ->where('sender_platform_id', $request->user()->id)
+            ->where('platform', 'shop_app')
+            ->where('is_batch', true)
+            ->first();
+
+        if (!$order) {
+            return response()->json(['success' => false, 'message' => 'Không tìm thấy đơn hàng'], 404);
+        }
+
+        $stops = $order->stops ?? [];
+        $found = false;
+        foreach ($stops as &$stop) {
+            if ((int) $stop['seq'] === $seq) {
+                $stop['delivered_at'] = now()->toIso8601String();
+                $found = true;
+                break;
+            }
+        }
+        if (!$found) {
+            return response()->json(['success' => false, 'message' => 'Không tìm thấy điểm giao'], 404);
+        }
+
+        $order->update(['stops' => $stops]);
+
+        return response()->json(['success' => true, 'message' => "Đã giao điểm $seq"]);
+    }
+
     public function show(string $code, Request $request): JsonResponse
     {
         $order = Order::where('code', $code)

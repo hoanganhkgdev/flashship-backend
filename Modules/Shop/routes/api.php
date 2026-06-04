@@ -24,15 +24,18 @@ Route::prefix('shop')->group(function () {
     });
 
     Route::middleware('auth:sanctum')->group(function () {
-        Route::get('/pricing/estimate', [PricingController::class, 'estimate']);
+        Route::get('/pricing/estimate',       [PricingController::class, 'estimate']);
+        Route::post('/pricing/estimate-batch', [PricingController::class, 'estimateBatch']);
 
         Route::prefix('orders')->group(function () {
-            Route::get('/',               [OrderController::class, 'index']);
-            Route::get('/stats',          [OrderController::class, 'stats']);
-            Route::post('/',              [OrderController::class, 'store']);
-            Route::get('/{code}',         [OrderController::class, 'show']);
-            Route::post('/{code}/cancel', [OrderController::class, 'cancel']);
-            Route::post('/{code}/rate',   [OrderController::class, 'rate']);
+            Route::get('/',                        [OrderController::class, 'index']);
+            Route::get('/stats',                   [OrderController::class, 'stats']);
+            Route::post('/',                       [OrderController::class, 'store']);
+            Route::post('/batch',                  [OrderController::class, 'storeBatch']);
+            Route::get('/{code}',                  [OrderController::class, 'show']);
+            Route::post('/{code}/cancel',          [OrderController::class, 'cancel']);
+            Route::post('/{code}/rate',            [OrderController::class, 'rate']);
+            Route::post('/{code}/stops/{seq}/deliver', [OrderController::class, 'deliverStop']);
         });
     });
 });
