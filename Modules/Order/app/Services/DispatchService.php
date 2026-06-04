@@ -23,9 +23,9 @@ class DispatchService
         ['after_secs' => 300, 'km' => 12],  // sau 5 phút → mở rộng 12km
     ];
 
-    const DRIVER_OFFER_SECS  = 30;   // 30 giây mỗi tài xế
+    const DRIVER_OFFER_SECS  = 20;   // 20 giây mỗi tài xế
     const TIMEOUT_SECS       = 600;  // 10 phút → auto-cancel nếu không ai nhận
-    const FCM_TTL_SECS       = 30;
+    const FCM_TTL_SECS       = 20;
     const MAX_DRIVERS        = 50;
 
     // Trọng số composite score
