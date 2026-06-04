@@ -45,6 +45,13 @@ class OrderController extends Controller
         $cancelled = (clone $base)->where('status', 'cancelled')->count();
         $revenue   = (clone $base)->where('status', 'completed')->sum('shipping_fee');
 
+        // Hôm nay
+        $today          = now()->startOfDay();
+        $todayBase      = (clone $base)->whereDate('created_at', $today);
+        $todayOrders    = (clone $todayBase)->count();
+        $todayActive    = (clone $todayBase)->whereIn('status', ['pending','assigned','processing','on_the_way'])->count();
+        $todayRevenue   = (clone $todayBase)->where('status', 'completed')->sum('shipping_fee');
+
         // Thống kê theo loại hàng
         $byCargoType = (clone $base)->where('status', 'completed')
             ->selectRaw('cargo_type, COUNT(*) as count')
@@ -67,6 +74,11 @@ class OrderController extends Controller
                 'completed'     => $completed,
                 'cancelled'     => $cancelled,
                 'revenue'       => (int) $revenue,
+                'today'         => [
+                    'orders'  => $todayOrders,
+                    'active'  => $todayActive,
+                    'revenue' => (int) $todayRevenue,
+                ],
                 'by_cargo_type' => $byCargoType,
                 'daily'         => $dailyOrders,
             ],
