@@ -114,4 +114,58 @@ class OrderController extends Controller
         unset($result['status']);
         return response()->json($result, $status);
     }
+
+    /**
+     * Driver đánh dấu đã giao 1 điểm trong đơn gộp.
+     * Khi tất cả stops delivered → tự hoàn thành đơn.
+     */
+    public function deliverStop(Request $request, Order $order, int $seq): JsonResponse
+    {
+        $driver = $request->user();
+
+        if ((int) $order->delivery_man_id !== $driver->id) {
+            return response()->json(['success' => false, 'message' => 'Không phải đơn của bạn'], 403);
+        }
+        if (!$order->is_batch) {
+            return response()->json(['success' => false, 'message' => 'Không phải đơn gộp'], 400);
+        }
+
+        $stops = $order->stops ?? [];
+        $found = false;
+        foreach ($stops as &$stop) {
+            if ((int) $stop['seq'] === $seq) {
+                if ($stop['delivered_at'] !== null) {
+                    return response()->json(['success' => false, 'message' => 'Điểm này đã được giao rồi'], 400);
+                }
+                $stop['delivered_at'] = now()->toIso8601String();
+                $found = true;
+                break;
+            }
+        }
+        if (!$found) {
+            return response()->json(['success' => false, 'message' => 'Không tìm thấy điểm giao'], 404);
+        }
+
+        $order->update(['stops' => $stops]);
+
+        // Nếu tất cả stops đã delivered → hoàn thành đơn
+        $allDone = collect($stops)->every(fn($s) => $s['delivered_at'] !== null);
+        if ($allDone) {
+            $this->orderService->completeOrder($order, $driver);
+            return response()->json([
+                'success'   => true,
+                'message'   => "Đã giao điểm $seq — Tất cả điểm đã giao, đơn hoàn thành!",
+                'completed' => true,
+                'stops'     => $stops,
+            ]);
+        }
+
+        $remaining = collect($stops)->filter(fn($s) => $s['delivered_at'] === null)->count();
+        return response()->json([
+            'success'   => true,
+            'message'   => "Đã giao điểm $seq — còn $remaining điểm",
+            'completed' => false,
+            'stops'     => $stops,
+        ]);
+    }
 }

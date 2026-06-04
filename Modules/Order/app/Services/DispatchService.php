@@ -276,6 +276,7 @@ class DispatchService
             'cargo_weight'     => $order->cargo_weight    ? (float) $order->cargo_weight : null,
             'is_batch'         => (bool) ($order->is_batch ?? false),
             'stops_count'      => $order->is_batch ? count($order->stops ?? []) : 0,
+            'stops'            => $order->is_batch ? ($order->stops ?? []) : [],
             'shipping_fee'     => (int) ($order->shipping_fee   ?? 0),
             'discount_amount'  => (int) ($order->discount_amount ?? 0),
             'bonus_fee'        => (int) ($order->bonus_fee       ?? 0),

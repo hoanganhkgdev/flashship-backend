@@ -45,8 +45,9 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/{order}/view-offer',    [OrderController::class, 'viewOffer']);
         Route::post('/{order}/accept',        [OrderController::class, 'accept']);
         Route::post('/{order}/decline',       [OrderController::class, 'decline']);
-        Route::post('/{order}/update-status', [OrderController::class, 'updateStatus']);
-        Route::post('/{order}/complete',      [OrderController::class, 'complete']);
+        Route::post('/{order}/update-status',        [OrderController::class, 'updateStatus']);
+        Route::post('/{order}/complete',             [OrderController::class, 'complete']);
+        Route::post('/{order}/stops/{seq}/deliver',  [OrderController::class, 'deliverStop']);
     });
 
     Route::prefix('earnings')->group(function () {
