@@ -87,8 +87,6 @@ class OrderController extends Controller
 
     public function store(Request $request): JsonResponse
     {
-        Log::info('[Shop.store] is_outbound raw=' . json_encode($request->input('is_outbound')) . ' all_keys=' . json_encode(array_keys($request->all())));
-
         $data = $request->validate([
             'is_outbound'      => 'nullable|boolean',
             'pickup_address'   => 'required|string',
