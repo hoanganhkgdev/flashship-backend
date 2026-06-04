@@ -324,6 +324,7 @@ class OrderResource extends Resource
                     Tables\Actions\DeleteBulkAction::make(),
                 ]),
             ])
+            ->defaultSort('created_at', 'desc')
             ->poll('15s');
     }
 
