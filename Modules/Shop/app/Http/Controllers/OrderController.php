@@ -127,9 +127,9 @@ class OrderController extends Controller
 
             $order = Order::create([
                 'code'             => '',
-                'sender_name'      => $data['pickup_name'] ?? $user->name,
+                'sender_name'      => !empty($data['pickup_name']) ? $data['pickup_name'] : null,
                 'store_name'       => $user->name,
-                'pickup_phone'     => $data['pickup_phone'] ?? $user->phone,
+                'pickup_phone'     => !empty($data['pickup_phone']) ? $data['pickup_phone'] : null,
                 'pickup_address'   => $data['pickup_address'],
                 'pickup_lat'       => $data['pickup_lat'] ?? null,
                 'pickup_lng'       => $data['pickup_lng'] ?? null,
