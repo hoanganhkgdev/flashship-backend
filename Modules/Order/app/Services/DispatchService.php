@@ -265,6 +265,7 @@ class DispatchService
             'pickup_lng'       => $order->pickup_lng      ? (float) $order->pickup_lng  : null,
             'delivery_address' => $order->delivery_address ?? '',
             'delivery_phone'   => $order->delivery_phone  ?? '',
+            'receiver_name'    => $order->receiver_name   ?? '',
             'delivery_lat'     => $order->delivery_lat    ? (float) $order->delivery_lat : null,
             'delivery_lng'     => $order->delivery_lng    ? (float) $order->delivery_lng : null,
             'order_note'       => $order->order_note      ?? '',
