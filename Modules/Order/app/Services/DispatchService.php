@@ -280,6 +280,7 @@ class DispatchService
             'stops'            => $order->is_batch ? ($order->stops ?? []) : [],
             'shipping_fee'     => (int) ($order->shipping_fee   ?? 0),
             'discount_amount'  => (int) ($order->discount_amount ?? 0),
+            'voucher_code'     => $order->voucher_code ?? null,
             'bonus_fee'        => (int) ($order->bonus_fee       ?? 0),
             'payment_method'   => $order->payment_method  ?? 'prepaid',
             'cod_amount'       => (int) ($order->cod_amount      ?? 0),
