@@ -3,6 +3,7 @@
 namespace Modules\Core\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class Voucher extends Model
 {
@@ -31,6 +32,8 @@ class Voucher extends Model
         if ($cityId === null) return $query;
         return $query->where(fn ($q) => $q->whereNull('city_id')->orWhere('city_id', $cityId));
     }
+
+    public function city(): BelongsTo { return $this->belongsTo(City::class); }
 
     public function usages() { return $this->hasMany(VoucherUsage::class); }
 

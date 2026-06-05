@@ -11,7 +11,6 @@ use Filament\Tables;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Filters\TernaryFilter;
 use Filament\Tables\Table;
-use Modules\Core\Models\City;
 use Modules\Core\Models\Voucher;
 
 class VoucherResource extends Resource
@@ -88,8 +87,9 @@ class VoucherResource extends Resource
 
                         Forms\Components\Select::make('city_id')
                             ->label('Khu vực áp dụng')
-                            ->options(fn () => City::pluck('name', 'id')->toArray())
+                            ->relationship('city', 'name')
                             ->searchable()
+                            ->preload()
                             ->placeholder('Tất cả khu vực'),
 
                         Forms\Components\CheckboxList::make('service_types')
