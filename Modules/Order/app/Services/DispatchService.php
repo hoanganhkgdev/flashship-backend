@@ -203,7 +203,9 @@ class DispatchService
             return self::RADIUS_STAGES[0]['km'];
         }
 
-        $elapsed  = now()->diffInSeconds(Carbon::parse($order->dispatch_started_at));
+        // Lưu ý: diffInSeconds trả về giá trị có dấu (âm nếu mốc so sánh ở quá khứ),
+        // nên phải gọi từ mốc bắt đầu tới hiện tại để elapsed luôn dương.
+        $elapsed  = Carbon::parse($order->dispatch_started_at)->diffInSeconds(now());
         $radiusKm = self::RADIUS_STAGES[0]['km'];
 
         foreach (self::RADIUS_STAGES as $stage) {
