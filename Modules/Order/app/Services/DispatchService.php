@@ -5,6 +5,7 @@ use Carbon\Carbon;
 use Modules\Driver\Services\DriverScoreService;
 use Modules\Order\Jobs\AutoCancelOrderJob;
 use Modules\Order\Jobs\DispatchOrderJob;
+use Modules\Order\Jobs\RetryDispatchJob;
 use Modules\Order\Models\Order;
 use Modules\Order\Models\OrderDispatchLog;
 use Modules\Core\Models\User;
@@ -25,6 +26,7 @@ class DispatchService
 
     const DRIVER_OFFER_SECS  = 20;   // 20 giây mỗi tài xế
     const TIMEOUT_SECS       = 600;  // 10 phút → auto-cancel nếu không ai nhận
+    const RETRY_SCAN_SECS    = 20;   // không tìm thấy ứng viên nào → quét lại sau 20s
     const FCM_TTL_SECS       = 20;
     const MAX_DRIVERS        = 50;
 
@@ -89,8 +91,11 @@ class DispatchService
         $candidates = $this->getCandidates($order, $radiusKm, $alreadyOffered);
 
         if ($candidates->isEmpty()) {
-            Log::info("└─ [Dispatch] Đơn #{$order->id}: Hết tài xế khả dụng (bán kính {$radiusKm}km) → HỦY ĐƠN");
-            $this->cancelIfNoDriver($order);
+            // Không huỷ ngay — quét lại sau ít giây để cơ chế mở rộng bán kính
+            // (RADIUS_STAGES) và việc tài xế online thêm có cơ hội phát huy.
+            // Đơn chỉ thực sự bị huỷ khi AutoCancelOrderJob (TIMEOUT_SECS) kích hoạt.
+            Log::info("└─ [Dispatch] Đơn #{$order->id}: Không tìm thấy tài xế (bán kính {$radiusKm}km) → quét lại sau " . self::RETRY_SCAN_SECS . "s");
+            RetryDispatchJob::dispatch($order->id)->delay(now()->addSeconds(self::RETRY_SCAN_SECS));
             return;
         }
 
@@ -246,8 +251,13 @@ class DispatchService
         DB::table('orders')->where('id', $order->id)->update([
             'dispatching_to_driver_id' => $driver->id,
             'dispatch_attempts'        => DB::raw('dispatch_attempts + 1'),
+            // Reset để job đếm ngược "app-decision" được tạo đúng cho TÀI XẾ MỚI này
+            // (offer_viewed_at trước đây ở cấp đơn hàng → tài xế thứ 2 trở đi mở app
+            // sẽ không được tạo job riêng, khiến đơn bị treo tới khi auto-cancel 10 phút)
+            'offer_viewed_at'          => null,
             'updated_at'               => $now,
         ]);
+        $order->offer_viewed_at = null;
 
         // Ghi offer lên RTDB — driver app nhận qua stream real-time (< 300ms)
         $offeredAt = $now->timestamp;
