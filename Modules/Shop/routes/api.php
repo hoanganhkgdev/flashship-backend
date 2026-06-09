@@ -4,6 +4,8 @@ use Illuminate\Support\Facades\Route;
 use Modules\Shop\Http\Controllers\AuthController;
 use Modules\Shop\Http\Controllers\OrderController;
 use Modules\Shop\Http\Controllers\PricingController;
+use Modules\Shop\Http\Controllers\ShopAddressController;
+use Modules\Shop\Http\Controllers\ShopNotificationController;
 
 Route::prefix('shop')->group(function () {
 
@@ -26,6 +28,21 @@ Route::prefix('shop')->group(function () {
     Route::middleware('auth:sanctum')->group(function () {
         Route::get('/pricing/estimate',       [PricingController::class, 'estimate']);
         Route::post('/pricing/estimate-batch', [PricingController::class, 'estimateBatch']);
+
+        Route::prefix('addresses')->group(function () {
+            Route::get('/',        [ShopAddressController::class, 'index']);
+            Route::post('/',       [ShopAddressController::class, 'store']);
+            Route::patch('/{id}',  [ShopAddressController::class, 'update']);
+            Route::delete('/{id}', [ShopAddressController::class, 'destroy']);
+        });
+
+        Route::prefix('notifications')->group(function () {
+            Route::get('/',              [ShopNotificationController::class, 'index']);
+            Route::get('/unread-count',  [ShopNotificationController::class, 'unreadCount']);
+            Route::post('/read-all',     [ShopNotificationController::class, 'markAllRead']);
+            Route::post('/{id}/read',    [ShopNotificationController::class, 'markRead']);
+            Route::delete('/{id}',       [ShopNotificationController::class, 'delete']);
+        });
 
         Route::prefix('orders')->group(function () {
             Route::get('/',                        [OrderController::class, 'index']);
