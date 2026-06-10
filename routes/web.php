@@ -11,3 +11,7 @@ Route::get('/privacy', function () {
 Route::get('/terms', function () {
     return response(view('legal.terms'))->header('Content-Type', 'text/html');
 });
+
+Route::get('/support', function () {
+    return response(view('legal.support'))->header('Content-Type', 'text/html');
+});
