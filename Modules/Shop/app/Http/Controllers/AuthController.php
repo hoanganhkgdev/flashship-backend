@@ -226,25 +226,4 @@ class AuthController extends Controller
         }
         return $digits;
     }
-
-    private function findNearestCity(float $lat, float $lng): ?int
-    {
-        $cities = \Modules\Core\Models\City::where('is_active', true)
-            ->whereNotNull('lat')->whereNotNull('lng')
-            ->get(['id', 'lat', 'lng']);
-
-        if ($cities->isEmpty()) {
-            return \Modules\Core\Models\City::where('is_active', true)->value('id');
-        }
-
-        $nearest = null;
-        $minDist = PHP_FLOAT_MAX;
-        foreach ($cities as $city) {
-            $dLat = deg2rad((float)$city->lat - $lat);
-            $dLng = deg2rad((float)$city->lng - $lng);
-            $d    = $dLat * $dLat + $dLng * $dLng;
-            if ($d < $minDist) { $minDist = $d; $nearest = $city->id; }
-        }
-        return $nearest;
-    }
 }

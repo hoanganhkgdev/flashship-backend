@@ -32,9 +32,7 @@ class AuthController extends Controller
             'otp'       => 'required|string|size:6',
             'name'      => 'required|string|max:255',
             'password'  => 'required|string|min:6',
-            'city_id'   => 'nullable|integer|exists:cities,id',
-            'latitude'  => 'nullable|numeric',
-            'longitude' => 'nullable|numeric',
+            'city_id'   => 'required|integer|exists:cities,id',
             'fcm_token' => 'nullable|string',
         ]);
 
@@ -44,10 +42,6 @@ class AuthController extends Controller
 
         if (User::where('phone', $data['phone'])->where('user_type', 'driver')->exists()) {
             return response()->json(['success' => false, 'message' => 'Số điện thoại đã được đăng ký'], 422);
-        }
-
-        if (empty($data['city_id']) && !empty($data['latitude']) && !empty($data['longitude'])) {
-            $data['city_id'] = $this->findNearestCity((float) $data['latitude'], (float) $data['longitude']);
         }
 
         $path = null;
@@ -62,7 +56,7 @@ class AuthController extends Controller
                 'password'           => bcrypt($data['password']),
                 'status'             => 0,
                 'user_type'          => 'driver',
-                'city_id'            => $data['city_id'] ?? null,
+                'city_id'            => $data['city_id'],
                 'profile_photo_path' => $path,
                 'fcm_token'          => $data['fcm_token'] ?? null,
             ]);
@@ -83,19 +77,12 @@ class AuthController extends Controller
             'name'      => 'required|string|max:255',
             'phone'     => 'required|string',
             'password'  => 'required|string|min:6',
-            'city_id'   => 'nullable|integer|exists:cities,id',
-            'latitude'  => 'nullable|numeric',
-            'longitude' => 'nullable|numeric',
+            'city_id'   => 'required|integer|exists:cities,id',
             'fcm_token' => 'nullable|string',
         ]);
 
         if (User::where('phone', $data['phone'])->where('user_type', 'driver')->exists()) {
             return response()->json(['success' => false, 'message' => 'Số điện thoại đã được đăng ký làm tài xế'], 422);
-        }
-
-        // Tự tìm city gần nhất nếu không có city_id nhưng có tọa độ
-        if (empty($data['city_id']) && !empty($data['latitude']) && !empty($data['longitude'])) {
-            $data['city_id'] = $this->findNearestCity((float)$data['latitude'], (float)$data['longitude']);
         }
 
         $path = null;
@@ -203,39 +190,5 @@ class AuthController extends Controller
             $data['profile_photo_url'] = url('storage/' . $user->profile_photo_path);
         }
         return $data;
-    }
-
-    private function findNearestCity(float $lat, float $lng): ?int
-    {
-        $cities = \Modules\Core\Models\City::where('is_active', true)
-            ->whereNotNull('lat')
-            ->whereNotNull('lng')
-            ->get(['id', 'lat', 'lng']);
-
-        if ($cities->isEmpty()) {
-            return \Modules\Core\Models\City::where('is_active', true)->value('id');
-        }
-
-        $nearest   = null;
-        $minDist   = PHP_FLOAT_MAX;
-
-        foreach ($cities as $city) {
-            $d = $this->haversineKm($lat, $lng, (float)$city->lat, (float)$city->lng);
-            if ($d < $minDist) {
-                $minDist = $d;
-                $nearest = $city->id;
-            }
-        }
-
-        return $nearest;
-    }
-
-    private function haversineKm(float $lat1, float $lng1, float $lat2, float $lng2): float
-    {
-        $R    = 6371.0;
-        $dLat = deg2rad($lat2 - $lat1);
-        $dLng = deg2rad($lng2 - $lng1);
-        $a    = sin($dLat / 2) ** 2 + cos(deg2rad($lat1)) * cos(deg2rad($lat2)) * sin($dLng / 2) ** 2;
-        return $R * 2 * atan2(sqrt($a), sqrt(1 - $a));
     }
 }

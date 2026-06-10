@@ -35,9 +35,7 @@ class AuthController extends Controller
             'otp'       => 'required|string|size:6',
             'name'      => 'required|string|max:255',
             'password'  => 'required|string|min:6',
-            'city_id'   => 'nullable|integer|exists:cities,id',
-            'latitude'  => 'nullable|numeric',
-            'longitude' => 'nullable|numeric',
+            'city_id'   => 'required|integer|exists:cities,id',
         ]);
 
         $phone = $this->normalizePhone($data['phone']);
@@ -50,16 +48,12 @@ class AuthController extends Controller
             return response()->json(['success' => false, 'message' => 'Số điện thoại đã được đăng ký'], 422);
         }
 
-        if (empty($data['city_id']) && !empty($data['latitude']) && !empty($data['longitude'])) {
-            $data['city_id'] = $this->findNearestCity((float)$data['latitude'], (float)$data['longitude']);
-        }
-
         $user = User::create([
             'name'      => $data['name'],
             'phone'     => $phone,
             'password'  => bcrypt($data['password']),
             'user_type' => 'customer',
-            'city_id'   => $data['city_id'] ?? null,
+            'city_id'   => $data['city_id'],
             'status'    => 1,
         ]);
 
@@ -78,9 +72,7 @@ class AuthController extends Controller
             'name'      => 'required|string|max:255',
             'phone'     => 'required|string',
             'password'  => 'required|string|min:6',
-            'city_id'   => 'nullable|integer|exists:cities,id',
-            'latitude'  => 'nullable|numeric',
-            'longitude' => 'nullable|numeric',
+            'city_id'   => 'required|integer|exists:cities,id',
         ]);
 
         $phone = $this->normalizePhone($data['phone']);
@@ -89,16 +81,12 @@ class AuthController extends Controller
             return response()->json(['success' => false, 'message' => 'Số điện thoại đã được đăng ký'], 422);
         }
 
-        if (empty($data['city_id']) && !empty($data['latitude']) && !empty($data['longitude'])) {
-            $data['city_id'] = $this->findNearestCity((float)$data['latitude'], (float)$data['longitude']);
-        }
-
         $user = User::create([
             'name'      => $data['name'],
             'phone'     => $phone,
             'password'  => bcrypt($data['password']),
             'user_type' => 'customer',
-            'city_id'   => $data['city_id'] ?? null,
+            'city_id'   => $data['city_id'],
             'status'    => 1,
         ]);
 
@@ -286,26 +274,5 @@ class AuthController extends Controller
             'city_name'           => $user->city?->name ?? '',
             'status'              => $user->status,
         ];
-    }
-
-    private function findNearestCity(float $lat, float $lng): ?int
-    {
-        $cities = \Modules\Core\Models\City::where('is_active', true)
-            ->whereNotNull('lat')->whereNotNull('lng')
-            ->get(['id', 'lat', 'lng']);
-
-        if ($cities->isEmpty()) {
-            return \Modules\Core\Models\City::where('is_active', true)->value('id');
-        }
-
-        $nearest = null;
-        $minDist = PHP_FLOAT_MAX;
-        foreach ($cities as $city) {
-            $dLat = deg2rad((float)$city->lat - $lat);
-            $dLng = deg2rad((float)$city->lng - $lng);
-            $d    = $dLat * $dLat + $dLng * $dLng;
-            if ($d < $minDist) { $minDist = $d; $nearest = $city->id; }
-        }
-        return $nearest;
     }
 }
