@@ -2,6 +2,7 @@
 namespace Modules\Core\Services;
 
 use Illuminate\Support\Facades\Log;
+use Kreait\Firebase\Exception\Messaging\AuthenticationError;
 use Kreait\Firebase\Factory;
 use Kreait\Firebase\Messaging\CloudMessage;
 use Kreait\Firebase\Messaging\Notification;
@@ -27,6 +28,17 @@ class FCMService
             self::$instance = new self();
         }
         return self::$instance;
+    }
+
+    /**
+     * Bỏ instance hiện tại (token có thể hỏng do worker chạy lâu) và tạo lại
+     * messaging client mới với credential tươi.
+     */
+    private function freshMessaging()
+    {
+        self::$instance = null;
+        $this->messaging = self::getInstance()->messaging;
+        return $this->messaging;
     }
 
     /**
@@ -95,7 +107,11 @@ class FCMService
                         'content-available' => 1,
                     ]],
                 ]));
-            $this->messaging->send($message);
+            try {
+                $this->messaging->send($message);
+            } catch (AuthenticationError $e) {
+                $this->freshMessaging()->send($message);
+            }
         } catch (\Throwable $e) {
             Log::error('[FCM] sendDriverWakeUp failed: ' . $e->getMessage());
         }
@@ -145,7 +161,11 @@ class FCMService
                         ->withAndroidConfig($android),
                     $batch
                 );
-                $this->messaging->sendAll($messages);
+                try {
+                    $this->messaging->sendAll($messages);
+                } catch (AuthenticationError $e) {
+                    $this->freshMessaging()->sendAll($messages);
+                }
             } catch (\Throwable $e) {
                 Log::error('[FCM] Multicast failed: ' . $e->getMessage());
             }
@@ -234,7 +254,11 @@ class FCMService
                         ->withApnsConfig($apns),
                     $batch
                 );
-                $report  = $this->messaging->sendAll($messages);
+                try {
+                    $report = $this->messaging->sendAll($messages);
+                } catch (AuthenticationError $e) {
+                    $report = $this->freshMessaging()->sendAll($messages);
+                }
                 $sent   += $report->successes()->count();
                 $failed += $report->failures()->count();
             } catch (\Throwable $e) {
@@ -277,7 +301,11 @@ class FCMService
                     ])
                 );
 
-            $this->messaging->send($message);
+            try {
+                $this->messaging->send($message);
+            } catch (AuthenticationError $e) {
+                $this->freshMessaging()->send($message);
+            }
         } catch (\Throwable $e) {
             $prev = $e->getPrevious();
             Log::error('[FCM] Send failed: ' . $e->getMessage(), [
