@@ -31,6 +31,7 @@ class AppVersionSettingsPage extends Page implements HasForms
     {
         $customer = AppVersionSetting::forPlatform('customer');
         $driver   = AppVersionSetting::forPlatform('driver');
+        $shop     = AppVersionSetting::forPlatform('shop');
 
         $this->form->fill([
             'customer_min_version'    => $customer->min_version,
@@ -46,6 +47,13 @@ class AppVersionSettingsPage extends Page implements HasForms
             'driver_ios_url'        => $driver->ios_url,
             'driver_force_update'   => $driver->force_update,
             'driver_force_message'  => $driver->force_message,
+
+            'shop_min_version'    => $shop->min_version,
+            'shop_latest_version' => $shop->latest_version,
+            'shop_android_url'    => $shop->android_url,
+            'shop_ios_url'        => $shop->ios_url,
+            'shop_force_update'   => $shop->force_update,
+            'shop_force_message'  => $shop->force_message,
         ]);
     }
 
@@ -97,6 +105,28 @@ class AppVersionSettingsPage extends Page implements HasForms
                         ->rows(2)->columnSpan(2),
                 ])->columns(2),
 
+            Section::make('App Shop')
+                ->icon('heroicon-o-building-storefront')
+                ->schema([
+                    TextInput::make('shop_min_version')
+                        ->label('Phiên bản tối thiểu')
+                        ->placeholder('1.0.0')->required(),
+                    TextInput::make('shop_latest_version')
+                        ->label('Phiên bản mới nhất')
+                        ->placeholder('1.0.1')->required(),
+                    TextInput::make('shop_android_url')
+                        ->label('Google Play URL')->url()->columnSpan(2),
+                    TextInput::make('shop_ios_url')
+                        ->label('App Store URL')->url()->columnSpan(2),
+                    Toggle::make('shop_force_update')
+                        ->label('Bật force update')
+                        ->helperText('Shop dùng app < min_version sẽ bị bắt buộc cập nhật.')
+                        ->columnSpan(2),
+                    Textarea::make('shop_force_message')
+                        ->label('Nội dung thông báo')
+                        ->rows(2)->columnSpan(2),
+                ])->columns(2),
+
         ])->statePath('data');
     }
 
@@ -120,6 +150,15 @@ class AppVersionSettingsPage extends Page implements HasForms
             'ios_url'        => $values['driver_ios_url'] ?: null,
             'force_update'   => $values['driver_force_update'],
             'force_message'  => $values['driver_force_message'],
+        ]);
+
+        AppVersionSetting::forPlatform('shop')->update([
+            'min_version'    => $values['shop_min_version'],
+            'latest_version' => $values['shop_latest_version'],
+            'android_url'    => $values['shop_android_url'] ?: null,
+            'ios_url'        => $values['shop_ios_url'] ?: null,
+            'force_update'   => $values['shop_force_update'],
+            'force_message'  => $values['shop_force_message'],
         ]);
 
         Notification::make()

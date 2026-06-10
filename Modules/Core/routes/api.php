@@ -70,7 +70,7 @@ Route::get('/service-types', function () {
 });
 
 Route::get('/app-version', function (\Illuminate\Http\Request $request) {
-    $platform = in_array($request->query('platform'), ['customer', 'driver'])
+    $platform = in_array($request->query('platform'), ['customer', 'driver', 'shop'])
         ? $request->query('platform')
         : 'customer';
     $s = \App\Models\AppVersionSetting::forPlatform($platform);
