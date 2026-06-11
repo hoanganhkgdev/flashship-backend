@@ -1,0 +1,134 @@
+<?php
+
+namespace App\Filament\Pages;
+
+use Filament\Pages\Page;
+use Illuminate\Support\Facades\DB;
+use Modules\Order\Models\Order;
+use Modules\Order\Models\OrderDispatchLog;
+use Modules\Order\Services\DispatchService;
+
+class DispatchMonitorPage extends Page
+{
+    protected static ?string $navigationIcon  = 'heroicon-o-signal';
+    protected static ?string $navigationGroup = 'Đơn hàng';
+    protected static ?string $navigationLabel = 'Theo dõi phát đơn';
+    protected static ?int    $navigationSort  = 50;
+    protected static string  $view            = 'filament.pages.dispatch-monitor';
+
+    /**
+     * Đơn đang trong quá trình phát (chưa có tài xế nhận).
+     */
+    public function getActiveOrders(): array
+    {
+        return Order::query()
+            ->whereNotNull('dispatch_started_at')
+            ->whereNull('delivery_man_id')
+            ->whereIn('status', ['pending'])
+            ->with('city')
+            ->orderByDesc('dispatch_started_at')
+            ->limit(30)
+            ->get()
+            ->map(function (Order $o) {
+                $driverName = $o->dispatching_to_driver_id
+                    ? DB::table('users')->where('id', $o->dispatching_to_driver_id)->value('name')
+                    : null;
+
+                $elapsedSecs = now()->diffInSeconds($o->dispatch_started_at);
+
+                return [
+                    'id'           => $o->id,
+                    'service_type' => $o->service_type,
+                    'city'         => $o->city_name,
+                    'elapsed'      => $elapsedSecs,
+                    'attempts'     => $o->dispatch_attempts,
+                    'radius'       => $this->radiusForElapsed($elapsedSecs),
+                    'offering_to'  => $driverName,
+                    'started_at'   => $o->dispatch_started_at,
+                ];
+            })
+            ->toArray();
+    }
+
+    /**
+     * Lịch sử offer gần đây (50 dòng cuối).
+     */
+    public function getRecentOffers(): array
+    {
+        return OrderDispatchLog::query()
+            ->join('users', 'users.id', '=', 'order_dispatch_logs.driver_id')
+            ->orderByDesc('order_dispatch_logs.id')
+            ->limit(50)
+            ->get([
+                'order_dispatch_logs.order_id',
+                'order_dispatch_logs.driver_id',
+                'users.name as driver_name',
+                'order_dispatch_logs.offered_at',
+                'order_dispatch_logs.responded_at',
+                'order_dispatch_logs.result',
+            ])
+            ->map(function ($r) {
+                $responseSecs = $r->responded_at
+                    ? \Carbon\Carbon::parse($r->offered_at)->diffInSeconds(\Carbon\Carbon::parse($r->responded_at))
+                    : null;
+
+                return [
+                    'order_id'     => $r->order_id,
+                    'driver_name'  => $r->driver_name,
+                    'offered_at'   => \Carbon\Carbon::parse($r->offered_at)->format('H:i:s d/m'),
+                    'result'       => $r->result,
+                    'response_sec' => $responseSecs,
+                ];
+            })
+            ->toArray();
+    }
+
+    /**
+     * Thống kê hôm nay.
+     */
+    public function getTodayStats(): array
+    {
+        $today = Order::query()
+            ->whereDate('dispatch_started_at', now()->toDateString())
+            ->whereNotNull('dispatch_started_at')
+            ->get(['id', 'status', 'delivery_man_id', 'dispatch_attempts', 'cancel_reason', 'dispatch_started_at', 'updated_at']);
+
+        $total       = $today->count();
+        $accepted    = $today->whereNotNull('delivery_man_id')->count();
+        $firstTry    = $today->whereNotNull('delivery_man_id')->where('dispatch_attempts', 1)->count();
+        $noDriver    = $today->where('cancel_reason', 'no_driver')->count();
+
+        $avgAttempts = $accepted > 0
+            ? round($today->whereNotNull('delivery_man_id')->avg('dispatch_attempts'), 1)
+            : 0;
+
+        $avgWaitSecs = $accepted > 0
+            ? round($today->whereNotNull('delivery_man_id')->avg(function (Order $o) {
+                return \Carbon\Carbon::parse($o->dispatch_started_at)->diffInSeconds(\Carbon\Carbon::parse($o->updated_at));
+            }))
+            : 0;
+
+        return [
+            'total'         => $total,
+            'accepted'      => $accepted,
+            'accept_rate'   => $total > 0 ? round($accepted / $total * 100) : 0,
+            'first_try'     => $firstTry,
+            'first_try_rate'=> $accepted > 0 ? round($firstTry / $accepted * 100) : 0,
+            'no_driver'     => $noDriver,
+            'avg_attempts'  => $avgAttempts,
+            'avg_wait_secs' => $avgWaitSecs,
+        ];
+    }
+
+    private function radiusForElapsed(int $secs): float
+    {
+        foreach (array_reverse(DispatchService::RADIUS_STAGES) as $stage) {
+            if ($secs >= $stage['after_secs']) {
+                return $stage['km'];
+            }
+        }
+        return DispatchService::RADIUS_STAGES[0]['km'];
+    }
+
+    protected function getFormActions(): array { return []; }
+}
