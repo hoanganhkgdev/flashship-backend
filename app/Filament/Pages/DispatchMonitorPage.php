@@ -36,7 +36,8 @@ class DispatchMonitorPage extends Page
 
                 $elapsedSecs = max(0, now()->getTimestamp() - \Carbon\Carbon::parse($o->dispatch_started_at)->getTimestamp());
 
-                $attempts = OrderDispatchLog::where('order_id', $o->id)->count();
+                // +1 vì đây là lượt đang/sắp thử, khớp với log "Lần thử #N"
+                $attempts = OrderDispatchLog::where('order_id', $o->id)->count() + 1;
 
                 return [
                     'id'           => $o->id,
