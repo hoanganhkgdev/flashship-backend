@@ -36,7 +36,7 @@ class ListShops extends ListRecords
             if ($count === 0) continue;
             $tabs['city_' . $city->id] = Tab::make($city->name)
                 ->badge($count)
-                ->modifyQueryUsing(fn (Builder $q) => $q->where('city_id', $city->id));
+                ->modifyQueryUsing(fn (Builder $query) => $query->where('city_id', $city->id));
         }
 
         $active  = User::where('user_type', 'shop')->where('status', 1)->count();
@@ -46,7 +46,7 @@ class ListShops extends ListRecords
             $tabs['locked'] = Tab::make('Bị khoá')
                 ->badge($locked)
                 ->badgeColor('danger')
-                ->modifyQueryUsing(fn (Builder $q) => $q->where('status', 2));
+                ->modifyQueryUsing(fn (Builder $query) => $query->where('status', 2));
         }
 
         return $tabs;
