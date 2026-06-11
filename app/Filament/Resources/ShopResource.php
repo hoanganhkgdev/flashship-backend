@@ -42,7 +42,7 @@ class ShopResource extends Resource
                     ->label('Số điện thoại')
                     ->tel()
                     ->required()
-                    ->unique(ignoreRecord: true),
+                    ->unique(ignoreRecord: true, modifyRuleUsing: fn ($rule) => $rule->where('user_type', 'shop')),
 
                 Forms\Components\Textarea::make('address')
                     ->label('Địa chỉ lấy hàng mặc định')
@@ -52,7 +52,7 @@ class ShopResource extends Resource
                 Forms\Components\TextInput::make('email')
                     ->label('Email')
                     ->email()
-                    ->unique(ignoreRecord: true),
+                    ->unique(ignoreRecord: true, modifyRuleUsing: fn ($rule) => $rule->where('user_type', 'shop')),
 
                 Forms\Components\Select::make('city_id')
                     ->label('Thành phố')
