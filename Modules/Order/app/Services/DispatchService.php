@@ -19,9 +19,9 @@ class DispatchService
 {
     // Bán kính tìm tài xế theo thời gian đã chờ (progressive radius)
     const RADIUS_STAGES = [
-        ['after_secs' => 0,   'km' => 5],
-        ['after_secs' => 120, 'km' => 8],   // sau 2 phút → mở rộng 8km
-        ['after_secs' => 300, 'km' => 12],  // sau 5 phút → mở rộng 12km
+        ['after_secs' => 0,   'km' => 2],
+        ['after_secs' => 120, 'km' => 3],   // sau 2 phút → mở rộng 3km
+        ['after_secs' => 300, 'km' => 4],   // sau 5 phút → mở rộng 4km
     ];
 
     const DRIVER_OFFER_SECS  = 20;   // 20 giây mỗi tài xế
