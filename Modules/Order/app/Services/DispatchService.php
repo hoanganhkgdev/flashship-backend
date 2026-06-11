@@ -38,6 +38,9 @@ class DispatchService
 
     const WAIT_TIME_CAP_MINS = 60; // tối đa 60 phút wait time bonus
 
+    // Tài xế đang có đơn active chỉ được gợi ý đơn mới nếu không phải đi vòng quá xa
+    const MAX_DETOUR_KM = 2.0;
+
     // =========================================================================
     // PUBLIC API
     // =========================================================================
@@ -369,10 +372,37 @@ class DispatchService
             Log::debug("     [Candidates] Loại {$licRemoved} tài xế do không có bằng xe hơi");
         }
 
-        $afterRadius = $afterLicense->filter(fn(User $d) => $this->distanceKm($d, $order) <= $radiusKm);
+        // Tài xế đang có đơn active → lấy điểm giao của đơn đó để check hướng đi
+        $activeOrders = Order::whereIn('status', ['assigned', 'processing', 'on_the_way'])
+            ->whereIn('delivery_man_id', $afterLicense->pluck('id'))
+            ->whereNotNull('delivery_lat')
+            ->whereNotNull('delivery_lng')
+            ->get(['delivery_man_id', 'delivery_lat', 'delivery_lng'])
+            ->keyBy('delivery_man_id');
+
+        $afterRadius = $afterLicense->filter(function (User $d) use ($order, $radiusKm, $activeOrders) {
+            $toPickup = $this->distanceKm($d, $order);
+            if ($toPickup > $radiusKm) return false;
+
+            $active = $activeOrders->get($d->id);
+            if (!$active) return true;
+
+            // Tài xế đang bận → chỉ nhận thêm nếu điểm lấy đơn mới gần như cùng hướng
+            // với điểm giao đơn hiện tại (không phải quay đầu đi ngược lại)
+            $directToDest = $this->haversineKm(
+                (float) $d->latitude, (float) $d->longitude,
+                (float) $active->delivery_lat, (float) $active->delivery_lng
+            );
+            $viaPickup = $toPickup + $this->haversineKm(
+                (float) $order->pickup_lat, (float) $order->pickup_lng,
+                (float) $active->delivery_lat, (float) $active->delivery_lng
+            );
+
+            return ($viaPickup - $directToDest) <= self::MAX_DETOUR_KM;
+        });
         $radRemoved  = $afterLicense->count() - $afterRadius->count();
         if ($radRemoved > 0) {
-            Log::debug("     [Candidates] Loại {$radRemoved} tài xế do ngoài bán kính {$radiusKm}km");
+            Log::debug("     [Candidates] Loại {$radRemoved} tài xế do ngoài bán kính {$radiusKm}km hoặc đi ngược hướng đơn đang giao");
         }
 
         $driverIds = $afterRadius->pluck('id')->toArray();
