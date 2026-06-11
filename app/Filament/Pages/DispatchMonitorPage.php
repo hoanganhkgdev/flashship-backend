@@ -34,14 +34,16 @@ class DispatchMonitorPage extends Page
                     ? DB::table('users')->where('id', $o->dispatching_to_driver_id)->value('name')
                     : null;
 
-                $elapsedSecs = now()->diffInSeconds($o->dispatch_started_at);
+                $elapsedSecs = max(0, now()->getTimestamp() - \Carbon\Carbon::parse($o->dispatch_started_at)->getTimestamp());
+
+                $attempts = OrderDispatchLog::where('order_id', $o->id)->count();
 
                 return [
                     'id'           => $o->id,
                     'service_type' => $o->service_type,
                     'city'         => $o->city_name,
                     'elapsed'      => $elapsedSecs,
-                    'attempts'     => $o->dispatch_attempts,
+                    'attempts'     => $attempts,
                     'radius'       => $this->radiusForElapsed($elapsedSecs),
                     'offering_to'  => $driverName,
                     'started_at'   => $o->dispatch_started_at,
@@ -69,7 +71,7 @@ class DispatchMonitorPage extends Page
             ])
             ->map(function ($r) {
                 $responseSecs = $r->responded_at
-                    ? \Carbon\Carbon::parse($r->offered_at)->diffInSeconds(\Carbon\Carbon::parse($r->responded_at))
+                    ? abs(\Carbon\Carbon::parse($r->responded_at)->getTimestamp() - \Carbon\Carbon::parse($r->offered_at)->getTimestamp())
                     : null;
 
                 return [
@@ -104,7 +106,7 @@ class DispatchMonitorPage extends Page
 
         $avgWaitSecs = $accepted > 0
             ? round($today->whereNotNull('delivery_man_id')->avg(function (Order $o) {
-                return \Carbon\Carbon::parse($o->dispatch_started_at)->diffInSeconds(\Carbon\Carbon::parse($o->updated_at));
+                return abs(\Carbon\Carbon::parse($o->updated_at)->getTimestamp() - \Carbon\Carbon::parse($o->dispatch_started_at)->getTimestamp());
             }))
             : 0;
 
