@@ -182,7 +182,7 @@ class ZaloTokenSettings extends Page
                 "Refresh token có thể đã hết hạn (~3 tháng). Cần:<br>" .
                 "1. Vào <a href='https://developers.zalo.me' target='_blank' style='color:inherit;text-decoration:underline'>developers.zalo.me</a> → lấy token mới<br>" .
                 "2. Dán vào form bên dưới → Lưu<br>" .
-                "<em>Trong thời gian này OTP gửi qua eSMS fallback.</em>"
+                "<em style='color:#dc2626'>Trong thời gian này OTP sẽ KHÔNG gửi được tới người dùng!</em>"
             );
         }
 

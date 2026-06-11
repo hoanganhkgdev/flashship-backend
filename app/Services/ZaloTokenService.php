@@ -172,7 +172,7 @@ class ZaloTokenService
                 "Thời gian: " . now()->format('d/m/Y H:i:s') . "\n" .
                 "Lý do: {$reason}\n\n" .
                 "Vào Admin Panel → Cài đặt → Zalo ZNS Token để cập nhật token mới.\n" .
-                "Trong thời gian chưa fix, OTP sẽ gửi qua eSMS.",
+                "Trong thời gian chưa fix, OTP sẽ KHÔNG gửi được tới người dùng!",
                 fn ($msg) => $msg
                     ->to($adminEmail)
                     ->subject('[FlashShip] Zalo ZNS Token hết hạn — cần cập nhật')
