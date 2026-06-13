@@ -7,6 +7,12 @@ return new class extends Migration
 {
     public function up(): void
     {
+        if (DB::getDriverName() === 'mysql') {
+            DB::statement("ALTER TABLE phone_otps MODIFY type ENUM('register', 'reset_password', 'login') NOT NULL");
+
+            return;
+        }
+
         // SQLite không hỗ trợ MODIFY COLUMN, phải recreate table
         DB::statement("CREATE TABLE phone_otps_new (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -27,6 +33,13 @@ return new class extends Migration
 
     public function down(): void
     {
+        if (DB::getDriverName() === 'mysql') {
+            DB::statement("DELETE FROM phone_otps WHERE type = 'login'");
+            DB::statement("ALTER TABLE phone_otps MODIFY type ENUM('register', 'reset_password') NOT NULL");
+
+            return;
+        }
+
         DB::statement("CREATE TABLE phone_otps_new (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             phone VARCHAR(20) NOT NULL,
