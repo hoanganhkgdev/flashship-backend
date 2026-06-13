@@ -15,7 +15,7 @@ class SupportConfigSeeder extends Seeder
             [
                 'title'    => 'Chat Zalo hỗ trợ',
                 'subtitle' => 'Phản hồi trong giờ hành chính',
-                'icon'     => 'zalo',
+                'icon'     => 'chat-bubble-oval-left-ellipsis',
                 'type'     => 'zalo',
                 'value'    => 'https://zalo.me/flashship',
                 'color'    => '#0068FF',
@@ -35,7 +35,7 @@ class SupportConfigSeeder extends Seeder
             [
                 'title'    => 'Facebook Messenger',
                 'subtitle' => 'Fanpage FlashShip',
-                'icon'     => 'messenger',
+                'icon'     => 'chat-bubble-left-right',
                 'type'     => 'url',
                 'value'    => 'https://m.me/flashship',
                 'color'    => '#0084FF',
@@ -45,7 +45,7 @@ class SupportConfigSeeder extends Seeder
             [
                 'title'    => 'Gửi email',
                 'subtitle' => 'support@flashship.vn',
-                'icon'     => 'email',
+                'icon'     => 'envelope',
                 'type'     => 'email',
                 'value'    => 'mailto:support@flashship.vn',
                 'color'    => '#EA4335',
