@@ -6,7 +6,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
-class VietmapService
+class GoogleMapService
 {
     /**
      * Road distance in km using Google Directions API (driving mode).
@@ -26,17 +26,30 @@ class VietmapService
                 $res = Http::timeout(5)->get(
                     config('services.google_maps.directions_url'),
                     [
-                        'origin'      => "{$fromLat},{$fromLng}",
-                        'destination' => "{$toLat},{$toLng}",
-                        'mode'        => 'driving',
-                        'key'         => config('services.google_maps.api_key'),
+                        'origin'       => "{$fromLat},{$fromLng}",
+                        'destination'  => "{$toLat},{$toLng}",
+                        'mode'         => 'driving',
+                        'alternatives' => 'true',
+                        'key'          => config('services.google_maps.api_key'),
                     ]
                 );
 
                 if ($res->successful() && $res->json('status') === 'OK') {
-                    $meters = $res->json('routes.0.legs.0.distance.value');
-                    if ($meters > 0) {
-                        return (float) $meters / 1000;
+                    $routes = $res->json('routes') ?? [];
+                    $shortestMeters = null;
+
+                    foreach ($routes as $route) {
+                        $meters = array_sum(array_map(
+                            fn ($leg) => $leg['distance']['value'] ?? 0,
+                            $route['legs'] ?? []
+                        ));
+                        if ($meters > 0 && ($shortestMeters === null || $meters < $shortestMeters)) {
+                            $shortestMeters = $meters;
+                        }
+                    }
+
+                    if ($shortestMeters !== null) {
+                        return (float) $shortestMeters / 1000;
                     }
                 }
 

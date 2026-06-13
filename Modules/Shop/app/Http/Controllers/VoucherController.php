@@ -13,9 +13,9 @@ class VoucherController extends Controller
         $user = $request->user();
 
         $vouchers = Voucher::available()
-            ->forCity($user->city_id)
-            ->forAudience('shop')
-            ->forUser($user->id)
+            ->where('city_id', $user->city_id)
+            ->where('audience', 'shop')
+            ->where('user_id', $user->id)
             ->orderBy('expires_at')
             ->get()
             ->map(fn (Voucher $v) => [

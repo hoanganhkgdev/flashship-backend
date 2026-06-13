@@ -2,7 +2,7 @@
 
 namespace Modules\Pricing\Services;
 
-use Modules\Core\Services\VietmapService;
+use Modules\Core\Services\GoogleMapService;
 use Modules\Pricing\Models\PricingConfig;
 
 class PricingService
@@ -145,7 +145,7 @@ class PricingService
         float $deliveryLat, float $deliveryLng,
         ?int $cityId = null
     ): array {
-        $distance = VietmapService::roadDistanceKm($pickupLat, $pickupLng, $deliveryLat, $deliveryLng);
+        $distance = GoogleMapService::roadDistanceKm($pickupLat, $pickupLng, $deliveryLat, $deliveryLng);
         return self::estimate($serviceType, $distance, $cityId);
     }
 
@@ -157,8 +157,8 @@ class PricingService
         ?int $cityId = null
     ): array {
         // Geocode cả 2 địa chỉ → tính khoảng cách thật
-        $pickup   = VietmapService::geocode($pickupAddress);
-        $delivery = VietmapService::geocode($deliveryAddress);
+        $pickup   = GoogleMapService::geocode($pickupAddress);
+        $delivery = GoogleMapService::geocode($deliveryAddress);
 
         if ($pickup && $delivery) {
             return self::estimateFromCoords(

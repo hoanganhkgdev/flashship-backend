@@ -2,7 +2,7 @@
 
 namespace Modules\Shop\Services;
 
-use Modules\Core\Services\VietmapService;
+use Modules\Core\Services\GoogleMapService;
 use Modules\Shop\Models\ShopPricingConfig;
 
 class ShopPricingService
@@ -38,7 +38,7 @@ class ShopPricingService
         ?float $cargoWeightKg = null,
         ?int $cityId = null
     ): array {
-        $km = VietmapService::roadDistanceKm($pickupLat, $pickupLng, $deliveryLat, $deliveryLng);
+        $km = GoogleMapService::roadDistanceKm($pickupLat, $pickupLng, $deliveryLat, $deliveryLng);
         return self::calculate($cargoType, $km, $cargoWeightKg, $cityId);
     }
 
@@ -49,8 +49,8 @@ class ShopPricingService
         ?float $cargoWeightKg = null,
         ?int $cityId = null
     ): array {
-        $pickup   = VietmapService::geocode($pickupAddress);
-        $delivery = VietmapService::geocode($deliveryAddress);
+        $pickup   = GoogleMapService::geocode($pickupAddress);
+        $delivery = GoogleMapService::geocode($deliveryAddress);
 
         if ($pickup && $delivery) {
             return self::estimateFromCoords(
