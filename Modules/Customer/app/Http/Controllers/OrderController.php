@@ -103,6 +103,8 @@ class OrderController extends Controller
             if (!empty($data['voucher_code'])) {
                 $voucher = Voucher::where('code', strtoupper($data['voucher_code']))->first();
                 if ($voucher && $voucher->is_active
+                    && in_array($voucher->audience, ['all', 'customer'])
+                    && (!$voucher->user_id || $voucher->user_id == $user->id)
                     && (!$voucher->expires_at || $voucher->expires_at->isFuture())
                     && (!$voucher->usage_limit || $voucher->used_count < $voucher->usage_limit)
                     && (!$voucher->per_user_limit || $voucher->usageCountByUser($user->id) < $voucher->per_user_limit)

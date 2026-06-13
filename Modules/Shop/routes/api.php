@@ -6,6 +6,7 @@ use Modules\Shop\Http\Controllers\OrderController;
 use Modules\Shop\Http\Controllers\PricingController;
 use Modules\Shop\Http\Controllers\ShopAddressController;
 use Modules\Shop\Http\Controllers\ShopNotificationController;
+use Modules\Shop\Http\Controllers\VoucherController;
 
 Route::prefix('shop')->group(function () {
 
@@ -42,6 +43,11 @@ Route::prefix('shop')->group(function () {
             Route::post('/read-all',     [ShopNotificationController::class, 'markAllRead']);
             Route::post('/{id}/read',    [ShopNotificationController::class, 'markRead']);
             Route::delete('/{id}',       [ShopNotificationController::class, 'delete']);
+        });
+
+        Route::prefix('vouchers')->group(function () {
+            Route::get('/',          [VoucherController::class, 'index']);
+            Route::post('/validate', [VoucherController::class, 'validate']);
         });
 
         Route::prefix('orders')->group(function () {

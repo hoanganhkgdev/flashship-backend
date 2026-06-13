@@ -11,6 +11,7 @@ use Filament\Tables;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Filters\TernaryFilter;
 use Filament\Tables\Table;
+use Modules\Core\Models\User;
 use Modules\Core\Models\Voucher;
 
 class VoucherResource extends Resource
@@ -91,6 +92,28 @@ class VoucherResource extends Resource
                             ->searchable()
                             ->preload()
                             ->placeholder('Tất cả khu vực'),
+
+                        Forms\Components\Select::make('audience')
+                            ->label('Áp dụng cho')
+                            ->options([
+                                'all'      => 'Tất cả (Khách hàng & Shop)',
+                                'customer' => 'Chỉ ứng dụng Khách hàng',
+                                'shop'     => 'Chỉ ứng dụng Shop',
+                            ])
+                            ->default('all')
+                            ->required()
+                            ->live(),
+
+                        Forms\Components\Select::make('user_id')
+                            ->label('Shop áp dụng riêng')
+                            ->relationship('user', 'name', fn ($query) => $query->where('user_type', 'shop'))
+                            ->getOptionLabelFromRecordUsing(fn (User $record) => "{$record->name} ({$record->phone})")
+                            ->searchable(['name', 'phone'])
+                            ->preload()
+                            ->placeholder('Tất cả shop')
+                            ->visible(fn (Get $get) => $get('audience') === 'shop')
+                            ->helperText('Để trống = áp dụng cho mọi shop')
+                            ->columnSpanFull(),
 
                         Forms\Components\CheckboxList::make('service_types')
                             ->label('Dịch vụ áp dụng')
@@ -184,6 +207,24 @@ class VoucherResource extends Resource
                     ->label('Khu vực')
                     ->placeholder('Tất cả'),
 
+                Tables\Columns\TextColumn::make('audience')
+                    ->label('Áp dụng cho')
+                    ->badge()
+                    ->formatStateUsing(fn ($state) => match ($state) {
+                        'customer' => 'Khách hàng',
+                        'shop'     => 'Shop',
+                        default    => 'Tất cả',
+                    })
+                    ->color(fn ($state) => match ($state) {
+                        'customer' => 'info',
+                        'shop'     => 'warning',
+                        default    => 'gray',
+                    }),
+
+                Tables\Columns\TextColumn::make('user.name')
+                    ->label('Shop riêng')
+                    ->placeholder('Tất cả shop'),
+
                 Tables\Columns\TextColumn::make('expires_at')
                     ->label('Hết hạn')
                     ->dateTime('d/m/Y H:i')
@@ -206,6 +247,14 @@ class VoucherResource extends Resource
                         'percent'  => 'Phần trăm',
                         'fixed'    => 'Cố định',
                         'freeship' => 'Freeship',
+                    ]),
+
+                SelectFilter::make('audience')
+                    ->label('Áp dụng cho')
+                    ->options([
+                        'all'      => 'Tất cả',
+                        'customer' => 'Khách hàng',
+                        'shop'     => 'Shop',
                     ]),
             ])
             ->actions([
