@@ -7,6 +7,7 @@ use Illuminate\Console\Scheduling\Schedule;
 use Modules\Driver\Console\Commands\DecayDriverScoresCommand;
 use Modules\Driver\Console\Commands\GenerateWeeklyFeesCommand;
 use Modules\Driver\Console\Commands\MarkOverdueDebtsCommand;
+use Modules\Driver\Console\Commands\WeeklyScoreCommand;
 
 class DriverServiceProvider extends ModuleServiceProvider
 {
@@ -17,6 +18,7 @@ class DriverServiceProvider extends ModuleServiceProvider
         DecayDriverScoresCommand::class,
         GenerateWeeklyFeesCommand::class,
         MarkOverdueDebtsCommand::class,
+        WeeklyScoreCommand::class,
     ];
 
     protected array $providers = [
@@ -26,11 +28,13 @@ class DriverServiceProvider extends ModuleServiceProvider
 
     protected function configureSchedules(Schedule $schedule): void
     {
+        // Chủ nhật 23:50 — chốt điểm tuần (thưởng/phạt 50k) trước khi reset
+        $schedule->command('drivers:weekly-score')->weeklyOn(0, '23:50');
         // Chủ nhật 13:00 — khóa tài xế chưa đóng phí tuần
         $schedule->command('driver:mark-overdue-debts')->weeklyOn(0, '13:00');
-        // Thứ Hai 08:00 — tạo phí tuần mới cho tất cả tài xế
-        $schedule->command('driver:generate-weekly-fees')->weeklyOn(1, '08:00');
-        // Hàng ngày 03:00 — decay điểm tài xế không hoạt động
+        // Thứ Hai 00:00 — tạo phí tuần mới (chạy sau khi reset điểm)
+        $schedule->command('driver:generate-weekly-fees')->weeklyOn(1, '00:05');
+        // Hàng ngày 03:00 — kiểm tra không hoạt động + online < 8h
         $schedule->command('drivers:decay-scores')->dailyAt('03:00');
     }
 }

@@ -1,21 +1,38 @@
 <?php
 namespace Modules\Driver\Services;
 
+use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Modules\Core\Services\RTDBService;
 
 class DriverScoreService
 {
-    const DEFAULT_SCORE       = 80;
-    const SCORE_DECLINE       = -3;
-    const SCORE_TIMEOUT       = -1;
-    const SCORE_STREAK_BONUS  = +1;
-    const STREAK_THRESHOLD    = 2;   // 2 đơn liên tiếp để được cộng điểm
-    const MIN_SCORE           = 0;
-    const MAX_SCORE           = 100;
-    const SUSPEND_THRESHOLD   = 20;  // điểm <= này thì bị khóa nhận đơn tạm thời
-    const SUSPEND_HOURS       = 2;   // khóa 2 giờ
+    const DEFAULT_SCORE      = 100;
+    const MIN_SCORE          = 0;
+    const MAX_SCORE          = 150;
+
+    const SCORE_DECLINE      = -2;
+
+    // Streak milestones: [consecutive_count => bonus_points]
+    const STREAK_MILESTONES  = [3 => 1, 6 => 2, 10 => 4];
+
+    // Rating deltas
+    const RATING_DELTAS      = [5 => 1, 4 => 0, 3 => -1, 2 => -3, 1 => -5];
+
+    // Giới hạn +10 điểm thưởng/ngày
+    const DAILY_BONUS_CAP    = 10;
+
+    // Ngưỡng chốt cuối tuần
+    const WEEKLY_BONUS_SCORE   = 150;   // >= 150 → thưởng 50k
+    const WEEKLY_PENALTY_SCORE = 70;    // <= 70  → phạt 50k
+    const WEEKLY_BONUS_AMOUNT  = 50000;
+    const WEEKLY_PENALTY_AMOUNT= 50000;
+
+    // Online tối thiểu/ngày (giây)
+    const MIN_ONLINE_SECONDS = 8 * 3600; // 8 giờ
+
+    // ─── Triggers ────────────────────────────────────────────────────────────────
 
     public static function onDecline(int $driverId): void
     {
@@ -23,55 +40,78 @@ class DriverScoreService
         self::resetStreak($driverId);
     }
 
-    public static function onTimeout(int $driverId): void
-    {
-        self::adjust($driverId, self::SCORE_TIMEOUT, 'timeout');
-        self::resetStreak($driverId);
-    }
-
     public static function onComplete(int $driverId): void
     {
         $driver = DB::table('users')->where('id', $driverId)
-            ->select('driver_score', 'consecutive_completed')
+            ->select('consecutive_completed')
             ->first();
 
         if (!$driver) return;
 
         $streak = ($driver->consecutive_completed ?? 0) + 1;
 
-        if ($streak >= self::STREAK_THRESHOLD) {
-            self::adjust($driverId, self::SCORE_STREAK_BONUS, 'streak_bonus');
-            $streak = 0;
+        // Tặng điểm đúng tại mốc milestone
+        foreach (self::STREAK_MILESTONES as $milestone => $bonus) {
+            if ($streak === $milestone) {
+                self::adjust($driverId, $bonus, "streak_{$milestone}");
+                break;
+            }
         }
 
         DB::table('users')->where('id', $driverId)
             ->update(['consecutive_completed' => $streak]);
     }
 
-    /**
-     * Decay điểm cho tài xế không hoạt động.
-     * Gọi từ command DecayDriverScores.
-     */
+    public static function onRated(int $driverId, int $stars): void
+    {
+        $delta = self::RATING_DELTAS[$stars] ?? 0;
+        if ($delta !== 0) {
+            self::adjust($driverId, $delta, "rated_{$stars}_stars");
+        }
+    }
+
     public static function onDecay(int $driverId, int $delta, string $reason): void
     {
         self::adjust($driverId, $delta, $reason);
     }
 
+    // ─── Adjust (core) ───────────────────────────────────────────────────────────
+
     private static function adjust(int $driverId, int $delta, string $reason): void
     {
-        $current  = DB::table('users')->where('id', $driverId)->value('driver_score') ?? self::DEFAULT_SCORE;
-        $newScore = max(self::MIN_SCORE, min(self::MAX_SCORE, $current + $delta));
+        $driver = DB::table('users')->where('id', $driverId)
+            ->select('driver_score', 'daily_bonus_points', 'daily_bonus_date')
+            ->first();
 
-        $updates = ['driver_score' => $newScore];
+        if (!$driver) return;
 
-        // Khóa nhận đơn nếu điểm rớt xuống dưới ngưỡng
-        if ($newScore <= self::SUSPEND_THRESHOLD && $current > self::SUSPEND_THRESHOLD) {
-            $suspendUntil = now()->addHours(self::SUSPEND_HOURS);
-            $updates['score_suspended_until'] = $suspendUntil;
-            Log::warning("[DriverScore] Driver #{$driverId} bị khóa nhận đơn đến {$suspendUntil} do điểm rớt xuống {$newScore}");
+        $current = $driver->driver_score ?? self::DEFAULT_SCORE;
+
+        // Áp dụng giới hạn +10 điểm thưởng/ngày
+        if ($delta > 0) {
+            $today = now()->toDateString();
+            $todayBonus = ($driver->daily_bonus_date === $today)
+                ? ($driver->daily_bonus_points ?? 0)
+                : 0;
+
+            $allowed = max(0, self::DAILY_BONUS_CAP - $todayBonus);
+            $delta   = min($delta, $allowed);
+
+            if ($delta === 0) {
+                Log::info("[DriverScore] Driver #{$driverId} {$reason}: đã đạt giới hạn +10đ/ngày, bỏ qua.");
+                return;
+            }
+
+            DB::table('users')->where('id', $driverId)->update([
+                'daily_bonus_points' => $todayBonus + $delta,
+                'daily_bonus_date'   => $today,
+            ]);
         }
 
-        DB::table('users')->where('id', $driverId)->update($updates);
+        $newScore = max(self::MIN_SCORE, min(self::MAX_SCORE, $current + $delta));
+
+        DB::table('users')->where('id', $driverId)->update(['driver_score' => $newScore]);
+
         DB::table('driver_score_logs')->insert([
             'driver_id'    => $driverId,
             'delta'        => $delta,
@@ -83,24 +123,14 @@ class DriverScoreService
 
         Log::info("[DriverScore] Driver #{$driverId} {$reason}: {$current} → {$newScore} (Δ{$delta})");
 
-        // Ping RTDB để driver app tự refresh điểm
         RTDBService::pingDriverScore($driverId);
     }
 
-    public static function onRated(int $driverId, int $stars): void
-    {
-        $delta = match ($stars) {
-            5 => +1,
-            4 =>  0,
-            3 =>  0,
-            2 => -2,
-            1 => -5,
-            default => 0,
-        };
+    // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-        if ($delta !== 0) {
-            self::adjust($driverId, $delta, "rated_{$stars}_stars");
-        }
+    private static function resetStreak(int $driverId): void
+    {
+        DB::table('users')->where('id', $driverId)->update(['consecutive_completed' => 0]);
     }
 
     public static function resetToDefault(int $driverId): void
@@ -109,23 +139,49 @@ class DriverScoreService
         DB::table('users')->where('id', $driverId)->update([
             'driver_score'           => self::DEFAULT_SCORE,
             'score_suspended_until'  => null,
+            'consecutive_completed'  => 0,
+            'daily_bonus_points'     => 0,
+            'daily_bonus_date'       => null,
         ]);
-        Log::info("[DriverScore] Driver #{$driverId} score reset: {$current} → " . self::DEFAULT_SCORE);
+        Log::info("[DriverScore] Driver #{$driverId} reset: {$current} → " . self::DEFAULT_SCORE);
     }
 
-    private static function resetStreak(int $driverId): void
+    // ─── Weekly online time accumulation ────────────────────────────────────────
+
+    /**
+     * Gọi khi tài xế offline — cộng dồn thời gian online vào ngày hôm nay.
+     */
+    public static function accumulateOnlineTime(int $driverId, Carbon $onlineSince): void
     {
-        DB::table('users')->where('id', $driverId)->update(['consecutive_completed' => 0]);
+        $seconds = (int) $onlineSince->diffInSeconds(now());
+        $today   = now()->toDateString();
+
+        $driver = DB::table('users')->where('id', $driverId)
+            ->select('daily_online_seconds', 'daily_online_date')
+            ->first();
+
+        if (!$driver) return;
+
+        $accumulated = ($driver->daily_online_date === $today)
+            ? ($driver->daily_online_seconds ?? 0)
+            : 0;
+
+        DB::table('users')->where('id', $driverId)->update([
+            'daily_online_seconds' => $accumulated + $seconds,
+            'daily_online_date'    => $today,
+        ]);
     }
+
+    // ─── Labels & tips ───────────────────────────────────────────────────────────
 
     public static function label(int $score): string
     {
         return match (true) {
-            $score >= 80 => 'Xuất sắc',
-            $score >= 60 => 'Tốt',
-            $score >= 40 => 'Trung bình',
-            $score >= 20 => 'Cần cải thiện',
-            default      => 'Kém',
+            $score >= 130 => 'Xuất sắc',
+            $score >= 110 => 'Tốt',
+            $score >= 90  => 'Khá',
+            $score >= 70  => 'Trung bình',
+            default       => 'Cần cải thiện',
         };
     }
 
@@ -133,17 +189,22 @@ class DriverScoreService
     {
         $tips = [];
 
-        if ($streak > 0) {
-            $left   = self::STREAK_THRESHOLD - $streak;
-            $tips[] = "Hoàn thành thêm {$left} đơn liên tiếp để nhận +" . self::SCORE_STREAK_BONUS . " điểm";
-        } else {
-            $tips[] = "Hoàn thành " . self::STREAK_THRESHOLD . " đơn liên tiếp để nhận +" . self::SCORE_STREAK_BONUS . " điểm";
+        // Gợi ý streak
+        foreach (self::STREAK_MILESTONES as $milestone => $bonus) {
+            if ($streak < $milestone) {
+                $left   = $milestone - $streak;
+                $tips[] = "Hoàn thành thêm {$left} đơn liên tiếp để nhận +{$bonus} điểm (mốc {$milestone} đơn)";
+                break;
+            }
         }
 
-        if ($score <= self::SUSPEND_THRESHOLD) {
-            $tips[] = "Điểm quá thấp — bạn đang bị tạm khóa nhận đơn " . self::SUSPEND_HOURS . " giờ";
-        } elseif ($score < 60) {
-            $tips[] = "Chấp nhận đơn nhanh để tránh mất điểm timeout (-" . abs(self::SCORE_TIMEOUT) . " điểm)";
+        if ($score >= self::WEEKLY_BONUS_SCORE) {
+            $tips[] = 'Bạn đã đạt 150 điểm — tiếp tục duy trì để nhận thưởng 50.000₫ cuối tuần!';
+        } elseif ($score <= self::WEEKLY_PENALTY_SCORE) {
+            $tips[] = 'Điểm dưới 70 — cố gắng cải thiện để tránh bị phạt 50.000₫ cuối tuần.';
+        } else {
+            $needed = self::WEEKLY_BONUS_SCORE - $score;
+            $tips[] = "Cần thêm {$needed} điểm để đạt thưởng 50.000₫ cuối tuần.";
         }
 
         return $tips;
