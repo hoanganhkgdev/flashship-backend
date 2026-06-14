@@ -14,6 +14,8 @@ use Modules\Core\Services\RTDBService;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Modules\Core\Models\Voucher;
+use Modules\Core\Models\VoucherUsage;
 
 class DispatchService
 {
@@ -160,6 +162,13 @@ class DispatchService
             ->update(['status' => 'cancelled', 'cancel_reason' => 'no_driver', 'updated_at' => now()]);
 
         if (!$cancelled) return;
+
+        // Hoàn lại lượt dùng voucher khi không tìm được tài xế
+        if ($order->voucher_code) {
+            Voucher::where('code', $order->voucher_code)->decrement('used_count');
+            VoucherUsage::where('order_id', $order->id)->delete();
+            Log::info("║  Hoàn voucher: {$order->voucher_code}");
+        }
 
         $customer = User::find($order->sender_platform_id);
         if ($customer?->fcm_token) {

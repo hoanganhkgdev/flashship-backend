@@ -251,6 +251,7 @@ class OrderController extends Controller
             'cargo_type'         => 'nullable|in:food,flowers,parcel',
             'cargo_weight'       => 'nullable|numeric|min:0',
             'order_note'         => 'nullable|string',
+            'voucher_code'       => 'nullable|string',
             'stops'              => 'required|array|min:1|max:10',
             'stops.*.address'    => 'required|string',
             'stops.*.lat'        => 'nullable|numeric',
@@ -309,6 +310,43 @@ class OrderController extends Controller
                 $totalFee += $pricing['fee'];
             }
 
+            // Apply voucher trên tổng phí
+            $voucherCode    = null;
+            $discountAmount = 0;
+            $isFreeship     = false;
+            $shippingFee    = $totalFee;
+
+            if (!empty($data['voucher_code'])) {
+                $voucher = Voucher::where('code', strtoupper($data['voucher_code']))->first();
+                if ($voucher && $voucher->is_active
+                    && in_array($voucher->audience, ['all', 'shop'])
+                    && (!$voucher->user_id || $voucher->user_id == $user->id)
+                    && (!$voucher->expires_at || $voucher->expires_at->isFuture())
+                    && (!$voucher->usage_limit || $voucher->used_count < $voucher->usage_limit)
+                    && (!$voucher->per_user_limit || $voucher->usageCountByUser($user->id) < $voucher->per_user_limit)
+                    && (!$voucher->service_types || in_array('delivery', $voucher->service_types))
+                    && (!$voucher->city_id || $voucher->city_id == $user->city_id)
+                    && (!$voucher->min_order_value || $shippingFee >= $voucher->min_order_value)
+                ) {
+                    if ($voucher->type === 'freeship') {
+                        $discountAmount = $shippingFee;
+                        $isFreeship     = true;
+                    } elseif ($voucher->type === 'percent') {
+                        $discountAmount = (int) round($shippingFee * $voucher->value / 100);
+                    } else {
+                        $discountAmount = (int) $voucher->value;
+                    }
+                    if ($voucher->max_discount) {
+                        $discountAmount = min($discountAmount, $voucher->max_discount);
+                    }
+                    $discountAmount = min($discountAmount, $shippingFee);
+                    $shippingFee    = $shippingFee - $discountAmount;
+                    $voucherCode    = $voucher->code;
+                    $voucher->increment('used_count');
+                    $appliedVoucher = $voucher;
+                }
+            }
+
             $firstStop = $stops[0];
 
             $order = Order::create([
@@ -336,15 +374,26 @@ class OrderController extends Controller
                 'payment_method'   => 'cod',
                 'cod_amount'       => array_sum(array_column($stops, 'cod_amount')),
                 'city_id'          => $user->city_id,
-                'shipping_fee'     => $totalFee,
+                'shipping_fee'     => $shippingFee,
                 'night_surcharge'  => 0,
                 'distance'         => $stops[0]['distance_km'],
+                'voucher_code'     => $voucherCode,
+                'discount_amount'  => $discountAmount,
                 'bonus_fee'        => 0,
-                'is_freeship'      => false,
+                'is_freeship'      => $isFreeship,
                 'status'           => 'pending',
                 'platform'         => 'shop_app',
                 'sender_platform_id' => $user->id,
             ]);
+
+            if (isset($appliedVoucher)) {
+                VoucherUsage::create([
+                    'voucher_id' => $appliedVoucher->id,
+                    'user_id'    => $user->id,
+                    'order_id'   => $order->id,
+                    'used_at'    => now(),
+                ]);
+            }
 
             $orderId = $order->id;
             dispatch(function () use ($orderId) {
@@ -428,6 +477,12 @@ class OrderController extends Controller
 
         if ($dispatchingDriverId) {
             RTDBService::clearDriverOffer($dispatchingDriverId);
+        }
+
+        // Hoàn lại lượt dùng voucher khi shop chủ động hủy đơn
+        if ($order->voucher_code) {
+            Voucher::where('code', $order->voucher_code)->decrement('used_count');
+            VoucherUsage::where('order_id', $order->id)->delete();
         }
 
         return response()->json(['success' => true, 'message' => 'Đã hủy đơn hàng']);
