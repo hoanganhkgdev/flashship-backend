@@ -40,6 +40,12 @@ class DriverScoreService
         self::resetStreak($driverId);
     }
 
+    // Tài xế thấy offer nhưng không phản hồi trong 20s → trừ nhẹ, không reset streak
+    public static function onTimeout(int $driverId): void
+    {
+        self::adjust($driverId, -1, 'timeout');
+    }
+
     public static function onComplete(int $driverId): void
     {
         $driver = DB::table('users')->where('id', $driverId)

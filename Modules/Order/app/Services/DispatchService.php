@@ -231,7 +231,7 @@ class DispatchService
             ->avg('driver_rating') ?? 0;
 
         $distScore   = round((1 - min($dist, self::RADIUS_STAGES[count(self::RADIUS_STAGES) - 1]['km']) / self::RADIUS_STAGES[count(self::RADIUS_STAGES) - 1]['km']) * self::W_DISTANCE, 1);
-        $scoreScore  = round((($driver->driver_score ?? 80) / 100) * self::W_SCORE, 1);
+        $scoreScore  = round((($driver->driver_score ?? DriverScoreService::DEFAULT_SCORE) / DriverScoreService::MAX_SCORE) * self::W_SCORE, 1);
         $ratingScore = round(($ratings / 5) * self::W_RATING, 1);
         $waitScore   = round($this->waitTimeScore($driver), 1);
         $total       = round($distScore + $scoreScore + $ratingScore + $waitScore, 1);
@@ -440,7 +440,7 @@ class DispatchService
         $dist        = $this->distanceKm($driver, $order);
         $maxRadius   = self::RADIUS_STAGES[count(self::RADIUS_STAGES) - 1]['km'];
         $distScore   = (1 - min($dist, $maxRadius) / $maxRadius) * self::W_DISTANCE;
-        $scoreScore  = (($driver->driver_score ?? 80) / 100) * self::W_SCORE;
+        $scoreScore  = (($driver->driver_score ?? DriverScoreService::DEFAULT_SCORE) / DriverScoreService::MAX_SCORE) * self::W_SCORE;
         $ratingScore = ($avgRating / 5) * self::W_RATING;
         $waitScore   = $this->waitTimeScore($driver);
 
