@@ -133,6 +133,11 @@ class User extends Authenticatable implements FilamentUser
         return $this->hasMany(\Modules\Driver\Models\DriverScoreLog::class, 'driver_id')->latest('created_at');
     }
 
+    public function scoreSettlements()
+    {
+        return $this->hasMany(\Modules\Driver\Models\DriverScoreSettlement::class, 'driver_id')->latest('week_start');
+    }
+
     // =========================================================================
     // SCOPES
     // =========================================================================

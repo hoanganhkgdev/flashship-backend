@@ -23,7 +23,7 @@ class ScoreLogsRelationManager extends RelationManager
                     ->alignCenter()
                     ->formatStateUsing(fn ($state) => ($state > 0 ? '+' : '') . $state)
                     ->weight('bold')
-                    ->color(fn ($state) => $state > 0 ? 'success' : 'danger'),
+                    ->color(fn ($state) => $state > 0 ? 'success' : ($state < 0 ? 'danger' : 'gray')),
 
                 Tables\Columns\TextColumn::make('score_before')
                     ->label('Trước')
@@ -36,15 +36,9 @@ class ScoreLogsRelationManager extends RelationManager
 
                 Tables\Columns\TextColumn::make('reason')
                     ->label('Lý do')
+                    ->formatStateUsing(fn ($state) => self::reasonLabel($state))
                     ->badge()
-                    ->color(fn ($state) => match (true) {
-                        str_contains($state, 'decline') => 'danger',
-                        str_contains($state, 'timeout') => 'warning',
-                        str_contains($state, 'bonus')   => 'success',
-                        str_contains($state, 'rated')   => 'info',
-                        str_contains($state, 'reset')   => 'gray',
-                        default                         => 'gray',
-                    }),
+                    ->color(fn ($state) => self::reasonColor($state)),
 
                 Tables\Columns\TextColumn::make('created_at')
                     ->label('Thời gian')
@@ -56,4 +50,41 @@ class ScoreLogsRelationManager extends RelationManager
     }
 
     public function canCreate(): bool { return false; }
+
+    private static function reasonLabel(string $reason): string
+    {
+        return match (true) {
+            $reason === 'decline'         => 'Từ chối đơn',
+            $reason === 'timeout'         => 'Hết giờ nhận đơn',
+            $reason === 'streak_3'        => 'Streak 3 đơn liên tiếp',
+            $reason === 'streak_6'        => 'Streak 6 đơn liên tiếp',
+            $reason === 'streak_10'       => 'Streak 10 đơn liên tiếp',
+            $reason === 'inactivity_1d'   => 'Không HĐ 1 ngày',
+            $reason === 'inactivity_2d'   => 'Không HĐ 2+ ngày',
+            $reason === 'online_below_8h' => 'Online dưới 8h',
+            $reason === 'weekly_reset'    => 'Reset đầu tuần',
+            str_starts_with($reason, 'rated_') => (function () use ($reason) {
+                $stars = str_replace(['rated_', '_stars'], '', $reason);
+                return "Đánh giá {$stars}★";
+            })(),
+            default => $reason,
+        };
+    }
+
+    private static function reasonColor(string $reason): string
+    {
+        return match (true) {
+            $reason === 'decline'                          => 'danger',
+            $reason === 'timeout'                          => 'warning',
+            str_starts_with($reason, 'streak_')           => 'success',
+            str_starts_with($reason, 'inactivity_')       => 'danger',
+            $reason === 'online_below_8h'                 => 'warning',
+            $reason === 'weekly_reset'                    => 'gray',
+            $reason === 'rated_5_stars'                   => 'success',
+            $reason === 'rated_4_stars'                   => 'gray',
+            $reason === 'rated_3_stars'                   => 'gray',
+            str_starts_with($reason, 'rated_')            => 'danger',
+            default                                       => 'gray',
+        };
+    }
 }
