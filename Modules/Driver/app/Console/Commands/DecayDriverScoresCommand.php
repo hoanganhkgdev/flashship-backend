@@ -58,7 +58,7 @@ class DecayDriverScoresCommand extends Command
             // ── 1. Kiểm tra không hoạt động ──────────────────────────────
             $lastAt    = $lastCompleted[$driver->id] ?? null;
             $daysSince = $lastAt
-                ? now()->diffInDays(Carbon::parse($lastAt))
+                ? (int) Carbon::parse($lastAt)->diffInDays(now())
                 : PHP_INT_MAX;
 
             if ($daysSince >= self::DAYS_SEVERE) {
