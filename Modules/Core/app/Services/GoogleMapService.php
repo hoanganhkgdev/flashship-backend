@@ -26,30 +26,21 @@ class GoogleMapService
                 $res = Http::timeout(5)->get(
                     config('services.google_maps.directions_url'),
                     [
-                        'origin'       => "{$fromLat},{$fromLng}",
-                        'destination'  => "{$toLat},{$toLng}",
-                        'mode'         => 'driving',
-                        'alternatives' => 'true',
-                        'key'          => config('services.google_maps.api_key'),
+                        'origin'      => "{$fromLat},{$fromLng}",
+                        'destination' => "{$toLat},{$toLng}",
+                        'mode'        => 'driving',
+                        'key'         => config('services.google_maps.api_key'),
                     ]
                 );
 
                 if ($res->successful() && $res->json('status') === 'OK') {
-                    $routes = $res->json('routes') ?? [];
-                    $shortestMeters = null;
+                    // routes[0] là tuyến Google đề xuất (nhanh nhất, thực tế nhất)
+                    // — đây là tuyến tài xế thực sự đi theo GPS, không lấy alternatives
+                    $legs   = $res->json('routes.0.legs') ?? [];
+                    $meters = array_sum(array_map(fn ($leg) => $leg['distance']['value'] ?? 0, $legs));
 
-                    foreach ($routes as $route) {
-                        $meters = array_sum(array_map(
-                            fn ($leg) => $leg['distance']['value'] ?? 0,
-                            $route['legs'] ?? []
-                        ));
-                        if ($meters > 0 && ($shortestMeters === null || $meters < $shortestMeters)) {
-                            $shortestMeters = $meters;
-                        }
-                    }
-
-                    if ($shortestMeters !== null) {
-                        return (float) $shortestMeters / 1000;
+                    if ($meters > 0) {
+                        return (float) $meters / 1000;
                     }
                 }
 
