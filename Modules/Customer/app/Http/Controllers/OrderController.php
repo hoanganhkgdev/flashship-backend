@@ -10,6 +10,7 @@ use Modules\Core\Models\Voucher;
 use Modules\Core\Models\VoucherUsage;
 use Modules\Driver\Services\DriverScoreService;
 use Modules\Core\Services\RTDBService;
+use Modules\Customer\Models\CustomerAddress;
 use Modules\Order\Services\OrderService;
 use Modules\Pricing\Services\PricingService;
 
@@ -51,7 +52,8 @@ class OrderController extends Controller
             'scheduled_at'     => 'nullable|date',
             'topup_amount'     => 'nullable|integer|min:1000',
             'stop_count'       => 'nullable|integer|min:1|max:5',
-            'voucher_code'     => 'nullable|string|max:32',
+            'voucher_code'        => 'nullable|string|max:32',
+            'pickup_place_name'   => 'nullable|string|max:100',
         ]);
 
         $user = $request->user();
@@ -135,9 +137,10 @@ class OrderController extends Controller
                 'code'             => '',
                 'sender_name'      => $data['pickup_name'] ?? $data['store_name'] ?? '',
                 'pickup_phone'     => $data['pickup_phone'] ?? '',
-                'pickup_address'   => $data['pickup_address'],
-                'pickup_lat'       => $data['pickup_lat'] ?? null,
-                'pickup_lng'       => $data['pickup_lng'] ?? null,
+                'pickup_address'    => $data['pickup_address'],
+                'pickup_place_name' => $data['pickup_place_name'] ?? null,
+                'pickup_lat'        => $data['pickup_lat'] ?? null,
+                'pickup_lng'        => $data['pickup_lng'] ?? null,
                 'receiver_name'    => $data['delivery_name'] ?? '',
                 'delivery_phone'   => $data['delivery_phone'],
                 'delivery_address' => $data['delivery_address'],
@@ -171,6 +174,23 @@ class OrderController extends Controller
                     'order_id'   => $order->id,
                     'used_at'    => now(),
                 ]);
+            }
+
+            // Auto-save địa chỉ có tên cửa hàng vào danh sách địa chỉ đã lưu
+            if (!empty($data['pickup_place_name']) && !empty($data['pickup_address'])) {
+                $exists = CustomerAddress::where('user_id', $user->id)
+                    ->where('address', $data['pickup_address'])
+                    ->exists();
+                if (!$exists) {
+                    CustomerAddress::create([
+                        'user_id'    => $user->id,
+                        'place_name' => $data['pickup_place_name'],
+                        'address'    => $data['pickup_address'],
+                        'latitude'   => $data['pickup_lat'] ?? null,
+                        'longitude'  => $data['pickup_lng'] ?? null,
+                        'is_default' => false,
+                    ]);
+                }
             }
 
             // Trigger dispatch after response
@@ -262,8 +282,9 @@ class OrderController extends Controller
             'status'           => $order->status,
             'cancel_reason'    => $order->cancel_reason,
             'service_type'     => $order->service_type,
-            'pickup_address'   => $order->pickup_address,
-            'pickup_lat'       => $order->pickup_lat    ? (float) $order->pickup_lat    : null,
+            'pickup_address'    => $order->pickup_address,
+            'pickup_place_name' => $order->pickup_place_name,
+            'pickup_lat'        => $order->pickup_lat    ? (float) $order->pickup_lat    : null,
             'pickup_lng'       => $order->pickup_lng    ? (float) $order->pickup_lng    : null,
             'pickup_phone'     => $order->pickup_phone,
             'sender_name'      => $order->sender_name,

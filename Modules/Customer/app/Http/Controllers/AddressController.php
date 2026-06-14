@@ -22,6 +22,7 @@ class AddressController extends Controller
     {
         $data = $request->validate([
             'label'      => 'nullable|string|max:50',
+            'place_name' => 'nullable|string|max:100',
             'address'    => 'required|string',
             'latitude'   => 'nullable|numeric',
             'longitude'  => 'nullable|numeric',
@@ -47,6 +48,7 @@ class AddressController extends Controller
 
         $data = $request->validate([
             'label'      => 'nullable|string|max:50',
+            'place_name' => 'nullable|string|max:100',
             'address'    => 'required|string',
             'latitude'   => 'nullable|numeric',
             'longitude'  => 'nullable|numeric',
