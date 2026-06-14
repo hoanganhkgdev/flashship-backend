@@ -19,9 +19,9 @@ class DispatchService
 {
     // Bán kính tìm tài xế theo thời gian đã chờ (progressive radius)
     const RADIUS_STAGES = [
-        ['after_secs' => 0,   'km' => 2],
-        ['after_secs' => 120, 'km' => 3],   // sau 2 phút → mở rộng 3km
-        ['after_secs' => 300, 'km' => 4],   // sau 5 phút → mở rộng 4km
+        ['after_secs' => 0,   'km' => 1],
+        ['after_secs' => 120, 'km' => 2],   // sau 2 phút → mở rộng 2km
+        ['after_secs' => 300, 'km' => 3],   // sau 5 phút → mở rộng 3km
     ];
 
     const DRIVER_OFFER_SECS  = 20;   // 20 giây mỗi tài xế
@@ -30,13 +30,14 @@ class DispatchService
     const FCM_TTL_SECS       = 20;
     const MAX_DRIVERS        = 50;
 
-    // Trọng số composite score
-    const W_DISTANCE  = 40;
-    const W_SCORE     = 35;
-    const W_RATING    = 15;
-    const W_WAIT_TIME = 10;
+    // Trọng số xếp hạng trong cùng bán kính
+    // Bán kính là bộ lọc cứng — trong cùng bán kính ưu tiên hành vi tốt
+    const W_SCORE         = 70;  // điểm tài xế
+    const W_RATING_CNT    = 20;  // số lần được đánh giá (kinh nghiệm)
+    const W_WAIT_TIME     = 10;  // chờ lâu chưa có đơn
 
-    const WAIT_TIME_CAP_MINS = 60; // tối đa 60 phút wait time bonus
+    const WAIT_TIME_CAP_MINS = 60;  // tối đa 60 phút wait bonus
+    const RATING_COUNT_CAP   = 200; // chuẩn hóa số đánh giá tối đa 200
 
     // Tài xế đang có đơn active chỉ được gợi ý đơn mới nếu không phải đi vòng quá xa
     const MAX_DETOUR_KM = 2.0;
@@ -225,24 +226,23 @@ class DispatchService
         $now  = now();
         $dist = round($this->distanceKm($driver, $order), 2);
 
-        $ratings = Order::where('delivery_man_id', $driver->id)
+        $ratingCount = Order::where('delivery_man_id', $driver->id)
             ->whereNotNull('driver_rating')
             ->where('status', 'completed')
-            ->avg('driver_rating') ?? 0;
+            ->count();
 
-        $distScore   = round((1 - min($dist, self::RADIUS_STAGES[count(self::RADIUS_STAGES) - 1]['km']) / self::RADIUS_STAGES[count(self::RADIUS_STAGES) - 1]['km']) * self::W_DISTANCE, 1);
-        $scoreScore  = round((($driver->driver_score ?? DriverScoreService::DEFAULT_SCORE) / DriverScoreService::MAX_SCORE) * self::W_SCORE, 1);
-        $ratingScore = round(($ratings / 5) * self::W_RATING, 1);
-        $waitScore   = round($this->waitTimeScore($driver), 1);
-        $total       = round($distScore + $scoreScore + $ratingScore + $waitScore, 1);
+        $scoreScore    = round(($driver->driver_score ?? DriverScoreService::DEFAULT_SCORE) / DriverScoreService::MAX_SCORE * self::W_SCORE, 1);
+        $ratingCntScore = round(min($ratingCount, self::RATING_COUNT_CAP) / self::RATING_COUNT_CAP * self::W_RATING_CNT, 1);
+        $waitScore     = round($this->waitTimeScore($driver), 1);
+        $total         = round($scoreScore + $ratingCntScore + $waitScore, 1);
 
         Log::info("│");
         Log::info("└→ [Dispatch] GỬI ĐƠN #{$order->id}");
-        Log::info("     Tài xế   : #{$driver->id} {$driver->name} | SĐT: {$driver->phone}");
+        Log::info("     Tài xế     : #{$driver->id} {$driver->name} | SĐT: {$driver->phone}");
         Log::info("     Khoảng cách: {$dist} km");
-        Log::info("     Điểm tổng : {$total} = dist({$distScore}) + score({$scoreScore}) + rating({$ratingScore}) + wait({$waitScore})");
-        Log::info("     driver_score: " . ($driver->driver_score ?? 80) . " | avg_rating: " . round($ratings, 2));
-        Log::info("     FCM token : " . ($driver->fcm_token ? 'có' : 'KHÔNG CÓ'));
+        Log::info("     Điểm tổng  : {$total} = score({$scoreScore}) + so_dg({$ratingCntScore}) + wait({$waitScore})");
+        Log::info("     driver_score: " . ($driver->driver_score ?? DriverScoreService::DEFAULT_SCORE) . " | so_danh_gia: {$ratingCount}");
+        Log::info("     FCM token  : " . ($driver->fcm_token ? 'có' : 'KHÔNG CÓ'));
 
         OrderDispatchLog::create([
             'order_id'   => $order->id,
@@ -407,25 +407,26 @@ class DispatchService
 
         $driverIds = $afterRadius->pluck('id')->toArray();
 
-        $ratings = Order::whereIn('delivery_man_id', $driverIds)
+        $ratingStats = Order::whereIn('delivery_man_id', $driverIds)
             ->whereNotNull('driver_rating')
             ->where('status', 'completed')
-            ->select('delivery_man_id', DB::raw('AVG(driver_rating) as avg_rating'))
+            ->select('delivery_man_id', DB::raw('COUNT(*) as rating_count'))
             ->groupBy('delivery_man_id')
-            ->pluck('avg_rating', 'delivery_man_id');
+            ->pluck('rating_count', 'delivery_man_id');
 
         $sorted = $afterRadius
-            ->sortByDesc(fn(User $d) => $this->compositeScore($d, $order, (float) ($ratings[$d->id] ?? 0)))
+            ->sortByDesc(fn(User $d) => $this->compositeScore($d, (int) ($ratingStats[$d->id] ?? 0)))
             ->take(self::MAX_DRIVERS)
             ->values();
 
         if ($sorted->isNotEmpty()) {
             Log::debug("     [Candidates] Top " . min(5, $sorted->count()) . " tài xế sẽ được hỏi:");
             foreach ($sorted->take(5) as $i => $d) {
-                $dist  = round($this->distanceKm($d, $order), 2);
-                $score = round($this->compositeScore($d, $order, (float) ($ratings[$d->id] ?? 0)), 1);
-                $wait  = round($this->waitTimeScore($d), 1);
-                Log::debug("       " . ($i + 1) . ". #{$d->id} {$d->name} | {$dist}km | điểm={$score} | driver_score=" . ($d->driver_score ?? 80) . " | wait={$wait}");
+                $dist    = round($this->distanceKm($d, $order), 2);
+                $ratingCnt = (int) ($ratingStats[$d->id] ?? 0);
+                $score   = round($this->compositeScore($d, $ratingCnt), 1);
+                $wait    = round($this->waitTimeScore($d), 1);
+                Log::debug("       " . ($i + 1) . ". #{$d->id} {$d->name} | {$dist}km | điểm={$score} | driver_score=" . ($d->driver_score ?? DriverScoreService::DEFAULT_SCORE) . " | so_dg={$ratingCnt} | wait={$wait}");
             }
         }
 
@@ -433,18 +434,16 @@ class DispatchService
     }
 
     /**
-     * Composite score: dist(40) + driver_score(35) + rating(15) + wait_time(10)
+     * Xếp hạng trong cùng bán kính: driver_score(70) + số_đánh_giá(20) + chờ_lâu(10)
+     * Khoảng cách không tham gia công thức — bán kính đã là bộ lọc cứng.
      */
-    private function compositeScore(User $driver, Order $order, float $avgRating): float
+    private function compositeScore(User $driver, int $ratingCount): float
     {
-        $dist        = $this->distanceKm($driver, $order);
-        $maxRadius   = self::RADIUS_STAGES[count(self::RADIUS_STAGES) - 1]['km'];
-        $distScore   = (1 - min($dist, $maxRadius) / $maxRadius) * self::W_DISTANCE;
-        $scoreScore  = (($driver->driver_score ?? DriverScoreService::DEFAULT_SCORE) / DriverScoreService::MAX_SCORE) * self::W_SCORE;
-        $ratingScore = ($avgRating / 5) * self::W_RATING;
-        $waitScore   = $this->waitTimeScore($driver);
+        $scoreScore     = ($driver->driver_score ?? DriverScoreService::DEFAULT_SCORE) / DriverScoreService::MAX_SCORE * self::W_SCORE;
+        $ratingCntScore = min($ratingCount, self::RATING_COUNT_CAP) / self::RATING_COUNT_CAP * self::W_RATING_CNT;
+        $waitScore      = $this->waitTimeScore($driver);
 
-        return $distScore + $scoreScore + $ratingScore + $waitScore;
+        return $scoreScore + $ratingCntScore + $waitScore;
     }
 
     /**
