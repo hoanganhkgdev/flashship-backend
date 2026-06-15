@@ -67,12 +67,6 @@ class SupportConfigResource extends Resource
                         ->nullable()
                         ->placeholder('Tất cả khu vực'),
 
-                    Forms\Components\TextInput::make('priority')
-                        ->label('Thứ tự ưu tiên')
-                        ->numeric()
-                        ->default(0)
-                        ->helperText('Số nhỏ hơn hiện lên trên'),
-
                     Forms\Components\Toggle::make('is_active')
                         ->label('Hiển thị trong app')
                         ->default(true)
@@ -85,11 +79,6 @@ class SupportConfigResource extends Resource
     {
         return $table
             ->columns([
-                Tables\Columns\TextColumn::make('priority')
-                    ->label('#')
-                    ->alignCenter()
-                    ->width(40),
-
                 Tables\Columns\TextColumn::make('type')
                     ->label('Loại')
                     ->alignCenter()
@@ -115,8 +104,6 @@ class SupportConfigResource extends Resource
                     ->label('Hiển thị')
                     ->alignCenter(),
             ])
-            ->defaultSort('priority')
-            ->reorderable('priority')
             ->actions([
                 Tables\Actions\EditAction::make()->label(''),
                 Tables\Actions\DeleteAction::make()->label(''),
