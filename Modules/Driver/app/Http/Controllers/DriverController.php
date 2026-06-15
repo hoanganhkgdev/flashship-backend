@@ -7,6 +7,7 @@ use Illuminate\Validation\Rule;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
+use Modules\Core\Services\DriverGeoService;
 use Modules\Core\Services\OtpService;
 use Modules\Core\Models\City;
 use Modules\Core\Services\RTDBService;
@@ -70,6 +71,10 @@ class DriverController extends Controller
         $user->online_since = $user->is_online ? now() : null;
         $user->save();
 
+        if (!$user->is_online && $user->city_id) {
+            DriverGeoService::removeDriver($user->id, $user->city_id);
+        }
+
         return response()->json([
             'success'      => true,
             'message'      => $user->is_online ? 'Bạn đang online' : 'Bạn đang offline',
@@ -93,7 +98,9 @@ class DriverController extends Controller
             'bearing'   => $data['bearing'] ?? $driver->bearing,
         ]);
 
-
+        if ($driver->city_id) {
+            DriverGeoService::updateLocation($driver->id, $driver->city_id, $data['latitude'], $data['longitude']);
+        }
 
         return response()->json(['success' => true]);
     }

@@ -16,6 +16,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Modules\Core\Models\Voucher;
 use Modules\Core\Models\VoucherUsage;
+use Modules\Core\Services\DriverGeoService;
 
 class DispatchService
 {
@@ -334,8 +335,25 @@ class DispatchService
             return collect();
         }
 
-        $now           = now();
-        // Chỉ loại tài xế đang có 2+ đơn active (tối đa 2 đơn/lần)
+        $now = now();
+
+        // ── 1. Query Redis GEO → driver IDs trong bán kính, kèm khoảng cách thực ──
+        $nearbyDrivers = DriverGeoService::getNearby(
+            $order->city_id,
+            (float) $order->pickup_lat,
+            (float) $order->pickup_lng,
+            $radiusKm
+        );
+        // $nearbyDrivers = [driverId => distanceKm] — đã lọc GPS stale (TTL 10 phút)
+
+        if (empty($nearbyDrivers)) {
+            Log::debug("     [Candidates] Redis GEO: không có tài xế nào trong bán kính {$radiusKm}km");
+            return collect();
+        }
+
+        Log::debug("     [Candidates] Redis GEO: " . count($nearbyDrivers) . " tài xế trong bán kính {$radiusKm}km");
+
+        // ── 2. Tài xế bận / đang nhận offer ──────────────────────────────────────
         $busyDriverIds = Order::selectRaw('delivery_man_id, COUNT(*) as cnt')
             ->whereIn('status', ['assigned', 'processing', 'on_the_way'])
             ->whereNotNull('delivery_man_id')
@@ -343,7 +361,6 @@ class DispatchService
             ->havingRaw('cnt >= 2')
             ->pluck('delivery_man_id');
 
-        // Loại tài xế đang được phát offer (chưa phản hồi trong 30s)
         $receivingOfferIds = Order::where('status', 'pending')
             ->whereNotNull('dispatching_to_driver_id')
             ->where('id', '!=', $order->id)
@@ -351,15 +368,21 @@ class DispatchService
 
         $unavailableIds = $busyDriverIds->merge($receivingOfferIds)->unique();
 
-        $candidates = User::where('user_type', 'driver')
-            ->where('city_id', $order->city_id)
+        $eligibleIds = array_diff(
+            array_keys($nearbyDrivers),
+            $excludeIds,
+            $unavailableIds->toArray()
+        );
+
+        if (empty($eligibleIds)) {
+            Log::debug("     [Candidates] Bận: {$busyDriverIds->count()} | Đang nhận offer: {$receivingOfferIds->count()} | Đã hỏi: " . count($excludeIds) . " → không còn ai");
+            return collect();
+        }
+
+        // ── 3. Query DB để lấy profile, score, debt, license ─────────────────────
+        $candidates = User::whereIn('id', $eligibleIds)
             ->where('status', 1)
             ->where('is_online', true)
-            ->whereNotIn('id', $unavailableIds)
-            ->whereNotIn('id', $excludeIds)
-            ->whereNotNull('latitude')
-            ->whereNotNull('longitude')
-            // Loại tài xế đang bị khóa nhận đơn
             ->where(function ($q) use ($now) {
                 $q->whereNull('score_suspended_until')
                   ->orWhere('score_suspended_until', '<=', $now);
@@ -367,7 +390,7 @@ class DispatchService
             ->with(['debts', 'wallet', 'driverLicenses'])
             ->get();
 
-        Log::debug("     [Candidates] Online trong thành phố: {$candidates->count()} | Bận: {$busyDriverIds->count()} | Đang nhận offer: {$receivingOfferIds->count()} | Đã hỏi: " . count($excludeIds));
+        Log::debug("     [Candidates] Online/active: {$candidates->count()} | Bận: {$busyDriverIds->count()} | Đang nhận offer: {$receivingOfferIds->count()} | Đã hỏi: " . count($excludeIds));
 
         $beforeDebt  = $candidates->count();
         $afterDebt   = $candidates->filter(fn(User $d) => !$this->hasBlockedDebt($d));
@@ -382,7 +405,7 @@ class DispatchService
             Log::debug("     [Candidates] Loại {$licRemoved} tài xế do không có bằng xe hơi");
         }
 
-        // Tài xế đang có đơn active → lấy điểm giao của đơn đó để check hướng đi
+        // ── 4. Loại tài xế đang bận nếu đi quá vòng ─────────────────────────────
         $activeOrders = Order::whereIn('status', ['assigned', 'processing', 'on_the_way'])
             ->whereIn('delivery_man_id', $afterLicense->pluck('id'))
             ->whereNotNull('delivery_lat')
@@ -390,15 +413,12 @@ class DispatchService
             ->get(['delivery_man_id', 'delivery_lat', 'delivery_lng'])
             ->keyBy('delivery_man_id');
 
-        $afterRadius = $afterLicense->filter(function (User $d) use ($order, $radiusKm, $activeOrders) {
-            $toPickup = $this->distanceKm($d, $order);
-            if ($toPickup > $radiusKm) return false;
-
+        $afterDetour = $afterLicense->filter(function (User $d) use ($order, $nearbyDrivers, $activeOrders) {
             $active = $activeOrders->get($d->id);
             if (!$active) return true;
 
-            // Tài xế đang bận → chỉ nhận thêm nếu điểm lấy đơn mới gần như cùng hướng
-            // với điểm giao đơn hiện tại (không phải quay đầu đi ngược lại)
+            $toPickup = $nearbyDrivers[$d->id]; // khoảng cách thực từ Redis
+
             $directToDest = $this->haversineKm(
                 (float) $d->latitude, (float) $d->longitude,
                 (float) $active->delivery_lat, (float) $active->delivery_lng
@@ -410,12 +430,13 @@ class DispatchService
 
             return ($viaPickup - $directToDest) <= self::MAX_DETOUR_KM;
         });
-        $radRemoved  = $afterLicense->count() - $afterRadius->count();
-        if ($radRemoved > 0) {
-            Log::debug("     [Candidates] Loại {$radRemoved} tài xế do ngoài bán kính {$radiusKm}km hoặc đi ngược hướng đơn đang giao");
+        $detourRemoved = $afterLicense->count() - $afterDetour->count();
+        if ($detourRemoved > 0) {
+            Log::debug("     [Candidates] Loại {$detourRemoved} tài xế do đi ngược hướng đơn đang giao");
         }
 
-        $driverIds = $afterRadius->pluck('id')->toArray();
+        // ── 5. Sort theo composite score ──────────────────────────────────────────
+        $driverIds = $afterDetour->pluck('id')->toArray();
 
         $ratingStats = Order::whereIn('delivery_man_id', $driverIds)
             ->whereNotNull('driver_rating')
@@ -424,7 +445,7 @@ class DispatchService
             ->groupBy('delivery_man_id')
             ->pluck('rating_count', 'delivery_man_id');
 
-        $sorted = $afterRadius
+        $sorted = $afterDetour
             ->sortByDesc(fn(User $d) => $this->compositeScore($d, (int) ($ratingStats[$d->id] ?? 0)))
             ->take(self::MAX_DRIVERS)
             ->values();
@@ -432,11 +453,11 @@ class DispatchService
         if ($sorted->isNotEmpty()) {
             Log::debug("     [Candidates] Top " . min(5, $sorted->count()) . " tài xế sẽ được hỏi:");
             foreach ($sorted->take(5) as $i => $d) {
-                $dist    = round($this->distanceKm($d, $order), 2);
+                $dist      = round($nearbyDrivers[$d->id] ?? $this->distanceKm($d, $order), 2);
                 $ratingCnt = (int) ($ratingStats[$d->id] ?? 0);
-                $score   = round($this->compositeScore($d, $ratingCnt), 1);
-                $wait    = round($this->waitTimeScore($d), 1);
-                Log::debug("       " . ($i + 1) . ". #{$d->id} {$d->name} | {$dist}km | điểm={$score} | driver_score=" . ($d->driver_score ?? DriverScoreService::DEFAULT_SCORE) . " | so_dg={$ratingCnt} | wait={$wait}");
+                $score     = round($this->compositeScore($d, $ratingCnt), 1);
+                $wait      = round($this->waitTimeScore($d), 1);
+                Log::debug("       " . ($i + 1) . ". #{$d->id} {$d->name} | {$dist}km (Redis) | điểm={$score} | driver_score=" . ($d->driver_score ?? DriverScoreService::DEFAULT_SCORE) . " | so_dg={$ratingCnt} | wait={$wait}");
             }
         }
 
