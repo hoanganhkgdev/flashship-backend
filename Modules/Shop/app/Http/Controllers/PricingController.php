@@ -24,6 +24,7 @@ class PricingController extends Controller
 
         $cargoType = $data['cargo_type']   ?? 'food';
         $weightKg  = isset($data['cargo_weight']) ? (float) $data['cargo_weight'] : null;
+        $cityId    = $request->user()?->city_id;
 
         if (isset($data['pickup_lat'], $data['pickup_lng'],
                    $data['delivery_lat'], $data['delivery_lng'])) {
@@ -31,14 +32,16 @@ class PricingController extends Controller
                 $cargoType,
                 (float) $data['pickup_lat'],   (float) $data['pickup_lng'],
                 (float) $data['delivery_lat'],  (float) $data['delivery_lng'],
-                $weightKg
+                $weightKg,
+                $cityId
             );
         } elseif (isset($data['pickup_address'], $data['delivery_address'])) {
             $result = ShopPricingService::estimateFromAddresses(
                 $cargoType,
                 $data['pickup_address'],
                 $data['delivery_address'],
-                $weightKg
+                $weightKg,
+                $cityId
             );
         } else {
             return response()->json([
@@ -72,6 +75,7 @@ class PricingController extends Controller
         $pickupLat   = $data['pickup_lat']  ?? null;
         $pickupLng   = $data['pickup_lng']  ?? null;
         $pickupAddr  = $data['pickup_address'] ?? null;
+        $cityId      = $request->user()?->city_id;
 
         $stops    = [];
         $totalFee = 0;
@@ -85,14 +89,16 @@ class PricingController extends Controller
                     $cargoType,
                     (float) $pickupLat, (float) $pickupLng,
                     (float) $stop['lat'], (float) $stop['lng'],
-                    $weightKg
+                    $weightKg,
+                    $cityId
                 );
             } elseif ($pickupAddr && !empty($stop['address'])) {
                 $result = ShopPricingService::estimateFromAddresses(
                     $cargoType,
                     $pickupAddr,
                     $stop['address'],
-                    $weightKg
+                    $weightKg,
+                    $cityId
                 );
             } else {
                 return response()->json([
