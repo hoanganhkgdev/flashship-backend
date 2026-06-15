@@ -21,12 +21,12 @@ class SupportConfigResource extends Resource
     protected static ?int    $navigationSort   = 2;
 
     private static array $typeOptions = [
-        'phone'    => '📞 Số điện thoại',
-        'zalo'     => '💬 Zalo',
-        'facebook' => '📘 Facebook',
-        'website'  => '🌐 Website',
-        'email'    => '✉️ Email',
-        'other'    => '🔗 Khác',
+        'phone'    => 'Số điện thoại',
+        'zalo'     => 'Zalo',
+        'facebook' => 'Facebook',
+        'website'  => 'Website',
+        'email'    => 'Email',
+        'other'    => 'Khác',
     ];
 
     public static function form(Form $form): Form
