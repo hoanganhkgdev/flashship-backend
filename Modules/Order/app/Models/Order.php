@@ -28,8 +28,8 @@ class Order extends Model
     protected $fillable = [
         'code', 'service_type', 'city_id', 'delivery_man_id', 'dispatching_to_driver_id',
         'dispatch_attempts', 'sender_platform_id', 'platform', 'created_by', 'status', 'cancel_reason',
-        'pickup_address', 'pickup_lat', 'pickup_lng', 'pickup_phone', 'sender_name', 'store_name',
-        'delivery_address', 'delivery_lat', 'delivery_lng', 'delivery_phone', 'receiver_name',
+        'pickup_address', 'pickup_place_name', 'pickup_lat', 'pickup_lng', 'pickup_phone', 'sender_name', 'store_name',
+        'delivery_address', 'delivery_place_name', 'delivery_lat', 'delivery_lng', 'delivery_phone', 'receiver_name',
         'shipping_fee', 'bonus_fee', 'night_surcharge', 'is_freeship', 'distance', 'payment_method', 'cod_amount',
         'order_note', 'cargo_type', 'cargo_note', 'cargo_weight',
         'is_batch', 'stops', 'shop_service_type',
