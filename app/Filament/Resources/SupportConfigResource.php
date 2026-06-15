@@ -41,11 +41,6 @@ class SupportConfigResource extends Resource
                         ->maxLength(100)
                         ->placeholder('VD: Hotline hỗ trợ'),
 
-                    Forms\Components\TextInput::make('subtitle')
-                        ->label('Mô tả phụ')
-                        ->maxLength(150)
-                        ->placeholder('VD: 7:00 – 22:00 hàng ngày'),
-
                     Forms\Components\Select::make('type')
                         ->label('Loại liên kết')
                         ->options(self::$typeOptions)
@@ -64,16 +59,6 @@ class SupportConfigResource extends Resource
                             'email'    => 'support@example.com',
                             default    => 'https://...',
                         }),
-
-                    Forms\Components\TextInput::make('icon')
-                        ->label('Icon (Heroicon)')
-                        ->maxLength(60)
-                        ->placeholder('VD: heroicon-o-phone'),
-
-                    Forms\Components\TextInput::make('color')
-                        ->label('Màu (hex hoặc tên)')
-                        ->maxLength(20)
-                        ->placeholder('VD: #FF5722 hoặc green'),
 
                     Forms\Components\Select::make('city_id')
                         ->label('Khu vực áp dụng')
@@ -114,8 +99,7 @@ class SupportConfigResource extends Resource
 
                 Tables\Columns\TextColumn::make('title')
                     ->label('Tiêu đề')
-                    ->weight('bold')
-                    ->description(fn (SupportConfig $r) => $r->subtitle ?? ''),
+                    ->weight('bold'),
 
                 Tables\Columns\TextColumn::make('value')
                     ->label('Giá trị')
