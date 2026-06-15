@@ -20,10 +20,23 @@ class OrderController extends Controller
 
     public function index(Request $request): JsonResponse
     {
-        $orders = Order::where('sender_platform_id', $request->user()->id)
+        $query = Order::where('sender_platform_id', $request->user()->id)
             ->where('platform', 'shop_app')
             ->with('driver:id,name,phone,latitude,longitude,profile_photo_path')
-            ->latest()->paginate(20);
+            ->latest();
+
+        if ($q = trim((string) $request->query('q', ''))) {
+            $query->where(function ($w) use ($q) {
+                $w->where('code', 'like', "%{$q}%")
+                  ->orWhere('delivery_phone', 'like', "%{$q}%")
+                  ->orWhere('receiver_name', 'like', "%{$q}%")
+                  ->orWhere('sender_name', 'like', "%{$q}%")
+                  ->orWhere('pickup_phone', 'like', "%{$q}%")
+                  ->orWhere('delivery_address', 'like', "%{$q}%");
+            });
+        }
+
+        $orders = $query->paginate(20);
 
         return response()->json([
             'success' => true,
@@ -91,16 +104,18 @@ class OrderController extends Controller
     {
         $data = $request->validate([
             'is_outbound'      => 'nullable|boolean',
-            'pickup_address'   => 'required|string',
-            'pickup_lat'       => 'nullable|numeric',
-            'pickup_lng'       => 'nullable|numeric',
-            'pickup_phone'     => 'nullable|string',
-            'pickup_name'      => 'nullable|string',
-            'delivery_address' => 'required|string',
-            'delivery_lat'     => 'nullable|numeric',
-            'delivery_lng'     => 'nullable|numeric',
-            'delivery_phone'   => 'required|string',
-            'delivery_name'    => 'nullable|string',
+            'pickup_address'      => 'required|string',
+            'pickup_lat'          => 'nullable|numeric',
+            'pickup_lng'          => 'nullable|numeric',
+            'pickup_phone'        => 'nullable|string',
+            'pickup_name'         => 'nullable|string',
+            'pickup_place_name'   => 'nullable|string|max:100',
+            'delivery_address'    => 'required|string',
+            'delivery_lat'        => 'nullable|numeric',
+            'delivery_lng'        => 'nullable|numeric',
+            'delivery_phone'      => 'required|string',
+            'delivery_name'       => 'nullable|string',
+            'delivery_place_name' => 'nullable|string|max:100',
             'order_note'       => 'nullable|string',
             'cargo_type'       => 'nullable|in:food,flowers,parcel',
             'cargo_note'       => 'nullable|string|max:500',
@@ -180,17 +195,19 @@ class OrderController extends Controller
 
             $order = Order::create([
                 'code'             => '',
-                'sender_name'      => !empty($data['pickup_name']) ? $data['pickup_name'] : null,
-                'store_name'       => $user->name,
-                'pickup_phone'     => !empty($data['pickup_phone']) ? $data['pickup_phone'] : null,
-                'pickup_address'   => $data['pickup_address'],
-                'pickup_lat'       => $data['pickup_lat'] ?? null,
-                'pickup_lng'       => $data['pickup_lng'] ?? null,
-                'receiver_name'    => $data['delivery_name'] ?? '',
-                'delivery_phone'   => $data['delivery_phone'],
-                'delivery_address' => $data['delivery_address'],
-                'delivery_lat'     => $data['delivery_lat'] ?? null,
-                'delivery_lng'     => $data['delivery_lng'] ?? null,
+                'sender_name'          => !empty($data['pickup_name']) ? $data['pickup_name'] : null,
+                'store_name'           => $user->name,
+                'pickup_phone'         => !empty($data['pickup_phone']) ? $data['pickup_phone'] : null,
+                'pickup_address'       => $data['pickup_address'],
+                'pickup_place_name'    => $data['pickup_place_name'] ?? null,
+                'pickup_lat'           => $data['pickup_lat'] ?? null,
+                'pickup_lng'           => $data['pickup_lng'] ?? null,
+                'receiver_name'        => $data['delivery_name'] ?? '',
+                'delivery_phone'       => $data['delivery_phone'],
+                'delivery_address'     => $data['delivery_address'],
+                'delivery_place_name'  => $data['delivery_place_name'] ?? null,
+                'delivery_lat'         => $data['delivery_lat'] ?? null,
+                'delivery_lng'         => $data['delivery_lng'] ?? null,
                 'service_type'      => 'delivery',
                 'shop_service_type' => filter_var($data['is_outbound'] ?? 1, FILTER_VALIDATE_BOOLEAN) ? 'shop_delivery' : 'shop_pickup',
                 'order_note'        => $data['order_note'] ?? '',
@@ -534,17 +551,19 @@ class OrderController extends Controller
             'status'           => $order->status,
             'cancel_reason'    => $order->cancel_reason,
             'service_type'     => $order->service_type,
-            'pickup_address'   => $order->pickup_address,
-            'pickup_lat'       => $order->pickup_lat    ? (float) $order->pickup_lat    : null,
-            'pickup_lng'       => $order->pickup_lng    ? (float) $order->pickup_lng    : null,
-            'pickup_phone'     => $order->pickup_phone,
-            'sender_name'      => $order->sender_name,
-            'store_name'       => $order->store_name,
-            'delivery_address' => $order->delivery_address,
-            'delivery_lat'     => $order->delivery_lat  ? (float) $order->delivery_lat  : null,
-            'delivery_lng'     => $order->delivery_lng  ? (float) $order->delivery_lng  : null,
-            'delivery_phone'   => $order->delivery_phone,
-            'receiver_name'    => $order->receiver_name,
+            'pickup_address'      => $order->pickup_address,
+            'pickup_place_name'   => $order->pickup_place_name,
+            'pickup_lat'          => $order->pickup_lat    ? (float) $order->pickup_lat    : null,
+            'pickup_lng'          => $order->pickup_lng    ? (float) $order->pickup_lng    : null,
+            'pickup_phone'        => $order->pickup_phone,
+            'sender_name'         => $order->sender_name,
+            'store_name'          => $order->store_name,
+            'delivery_address'    => $order->delivery_address,
+            'delivery_place_name' => $order->delivery_place_name,
+            'delivery_lat'        => $order->delivery_lat  ? (float) $order->delivery_lat  : null,
+            'delivery_lng'        => $order->delivery_lng  ? (float) $order->delivery_lng  : null,
+            'delivery_phone'      => $order->delivery_phone,
+            'receiver_name'       => $order->receiver_name,
             'shipping_fee'     => $order->shipping_fee,
             'voucher_code'     => $order->voucher_code,
             'discount_amount'  => $order->discount_amount ?? 0,
