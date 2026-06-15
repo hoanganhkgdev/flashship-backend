@@ -68,6 +68,50 @@ class AuthController extends Controller
         ], 201);
     }
 
+    public function forgotPassword(Request $request): JsonResponse
+    {
+        $data  = $request->validate(['phone' => 'required|string']);
+        $phone = $this->normalizePhone($data['phone']);
+
+        if (!User::where('phone', $phone)->where('user_type', 'shop')->exists()) {
+            return response()->json(['success' => false, 'message' => 'Số điện thoại chưa được đăng ký'], 422);
+        }
+
+        if (OtpService::recentlySent($phone, 'forgot_password')) {
+            return response()->json(['success' => false, 'message' => 'Vui lòng chờ 60 giây trước khi gửi lại'], 429);
+        }
+
+        OtpService::send($phone, 'forgot_password');
+
+        return response()->json(['success' => true, 'message' => 'Mã OTP đã được gửi tới ' . $phone]);
+    }
+
+    public function resetPassword(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'phone'    => 'required|string',
+            'otp'      => 'required|string|size:6',
+            'password' => 'required|string|min:6|confirmed',
+        ]);
+
+        $phone = $this->normalizePhone($data['phone']);
+
+        if (!OtpService::verify($phone, $data['otp'], 'forgot_password')) {
+            return response()->json(['success' => false, 'message' => 'Mã OTP không hợp lệ hoặc đã hết hạn'], 422);
+        }
+
+        $user = User::where('phone', $phone)->where('user_type', 'shop')->first();
+
+        if (!$user) {
+            return response()->json(['success' => false, 'message' => 'Tài khoản không tồn tại'], 422);
+        }
+
+        $user->update(['password' => bcrypt($data['password'])]);
+        $user->tokens()->delete();
+
+        return response()->json(['success' => true, 'message' => 'Đặt lại mật khẩu thành công']);
+    }
+
     public function login(Request $request): JsonResponse
     {
         $data = $request->validate([

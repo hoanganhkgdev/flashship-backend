@@ -13,6 +13,8 @@ Route::prefix('shop')->group(function () {
     Route::prefix('auth')->group(function () {
         Route::post('/send-otp',            [AuthController::class, 'sendOtp']);
         Route::post('/verify-otp-register', [AuthController::class, 'verifyOtpAndRegister']);
+        Route::post('/forgot-password',     [AuthController::class, 'forgotPassword']);
+        Route::post('/reset-password',      [AuthController::class, 'resetPassword']);
         Route::post('/login',               [AuthController::class, 'login']);
 
         Route::middleware('auth:sanctum')->group(function () {
