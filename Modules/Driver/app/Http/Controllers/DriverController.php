@@ -97,10 +97,11 @@ class DriverController extends Controller
         }
 
         return response()->json([
-            'success'      => true,
-            'message'      => $user->is_online ? 'Bạn đang online' : 'Bạn đang offline',
-            'is_online'    => $user->is_online,
-            'online_since' => $user->online_since?->toIso8601String(),
+            'success'              => true,
+            'message'             => $user->is_online ? 'Bạn đang online' : 'Bạn đang offline',
+            'is_online'           => $user->is_online,
+            'online_since'        => $user->online_since?->toIso8601String(),
+            'daily_online_seconds' => (int) ($user->daily_online_seconds ?? 0),
         ]);
     }
 
