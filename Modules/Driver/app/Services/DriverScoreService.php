@@ -58,7 +58,8 @@ class DriverScoreService
             }
         });
 
-        RTDBService::pingDriverScore($driverId);
+        // Score chỉ thay đổi khi có bonus milestone — adjust() đã ping trong trường hợp đó.
+        // Khi không có milestone, score không đổi nên không cần ping.
     }
 
     public static function onDecline(int $driverId): void
@@ -94,8 +95,11 @@ class DriverScoreService
 
     private static function adjustWithStreakReset(int $driverId, int $delta, string $reason): void
     {
-        DB::table('users')->where('id', $driverId)->update(['consecutive_completed' => 0]);
-        self::adjust($driverId, $delta, $reason);
+        DB::transaction(function () use ($driverId, $delta, $reason) {
+            DB::table('users')->where('id', $driverId)->lockForUpdate()->select('id')->first();
+            DB::table('users')->where('id', $driverId)->update(['consecutive_completed' => 0]);
+            self::adjust($driverId, $delta, $reason);
+        });
     }
 
     private static function adjust(int $driverId, int $delta, string $reason, ?int $knownCurrent = null): void
@@ -115,6 +119,14 @@ class DriverScoreService
 
             if ($remaining <= 0) {
                 Log::info("[DriverScore] Driver #{$driverId} daily cap reached — {$reason} blocked.");
+                DB::table('driver_score_logs')->insert([
+                    'driver_id'    => $driverId,
+                    'delta'        => 0,
+                    'score_before' => $current,
+                    'score_after'  => $current,
+                    'reason'       => "cap_blocked:{$reason}",
+                    'created_at'   => now(),
+                ]);
                 return;
             }
 

@@ -114,6 +114,8 @@ class ScoreController extends Controller
                 => 'Streak ' . str_replace('streak_', '', $reason) . ' đơn liên tiếp',
             str_starts_with($reason, 'rated_') && str_ends_with($reason, '_stars')
                 => 'Khách đánh giá ' . str_replace(['rated_', '_stars'], '', $reason) . ' sao',
+            str_starts_with($reason, 'cap_blocked:')
+                => 'Đã đạt giới hạn +10đ/ngày (' . self::reasonLabel(str_replace('cap_blocked:', '', $reason)) . ')',
             default => $reason,
         };
     }
