@@ -42,7 +42,7 @@ class InactivityDecayCommand extends Command
                 $sessionStart    = ($onlineSinceDate === $today)
                     ? $onlineSince
                     : Carbon::today();
-                $onlineSeconds  += (int) now()->diffInSeconds($sessionStart);
+                $onlineSeconds  += max(0, (int) $sessionStart->diffInSeconds(now()));
             }
 
             if ($onlineSeconds < DriverScoreService::MIN_ONLINE_SECONDS) {
