@@ -47,8 +47,9 @@ class OrderController extends Controller
 
     public function completedOrders(Request $request): JsonResponse
     {
-        $page = (int) $request->input('page', 1);
-        $data = $this->orderService->getCompletedOrders($request->user(), $page);
+        $page    = (int) $request->input('page', 1);
+        $perPage = (int) $request->input('per_page', 10);
+        $data = $this->orderService->getCompletedOrders($request->user(), $page, $perPage);
         return response()->json(['success' => true, 'data' => $data]);
     }
 
