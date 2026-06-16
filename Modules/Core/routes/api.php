@@ -19,6 +19,8 @@ Route::prefix('auth')->group(function () {
     Route::post('/register',              [AuthController::class, 'register']);
     Route::post('/send-otp',              [AuthController::class, 'sendOtp']);
     Route::post('/verify-otp-register',   [AuthController::class, 'verifyOtpAndRegister']);
+    Route::post('/forgot-password',       [AuthController::class, 'forgotPassword']);
+    Route::post('/reset-password',        [AuthController::class, 'resetPassword']);
 
     Route::middleware('auth:sanctum')->group(function () {
         Route::get('/me',      [AuthController::class, 'me']);

@@ -17,7 +17,7 @@ class PricingService
     {
         $cfg = self::cfg($serviceType, $cityId);
 
-        if ($cfg && ($cfg['type'] ?? '') === 'slab') {
+        if ($cfg && isset($cfg['slabs'])) {
             foreach ($cfg['slabs'] as $slab) {
                 if ($km <= $slab['max_km']) return (int) $slab['fee'];
             }
@@ -42,7 +42,7 @@ class PricingService
     {
         $cfg = self::cfg('bike', $cityId);
 
-        if ($cfg && ($cfg['type'] ?? '') === 'tiered_linear') {
+        if ($cfg && isset($cfg['base_km'], $cfg['higher_from_km'])) {
             $baseKm    = (float) $cfg['base_km'];
             $baseFee   = (int)   $cfg['base_fee'];
             $perKm     = (int)   $cfg['per_km_fee'];
@@ -63,7 +63,7 @@ class PricingService
     private static function motorFee(float $km, ?int $cityId = null): int
     {
         $cfg = self::cfg('motor', $cityId);
-        if ($cfg && ($cfg['type'] ?? '') === 'linear') return self::linearFee($km, $cfg);
+        if ($cfg && isset($cfg['base_km'], $cfg['base_fee'], $cfg['per_km_fee'])) return self::linearFee($km, $cfg);
 
         return $km <= 3 ? 60_000 : 60_000 + (int) (ceil($km - 3) * 6_000);
     }
@@ -72,7 +72,7 @@ class PricingService
     private static function carFee(float $km, ?int $cityId = null): int
     {
         $cfg = self::cfg('car', $cityId);
-        if ($cfg && ($cfg['type'] ?? '') === 'linear') return self::linearFee($km, $cfg);
+        if ($cfg && isset($cfg['base_km'], $cfg['base_fee'], $cfg['per_km_fee'])) return self::linearFee($km, $cfg);
 
         return $km <= 3 ? 80_000 : 80_000 + (int) (ceil($km - 3) * 10_000);
     }
@@ -91,7 +91,7 @@ class PricingService
     {
         $cfg = self::cfg('topup', $cityId);
 
-        if ($cfg && ($cfg['type'] ?? '') === 'topup') {
+        if ($cfg && isset($cfg['tiers'])) {
             foreach ($cfg['tiers'] as $tier) {
                 if ($amount < $tier['max_amount']) return (int) $tier['fee'];
             }
