@@ -33,6 +33,11 @@ class DriverScoreService
         self::adjust($driverId, self::SCORE_DECLINE, 'decline');
     }
 
+    public static function onTimeout(int $driverId): void
+    {
+        self::adjust($driverId, -1, 'timeout');
+    }
+
     public static function onRated(int $driverId, int $stars): void
     {
         $delta = self::RATING_DELTAS[$stars] ?? 0;

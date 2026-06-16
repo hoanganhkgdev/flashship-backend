@@ -131,7 +131,8 @@ class DispatchService
             return;
         }
 
-        Log::info("⏱  [Dispatch] Đơn #{$order->id}: Tài xế {$name} timeout → chuyển sang tài xế tiếp theo");
+        DriverScoreService::onTimeout($driverId);
+        Log::info("⏱  [Dispatch] Đơn #{$order->id}: Tài xế {$name} timeout → -1 điểm, chuyển sang tài xế tiếp theo");
 
         // Xóa offer trên RTDB — driver app tự dismiss màn hình offer
         RTDBService::clearDriverOffer($driverId);

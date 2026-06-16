@@ -84,12 +84,13 @@ class ScoreController extends Controller
     private static function reasonLabel(string $reason): string
     {
         return match (true) {
-            $reason === 'complete'  => 'Hoàn thành đơn',
-            $reason === 'decline'   => 'Từ chối đơn',
+            $reason === 'complete'     => 'Hoàn thành đơn',
+            $reason === 'decline'      => 'Từ chối đơn',
+            $reason === 'timeout'      => 'Để đơn trôi qua',
             $reason === 'weekly_reset' => 'Reset điểm đầu tuần',
             str_starts_with($reason, 'rated_') && str_ends_with($reason, '_stars')
                 => 'Khách đánh giá ' . str_replace(['rated_', '_stars'], '', $reason) . ' sao',
             default => $reason,
-        ];
+        };
     }
 }
