@@ -20,6 +20,7 @@ class InactivityDecayCommand extends Command
         $drivers = DB::table('users')
             ->where('user_type', 'driver')
             ->where('status', 1)
+            ->whereDate('created_at', '<', $today) // bỏ qua tài xế mới tạo hôm nay
             ->select('id', 'driver_last_active_date', 'is_online', 'online_since',
                      'daily_online_seconds', 'daily_online_date')
             ->get();

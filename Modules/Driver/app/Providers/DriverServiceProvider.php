@@ -28,9 +28,9 @@ class DriverServiceProvider extends ModuleServiceProvider
 
     protected function configureSchedules(Schedule $schedule): void
     {
-        // Hàng ngày 23:55 — trừ điểm tài xế online < 8h và không hoạt động
-        $schedule->command('drivers:daily-decay')->dailyAt('23:55');
-        // Chủ nhật 23:50 — chốt điểm tuần (thưởng/phạt 50k vào ví) trước khi reset
+        // Hàng ngày 23:45 — trừ điểm tài xế online < 8h và không hoạt động (phải trước weekly-score)
+        $schedule->command('drivers:daily-decay')->dailyAt('23:45');
+        // Chủ nhật 23:50 — chốt điểm tuần (thưởng/phạt 50k vào ví) rồi reset về 100
         $schedule->command('drivers:weekly-score')->weeklyOn(0, '23:50');
         // Chủ nhật 13:00 — khóa tài xế chưa đóng phí tuần
         $schedule->command('driver:mark-overdue-debts')->weeklyOn(0, '13:00');
