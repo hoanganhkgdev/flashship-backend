@@ -11,10 +11,20 @@ class DriverScoreService
     const MIN_SCORE            = 0;
     const MAX_SCORE            = 150;
 
-    const SCORE_COMPLETE       = 1;
     const SCORE_DECLINE        = -2;
+    const SCORE_TIMEOUT        = -2;
 
     const RATING_DELTAS        = [5 => 1, 4 => 0, 3 => -1, 2 => -3, 1 => -5];
+
+    // Streak milestone → bonus khi đạt đúng mốc (3, 6, 10 đơn liên tiếp)
+    const STREAK_MILESTONES    = [3 => 1, 6 => 2, 10 => 4];
+    const STREAK_RESET_AT      = 10;
+
+    // Tối đa cộng +10 điểm/ngày từ các sự kiện tích cực
+    const DAILY_BONUS_CAP      = 10;
+
+    // Yêu cầu online tối thiểu (giây) — 8 tiếng
+    const MIN_ONLINE_SECONDS   = 8 * 3600;
 
     const WEEKLY_BONUS_SCORE   = 150;
     const WEEKLY_PENALTY_SCORE = 70;
@@ -25,17 +35,40 @@ class DriverScoreService
 
     public static function onComplete(int $driverId): void
     {
-        self::adjust($driverId, self::SCORE_COMPLETE, 'complete');
+        DB::transaction(function () use ($driverId) {
+            $driver = DB::table('users')
+                ->where('id', $driverId)
+                ->lockForUpdate()
+                ->select('driver_score', 'consecutive_completed')
+                ->first();
+
+            $streak     = (int) ($driver->consecutive_completed ?? 0) + 1;
+            $bonusDelta = self::STREAK_MILESTONES[$streak] ?? 0;
+
+            // Reset streak sau khi đạt mốc 10
+            $newStreak = $streak >= self::STREAK_RESET_AT ? 0 : $streak;
+
+            DB::table('users')->where('id', $driverId)->update([
+                'consecutive_completed'   => $newStreak,
+                'driver_last_active_date' => now()->toDateString(),
+            ]);
+
+            if ($bonusDelta > 0) {
+                self::adjust($driverId, $bonusDelta, "streak_{$streak}", $driver->driver_score);
+            }
+        });
+
+        RTDBService::pingDriverScore($driverId);
     }
 
     public static function onDecline(int $driverId): void
     {
-        self::adjust($driverId, self::SCORE_DECLINE, 'decline');
+        self::adjustWithStreakReset($driverId, self::SCORE_DECLINE, 'decline');
     }
 
     public static function onTimeout(int $driverId): void
     {
-        self::adjust($driverId, -1, 'timeout');
+        self::adjustWithStreakReset($driverId, self::SCORE_TIMEOUT, 'timeout');
     }
 
     public static function onRated(int $driverId, int $stars): void
@@ -46,11 +79,53 @@ class DriverScoreService
         }
     }
 
+    public static function onInactivity(int $driverId, int $days): void
+    {
+        $delta = $days >= 2 ? -10 : -5;
+        self::adjust($driverId, $delta, "inactive_{$days}_day");
+    }
+
+    public static function onLowOnlineTime(int $driverId): void
+    {
+        self::adjust($driverId, -5, 'online_time_low');
+    }
+
     // ─── Core ────────────────────────────────────────────────────────────────────
 
-    private static function adjust(int $driverId, int $delta, string $reason): void
+    private static function adjustWithStreakReset(int $driverId, int $delta, string $reason): void
     {
-        $current  = (int) (DB::table('users')->where('id', $driverId)->value('driver_score') ?? self::DEFAULT_SCORE);
+        DB::table('users')->where('id', $driverId)->update(['consecutive_completed' => 0]);
+        self::adjust($driverId, $delta, $reason);
+    }
+
+    private static function adjust(int $driverId, int $delta, string $reason, ?int $knownCurrent = null): void
+    {
+        $today   = now()->toDateString();
+        $current = $knownCurrent ?? (int) (DB::table('users')->where('id', $driverId)->value('driver_score') ?? self::DEFAULT_SCORE);
+
+        // Áp dụng daily cap cho điểm dương
+        if ($delta > 0) {
+            $row = DB::table('users')
+                ->where('id', $driverId)
+                ->select('daily_bonus_points', 'daily_bonus_date')
+                ->first();
+
+            $earned = ($row?->daily_bonus_date === $today) ? (int) ($row->daily_bonus_points ?? 0) : 0;
+            $remaining = self::DAILY_BONUS_CAP - $earned;
+
+            if ($remaining <= 0) {
+                Log::info("[DriverScore] Driver #{$driverId} daily cap reached — {$reason} blocked.");
+                return;
+            }
+
+            $delta = min($delta, $remaining);
+
+            DB::table('users')->where('id', $driverId)->update([
+                'daily_bonus_points' => $earned + $delta,
+                'daily_bonus_date'   => $today,
+            ]);
+        }
+
         $newScore = max(self::MIN_SCORE, min(self::MAX_SCORE, $current + $delta));
 
         DB::table('users')->where('id', $driverId)->update(['driver_score' => $newScore]);
@@ -73,7 +148,10 @@ class DriverScoreService
     public static function resetToDefault(int $driverId): void
     {
         $current = DB::table('users')->where('id', $driverId)->value('driver_score') ?? self::DEFAULT_SCORE;
-        DB::table('users')->where('id', $driverId)->update(['driver_score' => self::DEFAULT_SCORE]);
+        DB::table('users')->where('id', $driverId)->update([
+            'driver_score'          => self::DEFAULT_SCORE,
+            'consecutive_completed' => 0,
+        ]);
         Log::info("[DriverScore] Driver #{$driverId} reset: {$current} → " . self::DEFAULT_SCORE);
     }
 

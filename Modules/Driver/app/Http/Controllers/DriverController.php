@@ -67,6 +67,25 @@ class DriverController extends Controller
             }
         }
 
+        // Tích lũy thời gian online khi chuyển sang offline
+        if ($user->is_online && $user->online_since) {
+            $today           = now()->toDateString();
+            $onlineSinceDate = $user->online_since->toDateString();
+
+            // Nếu session bắt đầu trước hôm nay, chỉ tính từ 00:00 hôm nay
+            $sessionStart   = $onlineSinceDate === $today
+                ? $user->online_since
+                : now()->startOfDay();
+            $sessionSeconds = (int) now()->diffInSeconds($sessionStart);
+
+            $existingSeconds = ($user->daily_online_date === $today)
+                ? (int) ($user->daily_online_seconds ?? 0)
+                : 0;
+
+            $user->daily_online_seconds = $existingSeconds + $sessionSeconds;
+            $user->daily_online_date    = $today;
+        }
+
         $user->is_online   = !$user->is_online;
         $user->online_since = $user->is_online ? now() : null;
         $user->save();

@@ -1,0 +1,78 @@
+<?php
+namespace Modules\Driver\Console\Commands;
+
+use Carbon\Carbon;
+use Illuminate\Console\Command;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Modules\Driver\Services\DriverScoreService;
+
+class InactivityDecayCommand extends Command
+{
+    protected $signature   = 'drivers:daily-decay';
+    protected $description = 'Cuối ngày: trừ điểm tài xế không hoạt động và online dưới 8 giờ';
+
+    public function handle(): void
+    {
+        $today     = Carbon::today()->toDateString();
+        $yesterday = Carbon::yesterday()->toDateString();
+
+        $drivers = DB::table('users')
+            ->where('user_type', 'driver')
+            ->where('status', 1)
+            ->select('id', 'driver_last_active_date', 'is_online', 'online_since',
+                     'daily_online_seconds', 'daily_online_date')
+            ->get();
+
+        $inactivity1 = 0;
+        $inactivity2 = 0;
+        $lowOnline   = 0;
+
+        foreach ($drivers as $driver) {
+
+            // ── 1. Kiểm tra online time ────────────────────────────────────────
+            // Nếu tài xế đang online vào lúc chạy lệnh, tính thêm session hiện tại
+            $onlineSeconds = ($driver->daily_online_date === $today)
+                ? (int) ($driver->daily_online_seconds ?? 0)
+                : 0;
+
+            if ($driver->is_online && $driver->online_since) {
+                $onlineSince     = Carbon::parse($driver->online_since);
+                $onlineSinceDate = $onlineSince->toDateString();
+                $sessionStart    = ($onlineSinceDate === $today)
+                    ? $onlineSince
+                    : Carbon::today();
+                $onlineSeconds  += (int) now()->diffInSeconds($sessionStart);
+            }
+
+            if ($onlineSeconds < DriverScoreService::MIN_ONLINE_SECONDS) {
+                DriverScoreService::onLowOnlineTime($driver->id);
+                $lowOnline++;
+            }
+
+            // Reset counter hàng ngày
+            DB::table('users')->where('id', $driver->id)->update([
+                'daily_online_seconds' => 0,
+                'daily_online_date'    => null,
+            ]);
+
+            // ── 2. Kiểm tra hoạt động giao đơn ───────────────────────────────
+            $lastActive = $driver->driver_last_active_date;
+
+            if ($lastActive === $today) continue; // Đã hoạt động hôm nay → không phạt
+
+            if ($lastActive === $yesterday) {
+                DriverScoreService::onInactivity($driver->id, 1);
+                $inactivity1++;
+            } else {
+                // 2+ ngày không hoàn thành đơn (bao gồm null)
+                DriverScoreService::onInactivity($driver->id, 2);
+                $inactivity2++;
+            }
+        }
+
+        $total = $drivers->count();
+        $this->info("[DailyDecay] {$total} tài xế | online<8h: {$lowOnline} | inactive1: {$inactivity1} | inactive2+: {$inactivity2}");
+        Log::info("[DailyDecay] lowOnline={$lowOnline} inactive1={$inactivity1} inactive2={$inactivity2} total={$total} date={$today}");
+    }
+}

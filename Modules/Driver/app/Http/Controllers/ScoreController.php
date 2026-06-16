@@ -14,7 +14,13 @@ class ScoreController extends Controller
     public function index(Request $request): JsonResponse
     {
         $driver = $request->user();
-        $score  = (int) (DB::table('users')->where('id', $driver->id)->value('driver_score') ?? DriverScoreService::DEFAULT_SCORE);
+        $row    = DB::table('users')
+            ->where('id', $driver->id)
+            ->select('driver_score', 'consecutive_completed')
+            ->first();
+
+        $score  = (int) ($row->driver_score          ?? DriverScoreService::DEFAULT_SCORE);
+        $streak = (int) ($row->consecutive_completed ?? 0);
 
         $weekStart  = Carbon::now()->startOfWeek()->toDateString();
         $settlement = DB::table('driver_score_settlements')
@@ -22,6 +28,15 @@ class ScoreController extends Controller
             ->where('week_start', $weekStart)
             ->select('type', 'amount', 'status')
             ->first();
+
+        // Mốc streak tiếp theo (để hiển thị cho tài xế biết còn cần bao nhiêu đơn)
+        $nextMilestone = null;
+        foreach (DriverScoreService::STREAK_MILESTONES as $at => $bonus) {
+            if ($streak < $at) {
+                $nextMilestone = ['at' => $at, 'bonus' => $bonus, 'remaining' => $at - $streak];
+                break;
+            }
+        }
 
         return response()->json([
             'success' => true,
@@ -31,6 +46,11 @@ class ScoreController extends Controller
                 'max_score' => DriverScoreService::MAX_SCORE,
                 'label'     => DriverScoreService::label($score),
                 'tips'      => DriverScoreService::tips($score),
+
+                'streak' => [
+                    'count'          => $streak,
+                    'next_milestone' => $nextMilestone,
+                ],
 
                 'week' => [
                     'bonus_at'       => DriverScoreService::WEEKLY_BONUS_SCORE,
@@ -84,10 +104,14 @@ class ScoreController extends Controller
     private static function reasonLabel(string $reason): string
     {
         return match (true) {
-            $reason === 'complete'     => 'Hoàn thành đơn',
-            $reason === 'decline'      => 'Từ chối đơn',
-            $reason === 'timeout'      => 'Để đơn trôi qua',
-            $reason === 'weekly_reset' => 'Reset điểm đầu tuần',
+            $reason === 'decline'          => 'Từ chối đơn',
+            $reason === 'timeout'          => 'Để đơn trôi qua',
+            $reason === 'weekly_reset'     => 'Reset điểm đầu tuần',
+            $reason === 'inactive_1_day'   => 'Không giao đơn 1 ngày',
+            $reason === 'inactive_2_day'   => 'Không giao đơn 2+ ngày',
+            $reason === 'online_time_low'  => 'Online dưới 8 giờ',
+            str_starts_with($reason, 'streak_')
+                => 'Streak ' . str_replace('streak_', '', $reason) . ' đơn liên tiếp',
             str_starts_with($reason, 'rated_') && str_ends_with($reason, '_stars')
                 => 'Khách đánh giá ' . str_replace(['rated_', '_stars'], '', $reason) . ' sao',
             default => $reason,
