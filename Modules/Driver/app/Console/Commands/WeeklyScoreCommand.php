@@ -52,7 +52,7 @@ class WeeklyScoreCommand extends Command
                         desc:          "Thưởng điểm tuần {$weekStart} — {$weekEnd} (điểm: {$score})",
                         ref:           $ref,
                     );
-                    $status = 'paid';
+                    $status = 'processed';
                 } catch (\Throwable $e) {
                     Log::warning("[WeeklyScore] Lỗi thưởng driver #{$driver->id}: " . $e->getMessage());
                     $status = 'pending';
@@ -83,7 +83,7 @@ class WeeklyScoreCommand extends Command
                         ref:           $ref,
                         allowNegative: true,
                     );
-                    $status = 'paid';
+                    $status = 'processed';
                 } catch (\Throwable $e) {
                     Log::warning("[WeeklyScore] Lỗi phạt driver #{$driver->id}: " . $e->getMessage());
                     $status = 'pending';
