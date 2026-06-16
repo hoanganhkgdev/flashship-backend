@@ -233,44 +233,12 @@ class DriverController extends Controller
     {
         $user  = $request->user();
         $score = (int) ($user->driver_score ?? DriverScoreService::DEFAULT_SCORE);
-        $streak = (int) ($user->consecutive_completed ?? 0);
-
-        // Xác định đợt dispatch hiện tại
-        if ($score >= DriverScoreService::WAVE_1_MIN) {
-            $wave = 1;
-            $waveDesc = 'Ưu tiên cao — nhận đơn ngay, bán kính 5km';
-            $nextWave = null;
-        } elseif ($score >= DriverScoreService::WAVE_2_MIN) {
-            $wave = 2;
-            $waveDesc = 'Ưu tiên vừa — nhận đơn sau 2 phút, bán kính 10km';
-            $nextWave = [
-                'wave'         => 1,
-                'min_score'    => DriverScoreService::WAVE_1_MIN,
-                'points_needed' => DriverScoreService::WAVE_1_MIN - $score,
-            ];
-        } else {
-            $wave = 3;
-            $waveDesc = 'Ưu tiên thấp — nhận đơn sau 4 phút, bán kính 10km';
-            $nextWave = [
-                'wave'         => 2,
-                'min_score'    => DriverScoreService::WAVE_2_MIN,
-                'points_needed' => DriverScoreService::WAVE_2_MIN - $score,
-            ];
-        }
 
         return response()->json(['success' => true, 'data' => [
             'score'     => $score,
             'max_score' => DriverScoreService::MAX_SCORE,
             'label'     => DriverScoreService::label($score),
-            'wave'      => $wave,
-            'wave_desc' => $waveDesc,
-            'next_wave' => $nextWave,
-            'streak'    => [
-                'consecutive' => $streak,
-                'bonus_at'    => DriverScoreService::STREAK_THRESHOLD,
-                'bonus_pts'   => DriverScoreService::SCORE_STREAK_BONUS,
-            ],
-            'tips' => DriverScoreService::tips($score, $streak),
+            'tips'      => DriverScoreService::tips($score),
         ]]);
     }
 

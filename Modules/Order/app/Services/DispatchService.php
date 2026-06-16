@@ -131,14 +131,7 @@ class DispatchService
             return;
         }
 
-        // Chỉ trừ điểm nếu tài xế đã MỞ xem offer nhưng không phản hồi (-1 điểm)
-        // Nếu tài xế chưa thấy thông báo (offer_viewed_at = null) → không trừ điểm
-        if ($order->offer_viewed_at !== null) {
-            DriverScoreService::onTimeout($driverId);
-            Log::info("⏱  [Dispatch] Đơn #{$order->id}: Tài xế {$name} đã xem nhưng không phản hồi → trừ 1 điểm");
-        } else {
-            Log::info("⏱  [Dispatch] Đơn #{$order->id}: Tài xế {$name} chưa thấy thông báo → không trừ điểm");
-        }
+        Log::info("⏱  [Dispatch] Đơn #{$order->id}: Tài xế {$name} timeout → chuyển sang tài xế tiếp theo");
 
         // Xóa offer trên RTDB — driver app tự dismiss màn hình offer
         RTDBService::clearDriverOffer($driverId);

@@ -4,7 +4,6 @@ namespace Modules\Driver\Providers;
 
 use Nwidart\Modules\Support\ModuleServiceProvider;
 use Illuminate\Console\Scheduling\Schedule;
-use Modules\Driver\Console\Commands\DecayDriverScoresCommand;
 use Modules\Driver\Console\Commands\GenerateWeeklyFeesCommand;
 use Modules\Driver\Console\Commands\MarkOverdueDebtsCommand;
 use Modules\Driver\Console\Commands\WeeklyScoreCommand;
@@ -15,7 +14,6 @@ class DriverServiceProvider extends ModuleServiceProvider
     protected string $nameLower = 'driver';
 
     protected array $commands = [
-        DecayDriverScoresCommand::class,
         GenerateWeeklyFeesCommand::class,
         MarkOverdueDebtsCommand::class,
         WeeklyScoreCommand::class,
@@ -34,7 +32,5 @@ class DriverServiceProvider extends ModuleServiceProvider
         $schedule->command('driver:mark-overdue-debts')->weeklyOn(0, '13:00');
         // Thứ Hai 00:00 — tạo phí tuần mới (chạy sau khi reset điểm)
         $schedule->command('driver:generate-weekly-fees')->weeklyOn(1, '00:05');
-        // Hàng ngày 03:00 — kiểm tra không hoạt động + online < 8h
-        $schedule->command('drivers:decay-scores')->dailyAt('03:00');
     }
 }

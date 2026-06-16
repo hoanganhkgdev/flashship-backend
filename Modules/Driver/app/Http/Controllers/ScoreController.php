@@ -14,42 +14,8 @@ class ScoreController extends Controller
     public function index(Request $request): JsonResponse
     {
         $driver = $request->user();
-        $user   = DB::table('users')->where('id', $driver->id)
-            ->select(
-                'driver_score', 'consecutive_completed',
-                'daily_bonus_points', 'daily_bonus_date',
-                'daily_online_seconds', 'daily_online_date',
-                'is_online', 'online_since'
-            )->first();
+        $score  = (int) (DB::table('users')->where('id', $driver->id)->value('driver_score') ?? DriverScoreService::DEFAULT_SCORE);
 
-        $score  = (int) ($user->driver_score ?? DriverScoreService::DEFAULT_SCORE);
-        $streak = (int) ($user->consecutive_completed ?? 0);
-
-        // Streak: mốc tiếp theo
-        $nextMilestone = null;
-        $nextBonus     = null;
-        foreach (DriverScoreService::STREAK_MILESTONES as $milestone => $bonus) {
-            if ($streak < $milestone) {
-                $nextMilestone = $milestone;
-                $nextBonus     = $bonus;
-                break;
-            }
-        }
-
-        // Daily bonus đã dùng hôm nay
-        $today      = now()->toDateString();
-        $bonusToday = ($user->daily_bonus_date === $today) ? (int) $user->daily_bonus_points : 0;
-
-        // Online hôm nay (giây) — cộng thêm phần đang chạy nếu đang online
-        $onlineSecs = ($user->daily_online_date === $today) ? (int) $user->daily_online_seconds : 0;
-        if ($user->is_online && $user->online_since) {
-            $since = Carbon::parse($user->online_since);
-            if ($since->toDateString() === $today) {
-                $onlineSecs += (int) $since->diffInSeconds(now());
-            }
-        }
-
-        // Weekly settlement pending cho tuần hiện tại
         $weekStart  = Carbon::now()->startOfWeek()->toDateString();
         $settlement = DB::table('driver_score_settlements')
             ->where('driver_id', $driver->id)
@@ -64,7 +30,7 @@ class ScoreController extends Controller
                 'min_score' => DriverScoreService::MIN_SCORE,
                 'max_score' => DriverScoreService::MAX_SCORE,
                 'label'     => DriverScoreService::label($score),
-                'tips'      => DriverScoreService::tips($score, $streak),
+                'tips'      => DriverScoreService::tips($score),
 
                 'week' => [
                     'bonus_at'       => DriverScoreService::WEEKLY_BONUS_SCORE,
@@ -77,22 +43,6 @@ class ScoreController extends Controller
                         'amount' => (int) $settlement->amount,
                         'status' => $settlement->status,
                     ] : null,
-                ],
-
-                'streak' => [
-                    'consecutive'    => $streak,
-                    'milestones'     => DriverScoreService::STREAK_MILESTONES,
-                    'next_milestone' => $nextMilestone,
-                    'next_bonus_pts' => $nextBonus,
-                ],
-
-                'daily' => [
-                    'bonus_points_today'   => $bonusToday,
-                    'bonus_cap'            => DriverScoreService::DAILY_BONUS_CAP,
-                    'bonus_remaining'      => max(0, DriverScoreService::DAILY_BONUS_CAP - $bonusToday),
-                    'online_seconds_today' => $onlineSecs,
-                    'online_hours_today'   => round($onlineSecs / 3600, 1),
-                    'min_online_seconds'   => DriverScoreService::MIN_ONLINE_SECONDS,
                 ],
             ],
         ]);
@@ -134,18 +84,12 @@ class ScoreController extends Controller
     private static function reasonLabel(string $reason): string
     {
         return match (true) {
-            $reason === 'decline'         => 'Từ chối đơn',
-            $reason === 'timeout'         => 'Hết giờ nhận đơn',
-            $reason === 'streak_3'        => 'Hoàn thành 3 đơn liên tiếp',
-            $reason === 'streak_6'        => 'Hoàn thành 6 đơn liên tiếp',
-            $reason === 'streak_10'       => 'Hoàn thành 10 đơn liên tiếp',
-            $reason === 'inactivity_1d'   => 'Không hoạt động 1 ngày',
-            $reason === 'inactivity_2d'   => 'Không hoạt động 2+ ngày',
-            $reason === 'online_below_8h' => 'Online dưới 8 giờ/ngày',
-            $reason === 'weekly_reset'    => 'Reset điểm đầu tuần',
+            $reason === 'complete'  => 'Hoàn thành đơn',
+            $reason === 'decline'   => 'Từ chối đơn',
+            $reason === 'weekly_reset' => 'Reset điểm đầu tuần',
             str_starts_with($reason, 'rated_') && str_ends_with($reason, '_stars')
                 => 'Khách đánh giá ' . str_replace(['rated_', '_stars'], '', $reason) . ' sao',
             default => $reason,
-        };
+        ];
     }
 }

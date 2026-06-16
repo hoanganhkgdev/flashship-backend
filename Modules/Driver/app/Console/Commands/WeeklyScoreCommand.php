@@ -79,13 +79,7 @@ class WeeklyScoreCommand extends Command
         DB::table('users')
             ->where('user_type', 'driver')
             ->where('status', 1)
-            ->update([
-                'driver_score'          => DriverScoreService::DEFAULT_SCORE,
-                'consecutive_completed' => 0,
-                'daily_bonus_points'    => 0,
-                'daily_bonus_date'      => null,
-                'score_suspended_until' => null,
-            ]);
+            ->update(['driver_score' => DriverScoreService::DEFAULT_SCORE]);
 
         $total = $drivers->count();
         $this->info("[WeeklyScore] Tuần {$weekStart}→{$weekEnd}: {$bonusCount} thưởng, {$penaltyCount} phạt / {$total} tài xế → reset về 100.");
