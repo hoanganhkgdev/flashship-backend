@@ -73,10 +73,28 @@ class DispatchService
         return (float) (Redis::get($this->radiusKey($orderId)) ?? self::RADIUS_KM_STAGES[0]);
     }
 
+    private function retryingKey(int $orderId): string
+    {
+        return "dispatch:retrying:{$orderId}";
+    }
+
+    /** Trả về true nếu set thành công (không có job retry nào đang chờ). */
+    private function acquireRetryLock(int $orderId): bool
+    {
+        // NX = set nếu chưa tồn tại, TTL = RETRY_SCAN_SECS + buffer
+        return (bool) Redis::set($this->retryingKey($orderId), 1, 'EX', self::RETRY_SCAN_SECS + 5, 'NX');
+    }
+
+    private function releaseRetryLock(int $orderId): void
+    {
+        Redis::del($this->retryingKey($orderId));
+    }
+
     private function clearDispatchCache(int $orderId): void
     {
         Redis::del($this->queueKey($orderId));
         Redis::del($this->radiusKey($orderId));
+        Redis::del($this->retryingKey($orderId));
     }
 
     // =========================================================================
@@ -129,8 +147,10 @@ class DispatchService
             ->exists();
         if ($hasPendingOffer) return;
 
+        $this->releaseRetryLock($order->id);
+
         $radiusKm = $this->getCurrentRadius($order->id);
-        Log::info("🔄 [Dispatch] Đơn #{$order->id}: Quét lại {$radiusKm}km (tài xế bận đã rảnh?)");
+        Log::info("[Dispatch] Đơn #{$order->id}: Quét lại {$radiusKm}km (tài xế bận đã rảnh?)");
         $this->buildQueueAndSend($order, $radiusKm);
     }
 
@@ -255,8 +275,12 @@ class DispatchService
                 $this->tryExpandRadius($order, $radiusKm);
             } else {
                 // Có tài xế nhưng đang bận/đang nhận offer → chờ họ rảnh
-                Log::info("└─ [Dispatch] Đơn #{$order->id}: GEO có {$geoCount} tài xế nhưng đang bận → retry sau " . self::RETRY_SCAN_SECS . "s");
-                RetryDispatchJob::dispatch($order->id)->delay(now()->addSeconds(self::RETRY_SCAN_SECS));
+                if ($this->acquireRetryLock($order->id)) {
+                    Log::info("└─ [Dispatch] Đơn #{$order->id}: GEO có {$geoCount} tài xế nhưng đang bận → retry sau " . self::RETRY_SCAN_SECS . "s");
+                    RetryDispatchJob::dispatch($order->id)->delay(now()->addSeconds(self::RETRY_SCAN_SECS));
+                } else {
+                    Log::info("└─ [Dispatch] Đơn #{$order->id}: retry job đã tồn tại → bỏ qua");
+                }
             }
             return;
         }
@@ -294,6 +318,13 @@ class DispatchService
                 ->first();
 
             if (!$driver) {
+                $skipped++;
+                continue;
+            }
+
+            // Driver không có FCM token → không thể đánh thức, skip ngay
+            if (!$driver->fcm_token) {
+                Log::debug("│  Skip #{$driverId}: không có FCM token");
                 $skipped++;
                 continue;
             }
