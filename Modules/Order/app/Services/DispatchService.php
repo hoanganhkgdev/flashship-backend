@@ -350,7 +350,8 @@ class DispatchService
         }
 
         if ($nextKm === null) {
-            Log::info("╟── [Dispatch] Đơn #{$order->id}: Đã hết tất cả bán kính ({$currentKm}km). Chờ auto-cancel.");
+            Log::info("╟── [Dispatch] Đơn #{$order->id}: Đã hết tất cả bán kính ({$currentKm}km) → cancel ngay");
+            $this->cancelIfNoDriver($order->fresh());
             return;
         }
 
