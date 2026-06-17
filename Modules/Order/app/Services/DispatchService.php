@@ -23,7 +23,7 @@ class DispatchService
 {
     // Bán kính mở rộng theo thứ tự — chuyển sang bán kính tiếp theo khi queue cạn,
     // không phụ thuộc thời gian nữa (queue-based thay vì time-based).
-    const RADIUS_KM_STAGES = [1.0, 2.0, 3.0];
+    const RADIUS_KM_STAGES = [3.0, 6.0];
 
     const DRIVER_OFFER_SECS  = 20;   // giây mỗi tài xế có để phản hồi
     const TIMEOUT_SECS       = 600;  // 10 phút → auto-cancel nếu không ai nhận
@@ -40,7 +40,7 @@ class DispatchService
 
     const WAIT_TIME_CAP_MINS = 60;
     const RATING_COUNT_CAP   = 200;
-    const MAX_RADIUS_KM      = 3.0;
+    const MAX_RADIUS_KM      = 6.0;
     const MAX_DETOUR_KM      = 2.0;
 
     // =========================================================================
