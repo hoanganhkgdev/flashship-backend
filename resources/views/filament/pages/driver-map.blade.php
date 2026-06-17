@@ -61,7 +61,8 @@
 </div>
 
 {{-- MAP --}}
-<div class="overflow-hidden rounded-2xl border border-gray-200 shadow-sm dark:border-gray-700">
+<div class="overflow-hidden rounded-2xl border border-gray-200 shadow-sm dark:border-gray-700"
+    @meta-updated.window="updateMeta($event.detail.meta)">
     <div id="driver-map"></div>
 </div>
 
@@ -75,12 +76,19 @@
 
     // ── State ──────────────────────────────────────────────────────────────────
     let map, infoWindow;
-    const markers    = {};   // id → google.maps.Marker
-    let   allDrivers = {};   // id → driver data từ RTDB
+    const markers = {};             // driverId (int) → google.maps.Marker
+    let   rtdbGps = {};             // driverId → { lat, lng, updated_at }  ← từ Firebase
+    let   dbMeta  = @js($driversMeta); // driverId → { name, phone, city_id, is_online, score, lat, lng }
 
     // ── Firebase ───────────────────────────────────────────────────────────────
     firebase.initializeApp(FIREBASE_CONFIG);
     const rtdb = firebase.database();
+
+    // ── Livewire: cập nhật metadata khi poll 30s ───────────────────────────────
+    window.updateMeta = function(meta) {
+        dbMeta = meta;
+        renderMarkers();
+    };
 
     // ── Google Maps callback ───────────────────────────────────────────────────
     window.initMap = function () {
@@ -94,9 +102,19 @@
         });
         infoWindow = new google.maps.InfoWindow();
 
-        // Firebase real-time listener
-        rtdb.ref('drivers').on('value', snapshot => {
-            allDrivers = snapshot.val() || {};
+        // Lắng nghe real-time GPS từ Firebase
+        // Flutter ghi vào: flashship_main/locations/driver_{id}
+        rtdb.ref('flashship_main/locations').on('value', snapshot => {
+            const raw = snapshot.val() || {};
+            const newGps = {};
+            Object.entries(raw).forEach(([key, val]) => {
+                // key = "driver_42" → id = 42
+                const id = parseInt(key.replace('driver_', ''), 10);
+                if (!isNaN(id) && val.lat && val.lng) {
+                    newGps[id] = { lat: val.lat, lng: val.lng, updated_at: val.updated_at };
+                }
+            });
+            rtdbGps = newGps;
             renderMarkers();
         });
 
@@ -110,50 +128,71 @@
         const cityFilter  = document.getElementById('city-filter').value;
         const showOffline = document.getElementById('show-offline').checked;
 
+        // Tập hợp tất cả driver IDs: từ DB meta + Firebase GPS
+        const allIds = new Set([
+            ...Object.keys(dbMeta).map(Number),
+            ...Object.keys(rtdbGps).map(Number),
+        ]);
+
         let visibleCount = 0, onlineCount = 0;
 
-        // Xóa marker không còn trong data
+        // Xóa marker của driver không còn tồn tại
         Object.keys(markers).forEach(id => {
-            if (!allDrivers[id]) { markers[id].setMap(null); delete markers[id]; }
+            if (!allIds.has(Number(id))) { markers[id].setMap(null); delete markers[id]; }
         });
 
-        Object.entries(allDrivers).forEach(([id, d]) => {
-            if (!d.lat || !d.lng) return;
+        allIds.forEach(id => {
+            const meta = dbMeta[id]  || {};
+            const gps  = rtdbGps[id] || {};
 
-            const passCity   = !cityFilter || String(d.city_id) === cityFilter;
-            const passOnline = showOffline || d.is_online;
+            // Ưu tiên tọa độ từ Firebase (real-time), fallback DB
+            const lat = gps.lat ?? meta.lat;
+            const lng = gps.lng ?? meta.lng;
+            if (!lat || !lng) return;
+
+            const isOnline  = meta.is_online ?? false;
+            const cityId    = meta.city_id ?? null;
+
+            const passCity   = !cityFilter || String(cityId) === cityFilter;
+            const passOnline = showOffline || isOnline;
             const visible    = passCity && passOnline;
 
-            if (visible) { visibleCount++; if (d.is_online) onlineCount++; }
+            if (visible) { visibleCount++; if (isOnline) onlineCount++; }
+
+            const icon = makeIcon(isOnline);
 
             if (markers[id]) {
-                markers[id].setPosition({ lat: d.lat, lng: d.lng });
-                markers[id].setIcon(makeIcon(d.is_online));
+                markers[id].setPosition({ lat, lng });
+                markers[id].setIcon(icon);
                 markers[id].setVisible(visible);
-                markers[id]._d = d;
+                markers[id]._meta = meta;
+                markers[id]._gps  = gps;
             } else {
                 const m = new google.maps.Marker({
-                    position: { lat: d.lat, lng: d.lng },
+                    position: { lat, lng },
                     map,
-                    icon:    makeIcon(d.is_online),
-                    visible: visible,
-                    title:   d.name || `#${id}`,
+                    icon,
+                    visible,
+                    title: meta.name || `Tài xế #${id}`,
+                    zIndex: isOnline ? 10 : 1,
                 });
-                m._d = d;
+                m._meta = meta;
+                m._gps  = gps;
 
                 m.addListener('click', () => {
-                    const ago = m._d.updated_at
-                        ? Math.round((Date.now() / 1000 - m._d.updated_at) / 60)
-                        : null;
+                    const ago = m._gps?.updated_at
+                        ? Math.round((Date.now() - m._gps.updated_at) / 60000) + ' phút trước'
+                        : (m._meta.lat ? 'GPS từ DB' : '—');
+                    const color = m._meta.is_online ? '#22c55e' : '#94a3b8';
                     infoWindow.setContent(`
                         <div style="font-size:13px;line-height:1.8;min-width:170px;padding:2px 0">
-                            <strong style="font-size:14px">${m._d.name || '#' + id}</strong><br>
-                            <span style="background:${m._d.is_online ? '#22c55e' : '#94a3b8'};color:#fff;padding:1px 10px;border-radius:999px;font-size:11px;display:inline-block;margin-bottom:4px">
-                                ${m._d.is_online ? '🟢 Online' : '⚫ Offline'}
+                            <strong style="font-size:14px">${m._meta.name || '#' + id}</strong><br>
+                            <span style="background:${color};color:#fff;padding:1px 10px;border-radius:999px;font-size:11px;display:inline-block;margin-bottom:4px">
+                                ${m._meta.is_online ? '🟢 Online' : '⚫ Offline'}
                             </span><br>
-                            📞 ${m._d.phone || '—'}<br>
-                            ⭐ Điểm: ${m._d.driver_score ?? '—'}<br>
-                            🕐 ${ago !== null ? ago + ' phút trước' : '—'}
+                            📞 ${m._meta.phone || '—'}<br>
+                            ⭐ Điểm: ${m._meta.driver_score ?? '—'}<br>
+                            🕐 GPS: ${ago}
                         </div>`);
                     infoWindow.open(map, m);
                 });
@@ -162,18 +201,18 @@
             }
         });
 
-        document.getElementById('map-counter').textContent =
-            `${onlineCount} online · ${visibleCount} hiển thị`;
+        const counter = document.getElementById('map-counter');
+        if (counter) counter.textContent = `${onlineCount} online · ${visibleCount} hiển thị`;
     }
 
     function makeIcon(isOnline) {
         return {
-            path:          google.maps.SymbolPath.CIRCLE,
-            fillColor:     isOnline ? '#22c55e' : '#94a3b8',
-            fillOpacity:   1,
-            strokeColor:   '#fff',
-            strokeWeight:  2,
-            scale:         isOnline ? 9 : 7,
+            path:         google.maps.SymbolPath.CIRCLE,
+            fillColor:    isOnline ? '#22c55e' : '#94a3b8',
+            fillOpacity:  1,
+            strokeColor:  '#fff',
+            strokeWeight: 2,
+            scale:        isOnline ? 9 : 7,
         };
     }
 

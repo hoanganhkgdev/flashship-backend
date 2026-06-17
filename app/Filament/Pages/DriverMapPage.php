@@ -15,8 +15,9 @@ class DriverMapPage extends Page
 
     protected static string $view = 'filament.pages.driver-map';
 
-    public array $stats  = [];
-    public array $cities = [];
+    public array $stats        = [];
+    public array $cities       = [];
+    public array $driversMeta  = []; // id → {name, phone, score, is_online, city_id}
 
     public function mount(): void
     {
@@ -26,6 +27,7 @@ class DriverMapPage extends Page
             ->toArray();
 
         $this->loadStats();
+        $this->loadDriversMeta();
     }
 
     public function loadStats(): void
@@ -45,6 +47,31 @@ class DriverMapPage extends Page
             $map[$n][$row->is_online ? 'online' : 'offline'] += $row->cnt;
         }
         $this->stats = $map;
+    }
+
+    public function loadDriversMeta(): void
+    {
+        $drivers = DB::table('users')
+            ->where('user_type', 'driver')
+            ->where('status', 1)
+            ->select('id', 'name', 'phone', 'city_id', 'is_online', 'driver_score', 'latitude', 'longitude')
+            ->get();
+
+        $meta = [];
+        foreach ($drivers as $d) {
+            $meta[$d->id] = [
+                'name'         => $d->name ?? '',
+                'phone'        => $d->phone ?? '',
+                'city_id'      => $d->city_id,
+                'is_online'    => (bool) $d->is_online,
+                'driver_score' => (int) ($d->driver_score ?? 100),
+                // Tọa độ DB dùng làm fallback nếu RTDB chưa có
+                'lat'          => $d->latitude  ? (float) $d->latitude  : null,
+                'lng'          => $d->longitude ? (float) $d->longitude : null,
+            ];
+        }
+        $this->driversMeta = $meta;
+        $this->dispatch('metaUpdated', meta: $meta);
     }
 
     public function getGoogleMapsKey(): string
