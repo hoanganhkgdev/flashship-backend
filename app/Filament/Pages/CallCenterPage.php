@@ -13,6 +13,7 @@ use Filament\Forms\Components\Textarea;
 use Filament\Notifications\Notification;
 use Illuminate\Support\Facades\DB;
 use Gemini\Laravel\Facades\Gemini;
+use Modules\Core\Services\GoogleMapService;
 use Modules\Order\Models\Order;
 use Modules\Order\Services\OrderService;
 use Modules\Pricing\Services\PricingService;
@@ -221,14 +222,21 @@ PROMPT;
         }
 
         try {
-            // Tính phí vận chuyển từ địa chỉ text
-            $pricing     = PricingService::estimateFromAddresses(
-                'delivery',
-                $values['pickup_address'],
-                $values['delivery_address'],
-                null,
-                $cityId
-            );
+            // Geocode 2 địa chỉ song song để lấy tọa độ + tính phí
+            $pickupGeo   = GoogleMapService::geocode($values['pickup_address']);
+            $deliveryGeo = GoogleMapService::geocode($values['delivery_address']);
+
+            if ($pickupGeo && $deliveryGeo) {
+                $pricing = PricingService::estimateFromCoords(
+                    'delivery',
+                    $pickupGeo['lat'],  $pickupGeo['lng'],
+                    $deliveryGeo['lat'], $deliveryGeo['lng'],
+                    $cityId
+                );
+            } else {
+                $pricing = PricingService::estimate('delivery', 3.0, $cityId);
+                $pricing['geocode_failed'] = true;
+            }
             $shippingFee = $pricing['fee'] ?? 0;
 
             $order = Order::create([
@@ -243,14 +251,19 @@ PROMPT;
                 'payment_method'     => 'cod',
                 'sender_platform_id' => null,
                 'pickup_address'     => $values['pickup_address'],
-                'pickup_phone'       => $values['pickup_phone']    ?: null,
-                'sender_name'        => $values['pickup_name']     ?: null,
+                'pickup_lat'         => $pickupGeo['lat']   ?? null,
+                'pickup_lng'         => $pickupGeo['lng']   ?? null,
+                'pickup_phone'       => $values['pickup_phone']  ?: null,
+                'sender_name'        => $values['pickup_name']   ?: null,
                 'delivery_address'   => $values['delivery_address'],
+                'delivery_lat'       => $deliveryGeo['lat'] ?? null,
+                'delivery_lng'       => $deliveryGeo['lng'] ?? null,
                 'delivery_phone'     => $values['delivery_phone'],
-                'receiver_name'      => $values['delivery_name']   ?: null,
-                'order_note'         => $values['order_note']      ?: null,
+                'receiver_name'      => $values['delivery_name'] ?: null,
+                'order_note'         => $values['order_note']    ?: null,
                 'cod_amount'         => $values['cod_amount'] ? (int) $values['cod_amount'] : null,
-                'store_name'         => $values['pickup_name']     ?: null,
+                'store_name'         => $values['pickup_name']   ?: null,
+                'distance'           => $pricing['distance_km']  ?? null,
             ]);
 
             app(OrderService::class)->dispatchNewOrder($order->id);
