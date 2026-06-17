@@ -137,6 +137,22 @@ class CallCenterPage extends Page implements HasForms
         ])->statePath('data');
     }
 
+    // ─── Helpers ─────────────────────────────────────────────────────────────
+
+    private function cityName(): ?string
+    {
+        $cityId = $this->data['city_id'] ?? null;
+        if (!$cityId) return null;
+        return DB::table('cities')->where('id', $cityId)->value('name');
+    }
+
+    /** Append tên thành phố vào địa chỉ nếu chưa có */
+    private function withCity(string $address, ?string $cityName): string
+    {
+        if (!$cityName || mb_stripos($address, $cityName) !== false) return $address;
+        return $address . ', ' . $cityName;
+    }
+
     // ─── AI Parsing ──────────────────────────────────────────────────────────
 
     public function parseWithAI(): void
@@ -148,6 +164,11 @@ class CallCenterPage extends Page implements HasForms
         }
 
         $this->aiStatus = '⏳ Đang phân tích...';
+
+        $cityName    = $this->cityName();
+        $cityHint    = $cityName
+            ? "- Khu vực đặt đơn là: {$cityName}. Nếu địa chỉ không có tên thành phố/tỉnh, hãy tự thêm \", {$cityName}\" vào cuối."
+            : '- Giữ nguyên địa chỉ như trong text.';
 
         $prompt = <<<PROMPT
 Bạn là trợ lý đặt đơn giao hàng. Phân tích đoạn text và trả về JSON thuần (không markdown, không ```).
@@ -171,6 +192,7 @@ JSON cần trả về:
 Quy tắc:
 - cargo_type chỉ được là: "food", "parcel", hoặc "flowers"
 - cod_amount là số nguyên hoặc null
+{$cityHint}
 - Chỉ trả về JSON thuần
 PROMPT;
 
@@ -227,8 +249,9 @@ PROMPT;
         $this->previewFee      = null;
         $this->previewDistance = null;
 
-        $pickupGeo   = GoogleMapService::geocode($pickup);
-        $deliveryGeo = GoogleMapService::geocode($delivery);
+        $cityName    = $this->cityName();
+        $pickupGeo   = GoogleMapService::geocode($this->withCity($pickup, $cityName));
+        $deliveryGeo = GoogleMapService::geocode($this->withCity($delivery, $cityName));
 
         if ($pickupGeo && $deliveryGeo) {
             $pricing = PricingService::estimateFromCoords(
@@ -264,9 +287,10 @@ PROMPT;
         }
 
         try {
-            // Geocode 2 địa chỉ song song để lấy tọa độ + tính phí
-            $pickupGeo   = GoogleMapService::geocode($values['pickup_address']);
-            $deliveryGeo = GoogleMapService::geocode($values['delivery_address']);
+            // Geocode 2 địa chỉ — append tên thành phố nếu địa chỉ chưa có
+            $cityName    = $this->cityName();
+            $pickupGeo   = GoogleMapService::geocode($this->withCity($values['pickup_address'], $cityName));
+            $deliveryGeo = GoogleMapService::geocode($this->withCity($values['delivery_address'], $cityName));
 
             if ($pickupGeo && $deliveryGeo) {
                 $pricing = PricingService::estimateFromCoords(
