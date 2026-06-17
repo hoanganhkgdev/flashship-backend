@@ -4,7 +4,7 @@
     #driver-map { height: 580px; width: 100%; border-radius: 1rem; }
 </style>
 
-{{-- STATS BAR --}}
+{{-- STATS BAR: Livewire re-render bình thường --}}
 <div class="mb-5 grid grid-cols-2 gap-4 sm:grid-cols-4" wire:poll.30000ms="loadStats">
     @foreach ($stats as $cityName => $s)
     <div class="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-900">
@@ -27,7 +27,7 @@
 {{-- TOOLBAR --}}
 <div class="mb-3 flex flex-wrap items-center gap-3">
     <select id="city-filter"
-        class="rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-200 dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200">
+        class="rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:outline-none dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200">
         <option value="">Tất cả khu vực</option>
         @foreach ($cities as $city)
             <option value="{{ $city['id'] }}">{{ $city['name'] }}</option>
@@ -52,41 +52,62 @@
     </div>
 </div>
 
-{{-- MAP --}}
-<div class="overflow-hidden rounded-2xl border border-gray-200 shadow-sm dark:border-gray-700"
-    @meta-updated.window="updateMeta($event.detail.meta)">
+{{-- MAP: wire:ignore — Livewire không được đụng vào đây --}}
+<div wire:ignore class="overflow-hidden rounded-2xl border border-gray-200 shadow-sm dark:border-gray-700">
     <div id="driver-map"></div>
 </div>
 
-{{-- CONFIG inline — trước khi load SDK --}}
+{{-- Config ban đầu — chỉ set nếu chưa init --}}
 <script>
-    window._driverMapConfig = {
-        firebase:    {!! json_encode($this->getFirebaseConfig()) !!},
-        mapsKey:     {!! json_encode($this->getGoogleMapsKey()) !!},
-        driversMeta: {!! json_encode($driversMeta) !!},
-    };
+    if (!window._mapReady) {
+        window._mapCfg = {
+            firebase:    {!! json_encode($this->getFirebaseConfig()) !!},
+            mapsKey:     {!! json_encode($this->getGoogleMapsKey()) !!},
+            driversMeta: {!! json_encode($driversMeta) !!},
+        };
+    }
 </script>
 
-{{-- Firebase SDK --}}
-<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
-
-{{-- Map logic --}}
+{{-- Firebase + Maps SDK (chỉ load 1 lần) --}}
+@if (!app()->runningInConsole())
 <script>
-(function () {
-    const { firebase: FBConfig, mapsKey: MAPS_KEY, driversMeta: initialMeta } = window._driverMapConfig;
+if (!window._mapReady) {
+    // Firebase
+    var s1 = document.createElement('script');
+    s1.src = 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js';
+    s1.onload = function() {
+        var s2 = document.createElement('script');
+        s2.src = 'https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js';
+        s2.onload = function() {
+            // Google Maps
+            var s3 = document.createElement('script');
+            s3.src = 'https://maps.googleapis.com/maps/api/js?key=' + window._mapCfg.mapsKey + '&callback=_initDriverMap&loading=async';
+            s3.async = true;
+            document.head.appendChild(s3);
+        };
+        document.head.appendChild(s2);
+    };
+    document.head.appendChild(s1);
 
-    let map, infoWindow;
-    const markers = {};
-    let   rtdbGps = {};
-    let   dbMeta  = initialMeta;
+    window._initDriverMap = function () {
+        window._mapReady = true;
 
-    firebase.initializeApp(FBConfig);
-    const rtdb = firebase.database();
+        var cfg     = window._mapCfg;
+        var map, infoWindow;
+        var markers = {};
+        var rtdbGps = {};
+        var dbMeta  = cfg.driversMeta;
 
-    window.updateMeta = function (meta) { dbMeta = meta; renderMarkers(); };
+        // Firebase init
+        if (!firebase.apps.length) firebase.initializeApp(cfg.firebase);
+        var rtdb = firebase.database();
 
-    window.initMap = function () {
+        // Livewire event → update metadata
+        window.addEventListener('meta-updated', function(e) {
+            dbMeta = e.detail.meta;
+            renderMarkers();
+        });
+
         map = new google.maps.Map(document.getElementById('driver-map'), {
             center: { lat: 10.0341, lng: 105.7225 },
             zoom: 13,
@@ -97,11 +118,13 @@
         });
         infoWindow = new google.maps.InfoWindow();
 
-        rtdb.ref('flashship_main/locations').on('value', snapshot => {
-            const raw = snapshot.val() || {};
-            const newGps = {};
-            Object.entries(raw).forEach(([key, val]) => {
-                const id = parseInt(key.replace('driver_', ''), 10);
+        // Firebase real-time GPS
+        rtdb.ref('flashship_main/locations').on('value', function(snapshot) {
+            var raw = snapshot.val() || {};
+            var newGps = {};
+            Object.entries(raw).forEach(function(entry) {
+                var key = entry[0], val = entry[1];
+                var id = parseInt(key.replace('driver_', ''), 10);
                 if (!isNaN(id) && val.lat && val.lng) {
                     newGps[id] = { lat: val.lat, lng: val.lng, updated_at: val.updated_at };
                 }
@@ -112,86 +135,85 @@
 
         document.getElementById('city-filter').addEventListener('change', renderMarkers);
         document.getElementById('show-offline').addEventListener('change', renderMarkers);
+
+        function renderMarkers() {
+            if (!map) return;
+            var cityFilter  = document.getElementById('city-filter').value;
+            var showOffline = document.getElementById('show-offline').checked;
+
+            var allIds = new Set(
+                Object.keys(dbMeta).map(Number).concat(Object.keys(rtdbGps).map(Number))
+            );
+
+            Object.keys(markers).forEach(function(id) {
+                if (!allIds.has(Number(id))) { markers[id].setMap(null); delete markers[id]; }
+            });
+
+            var visibleCount = 0, onlineCount = 0;
+
+            allIds.forEach(function(id) {
+                var meta = dbMeta[id]  || {};
+                var gps  = rtdbGps[id] || {};
+                var lat  = gps.lat  != null ? gps.lat  : meta.lat;
+                var lng  = gps.lng  != null ? gps.lng  : meta.lng;
+                if (!lat || !lng) return;
+
+                var isOnline = meta.is_online || false;
+                var passCity   = !cityFilter || String(meta.city_id) === cityFilter;
+                var passOnline = showOffline || isOnline;
+                var visible    = passCity && passOnline;
+
+                if (visible) { visibleCount++; if (isOnline) onlineCount++; }
+
+                var icon = {
+                    path:         google.maps.SymbolPath.CIRCLE,
+                    fillColor:    isOnline ? '#22c55e' : '#94a3b8',
+                    fillOpacity:  1,
+                    strokeColor:  '#fff',
+                    strokeWeight: 2,
+                    scale:        isOnline ? 9 : 7,
+                };
+
+                if (markers[id]) {
+                    markers[id].setPosition({ lat: lat, lng: lng });
+                    markers[id].setIcon(icon);
+                    markers[id].setVisible(visible);
+                    markers[id]._meta = meta;
+                    markers[id]._gps  = gps;
+                } else {
+                    var m = new google.maps.Marker({
+                        position: { lat: lat, lng: lng },
+                        map: map, icon: icon, visible: visible,
+                        title: meta.name || ('#' + id),
+                        zIndex: isOnline ? 10 : 1,
+                    });
+                    m._meta = meta; m._gps = gps;
+                    m.addListener('click', function() {
+                        var ago = m._gps && m._gps.updated_at
+                            ? Math.round((Date.now() - m._gps.updated_at) / 60000) + ' phút trước'
+                            : 'GPS từ DB';
+                        var color = m._meta.is_online ? '#22c55e' : '#94a3b8';
+                        infoWindow.setContent(
+                            '<div style="font-size:13px;line-height:1.8;min-width:170px;padding:2px 0">' +
+                            '<strong style="font-size:14px">' + (m._meta.name || '#' + id) + '</strong><br>' +
+                            '<span style="background:' + color + ';color:#fff;padding:1px 10px;border-radius:999px;font-size:11px;display:inline-block;margin-bottom:4px">' +
+                            (m._meta.is_online ? '🟢 Online' : '⚫ Offline') + '</span><br>' +
+                            '📞 ' + (m._meta.phone || '—') + '<br>' +
+                            '⭐ Điểm: ' + (m._meta.driver_score != null ? m._meta.driver_score : '—') + '<br>' +
+                            '🕐 GPS: ' + ago + '</div>'
+                        );
+                        infoWindow.open(map, m);
+                    });
+                    markers[id] = m;
+                }
+            });
+
+            var el = document.getElementById('map-counter');
+            if (el) el.textContent = onlineCount + ' online · ' + visibleCount + ' hiển thị';
+        }
     };
-
-    function renderMarkers() {
-        if (!map) return;
-        const cityFilter  = document.getElementById('city-filter').value;
-        const showOffline = document.getElementById('show-offline').checked;
-
-        const allIds = new Set([
-            ...Object.keys(dbMeta).map(Number),
-            ...Object.keys(rtdbGps).map(Number),
-        ]);
-
-        Object.keys(markers).forEach(id => {
-            if (!allIds.has(Number(id))) { markers[id].setMap(null); delete markers[id]; }
-        });
-
-        let visibleCount = 0, onlineCount = 0;
-
-        allIds.forEach(id => {
-            const meta = dbMeta[id]  || {};
-            const gps  = rtdbGps[id] || {};
-            const lat  = gps.lat  ?? meta.lat;
-            const lng  = gps.lng  ?? meta.lng;
-            if (!lat || !lng) return;
-
-            const isOnline = meta.is_online ?? false;
-            const passCity   = !cityFilter || String(meta.city_id) === cityFilter;
-            const passOnline = showOffline || isOnline;
-            const visible    = passCity && passOnline;
-
-            if (visible) { visibleCount++; if (isOnline) onlineCount++; }
-
-            const icon = {
-                path:         google.maps.SymbolPath.CIRCLE,
-                fillColor:    isOnline ? '#22c55e' : '#94a3b8',
-                fillOpacity:  1,
-                strokeColor:  '#fff',
-                strokeWeight: 2,
-                scale:        isOnline ? 9 : 7,
-            };
-
-            if (markers[id]) {
-                markers[id].setPosition({ lat, lng });
-                markers[id].setIcon(icon);
-                markers[id].setVisible(visible);
-                markers[id]._meta = meta;
-                markers[id]._gps  = gps;
-            } else {
-                const m = new google.maps.Marker({ position: { lat, lng }, map, icon, visible, title: meta.name || `#${id}`, zIndex: isOnline ? 10 : 1 });
-                m._meta = meta; m._gps = gps;
-                m.addListener('click', () => {
-                    const ago = m._gps?.updated_at
-                        ? Math.round((Date.now() - m._gps.updated_at) / 60000) + ' phút trước'
-                        : 'GPS từ DB';
-                    const color = m._meta.is_online ? '#22c55e' : '#94a3b8';
-                    infoWindow.setContent(`
-                        <div style="font-size:13px;line-height:1.8;min-width:170px;padding:2px 0">
-                            <strong style="font-size:14px">${m._meta.name || '#' + id}</strong><br>
-                            <span style="background:${color};color:#fff;padding:1px 10px;border-radius:999px;font-size:11px;display:inline-block;margin-bottom:4px">
-                                ${m._meta.is_online ? '🟢 Online' : '⚫ Offline'}
-                            </span><br>
-                            📞 ${m._meta.phone || '—'}<br>
-                            ⭐ Điểm: ${m._meta.driver_score ?? '—'}<br>
-                            🕐 GPS: ${ago}
-                        </div>`);
-                    infoWindow.open(map, m);
-                });
-                markers[id] = m;
-            }
-        });
-
-        const el = document.getElementById('map-counter');
-        if (el) el.textContent = `${onlineCount} online · ${visibleCount} hiển thị`;
-    }
-
-    const s = document.createElement('script');
-    s.src   = `https://maps.googleapis.com/maps/api/js?key=${MAPS_KEY}&callback=initMap&loading=async`;
-    s.async = true;
-    document.head.appendChild(s);
-})();
+}
 </script>
+@endif
 
 </x-filament-panels::page>
