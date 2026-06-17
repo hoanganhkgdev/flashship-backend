@@ -96,6 +96,8 @@ class DriverController extends Controller
             DriverGeoService::removeDriver($user->id, $user->city_id);
         }
 
+        RTDBService::setDriverOnlineStatus($user->id, (bool) $user->is_online);
+
         return response()->json([
             'success'              => true,
             'message'             => $user->is_online ? 'Bạn đang online' : 'Bạn đang offline',
@@ -123,6 +125,16 @@ class DriverController extends Controller
         if ($driver->city_id) {
             DriverGeoService::updateLocation($driver->id, $driver->city_id, $data['latitude'], $data['longitude']);
         }
+
+        RTDBService::updateDriverLocation($driver->id, [
+            'lat'          => (float) $data['latitude'],
+            'lng'          => (float) $data['longitude'],
+            'bearing'      => isset($data['bearing']) ? (float) $data['bearing'] : null,
+            'city_id'      => $driver->city_id,
+            'name'         => $driver->name,
+            'phone'        => $driver->phone,
+            'driver_score' => (int) ($driver->driver_score ?? 100),
+        ]);
 
         return response()->json(['success' => true]);
     }

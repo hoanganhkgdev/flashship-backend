@@ -10,15 +10,13 @@ class DriverMapPage extends Page
     protected static ?string $navigationIcon  = 'heroicon-o-map-pin';
     protected static ?string $navigationGroup = 'Vận hành';
     protected static ?string $navigationLabel = 'Bản đồ tài xế';
-    protected static ?string $title           = 'Bản đồ tài xế — Theo dõi vị trí';
+    protected static ?string $title           = 'Bản đồ tài xế — Theo dõi real-time';
     protected static ?int    $navigationSort  = 11;
 
     protected static string $view = 'filament.pages.driver-map';
 
-    public ?int   $cityId  = null;
-    public array  $drivers = [];
-    public array  $stats   = [];
-    public array  $cities  = [];
+    public array $stats  = [];
+    public array $cities = [];
 
     public function mount(): void
     {
@@ -27,42 +25,11 @@ class DriverMapPage extends Page
             ->map(fn($c) => ['id' => $c->id, 'name' => $c->name])
             ->toArray();
 
-        $this->loadDrivers();
+        $this->loadStats();
     }
 
-    public function updatedCityId(): void
+    public function loadStats(): void
     {
-        $this->loadDrivers();
-    }
-
-    public function loadDrivers(): void
-    {
-        $query = DB::table('users')
-            ->where('user_type', 'driver')
-            ->where('status', 1)
-            ->whereNotNull('latitude')
-            ->whereNotNull('longitude');
-
-        if ($this->cityId) {
-            $query->where('city_id', $this->cityId);
-        }
-
-        $this->drivers = $query
-            ->select('id', 'name', 'phone', 'city_id', 'is_online', 'latitude', 'longitude', 'driver_score')
-            ->get()
-            ->map(fn($d) => [
-                'id'           => $d->id,
-                'name'         => $d->name ?? '',
-                'phone'        => $d->phone ?? '',
-                'is_online'    => (bool) $d->is_online,
-                'lat'          => (float) $d->latitude,
-                'lng'          => (float) $d->longitude,
-                'driver_score' => (int) ($d->driver_score ?? 100),
-            ])
-            ->values()
-            ->toArray();
-
-        // Thống kê theo khu vực
         $rows = DB::table('users')
             ->where('user_type', 'driver')
             ->where('status', 1)
@@ -71,29 +38,26 @@ class DriverMapPage extends Page
             ->get();
 
         $cityNames = DB::table('cities')->pluck('name', 'id');
-        $statsMap  = [];
+        $map = [];
         foreach ($rows as $row) {
             $n = $cityNames[$row->city_id] ?? '?';
-            if (!isset($statsMap[$n])) $statsMap[$n] = ['online' => 0, 'offline' => 0, 'no_location' => 0];
-            $statsMap[$n][$row->is_online ? 'online' : 'offline'] += $row->cnt;
+            if (!isset($map[$n])) $map[$n] = ['online' => 0, 'offline' => 0];
+            $map[$n][$row->is_online ? 'online' : 'offline'] += $row->cnt;
         }
+        $this->stats = $map;
+    }
 
-        // Đếm tài xế không có tọa độ
-        $noLocation = DB::table('users')
-            ->where('user_type', 'driver')
-            ->where('status', 1)
-            ->where(fn($q) => $q->whereNull('latitude')->orWhereNull('longitude'))
-            ->select('city_id', DB::raw('COUNT(*) as cnt'))
-            ->groupBy('city_id')
-            ->get();
-        foreach ($noLocation as $row) {
-            $n = $cityNames[$row->city_id] ?? '?';
-            if (!isset($statsMap[$n])) $statsMap[$n] = ['online' => 0, 'offline' => 0, 'no_location' => 0];
-            $statsMap[$n]['no_location'] += $row->cnt;
-        }
+    public function getGoogleMapsKey(): string
+    {
+        return config('services.google_maps.api_key', '');
+    }
 
-        $this->stats = $statsMap;
-
-        $this->dispatch('driversUpdated', drivers: $this->drivers);
+    public function getFirebaseConfig(): array
+    {
+        return [
+            'apiKey'      => 'AIzaSyDSYWeYYO9oPK5I2HAkJ145eRp36WwnYaI',
+            'projectId'   => 'flashship-app',
+            'databaseURL' => config('services.firebase.database_url'),
+        ];
     }
 }

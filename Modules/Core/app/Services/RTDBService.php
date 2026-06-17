@@ -86,4 +86,41 @@ class RTDBService
             Log::error('[RTDB] clearDriverOffer failed: ' . $e->getMessage());
         }
     }
+
+    /**
+     * Cập nhật vị trí GPS tài xế lên RTDB — admin map đọc real-time.
+     */
+    public static function updateDriverLocation(int $driverId, array $data): void
+    {
+        try {
+            self::db()->getReference("drivers/{$driverId}")->update(array_filter([
+                'lat'          => $data['lat'],
+                'lng'          => $data['lng'],
+                'bearing'      => $data['bearing'] ?? null,
+                'is_online'    => true,
+                'city_id'      => $data['city_id'] ?? null,
+                'name'         => $data['name'] ?? null,
+                'phone'        => $data['phone'] ?? null,
+                'driver_score' => $data['driver_score'] ?? null,
+                'updated_at'   => time(),
+            ], fn($v) => $v !== null));
+        } catch (\Throwable $e) {
+            Log::error('[RTDB] updateDriverLocation failed: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Cập nhật trạng thái online/offline của tài xế trên RTDB.
+     */
+    public static function setDriverOnlineStatus(int $driverId, bool $isOnline): void
+    {
+        try {
+            self::db()->getReference("drivers/{$driverId}")->update([
+                'is_online'  => $isOnline,
+                'updated_at' => time(),
+            ]);
+        } catch (\Throwable $e) {
+            Log::error('[RTDB] setDriverOnlineStatus failed: ' . $e->getMessage());
+        }
+    }
 }
