@@ -47,6 +47,9 @@ class DriverMapPage extends Page
             $map[$n][$row->is_online ? 'online' : 'offline'] += $row->cnt;
         }
         $this->stats = $map;
+
+        // Gửi metadata mới lên JS qua event (map đang chạy bên wire:ignore)
+        $this->loadDriversMeta();
     }
 
     public function loadDriversMeta(): void
