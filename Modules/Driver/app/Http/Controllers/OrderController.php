@@ -5,6 +5,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\DB;
+use Modules\Core\Services\RTDBService;
 use Modules\Order\Jobs\DispatchOrderJob;
 use Modules\Order\Models\Order;
 use Modules\Order\Models\OrderDispatchLog;
@@ -70,14 +71,19 @@ class OrderController extends Controller
 
         // Đặt offer_viewed_at để callkit-timeout job biết driver đã mở app
         if ($order->offer_viewed_at === null) {
+            $expiresAt = now()->addSeconds(DispatchService::APP_DECISION_SECS);
+
             DB::table('orders')->where('id', $order->id)->update([
                 'offer_viewed_at' => now(),
                 'updated_at'      => now(),
             ]);
 
-            // Dispatch job mới đếm 30s từ lúc driver MỞ APP (không phải từ lúc dispatch)
+            // Reset đồng hồ RTDB về APP_DECISION_SECS — giống ShopeeFood
+            RTDBService::updateDriverOfferExpiry($driver->id, $expiresAt->timestamp);
+
+            // Job timeout tính từ lúc driver MỞ APP, dùng APP_DECISION_SECS (30s)
             DispatchOrderJob::dispatch($order->id, $driver->id, true)
-                ->delay(now()->addSeconds(app(DispatchService::class)::DRIVER_OFFER_SECS));
+                ->delay($expiresAt);
         }
 
         return response()->json(['success' => true], 200);

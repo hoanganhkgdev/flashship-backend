@@ -76,6 +76,20 @@ class RTDBService
     }
 
     /**
+     * Cập nhật expires_at khi driver mở app — đồng hồ đếm ngược reset về APP_DECISION_SECS.
+     */
+    public static function updateDriverOfferExpiry(int $driverId, int $expiresAt): void
+    {
+        try {
+            self::db()->getReference("dispatch/driver_{$driverId}/offer")->update([
+                'expires_at' => $expiresAt,
+            ]);
+        } catch (\Throwable $e) {
+            Log::error('[RTDB] updateDriverOfferExpiry failed: ' . $e->getMessage());
+        }
+    }
+
+    /**
      * Xóa offer (timeout, accept, decline, customer cancel).
      */
     public static function clearDriverOffer(int $driverId): void

@@ -25,7 +25,8 @@ class DispatchService
     // không phụ thuộc thời gian nữa (queue-based thay vì time-based).
     const RADIUS_KM_STAGES = [3.0, 6.0];
 
-    const DRIVER_OFFER_SECS  = 20;   // giây mỗi tài xế có để phản hồi
+    const DRIVER_OFFER_SECS  = 20;   // giây để mở app (trước khi offer_viewed_at set)
+    const APP_DECISION_SECS  = 30;   // giây để đọc & quyết định SAU KHI mở app (như ShopeeFood)
     const TIMEOUT_SECS       = 600;  // 10 phút → auto-cancel nếu không ai nhận
     const RETRY_SCAN_SECS    = 20;   // có tài xế trong GEO nhưng đang bận → quét lại sau 20s
     const FCM_TTL_SECS       = 20;
