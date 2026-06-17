@@ -16,7 +16,7 @@ use Gemini\Laravel\Facades\Gemini;
 use Modules\Core\Services\GoogleMapService;
 use Modules\Order\Models\Order;
 use Modules\Order\Services\OrderService;
-use Modules\Pricing\Services\PricingService;
+use Modules\Shop\Services\ShopPricingService;
 
 class CallCenterPage extends Page implements HasForms
 {
@@ -259,11 +259,12 @@ PROMPT;
         $deliveryGeo = GoogleMapService::geocode($this->withCity($delivery, $cityName));
 
         if ($pickupGeo && $deliveryGeo) {
-            $pricing = PricingService::estimateFromCoords(
-                'delivery',
+            $cargoType = $this->data['cargo_type'] ?? 'parcel';
+            $pricing = ShopPricingService::estimateFromCoords(
+                $cargoType,
                 $pickupGeo['lat'],   $pickupGeo['lng'],
                 $deliveryGeo['lat'], $deliveryGeo['lng'],
-                $cityId
+                null, $cityId
             );
             $this->previewFee      = $pricing['fee'];
             $this->previewDistance = number_format($pricing['distance_km'], 1) . ' km';
@@ -297,15 +298,16 @@ PROMPT;
             $pickupGeo   = GoogleMapService::geocode($this->withCity($values['pickup_address'], $cityName));
             $deliveryGeo = GoogleMapService::geocode($this->withCity($values['delivery_address'], $cityName));
 
+            $cargoType = $values['cargo_type'] ?? 'parcel';
             if ($pickupGeo && $deliveryGeo) {
-                $pricing = PricingService::estimateFromCoords(
-                    'delivery',
+                $pricing = ShopPricingService::estimateFromCoords(
+                    $cargoType,
                     $pickupGeo['lat'],  $pickupGeo['lng'],
                     $deliveryGeo['lat'], $deliveryGeo['lng'],
-                    $cityId
+                    null, $cityId
                 );
             } else {
-                $pricing = PricingService::estimate('delivery', 3.0, $cityId);
+                $pricing = ShopPricingService::estimate($cargoType, 3.0, null, $cityId);
                 $pricing['geocode_failed'] = true;
             }
             $shippingFee = $pricing['fee'] ?? 0;

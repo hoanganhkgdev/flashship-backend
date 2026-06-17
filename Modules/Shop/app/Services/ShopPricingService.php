@@ -31,6 +31,15 @@ class ShopPricingService
 
     // ── Public API ─────────────────────────────────────────────────────────────
 
+    public static function estimate(
+        string $cargoType,
+        float $km,
+        ?float $cargoWeightKg = null,
+        ?int $cityId = null
+    ): array {
+        return self::calculate($cargoType, $km, $cargoWeightKg, $cityId);
+    }
+
     public static function estimateFromCoords(
         string $cargoType,
         float $pickupLat, float $pickupLng,
