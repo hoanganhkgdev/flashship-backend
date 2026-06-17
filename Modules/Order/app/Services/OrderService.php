@@ -145,6 +145,9 @@ class OrderService
             return ['success' => false, 'message' => 'Đơn đã có người nhận trước bạn.', 'status' => 409];
         }
 
+        // Reset online_since để wait-time bonus tính từ lần nhận đơn gần nhất
+        DB::table('users')->where('id', $user->id)->update(['online_since' => now()]);
+
         $orderId   = $order->id;
         $userId    = $user->id;
         $orderCode = $order->code;

@@ -23,13 +23,8 @@ class RetryDispatchJob implements ShouldQueue
         $order = Order::find($this->orderId);
         if (!$order || $order->status !== 'pending') return;
 
-        // Nếu đang có offer chờ phản hồi (do lần quét trước đã tìm thấy ứng viên
-        // sau khi job này được lên lịch) thì bỏ qua — chuỗi timeout của offer đó sẽ tự tiếp tục.
-        $hasPendingOffer = OrderDispatchLog::where('order_id', $order->id)
-            ->where('result', 'pending')
-            ->exists();
-        if ($hasPendingOffer) return;
-
-        $dispatch->sendToNextDriver($order);
+        // Quét lại cùng bán kính — dành cho trường hợp có tài xế trong GEO nhưng
+        // đang bận/nhận offer khác. retryCurrentRadius kiểm tra pending offer bên trong.
+        $dispatch->retryCurrentRadius($order);
     }
 }
