@@ -206,6 +206,30 @@ class FCMService
     }
 
     /**
+     * Thông báo cho khách biết hệ thống đang tìm tài xế.
+     */
+    public function sendSearchingDriver(string $fcmToken, string $orderCode): void
+    {
+        $this->send($fcmToken, [
+            'title' => "Đơn $orderCode",
+            'body'  => 'Đang tìm tài xế gần bạn...',
+            'data'  => ['type' => 'dispatch_searching', 'order_code' => $orderCode],
+        ]);
+    }
+
+    /**
+     * Thông báo cho khách khi hệ thống mở rộng tìm kiếm sang bán kính lớn hơn.
+     */
+    public function sendExpandingSearch(string $fcmToken, string $orderCode): void
+    {
+        $this->send($fcmToken, [
+            'title' => "Đơn $orderCode",
+            'body'  => 'Đang mở rộng tìm kiếm tài xế...',
+            'data'  => ['type' => 'dispatch_expanding', 'order_code' => $orderCode],
+        ]);
+    }
+
+    /**
      * Gửi thông báo cập nhật trạng thái đơn cho khách hàng.
      */
     public function sendOrderStatusUpdate(string $fcmToken, string $orderCode, string $status): void

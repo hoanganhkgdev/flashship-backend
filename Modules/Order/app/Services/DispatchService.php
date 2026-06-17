@@ -120,6 +120,8 @@ class DispatchService
         DB::table('orders')->where('id', $order->id)->update(['dispatch_started_at' => $now]);
         $order->dispatch_started_at = $now;
 
+        $this->notifyCustomer($order, 'searching');
+
         AutoCancelOrderJob::dispatch($order->id)->delay($now->copy()->addSeconds(self::TIMEOUT_SECS));
 
         $this->buildQueueAndSend($order, self::RADIUS_KM_STAGES[0]);
@@ -388,6 +390,7 @@ class DispatchService
         }
 
         Log::info("╟── [Dispatch] Đơn #{$order->id}: [{$currentKm}km] → mở sang {$nextKm}km");
+        $this->notifyCustomer($order, 'expanding');
         $this->buildQueueAndSend($order->fresh(), $nextKm);
     }
 
@@ -627,6 +630,23 @@ class DispatchService
         return $sorted;
     }
 
+    private function notifyCustomer(Order $order, string $type): void
+    {
+        $customer = User::find($order->sender_platform_id);
+        if (!$customer?->fcm_token) return;
+
+        try {
+            $fcm = FCMService::getInstance();
+            match ($type) {
+                'searching' => $fcm->sendSearchingDriver($customer->fcm_token, $order->code),
+                'expanding' => $fcm->sendExpandingSearch($customer->fcm_token, $order->code),
+                default     => null,
+            };
+        } catch (\Throwable $e) {
+            Log::error("[Dispatch] notifyCustomer {$type} failed: " . $e->getMessage());
+        }
+    }
+
     /**
      * Fallback khi Redis GEO trống — truy vấn DB dùng Haversine.
      * Dành cho tài xế vừa online chưa kịp gửi GPS lần đầu.
@@ -649,6 +669,7 @@ class DispatchService
                 ->where('city_id', $cityId)
                 ->whereNotNull('latitude')
                 ->whereNotNull('longitude')
+                ->where('updated_at', '>=', now()->subHours(2))
                 ->having('distance_km', '<=', $radiusKm)
                 ->orderBy('distance_km')
                 ->limit(100)
