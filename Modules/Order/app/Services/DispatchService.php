@@ -331,22 +331,33 @@ class DispatchService
         }
 
         $now = now();
+        $hasCoords = $order->pickup_lat && $order->pickup_lng;
 
-        // ── 1. Query Redis GEO → driver IDs trong bán kính, kèm khoảng cách thực ──
-        $nearbyDrivers = DriverGeoService::getNearby(
-            $order->city_id,
-            (float) $order->pickup_lat,
-            (float) $order->pickup_lng,
-            $radiusKm
-        );
-        // $nearbyDrivers = [driverId => distanceKm] — đã lọc GPS stale (TTL 10 phút)
+        // ── 1. Tìm tài xế gần điểm lấy hàng (hoặc toàn city nếu không có tọa độ) ──
+        if ($hasCoords) {
+            $nearbyDrivers = DriverGeoService::getNearby(
+                $order->city_id,
+                (float) $order->pickup_lat,
+                (float) $order->pickup_lng,
+                $radiusKm
+            );
 
-        if (empty($nearbyDrivers)) {
-            Log::debug("     [Candidates] Redis GEO: không có tài xế nào trong bán kính {$radiusKm}km");
-            return collect();
+            if (empty($nearbyDrivers)) {
+                Log::debug("     [Candidates] Redis GEO: không có tài xế nào trong bán kính {$radiusKm}km");
+                return collect();
+            }
+
+            Log::debug("     [Candidates] Redis GEO: " . count($nearbyDrivers) . " tài xế trong bán kính {$radiusKm}km");
+        } else {
+            // Đơn không có tọa độ (đặt qua tổng đài) → lấy toàn bộ tài xế online trong city
+            $allDriverIds = User::where('user_type', 'driver')
+                ->where('is_online', true)
+                ->where('city_id', $order->city_id)
+                ->pluck('id')
+                ->toArray();
+            $nearbyDrivers = array_fill_keys($allDriverIds, 0.0); // distance unknown = 0
+            Log::debug("     [Candidates] Không có tọa độ → lấy toàn city: " . count($nearbyDrivers) . " tài xế");
         }
-
-        Log::debug("     [Candidates] Redis GEO: " . count($nearbyDrivers) . " tài xế trong bán kính {$radiusKm}km");
 
         // ── 2. Tài xế bận / đang nhận offer ──────────────────────────────────────
         $busyDriverIds = Order::selectRaw('delivery_man_id, COUNT(*) as cnt')
@@ -408,7 +419,9 @@ class DispatchService
             ->get(['delivery_man_id', 'delivery_lat', 'delivery_lng'])
             ->keyBy('delivery_man_id');
 
-        $afterDetour = $afterLicense->filter(function (User $d) use ($order, $nearbyDrivers, $activeOrders) {
+        $afterDetour = $afterLicense->filter(function (User $d) use ($order, $nearbyDrivers, $activeOrders, $hasCoords) {
+            if (!$hasCoords) return true; // không có tọa độ, bỏ qua kiểm tra detour
+
             $active = $activeOrders->get($d->id);
             if (!$active) return true;
 
