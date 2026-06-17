@@ -77,12 +77,16 @@ Route::get('/app-version', function (\Illuminate\Http\Request $request) {
         : 'customer';
     $s = \App\Models\AppVersionSetting::forPlatform($platform);
     return response()->json([
-        'min_version'    => $s->min_version,
-        'latest_version' => $s->latest_version,
-        'android_url'    => $s->android_url,
-        'ios_url'        => $s->ios_url,
-        'force_update'   => $s->force_update,
-        'force_message'  => $s->force_message,
+        'min_version'             => $s->min_version,
+        'latest_version'          => $s->latest_version,
+        'android_min_version'     => $s->android_min_version    ?? $s->min_version,
+        'android_latest_version'  => $s->android_latest_version ?? $s->latest_version,
+        'ios_min_version'         => $s->ios_min_version        ?? $s->min_version,
+        'ios_latest_version'      => $s->ios_latest_version     ?? $s->latest_version,
+        'android_url'             => $s->android_url,
+        'ios_url'                 => $s->ios_url,
+        'force_update'            => $s->force_update,
+        'force_message'           => $s->force_message,
     ]);
 });
 
