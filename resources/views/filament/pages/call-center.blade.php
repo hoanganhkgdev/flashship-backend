@@ -7,9 +7,6 @@
                 <div>
                     <p class="text-sm font-medium text-success-700 dark:text-success-300">✅ Đặt đơn thành công</p>
                     <p class="mt-1 text-2xl font-bold text-success-800 dark:text-success-200">{{ $resultOrderCode }}</p>
-                    @if ($selectedShopName)
-                        <p class="mt-1 text-sm text-success-600 dark:text-success-400">Shop: {{ $selectedShopName }}</p>
-                    @endif
                 </div>
                 <button wire:click="clearResult" class="text-success-600 hover:text-success-800 dark:text-success-400">
                     <x-heroicon-o-x-mark class="h-5 w-5" />
@@ -24,7 +21,7 @@
         </div>
     @endif
 
-    {{-- AI Parse section --}}
+    {{-- AI Parse --}}
     <div class="mb-6 rounded-xl border border-primary-200 bg-primary-50 p-5 dark:border-primary-800 dark:bg-primary-950">
         <h3 class="mb-3 flex items-center gap-2 text-sm font-semibold text-primary-700 dark:text-primary-300">
             <x-heroicon-o-sparkles class="h-5 w-5" />
@@ -55,23 +52,6 @@
                 </span>
             @endif
         </div>
-    </div>
-
-    {{-- Shop mode toggle --}}
-    <div class="mb-4 flex items-center gap-3">
-        <span class="text-sm font-medium text-gray-600 dark:text-gray-400">Chế độ shop:</span>
-        <button
-            wire:click="$set('shopMode', 'search')"
-            class="rounded-lg px-3 py-1.5 text-sm font-medium transition-colors {{ $shopMode === 'search' ? 'bg-primary-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300' }}"
-        >
-            🔍 Tìm theo tài khoản
-        </button>
-        <button
-            wire:click="$set('shopMode', 'manual')"
-            class="rounded-lg px-3 py-1.5 text-sm font-medium transition-colors {{ $shopMode === 'manual' ? 'bg-primary-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300' }}"
-        >
-            ✏️ Nhập thủ công (chưa có tài khoản)
-        </button>
     </div>
 
     {{-- Form --}}

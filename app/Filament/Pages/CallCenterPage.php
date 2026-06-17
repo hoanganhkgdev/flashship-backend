@@ -15,7 +15,6 @@ use Illuminate\Support\Facades\DB;
 use Gemini\Laravel\Facades\Gemini;
 use Modules\Order\Models\Order;
 use Modules\Order\Services\OrderService;
-use App\Models\User;
 
 class CallCenterPage extends Page implements HasForms
 {
@@ -24,36 +23,31 @@ class CallCenterPage extends Page implements HasForms
     protected static ?string $navigationIcon  = 'heroicon-o-phone';
     protected static ?string $navigationGroup = 'Vận hành';
     protected static ?string $navigationLabel = 'Tổng đài đặt đơn';
-    protected static ?string $title           = 'Tổng đài — Đặt đơn hộ Shop';
+    protected static ?string $title           = 'Tổng đài — Đặt đơn hộ';
     protected static ?int    $navigationSort  = 10;
 
     protected static string $view = 'filament.pages.call-center';
 
     public string $rawText  = '';
     public string $aiStatus = '';
-    public string $shopMode = 'search'; // 'search' | 'manual'
     public array  $data     = [];
 
     public ?string $resultOrderCode  = null;
     public ?string $resultError      = null;
-    public ?string $selectedShopName = null;
 
     public function mount(): void
     {
         $this->form->fill([
-            'city_id'           => null,
-            'shop_id'           => null,
-            'shop_name_manual'  => '',
-            'shop_phone_manual' => '',
-            'pickup_address'    => '',
-            'pickup_phone'      => '',
-            'pickup_name'       => '',
-            'delivery_address'  => '',
-            'delivery_phone'    => '',
-            'delivery_name'     => '',
-            'order_note'        => '',
-            'cod_amount'        => null,
-            'cargo_type'        => 'parcel',
+            'city_id'          => null,
+            'pickup_address'   => '',
+            'pickup_phone'     => '',
+            'pickup_name'      => '',
+            'delivery_address' => '',
+            'delivery_phone'   => '',
+            'delivery_name'    => '',
+            'order_note'       => '',
+            'cod_amount'       => null,
+            'cargo_type'       => 'parcel',
         ]);
     }
 
@@ -64,7 +58,7 @@ class CallCenterPage extends Page implements HasForms
 
         return $form->schema([
 
-            Section::make('Khu vực & Shop')
+            Section::make('Khu vực')
                 ->icon('heroicon-o-map-pin')
                 ->schema([
                     Select::make('city_id')
@@ -72,50 +66,9 @@ class CallCenterPage extends Page implements HasForms
                         ->options($cities)
                         ->placeholder('Chọn khu vực...')
                         ->required()
-                        ->searchable(),
-
-                    Select::make('shop_id')
-                        ->label('Shop (tên hoặc SĐT)')
-                        ->placeholder('Gõ tên hoặc SĐT shop...')
                         ->searchable()
-                        ->getSearchResultsUsing(function (string $search) {
-                            return DB::table('users')
-                                ->where('user_type', 'shop')
-                                ->where('status', 1)
-                                ->where(function ($q) use ($search) {
-                                    $q->where('name', 'like', "%{$search}%")
-                                      ->orWhere('phone', 'like', "%{$search}%");
-                                })
-                                ->limit(10)
-                                ->get(['id', 'name', 'phone'])
-                                ->mapWithKeys(fn($u) => [$u->id => "{$u->name} — {$u->phone}"])
-                                ->toArray();
-                        })
-                        ->getOptionLabelUsing(fn($v) => DB::table('users')->where('id', $v)->value('name') ?? $v)
-                        ->live()
-                        ->afterStateUpdated(function ($state) {
-                            if (!$state) return;
-                            $shop = DB::table('users')->where('id', $state)->first();
-                            if (!$shop) return;
-                            $this->form->fill(array_merge($this->data, [
-                                'city_id'      => $shop->city_id ?? $this->data['city_id'] ?? null,
-                                'pickup_phone' => $shop->phone ?? '',
-                                'pickup_name'  => $shop->name  ?? '',
-                            ]));
-                        })
-                        ->hidden(fn() => $this->shopMode === 'manual'),
-
-                    TextInput::make('shop_name_manual')
-                        ->label('Tên shop')
-                        ->placeholder('Nhập tên shop...')
-                        ->hidden(fn() => $this->shopMode === 'search'),
-
-                    TextInput::make('shop_phone_manual')
-                        ->label('SĐT shop')
-                        ->tel()
-                        ->placeholder('0xxx xxx xxx')
-                        ->hidden(fn() => $this->shopMode === 'search'),
-                ])->columns(2),
+                        ->columnSpanFull(),
+                ]),
 
             Section::make('Địa chỉ lấy hàng')
                 ->icon('heroicon-o-building-storefront')
@@ -127,7 +80,7 @@ class CallCenterPage extends Page implements HasForms
                         ->columnSpanFull(),
                     TextInput::make('pickup_name')
                         ->label('Tên người gửi')
-                        ->placeholder('Tên shop / người liên hệ'),
+                        ->placeholder('Họ tên'),
                     TextInput::make('pickup_phone')
                         ->label('SĐT người gửi')
                         ->tel()
@@ -262,23 +215,6 @@ PROMPT;
             return;
         }
 
-        if ($this->shopMode === 'search') {
-            $shopId = $values['shop_id'] ?? null;
-            if (!$shopId) {
-                $this->resultError = 'Vui lòng chọn shop.';
-                return;
-            }
-            $shop     = User::find($shopId);
-            $shopName = $shop?->name ?? '';
-        } else {
-            $shopName = trim($values['shop_name_manual'] ?? '');
-            if (!$shopName) {
-                $this->resultError = 'Vui lòng nhập tên shop.';
-                return;
-            }
-            $shop = null;
-        }
-
         try {
             $order = Order::create([
                 'code'               => '',
@@ -290,39 +226,35 @@ PROMPT;
                 'is_freeship'        => false,
                 'status'             => 'pending',
                 'payment_method'     => 'cod',
-                'sender_platform_id' => $shop?->id,
+                'sender_platform_id' => null,
                 'pickup_address'     => $values['pickup_address'],
                 'pickup_phone'       => $values['pickup_phone']    ?: null,
-                'sender_name'        => $values['pickup_name']     ?: $shopName,
+                'sender_name'        => $values['pickup_name']     ?: null,
                 'delivery_address'   => $values['delivery_address'],
                 'delivery_phone'     => $values['delivery_phone'],
                 'receiver_name'      => $values['delivery_name']   ?: null,
                 'order_note'         => $values['order_note']      ?: null,
                 'cod_amount'         => $values['cod_amount'] ? (int) $values['cod_amount'] : null,
-                'store_name'         => $shopName,
+                'store_name'         => $values['pickup_name']     ?: null,
             ]);
 
             app(OrderService::class)->dispatchNewOrder($order->id);
 
-            $this->resultOrderCode  = $order->code;
-            $this->selectedShopName = $shopName;
+            $this->resultOrderCode = $order->code;
 
             $this->rawText  = '';
             $this->aiStatus = '';
             $this->form->fill([
-                'city_id'           => $cityId, // giữ lại khu vực để đặt đơn tiếp
-                'shop_id'           => null,
-                'shop_name_manual'  => '',
-                'shop_phone_manual' => '',
-                'pickup_address'    => '',
-                'pickup_phone'      => '',
-                'pickup_name'       => '',
-                'delivery_address'  => '',
-                'delivery_phone'    => '',
-                'delivery_name'     => '',
-                'order_note'        => '',
-                'cod_amount'        => null,
-                'cargo_type'        => 'parcel',
+                'city_id'          => $cityId,
+                'pickup_address'   => '',
+                'pickup_phone'     => '',
+                'pickup_name'      => '',
+                'delivery_address' => '',
+                'delivery_phone'   => '',
+                'delivery_name'    => '',
+                'order_note'       => '',
+                'cod_amount'       => null,
+                'cargo_type'       => 'parcel',
             ]);
 
             Notification::make()
@@ -342,8 +274,7 @@ PROMPT;
 
     public function clearResult(): void
     {
-        $this->resultOrderCode  = null;
-        $this->resultError      = null;
-        $this->selectedShopName = null;
+        $this->resultOrderCode = null;
+        $this->resultError     = null;
     }
 }
