@@ -49,6 +49,7 @@ class CallCenterPage extends Page implements HasForms
     {
         $this->form->fill([
             'city_id'          => null,
+            'store_name'       => '',
             'pickup_address'   => '',
             'pickup_phone'     => '',
             'pickup_name'      => '',
@@ -68,7 +69,7 @@ class CallCenterPage extends Page implements HasForms
 
         return $form->schema([
 
-            Section::make('Khu vực')
+            Section::make('Khu vực & Shop')
                 ->icon('heroicon-o-map-pin')
                 ->schema([
                     Select::make('city_id')
@@ -76,9 +77,11 @@ class CallCenterPage extends Page implements HasForms
                         ->options($cities)
                         ->placeholder('Chọn khu vực...')
                         ->required()
-                        ->searchable()
-                        ->columnSpanFull(),
-                ]),
+                        ->searchable(),
+                    TextInput::make('store_name')
+                        ->label('Tên shop')
+                        ->placeholder('Tên cửa hàng...'),
+                ])->columns(2),
 
             Section::make('Địa chỉ lấy hàng')
                 ->icon('heroicon-o-building-storefront')
@@ -178,6 +181,7 @@ TEXT:
 
 JSON cần trả về:
 {
+  "store_name": "",
   "pickup_name": "",
   "pickup_phone": "",
   "pickup_address": "",
@@ -212,6 +216,7 @@ PROMPT;
             }
 
             $this->form->fill(array_merge($this->data, array_filter([
+                'store_name'       => $parsed['store_name']       ?: null,
                 'pickup_name'      => $parsed['pickup_name']      ?: null,
                 'pickup_phone'     => $parsed['pickup_phone']     ?: null,
                 'pickup_address'   => $parsed['pickup_address']   ?: null,
@@ -328,7 +333,7 @@ PROMPT;
                 'receiver_name'      => $values['delivery_name'] ?: null,
                 'order_note'         => $values['order_note']    ?: null,
                 'cod_amount'         => $values['cod_amount'] ? (int) $values['cod_amount'] : null,
-                'store_name'         => $values['pickup_name']   ?: null,
+                'store_name'         => $values['store_name']    ?: null,
                 'distance'           => $pricing['distance_km']  ?? null,
             ]);
 
@@ -342,6 +347,7 @@ PROMPT;
             $this->aiStatus = '';
             $this->form->fill([
                 'city_id'          => $cityId,
+                'store_name'       => '',
                 'pickup_address'   => '',
                 'pickup_phone'     => '',
                 'pickup_name'      => '',
