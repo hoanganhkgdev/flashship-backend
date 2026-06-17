@@ -101,7 +101,7 @@
 
         {{-- FORM --}}
         <form wire:submit="placeOrder">
-            <div class="rounded-2xl border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-900">
+            <div>
                 {{ $this->form }}
             </div>
 
