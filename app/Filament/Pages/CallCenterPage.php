@@ -15,6 +15,7 @@ use Illuminate\Support\Facades\DB;
 use Gemini\Laravel\Facades\Gemini;
 use Modules\Order\Models\Order;
 use Modules\Order\Services\OrderService;
+use Modules\Pricing\Services\PricingService;
 
 class CallCenterPage extends Page implements HasForms
 {
@@ -34,6 +35,8 @@ class CallCenterPage extends Page implements HasForms
 
     public ?string $resultOrderCode  = null;
     public ?string $resultError      = null;
+    public ?int    $resultFee        = null;
+    public ?string $resultDistance   = null;
 
     public function mount(): void
     {
@@ -208,6 +211,8 @@ PROMPT;
 
         $this->resultOrderCode = null;
         $this->resultError     = null;
+        $this->resultFee       = null;
+        $this->resultDistance  = null;
 
         $cityId = $values['city_id'] ?? null;
         if (!$cityId) {
@@ -216,12 +221,22 @@ PROMPT;
         }
 
         try {
+            // Tính phí vận chuyển từ địa chỉ text
+            $pricing     = PricingService::estimateFromAddresses(
+                'delivery',
+                $values['pickup_address'],
+                $values['delivery_address'],
+                null,
+                $cityId
+            );
+            $shippingFee = $pricing['fee'] ?? 0;
+
             $order = Order::create([
                 'code'               => '',
                 'service_type'       => 'delivery',
                 'platform'           => 'call_center',
                 'city_id'            => $cityId,
-                'shipping_fee'       => 0,
+                'shipping_fee'       => $shippingFee,
                 'bonus_fee'          => 0,
                 'is_freeship'        => false,
                 'status'             => 'pending',
@@ -241,6 +256,8 @@ PROMPT;
             app(OrderService::class)->dispatchNewOrder($order->id);
 
             $this->resultOrderCode = $order->code;
+            $this->resultFee       = $shippingFee;
+            $this->resultDistance  = isset($pricing['distance_km']) ? number_format($pricing['distance_km'], 1) . ' km' : null;
 
             $this->rawText  = '';
             $this->aiStatus = '';
@@ -276,5 +293,7 @@ PROMPT;
     {
         $this->resultOrderCode = null;
         $this->resultError     = null;
+        $this->resultFee       = null;
+        $this->resultDistance  = null;
     }
 }

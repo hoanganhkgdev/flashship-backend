@@ -4,9 +4,23 @@
     @if ($resultOrderCode)
         <div class="mb-6 rounded-xl border border-success-300 bg-success-50 p-5 dark:border-success-700 dark:bg-success-950">
             <div class="flex items-start justify-between gap-4">
-                <div>
-                    <p class="text-sm font-medium text-success-700 dark:text-success-300">✅ Đặt đơn thành công</p>
-                    <p class="mt-1 text-2xl font-bold text-success-800 dark:text-success-200">{{ $resultOrderCode }}</p>
+                <div class="flex flex-wrap gap-6">
+                    <div>
+                        <p class="text-xs font-medium uppercase tracking-wide text-success-600 dark:text-success-400">Mã đơn</p>
+                        <p class="mt-1 text-2xl font-bold text-success-800 dark:text-success-200">{{ $resultOrderCode }}</p>
+                    </div>
+                    @if ($resultFee !== null)
+                        <div>
+                            <p class="text-xs font-medium uppercase tracking-wide text-success-600 dark:text-success-400">Phí ship</p>
+                            <p class="mt-1 text-2xl font-bold text-success-800 dark:text-success-200">{{ number_format($resultFee) }}đ</p>
+                        </div>
+                    @endif
+                    @if ($resultDistance)
+                        <div>
+                            <p class="text-xs font-medium uppercase tracking-wide text-success-600 dark:text-success-400">Khoảng cách</p>
+                            <p class="mt-1 text-2xl font-bold text-success-800 dark:text-success-200">{{ $resultDistance }}</p>
+                        </div>
+                    @endif
                 </div>
                 <button wire:click="clearResult" class="text-success-600 hover:text-success-800 dark:text-success-400">
                     <x-heroicon-o-x-mark class="h-5 w-5" />
