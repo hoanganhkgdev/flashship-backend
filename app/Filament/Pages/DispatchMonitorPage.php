@@ -45,7 +45,7 @@ class DispatchMonitorPage extends Page
                     'city'         => $o->city_name,
                     'elapsed'      => $elapsedSecs,
                     'attempts'     => $attempts,
-                    'radius'       => $this->radiusForElapsed($elapsedSecs),
+                    'radius'       => $this->radiusForOrder($o->id),
                     'offering_to'  => $driverName,
                     'started_at'   => $o->dispatch_started_at,
                 ];
@@ -123,14 +123,10 @@ class DispatchMonitorPage extends Page
         ];
     }
 
-    private function radiusForElapsed(int $secs): float
+    private function radiusForOrder(int $orderId): float
     {
-        foreach (array_reverse(DispatchService::RADIUS_STAGES) as $stage) {
-            if ($secs >= $stage['after_secs']) {
-                return $stage['km'];
-            }
-        }
-        return DispatchService::RADIUS_STAGES[0]['km'];
+        $cached = \Illuminate\Support\Facades\Redis::get("dispatch:radius:{$orderId}");
+        return $cached ? (float) $cached : DispatchService::RADIUS_KM_STAGES[0];
     }
 
     protected function getFormActions(): array { return []; }

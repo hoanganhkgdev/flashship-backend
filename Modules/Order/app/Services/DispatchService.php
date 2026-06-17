@@ -263,23 +263,30 @@ class DispatchService
         $candidates = $this->getCandidates($order, $radiusKm, $alreadyOffered);
 
         if ($candidates->isEmpty()) {
-            // Kiểm tra GEO có ai không (kể cả bị filter)
             $hasCoords = $order->pickup_lat && $order->pickup_lng;
-            $geoCount  = $hasCoords
-                ? count(DriverGeoService::getNearby($order->city_id, (float) $order->pickup_lat, (float) $order->pickup_lng, $radiusKm))
-                : 0;
-
-            // Lưu bán kính hiện tại vào Redis
             Redis::setex($this->radiusKey($order->id), self::QUEUE_TTL_SECS, $radiusKm);
 
-            if ($geoCount === 0) {
-                // Không có ai gần đó → mở rộng ngay, không cần retry
-                Log::info("└─ [Dispatch] Đơn #{$order->id}: GEO trống tại {$radiusKm}km → mở rộng ngay");
+            if (!$hasCoords) {
+                Log::info("└─ [Dispatch] Đơn #{$order->id}: không có toạ độ → mở rộng ngay");
+                $this->tryExpandRadius($order, $radiusKm);
+                return;
+            }
+
+            $geoDriverIds = array_keys(DriverGeoService::getNearby(
+                $order->city_id, (float) $order->pickup_lat, (float) $order->pickup_lng, $radiusKm
+            ));
+
+            // Driver chưa được hỏi lần nào trong bán kính này
+            $freshCount = count(array_diff($geoDriverIds, $alreadyOffered));
+
+            if (empty($geoDriverIds) || $freshCount === 0) {
+                // GEO trống hoặc đã hỏi hết tất cả → mở rộng ngay
+                Log::info("└─ [Dispatch] Đơn #{$order->id}: GEO có " . count($geoDriverIds) . " tài xế, fresh={$freshCount} → mở rộng ngay");
                 $this->tryExpandRadius($order, $radiusKm);
             } else {
-                // Có tài xế nhưng đang bận/đang nhận offer → chờ họ rảnh
+                // Còn driver chưa hỏi nhưng đang bận/nhận offer khác → chờ họ rảnh
                 if ($this->acquireRetryLock($order->id)) {
-                    Log::info("└─ [Dispatch] Đơn #{$order->id}: GEO có {$geoCount} tài xế nhưng đang bận → retry sau " . self::RETRY_SCAN_SECS . "s");
+                    Log::info("└─ [Dispatch] Đơn #{$order->id}: GEO có {$freshCount} tài xế chưa hỏi đang bận → retry sau " . self::RETRY_SCAN_SECS . "s");
                     RetryDispatchJob::dispatch($order->id)->delay(now()->addSeconds(self::RETRY_SCAN_SECS));
                 } else {
                     Log::info("└─ [Dispatch] Đơn #{$order->id}: retry job đã tồn tại → bỏ qua");
