@@ -92,7 +92,10 @@ class DriverController extends Controller
         $user->online_since = $user->is_online ? now() : null;
         $user->save();
 
-        if (!$user->is_online && $user->city_id) {
+        if ($user->is_online && $user->city_id && $user->latitude && $user->longitude) {
+            // Đăng ký vào Redis GEO ngay với tọa độ cuối biết — dispatch tìm thấy ngay
+            DriverGeoService::registerOnline($user->id, $user->city_id, (float) $user->latitude, (float) $user->longitude);
+        } elseif (!$user->is_online && $user->city_id) {
             DriverGeoService::removeDriver($user->id, $user->city_id);
         }
 

@@ -7,7 +7,7 @@ use Illuminate\Support\Facades\Redis;
 
 class DriverGeoService
 {
-    const GPS_TTL_SECS = 600; // 10 phút — GPS cũ hơn bị coi là stale
+    const GPS_TTL_SECS = 1800; // 30 phút — đủ lâu cho driver đứng chờ không di chuyển
 
     private static function geoKey(int $cityId): string
     {
@@ -17,6 +17,21 @@ class DriverGeoService
     private static function gpsKey(int $driverId): string
     {
         return "driver:gps:{$driverId}";
+    }
+
+    /**
+     * Đăng ký tài xế vào Redis GEO ngay khi bật online bằng tọa độ DB cuối cùng.
+     * Đảm bảo dispatch tìm thấy driver ngay, không cần chờ GPS update đầu tiên.
+     */
+    public static function registerOnline(int $driverId, int $cityId, float $lat, float $lng): void
+    {
+        try {
+            Redis::geoadd(self::geoKey($cityId), $lng, $lat, $driverId);
+            // TTL dài hơn updateLocation vì đây là vị trí "cuối biết" — chờ GPS thực thay thế
+            Redis::setex(self::gpsKey($driverId), self::GPS_TTL_SECS, 1);
+        } catch (\Throwable $e) {
+            Log::error("[DriverGeo] registerOnline #{$driverId} failed: " . $e->getMessage());
+        }
     }
 
     /**

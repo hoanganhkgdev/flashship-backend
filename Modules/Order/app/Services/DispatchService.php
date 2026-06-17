@@ -475,11 +475,16 @@ class DispatchService
             );
 
             if (empty($nearbyDrivers)) {
-                Log::debug("     [Candidates] Redis GEO: không có tài xế nào trong bán kính {$radiusKm}km");
-                return collect();
+                // DB fallback — GEO trống có thể do driver vừa online chưa kịp gửi GPS lần đầu
+                $nearbyDrivers = $this->getNearbyFromDB($order->city_id, (float) $order->pickup_lat, (float) $order->pickup_lng, $radiusKm);
+                if (empty($nearbyDrivers)) {
+                    Log::debug("     [Candidates] GEO + DB fallback: không có tài xế nào trong bán kính {$radiusKm}km");
+                    return collect();
+                }
+                Log::debug("     [Candidates] GEO trống → DB fallback: " . count($nearbyDrivers) . " tài xế trong {$radiusKm}km");
+            } else {
+                Log::debug("     [Candidates] Redis GEO: " . count($nearbyDrivers) . " tài xế trong bán kính {$radiusKm}km");
             }
-
-            Log::debug("     [Candidates] Redis GEO: " . count($nearbyDrivers) . " tài xế trong bán kính {$radiusKm}km");
         } else {
             $allDriverIds  = User::where('user_type', 'driver')
                 ->where('is_online', true)
@@ -588,6 +593,44 @@ class DispatchService
         }
 
         return $sorted;
+    }
+
+    /**
+     * Fallback khi Redis GEO trống — truy vấn DB dùng Haversine.
+     * Dành cho tài xế vừa online chưa kịp gửi GPS lần đầu.
+     *
+     * @return array<int, float> [driverId => distanceKm]
+     */
+    private function getNearbyFromDB(int $cityId, float $lat, float $lng, float $radiusKm): array
+    {
+        try {
+            $results = DB::table('users')
+                ->select('id', DB::raw(
+                    "(6371 * acos(
+                        cos(radians({$lat})) * cos(radians(latitude)) *
+                        cos(radians(longitude) - radians({$lng})) +
+                        sin(radians({$lat})) * sin(radians(latitude))
+                    )) AS distance_km"
+                ))
+                ->where('user_type', 'driver')
+                ->where('is_online', true)
+                ->where('city_id', $cityId)
+                ->whereNotNull('latitude')
+                ->whereNotNull('longitude')
+                ->having('distance_km', '<=', $radiusKm)
+                ->orderBy('distance_km')
+                ->limit(100)
+                ->get();
+
+            $map = [];
+            foreach ($results as $row) {
+                $map[(int) $row->id] = (float) $row->distance_km;
+            }
+            return $map;
+        } catch (\Throwable $e) {
+            Log::error("[Dispatch] getNearbyFromDB failed: " . $e->getMessage());
+            return [];
+        }
     }
 
     private function compositeScore(User $driver, int $ratingCount, float $distanceKm = 0.0): float
