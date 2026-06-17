@@ -34,6 +34,12 @@ class CallCenterPage extends Page implements HasForms
     public string $aiStatus = '';
     public array  $data     = [];
 
+    // Preview phí trước khi đặt
+    public ?int    $previewFee      = null;
+    public ?string $previewDistance = null;
+    public ?string $previewStatus   = null;
+
+    // Kết quả sau khi đặt
     public ?string $resultOrderCode  = null;
     public ?string $resultError      = null;
     public ?int    $resultFee        = null;
@@ -204,6 +210,42 @@ PROMPT;
         }
     }
 
+    // ─── Preview phí ─────────────────────────────────────────────────────────
+
+    public function calculateFee(): void
+    {
+        $pickup   = trim($this->data['pickup_address']   ?? '');
+        $delivery = trim($this->data['delivery_address'] ?? '');
+        $cityId   = $this->data['city_id'] ?? null;
+
+        if (!$pickup || !$delivery) {
+            $this->previewStatus = '⚠️ Vui lòng điền đủ địa chỉ lấy hàng và giao hàng.';
+            return;
+        }
+
+        $this->previewStatus   = '⏳ Đang tính...';
+        $this->previewFee      = null;
+        $this->previewDistance = null;
+
+        $pickupGeo   = GoogleMapService::geocode($pickup);
+        $deliveryGeo = GoogleMapService::geocode($delivery);
+
+        if ($pickupGeo && $deliveryGeo) {
+            $pricing = PricingService::estimateFromCoords(
+                'delivery',
+                $pickupGeo['lat'],   $pickupGeo['lng'],
+                $deliveryGeo['lat'], $deliveryGeo['lng'],
+                $cityId
+            );
+            $this->previewFee      = $pricing['fee'];
+            $this->previewDistance = number_format($pricing['distance_km'], 1) . ' km';
+            $this->previewStatus   = '✅ Đã tính xong.';
+        } else {
+            $failed = !$pickupGeo ? 'địa chỉ lấy hàng' : 'địa chỉ giao hàng';
+            $this->previewStatus = "❌ Không geocode được {$failed} — kiểm tra lại địa chỉ.";
+        }
+    }
+
     // ─── Place Order ─────────────────────────────────────────────────────────
 
     public function placeOrder(): void
@@ -308,5 +350,8 @@ PROMPT;
         $this->resultError     = null;
         $this->resultFee       = null;
         $this->resultDistance  = null;
+        $this->previewFee      = null;
+        $this->previewDistance = null;
+        $this->previewStatus   = null;
     }
 }

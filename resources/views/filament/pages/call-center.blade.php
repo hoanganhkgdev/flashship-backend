@@ -72,7 +72,42 @@
     <form wire:submit="placeOrder">
         {{ $this->form }}
 
-        <div class="mt-6 flex items-center gap-4">
+        {{-- Preview phí --}}
+        <div class="mt-4 rounded-xl border border-gray-200 bg-gray-50 p-4 dark:border-gray-700 dark:bg-gray-900">
+            <div class="flex flex-wrap items-center gap-4">
+                <x-filament::button
+                    wire:click.prevent="calculateFee"
+                    wire:loading.attr="disabled"
+                    icon="heroicon-o-calculator"
+                    color="gray"
+                    size="sm"
+                >
+                    <span wire:loading.remove wire:target="calculateFee">Tính km & phí ship</span>
+                    <span wire:loading wire:target="calculateFee">Đang tính...</span>
+                </x-filament::button>
+
+                @if ($previewFee !== null)
+                    <div class="flex items-center gap-6">
+                        <div>
+                            <span class="text-xs text-gray-500 dark:text-gray-400">Khoảng cách</span>
+                            <p class="text-lg font-bold text-gray-800 dark:text-gray-100">{{ $previewDistance }}</p>
+                        </div>
+                        <div>
+                            <span class="text-xs text-gray-500 dark:text-gray-400">Phí ship</span>
+                            <p class="text-lg font-bold text-primary-600 dark:text-primary-400">{{ number_format($previewFee) }}đ</p>
+                        </div>
+                    </div>
+                @elseif ($previewStatus)
+                    <span class="text-sm {{ str_starts_with($previewStatus, '✅') ? 'text-success-600' : (str_starts_with($previewStatus, '❌') ? 'text-danger-600' : 'text-gray-500') }}">
+                        {{ $previewStatus }}
+                    </span>
+                @else
+                    <span class="text-sm text-gray-400">Bấm để xem ước tính km và phí ship trước khi đặt.</span>
+                @endif
+            </div>
+        </div>
+
+        <div class="mt-4 flex items-center gap-4">
             <x-filament::button
                 type="submit"
                 wire:loading.attr="disabled"
