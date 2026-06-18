@@ -267,13 +267,13 @@ class OrderResource extends Resource
                     Tables\Columns\TextColumn::make('pickup_address')
                         ->icon('heroicon-m-arrow-up-circle')
                         ->iconColor('warning')
-                        ->formatStateUsing(fn ($state) => \Illuminate\Support\Str::limit($state, 35))
+                        ->formatStateUsing(fn ($state) => \Illuminate\Support\Str::limit($state, 40))
                         ->tooltip(fn ($record) => $record->pickup_address)
                         ->size('sm'),
                     Tables\Columns\TextColumn::make('delivery_address')
                         ->icon('heroicon-m-arrow-down-circle')
                         ->iconColor('success')
-                        ->formatStateUsing(fn ($state) => \Illuminate\Support\Str::limit($state, 35))
+                        ->formatStateUsing(fn ($state) => \Illuminate\Support\Str::limit($state, 40))
                         ->tooltip(fn ($record) => $record->delivery_address)
                         ->size('sm'),
                 ]),
