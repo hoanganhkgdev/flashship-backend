@@ -3,9 +3,7 @@ namespace Modules\Order\Services;
 
 use Carbon\Carbon;
 use Modules\Driver\Services\DriverScoreService;
-use Modules\Order\Jobs\AutoCancelOrderJob;
 use Modules\Order\Jobs\DispatchOrderJob;
-use Modules\Order\Jobs\RetryDispatchJob;
 use Modules\Order\Models\Order;
 use Modules\Order\Models\OrderDispatchLog;
 use Modules\Core\Models\User;
@@ -28,11 +26,9 @@ class DispatchService
 
     const DRIVER_OFFER_SECS  = 20;   // giây để mở app (trước khi offer_viewed_at set)
     const APP_DECISION_SECS  = 30;   // giây để đọc & quyết định SAU KHI mở app (như ShopeeFood)
-    const TIMEOUT_SECS       = 600;  // 10 phút → auto-cancel nếu không ai nhận
-    const RETRY_SCAN_SECS    = 20;   // có tài xế trong GEO nhưng đang bận → quét lại sau 20s
     const FCM_TTL_SECS       = 20;
     const MAX_DRIVERS        = 50;
-    const QUEUE_TTL_SECS     = 700;  // TTL cache queue > TIMEOUT_SECS
+    const QUEUE_TTL_SECS     = 600;
 
     // Trọng số xếp hạng
     const W_SCORE         = 60;
@@ -75,28 +71,10 @@ class DispatchService
         return (float) (Redis::get($this->radiusKey($orderId)) ?? self::RADIUS_KM_STAGES[0]);
     }
 
-    private function retryingKey(int $orderId): string
-    {
-        return "dispatch:retrying:{$orderId}";
-    }
-
-    /** Trả về true nếu set thành công (không có job retry nào đang chờ). */
-    private function acquireRetryLock(int $orderId): bool
-    {
-        // NX = set nếu chưa tồn tại, TTL = RETRY_SCAN_SECS + buffer
-        return (bool) Redis::set($this->retryingKey($orderId), 1, 'EX', self::RETRY_SCAN_SECS + 5, 'NX');
-    }
-
-    private function releaseRetryLock(int $orderId): void
-    {
-        Redis::del($this->retryingKey($orderId));
-    }
-
     private function clearDispatchCache(int $orderId): void
     {
         Redis::del($this->queueKey($orderId));
         Redis::del($this->radiusKey($orderId));
-        Redis::del($this->retryingKey($orderId));
     }
 
     // =========================================================================
@@ -115,7 +93,6 @@ class DispatchService
         Log::info("║  Loại    : {$order->service_type}");
         Log::info("║  Thành phố: {$order->city_id}");
         Log::info("║  Pickup  : {$order->pickup_address} ({$order->pickup_lat}, {$order->pickup_lng})");
-        Log::info("║  Timeout : " . self::TIMEOUT_SECS . "s → auto-cancel nếu không ai nhận");
         Log::info("╚══════════════════════════════════════════════════════════════");
 
         DB::table('orders')->where('id', $order->id)->update(['dispatch_started_at' => $now]);
@@ -123,10 +100,7 @@ class DispatchService
 
         $this->notifyCustomer($order, 'searching');
 
-        AutoCancelOrderJob::dispatch($order->id)->delay($now->copy()->addSeconds(self::TIMEOUT_SECS));
-
         $this->buildQueueAndSend($order, self::RADIUS_KM_STAGES[0]);
-        broadcast(new DispatchStateChanged());
     }
 
     /**
@@ -139,38 +113,21 @@ class DispatchService
         $this->popAndSend($order);
     }
 
-    /**
-     * Gọi bởi RetryDispatchJob — rebuild queue tại bán kính hiện tại
-     * (khi lần scan trước không có ứng viên do tất cả đang bận).
-     */
-    public function retryCurrentRadius(Order $order): void
-    {
-        if ($order->status !== 'pending') return;
-
-        $hasPendingOffer = OrderDispatchLog::where('order_id', $order->id)
-            ->where('result', 'pending')
-            ->exists();
-        if ($hasPendingOffer) return;
-
-        $this->releaseRetryLock($order->id);
-
-        $radiusKm = $this->getCurrentRadius($order->id);
-        Log::info("[Dispatch] Đơn #{$order->id}: Quét lại {$radiusKm}km (tài xế bận đã rảnh?)");
-        $this->buildQueueAndSend($order, $radiusKm);
-    }
-
     public function handleTimeout(Order $order, int $driverId): void
     {
         $driver = User::find($driverId);
         $name   = $driver?->name ?? "#{$driverId}";
 
-        $updated = OrderDispatchLog::where('order_id', $order->id)
-            ->where('driver_id', $driverId)
-            ->where('result', 'pending')
-            ->update(['result' => 'expired', 'responded_at' => now()]);
+        $updated = DB::transaction(function () use ($order, $driverId) {
+            return OrderDispatchLog::where('order_id', $order->id)
+                ->where('driver_id', $driverId)
+                ->where('result', 'pending')
+                ->lockForUpdate()
+                ->update(['result' => 'expired', 'responded_at' => now()]);
+        });
 
         if (!$updated) {
-            Log::info("⏱  [Dispatch] Đơn #{$order->id}: Tài xế {$name} đã xử lý trước (decline) → bỏ qua timeout");
+            Log::info("⏱  [Dispatch] Đơn #{$order->id}: Tài xế {$name} đã xử lý trước (decline/accept) → bỏ qua timeout");
             return;
         }
 
@@ -197,7 +154,7 @@ class DispatchService
         $cancelled = DB::table('orders')
             ->where('id', $order->id)
             ->where('status', 'pending')
-            ->update(['status' => 'cancelled', 'cancel_reason' => 'no_driver', 'updated_at' => now()]);
+            ->update(['status' => 'cancelled', 'cancel_reason' => 'no_driver', 'dispatching_to_driver_id' => null, 'updated_at' => now()]);
 
         if (!$cancelled) return;
 
@@ -227,10 +184,18 @@ class DispatchService
 
     public function handleAccepted(Order $order, User $driver): void
     {
-        OrderDispatchLog::where('order_id', $order->id)
-            ->where('driver_id', $driver->id)
-            ->where('result', 'pending')
-            ->update(['result' => 'accepted', 'responded_at' => now()]);
+        $updated = DB::transaction(function () use ($order, $driver) {
+            return OrderDispatchLog::where('order_id', $order->id)
+                ->where('driver_id', $driver->id)
+                ->where('result', 'pending')
+                ->lockForUpdate()
+                ->update(['result' => 'accepted', 'responded_at' => now()]);
+        });
+
+        if (!$updated) {
+            Log::info("[Dispatch] Đơn #{$order->id}: Tài xế #{$driver->id} accept nhưng log đã đổi (timeout race) → bỏ qua");
+            return;
+        }
 
         RTDBService::clearDriverOffer($driver->id);
         $this->clearDispatchCache($order->id);
@@ -251,10 +216,6 @@ class DispatchService
 
     /**
      * Scan tài xế tại bán kính cho trước → xây queue → phát đơn đầu tiên.
-     *
-     * Nếu 0 ứng viên:
-     *   GEO trống  → expand bán kính ngay (không ai gần đó)
-     *   GEO có người nhưng bị filter (bận/đang nhận offer) → retry sau RETRY_SCAN_SECS
      */
     private function buildQueueAndSend(Order $order, float $radiusKm): void
     {
@@ -267,35 +228,9 @@ class DispatchService
         $candidates = $this->getCandidates($order, $radiusKm, $alreadyOffered);
 
         if ($candidates->isEmpty()) {
-            $hasCoords = $order->pickup_lat && $order->pickup_lng;
             Redis::setex($this->radiusKey($order->id), self::QUEUE_TTL_SECS, $radiusKm);
-
-            if (!$hasCoords) {
-                Log::info("└─ [Dispatch] Đơn #{$order->id}: không có toạ độ → mở rộng ngay");
-                $this->tryExpandRadius($order, $radiusKm);
-                return;
-            }
-
-            $geoDriverIds = array_keys(DriverGeoService::getNearby(
-                $order->city_id, (float) $order->pickup_lat, (float) $order->pickup_lng, $radiusKm
-            ));
-
-            // Driver chưa được hỏi lần nào trong bán kính này
-            $freshCount = count(array_diff($geoDriverIds, $alreadyOffered));
-
-            if (empty($geoDriverIds) || $freshCount === 0) {
-                // GEO trống hoặc đã hỏi hết tất cả → mở rộng ngay
-                Log::info("└─ [Dispatch] Đơn #{$order->id}: GEO có " . count($geoDriverIds) . " tài xế, fresh={$freshCount} → mở rộng ngay");
-                $this->tryExpandRadius($order, $radiusKm);
-            } else {
-                // Còn driver chưa hỏi nhưng đang bận/nhận offer khác → chờ họ rảnh
-                if ($this->acquireRetryLock($order->id)) {
-                    Log::info("└─ [Dispatch] Đơn #{$order->id}: GEO có {$freshCount} tài xế chưa hỏi đang bận → retry sau " . self::RETRY_SCAN_SECS . "s");
-                    RetryDispatchJob::dispatch($order->id)->delay(now()->addSeconds(self::RETRY_SCAN_SECS));
-                } else {
-                    Log::info("└─ [Dispatch] Đơn #{$order->id}: retry job đã tồn tại → bỏ qua");
-                }
-            }
+            Log::info("└─ [Dispatch] Đơn #{$order->id}: không có ứng viên trong {$radiusKm}km → mở rộng ngay");
+            $this->tryExpandRadius($order, $radiusKm);
             return;
         }
 
@@ -382,7 +317,7 @@ class DispatchService
 
     /**
      * Tìm bán kính tiếp theo trong RADIUS_KM_STAGES và scan mới.
-     * Nếu đã hết tất cả bán kính → chờ AutoCancelOrderJob.
+     * Nếu đã hết tất cả bán kính → cancel đơn ngay.
      */
     private function tryExpandRadius(Order $order, float $currentKm): void
     {

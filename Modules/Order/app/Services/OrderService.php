@@ -180,20 +180,26 @@ class OrderService
 
     public function declineOrder(Order $order, User $user): array
     {
-        $log = OrderDispatchLog::where('order_id', $order->id)
-            ->where('driver_id', $user->id)
-            ->where('result', 'pending')
-            ->first();
-
-        if (!$log) {
-            return ['success' => false, 'message' => 'Đơn này không được phát cho bạn.', 'status' => 403];
-        }
-
         if ($order->status !== 'pending') {
             return ['success' => false, 'message' => 'Đơn không còn ở trạng thái chờ.', 'status' => 409];
         }
 
-        $log->update(['result' => 'declined', 'responded_at' => now()]);
+        $log = DB::transaction(function () use ($order, $user) {
+            $log = OrderDispatchLog::where('order_id', $order->id)
+                ->where('driver_id', $user->id)
+                ->where('result', 'pending')
+                ->lockForUpdate()
+                ->first();
+
+            if (!$log) return null;
+
+            $log->update(['result' => 'declined', 'responded_at' => now()]);
+            return $log;
+        });
+
+        if (!$log) {
+            return ['success' => false, 'message' => 'Đơn này không được phát cho bạn.', 'status' => 403];
+        }
 
         // Chỉ trừ điểm nếu tài xế đã MỞ xem offer (offer_viewed_at != null)
         // Nếu chưa mở → không trừ điểm (tài xế không thấy thông báo)
