@@ -28,7 +28,7 @@
                          style="border-color: {{ $accentColor }}20; border-left: 3px solid {{ $accentColor }};">
 
                         {{-- Header: #id · service · city · elapsed --}}
-                        <div class="flex items-center gap-1.5 px-3 pt-3 pb-2 text-sm flex-wrap">
+                        <div class="flex items-center gap-1.5 px-3 py-3 text-sm flex-wrap">
                             <span class="font-bold text-gray-900 dark:text-white">#{{ $o['id'] }}</span>
                             <span class="text-gray-300 dark:text-gray-600">·</span>
                             <span class="font-medium text-gray-700 dark:text-gray-200">{{ $o['service_type'] }}</span>
@@ -44,7 +44,7 @@
                         <div class="mx-3 border-t border-gray-200 dark:border-gray-700"></div>
 
                         {{-- Footer: Lần N · Xkm · Tên tài xế --}}
-                        <div class="flex items-center gap-1.5 px-3 py-2 text-xs text-gray-500 dark:text-gray-400 flex-wrap">
+                        <div class="flex items-center gap-1.5 px-3 py-3 text-xs text-gray-500 dark:text-gray-400 flex-wrap">
                             <span>Lần <span class="font-semibold text-gray-700 dark:text-gray-200">{{ $o['attempts'] }}</span></span>
                             <span class="text-gray-300 dark:text-gray-600">·</span>
                             <span class="font-semibold text-gray-700 dark:text-gray-200">{{ $o['radius'] }}km</span>
@@ -96,7 +96,7 @@
                          style="border-color: #e5e7eb; border-left: 3px solid {{ $resultColor }};">
 
                         {{-- #id · tài xế · giờ --}}
-                        <div class="flex items-center gap-1.5 px-3 pt-2.5 pb-1.5 text-sm flex-wrap">
+                        <div class="flex items-center gap-1.5 px-3 py-2 text-sm flex-wrap">
                             <span class="font-bold text-gray-900 dark:text-white">#{{ $r['order_id'] }}</span>
                             <span class="text-gray-300 dark:text-gray-600">·</span>
                             <span class="font-medium text-gray-700 dark:text-gray-200">{{ $r['driver_name'] }}</span>
