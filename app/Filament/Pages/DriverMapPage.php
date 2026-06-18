@@ -11,6 +11,8 @@ class DriverMapPage extends Page
     protected static ?string $navigationGroup = 'Vận hành';
     protected static ?string $navigationLabel = 'Bản đồ tài xế';
     protected static ?string $title           = ' ';
+
+    public function getHeading(): string { return ''; }
     protected static ?int    $navigationSort  = 11;
 
     protected static string $view = 'filament.pages.driver-map';
