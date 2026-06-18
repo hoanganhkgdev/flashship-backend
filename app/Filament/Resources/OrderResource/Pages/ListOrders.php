@@ -12,6 +12,8 @@ class ListOrders extends ListRecords
 {
     protected static string $resource = OrderResource::class;
 
+    public function getHeading(): string { return ''; }
+
     public function getTabs(): array
     {
         $services = [
