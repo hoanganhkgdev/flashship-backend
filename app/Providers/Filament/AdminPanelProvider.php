@@ -86,9 +86,9 @@ class AdminPanelProvider extends PanelProvider
                                 wsHost: "' . env('REVERB_HOST', 'localhost') . '",
                                 wsPort: ' . (int) env('REVERB_PORT', 8080) . ',
                                 wssPort: ' . (int) env('REVERB_PORT', 8080) . ',
-                                forceTLS: false,
+                                forceTLS: ' . (env('REVERB_SCHEME', 'http') === 'https' ? 'true' : 'false') . ',
                                 disableStats: true,
-                                enabledTransports: ["ws"],
+                                enabledTransports: ["ws", "wss"],
                             });
                         } catch(e) { console.warn("Echo init failed:", e); }
                     </script>'
