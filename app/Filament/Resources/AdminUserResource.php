@@ -25,7 +25,7 @@ class AdminUserResource extends Resource
 
     public static function getEloquentQuery(): Builder
     {
-        return parent::getEloquentQuery()->whereIn('user_type', ['admin', 'subadmin']);
+        return parent::getEloquentQuery()->whereIn('user_type', ['admin', 'subadmin', 'city_manager']);
     }
 
     public static function form(Form $form): Form
@@ -49,10 +49,22 @@ class AdminUserResource extends Resource
                 Forms\Components\Select::make('user_type')
                     ->label('Vai trò')
                     ->options([
-                        'admin'    => 'Quản trị viên',
-                        'subadmin' => 'Quản trị viên phụ',
+                        'admin'        => 'Quản trị viên',
+                        'subadmin'     => 'Quản trị viên phụ',
+                        'city_manager' => 'Quản lý khu vực',
                     ])
+                    ->live()
                     ->required(),
+
+                Forms\Components\Select::make('city_id')
+                    ->label('Khu vực phụ trách')
+                    ->options(fn () => \Illuminate\Support\Facades\DB::table('cities')
+                        ->where('is_active', 1)
+                        ->orderBy('name')
+                        ->pluck('name', 'id'))
+                    ->searchable()
+                    ->visible(fn (Forms\Get $get) => $get('user_type') === 'city_manager')
+                    ->required(fn (Forms\Get $get) => $get('user_type') === 'city_manager'),
 
                 Forms\Components\Select::make('status')
                     ->label('Trạng thái')
@@ -67,7 +79,7 @@ class AdminUserResource extends Resource
                     ->minLength(6)
                     ->dehydrateStateUsing(fn ($state) => filled($state) ? bcrypt($state) : null)
                     ->dehydrated(fn ($state) => filled($state)),
-            ])->columns(3),
+            ])->columns(2),
         ]);
     }
 
@@ -100,15 +112,23 @@ class AdminUserResource extends Resource
                     ->label('Vai trò')
                     ->badge()
                     ->formatStateUsing(fn ($state) => match ($state) {
-                        'admin'    => 'Quản trị viên',
-                        'subadmin' => 'Phụ quản trị',
-                        default    => $state,
+                        'admin'        => 'Quản trị viên',
+                        'subadmin'     => 'Phụ quản trị',
+                        'city_manager' => 'Quản lý khu vực',
+                        default        => $state,
                     })
                     ->color(fn ($state) => match ($state) {
-                        'admin'    => 'danger',
-                        'subadmin' => 'warning',
-                        default    => 'gray',
+                        'admin'        => 'danger',
+                        'subadmin'     => 'warning',
+                        'city_manager' => 'info',
+                        default        => 'gray',
                     }),
+
+                Tables\Columns\TextColumn::make('city.name')
+                    ->label('Khu vực')
+                    ->default('—')
+                    ->badge()
+                    ->color('gray'),
 
                 Tables\Columns\TextColumn::make('status')
                     ->label('Trạng thái')
@@ -133,9 +153,13 @@ class AdminUserResource extends Resource
                 SelectFilter::make('user_type')
                     ->label('Vai trò')
                     ->options([
-                        'admin'    => 'Quản trị viên',
-                        'subadmin' => 'Quản trị viên phụ',
+                        'admin'        => 'Quản trị viên',
+                        'subadmin'     => 'Quản trị viên phụ',
+                        'city_manager' => 'Quản lý khu vực',
                     ]),
+                SelectFilter::make('city_id')
+                    ->label('Khu vực')
+                    ->relationship('city', 'name'),
             ])
             ->actions([
                 Tables\Actions\EditAction::make()->label(''),
