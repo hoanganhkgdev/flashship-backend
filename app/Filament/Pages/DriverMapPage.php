@@ -10,45 +10,21 @@ class DriverMapPage extends Page
     protected static ?string $navigationIcon  = 'heroicon-o-map-pin';
     protected static ?string $navigationGroup = 'Vận hành';
     protected static ?string $navigationLabel = 'Bản đồ tài xế';
-    protected static ?string $title           = 'Bản đồ tài xế — Theo dõi real-time';
+    protected static ?string $title           = ' ';
     protected static ?int    $navigationSort  = 11;
 
     protected static string $view = 'filament.pages.driver-map';
 
-    public array $stats        = [];
-    public array $cities       = [];
-    public array $driversMeta  = []; // id → {name, phone, score, is_online, city_id}
+    public array $cities      = [];
+    public array $driversMeta = [];
 
     public function mount(): void
     {
         $this->cities = DB::table('cities')->orderBy('name')
-            ->get(['id', 'name'])
-            ->map(fn($c) => ['id' => $c->id, 'name' => $c->name])
+            ->get(['id', 'name', 'lat', 'lng'])
+            ->map(fn($c) => ['id' => $c->id, 'name' => $c->name, 'lat' => (float) $c->lat, 'lng' => (float) $c->lng])
             ->toArray();
 
-        $this->loadStats();
-        $this->loadDriversMeta();
-    }
-
-    public function loadStats(): void
-    {
-        $rows = DB::table('users')
-            ->where('user_type', 'driver')
-            ->where('status', 1)
-            ->select('city_id', 'is_online', DB::raw('COUNT(*) as cnt'))
-            ->groupBy('city_id', 'is_online')
-            ->get();
-
-        $cityNames = DB::table('cities')->pluck('name', 'id');
-        $map = [];
-        foreach ($rows as $row) {
-            $n = $cityNames[$row->city_id] ?? '?';
-            if (!isset($map[$n])) $map[$n] = ['online' => 0, 'offline' => 0];
-            $map[$n][$row->is_online ? 'online' : 'offline'] += $row->cnt;
-        }
-        $this->stats = $map;
-
-        // Gửi metadata mới lên JS qua event (map đang chạy bên wire:ignore)
         $this->loadDriversMeta();
     }
 
@@ -57,7 +33,7 @@ class DriverMapPage extends Page
         $drivers = DB::table('users')
             ->where('user_type', 'driver')
             ->where('status', 1)
-            ->select('id', 'name', 'phone', 'city_id', 'is_online', 'driver_score', 'latitude', 'longitude')
+            ->select('id', 'name', 'phone', 'city_id', 'is_online', 'driver_score', 'latitude', 'longitude', 'profile_photo_path')
             ->get();
 
         $meta = [];
@@ -68,9 +44,11 @@ class DriverMapPage extends Page
                 'city_id'      => $d->city_id,
                 'is_online'    => (bool) $d->is_online,
                 'driver_score' => (int) ($d->driver_score ?? 100),
-                // Tọa độ DB dùng làm fallback nếu RTDB chưa có
                 'lat'          => $d->latitude  ? (float) $d->latitude  : null,
                 'lng'          => $d->longitude ? (float) $d->longitude : null,
+                'avatar'       => $d->profile_photo_path
+                    ? \Illuminate\Support\Facades\Storage::url($d->profile_photo_path)
+                    : null,
             ];
         }
         $this->driversMeta = $meta;
@@ -79,7 +57,7 @@ class DriverMapPage extends Page
 
     public function getGoogleMapsKey(): string
     {
-        return config('services.google_maps.api_key', '');
+        return config('services.google_maps.api_key') ?? '';
     }
 
     public function getFirebaseConfig(): array
