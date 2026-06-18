@@ -12,11 +12,24 @@ use Filament\Tables;
 use Filament\Tables\Table;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Notifications\Notification;
+use Illuminate\Database\Eloquent\Builder;
 use Modules\Order\Models\Order;
 
 class OrderResource extends Resource
 {
     protected static ?string $model = Order::class;
+
+    public static function getEloquentQuery(): Builder
+    {
+        $query = parent::getEloquentQuery();
+        $user  = auth()->user();
+
+        if ($user?->user_type === 'city_manager' && $user->city_id) {
+            $query->where('city_id', $user->city_id);
+        }
+
+        return $query;
+    }
 
     protected static ?string $navigationIcon  = 'heroicon-o-shopping-bag';
     protected static ?string $navigationGroup = 'Đơn hàng';
