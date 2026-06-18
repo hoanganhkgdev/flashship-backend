@@ -12,12 +12,21 @@
     <div class="border-b border-gray-100 px-4 py-3 dark:border-gray-800 flex justify-center">
         <div class="flex items-center gap-1.5 rounded-xl bg-gray-100 p-1 dark:bg-gray-800 w-fit">
             @foreach ($cities as $city)
-            <button onclick="setCityFilter('{{ $city['id'] }}', { lat: {{ $city['lat'] }}, lng: {{ $city['lng'] }} })"
-                id="city-btn-{{ $city['id'] }}"
-                class="city-btn rounded-lg px-4 py-1.5 text-sm font-medium transition-all"
-                style="color: #6b7280;">
-                {{ $city['name'] }}
-            </button>
+            @if ($fixedCityId)
+                {{-- city_manager: chỉ 1 button, không click được --}}
+                <span id="city-btn-{{ $city['id'] }}"
+                    class="city-btn rounded-lg px-4 py-1.5 text-sm font-medium"
+                    style="background:#ffffff; color:#ea580c; box-shadow:0 1px 3px rgba(0,0,0,0.12); cursor:default;">
+                    {{ $city['name'] }}
+                </span>
+            @else
+                <button onclick="setCityFilter('{{ $city['id'] }}', { lat: {{ $city['lat'] }}, lng: {{ $city['lng'] }} })"
+                    id="city-btn-{{ $city['id'] }}"
+                    class="city-btn rounded-lg px-4 py-1.5 text-sm font-medium transition-all"
+                    style="color: #6b7280;">
+                    {{ $city['name'] }}
+                </button>
+            @endif
             @endforeach
         </div>
     </div>
@@ -40,7 +49,7 @@
 </div>
 
 <script>
-var _activeCityId = '2'; // Rạch Giá mặc định
+var _activeCityId = '{{ $fixedCityId ?? 2 }}';
 
 function toggleOffline() {
     var cb    = document.getElementById('show-offline');
@@ -75,9 +84,9 @@ function setCityFilter(cityId, latlng) {
     }
     if (window._renderMarkers) window._renderMarkers();
 }
-// Active Rạch Giá ngay lập tức (script chạy sau khi DOM đã render)
+// Active button mặc định
 (function() {
-    var btn = document.getElementById('city-btn-2');
+    var btn = document.getElementById('city-btn-' + _activeCityId);
     if (btn) {
         btn.style.background = '#ffffff';
         btn.style.color = '#ea580c';
@@ -128,7 +137,7 @@ if (!window._mapReady) {
         });
 
         map = window._map = new google.maps.Map(document.getElementById('driver-map'), {
-            center: { lat: 10.0125, lng: 105.0809 },
+            center: { lat: {{ $cities[0]['lat'] ?? 10.0125 }}, lng: {{ $cities[0]['lng'] ?? 105.0809 }} },
             zoom: 13,
             mapTypeControl: false,
             streetViewControl: false,

@@ -4,6 +4,7 @@ namespace App\Filament\Pages;
 
 use Filament\Pages\Page;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 
 class DriverMapPage extends Page
 {
@@ -11,35 +12,52 @@ class DriverMapPage extends Page
     protected static ?string $navigationGroup = 'Vận hành';
     protected static ?string $navigationLabel = 'Bản đồ tài xế';
     protected static ?string $title           = ' ';
+    protected static ?int    $navigationSort  = 11;
+    protected static string  $view            = 'filament.pages.driver-map';
 
     public function getHeading(): string { return ''; }
-    protected static ?int    $navigationSort  = 11;
-
-    protected static string $view = 'filament.pages.driver-map';
 
     public array $cities      = [];
     public array $driversMeta = [];
+    public ?int  $fixedCityId = null; // null = admin thấy tất cả
 
     public function mount(): void
     {
-        $this->cities = DB::table('cities')->orderBy('name')
-            ->get(['id', 'name', 'lat', 'lng'])
-            ->map(fn($c) => ['id' => $c->id, 'name' => $c->name, 'lat' => (float) $c->lat, 'lng' => (float) $c->lng])
-            ->toArray();
+        $user = auth()->user();
+
+        // city_manager chỉ thấy khu vực của mình
+        if ($user->user_type === 'city_manager' && $user->city_id) {
+            $this->fixedCityId = (int) $user->city_id;
+
+            $this->cities = DB::table('cities')
+                ->where('id', $user->city_id)
+                ->get(['id', 'name', 'lat', 'lng'])
+                ->map(fn($c) => ['id' => $c->id, 'name' => $c->name, 'lat' => (float) $c->lat, 'lng' => (float) $c->lng])
+                ->toArray();
+        } else {
+            $this->cities = DB::table('cities')->orderBy('name')
+                ->get(['id', 'name', 'lat', 'lng'])
+                ->map(fn($c) => ['id' => $c->id, 'name' => $c->name, 'lat' => (float) $c->lat, 'lng' => (float) $c->lng])
+                ->toArray();
+        }
 
         $this->loadDriversMeta();
     }
 
     public function loadDriversMeta(): void
     {
-        $drivers = DB::table('users')
+        $query = DB::table('users')
             ->where('user_type', 'driver')
             ->where('status', 1)
-            ->select('id', 'name', 'phone', 'city_id', 'is_online', 'driver_score', 'latitude', 'longitude', 'profile_photo_path')
-            ->get();
+            ->select('id', 'name', 'phone', 'city_id', 'is_online', 'driver_score', 'latitude', 'longitude', 'profile_photo_path');
+
+        // city_manager chỉ thấy tài xế khu vực mình
+        if ($this->fixedCityId) {
+            $query->where('city_id', $this->fixedCityId);
+        }
 
         $meta = [];
-        foreach ($drivers as $d) {
+        foreach ($query->get() as $d) {
             $meta[$d->id] = [
                 'name'         => $d->name ?? '',
                 'phone'        => $d->phone ?? '',
@@ -49,7 +67,7 @@ class DriverMapPage extends Page
                 'lat'          => $d->latitude  ? (float) $d->latitude  : null,
                 'lng'          => $d->longitude ? (float) $d->longitude : null,
                 'avatar'       => $d->profile_photo_path
-                    ? \Illuminate\Support\Facades\Storage::url($d->profile_photo_path)
+                    ? Storage::url($d->profile_photo_path)
                     : null,
             ];
         }
