@@ -267,13 +267,13 @@ class OrderResource extends Resource
                     Tables\Columns\TextColumn::make('pickup_address')
                         ->icon('heroicon-m-arrow-up-circle')
                         ->iconColor('warning')
-                        ->formatStateUsing(fn ($state) => \Illuminate\Support\Str::limit($state, 36))
+                        ->formatStateUsing(fn ($state) => \Illuminate\Support\Str::limit($state, 35))
                         ->tooltip(fn ($record) => $record->pickup_address)
                         ->size('sm'),
                     Tables\Columns\TextColumn::make('delivery_address')
                         ->icon('heroicon-m-arrow-down-circle')
                         ->iconColor('success')
-                        ->formatStateUsing(fn ($state) => \Illuminate\Support\Str::limit($state, 36))
+                        ->formatStateUsing(fn ($state) => \Illuminate\Support\Str::limit($state, 35))
                         ->tooltip(fn ($record) => $record->delivery_address)
                         ->size('sm'),
                 ]),
@@ -286,12 +286,13 @@ class OrderResource extends Resource
                         ->default('Chưa phân công')
                         ->color(fn ($record) => $record->driver_id ? 'primary' : 'gray')
                         ->size('sm')
-                        ->searchable(),
+                        ->grow(true),
                     Tables\Columns\TextColumn::make('shipping_fee')
                         ->formatStateUsing(fn ($state) => number_format((int) $state) . 'đ')
                         ->weight('bold')
                         ->color('primary')
-                        ->alignEnd(),
+                        ->alignEnd()
+                        ->grow(false),
                 ]),
             ])
             ->contentGrid([
