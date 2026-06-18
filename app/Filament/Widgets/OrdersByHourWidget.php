@@ -14,7 +14,12 @@ class OrdersByHourWidget extends ChartWidget
 
     protected function getData(): array
     {
-        $orders = Order::whereDate('created_at', today())->get(['created_at', 'status']);
+        $user   = auth()->user();
+        $cityId = $user?->user_type === 'city_manager' ? $user->city_id : null;
+
+        $orders = Order::whereDate('created_at', today())
+            ->when($cityId, fn ($q) => $q->where('city_id', $cityId))
+            ->get(['created_at', 'status']);
 
         $byHour    = array_fill(0, 24, 0);
         $completed = array_fill(0, 24, 0);

@@ -2,55 +2,33 @@
 
 namespace App\Filament\Widgets;
 
-use Filament\Widgets\StatsOverviewWidget as BaseWidget;
-use Filament\Widgets\StatsOverviewWidget\Stat;
+use Filament\Widgets\Widget;
 use Modules\Core\Models\User;
 use Modules\Order\Models\Order;
 
-class StatsOverviewWidget extends BaseWidget
+class StatsOverviewWidget extends Widget
 {
+    protected static string $view = 'filament.widgets.stats-overview';
     protected static ?string $pollingInterval = '15s';
     protected int | string | array $columnSpan = 'full';
-    protected function getStats(): array
+    protected static ?int $sort = 1;
+
+    protected function getViewData(): array
     {
-        $today = now()->toDateString();
+        $today  = now()->toDateString();
+        $user   = auth()->user();
+        $cityId = ($user?->user_type === 'city_manager') ? $user->city_id : null;
 
-        $totalOrdersToday = Order::whereDate('created_at', $today)->count();
+        $orderBase = Order::query()->when($cityId, fn ($q) => $q->where('city_id', $cityId));
 
-        $completedOrdersToday = Order::where('status', 'completed')
-            ->whereDate('completed_at', $today)
-            ->count();
+        $totalOrders     = (clone $orderBase)->whereDate('created_at', $today)->count();
+        $completedOrders = (clone $orderBase)->where('status', 'completed')->whereDate('completed_at', $today)->count();
+        $revenueRaw      = (clone $orderBase)->where('status', 'completed')->whereDate('completed_at', $today)->sum('shipping_fee');
+        $revenue         = number_format($revenueRaw, 0, ',', '.') . '₫';
 
-        $driversOnline = User::where('user_type', 'driver')
-            ->where('is_online', true)
-            ->count();
+        $driverBase  = User::where('user_type', 'driver')->where('is_online', true);
+        $driversOnline = (clone $driverBase)->when($cityId, fn ($q) => $q->where('city_id', $cityId))->count();
 
-        $revenueToday = Order::where('status', 'completed')
-            ->whereDate('completed_at', $today)
-            ->sum('shipping_fee');
-
-        $revenueFormatted = number_format($revenueToday, 0, ',', '.') . ' ₫';
-
-        return [
-            Stat::make('Tổng đơn hôm nay', $totalOrdersToday)
-                ->description('Đơn hàng tạo trong ngày')
-                ->descriptionIcon('heroicon-m-shopping-bag')
-                ->color('primary'),
-
-            Stat::make('Đơn hoàn thành hôm nay', $completedOrdersToday)
-                ->description('Đã giao thành công')
-                ->descriptionIcon('heroicon-m-check-circle')
-                ->color('success'),
-
-            Stat::make('Tài xế đang online', $driversOnline)
-                ->description('Tài xế sẵn sàng nhận đơn')
-                ->descriptionIcon('heroicon-m-truck')
-                ->color('info'),
-
-            Stat::make('Doanh thu hôm nay', $revenueFormatted)
-                ->description('Phí giao hàng đơn hoàn thành')
-                ->descriptionIcon('heroicon-m-banknotes')
-                ->color('warning'),
-        ];
+        return compact('totalOrders', 'completedOrders', 'driversOnline', 'revenue');
     }
 }
