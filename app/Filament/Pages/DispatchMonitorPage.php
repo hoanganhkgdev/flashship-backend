@@ -4,6 +4,8 @@ namespace App\Filament\Pages;
 
 use Filament\Pages\Page;
 use Illuminate\Support\Facades\DB;
+use Livewire\Attributes\On;
+use Modules\Core\Models\ServiceType;
 use Modules\Order\Models\Order;
 use Modules\Order\Models\OrderDispatchLog;
 use Modules\Order\Services\DispatchService;
@@ -16,9 +18,20 @@ class DispatchMonitorPage extends Page
     protected static ?int    $navigationSort  = 50;
     protected static string  $view            = 'filament.pages.dispatch-monitor';
 
+    public function getHeading(): string { return ''; }
+
+    #[On('echo:dispatch-monitor,.state.changed')]
+    public function refresh(): void {}
+
     /**
      * Đơn đang trong quá trình phát (chưa có tài xế nhận).
      */
+    private function serviceLabels(): array
+    {
+        static $cache = null;
+        return $cache ??= ServiceType::pluck('label', 'key')->toArray();
+    }
+
     public function getActiveOrders(): array
     {
         return Order::query()
@@ -36,15 +49,12 @@ class DispatchMonitorPage extends Page
 
                 $elapsedSecs = max(0, now()->getTimestamp() - \Carbon\Carbon::parse($o->dispatch_started_at)->getTimestamp());
 
-                // +1 vì đây là lượt đang/sắp thử, khớp với log "Lần thử #N"
-                $attempts = OrderDispatchLog::where('order_id', $o->id)->count() + 1;
-
                 return [
                     'id'           => $o->id,
-                    'service_type' => $o->service_type,
+                    'service_type' => $this->serviceLabels()[$o->service_type] ?? $o->service_type,
                     'city'         => $o->city_name,
                     'elapsed'      => $elapsedSecs,
-                    'attempts'     => $attempts,
+                    'attempts'     => $o->dispatch_attempts,
                     'radius'       => $this->radiusForOrder($o->id),
                     'offering_to'  => $driverName,
                     'started_at'   => $o->dispatch_started_at,
@@ -61,7 +71,7 @@ class DispatchMonitorPage extends Page
         return OrderDispatchLog::query()
             ->join('users', 'users.id', '=', 'order_dispatch_logs.driver_id')
             ->orderByDesc('order_dispatch_logs.id')
-            ->limit(50)
+            ->limit(20)
             ->get([
                 'order_dispatch_logs.order_id',
                 'order_dispatch_logs.driver_id',
@@ -125,8 +135,12 @@ class DispatchMonitorPage extends Page
 
     private function radiusForOrder(int $orderId): float
     {
-        $cached = \Illuminate\Support\Facades\Redis::get("dispatch:radius:{$orderId}");
-        return $cached ? (float) $cached : DispatchService::RADIUS_KM_STAGES[0];
+        try {
+            $cached = \Illuminate\Support\Facades\Redis::get("dispatch:radius:{$orderId}");
+            return $cached ? (float) $cached : DispatchService::RADIUS_KM_STAGES[0];
+        } catch (\Throwable) {
+            return DispatchService::RADIUS_KM_STAGES[0];
+        }
     }
 
     protected function getFormActions(): array { return []; }

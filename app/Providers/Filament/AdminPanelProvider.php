@@ -75,6 +75,23 @@ class AdminPanelProvider extends PanelProvider
                 'panels::head.end',
                 fn () => new \Illuminate\Support\HtmlString(
                     '<script src="https://maps.googleapis.com/maps/api/js?key=' . config('services.google_maps.api_key') . '&libraries=places"></script>'
+                    . '<script src="https://unpkg.com/pusher-js@8.4.0/dist/web/pusher.min.js"></script>'
+                    . '<script src="https://unpkg.com/laravel-echo@1.16.1/dist/echo.iife.js"></script>'
+                    . '<script>
+                        try {
+                            window.Echo = new Echo({
+                                broadcaster: "pusher",
+                                key: "' . env('REVERB_APP_KEY') . '",
+                                cluster: "mt1",
+                                wsHost: "' . env('REVERB_HOST', 'localhost') . '",
+                                wsPort: ' . (int) env('REVERB_PORT', 8080) . ',
+                                wssPort: ' . (int) env('REVERB_PORT', 8080) . ',
+                                forceTLS: false,
+                                disableStats: true,
+                                enabledTransports: ["ws"],
+                            });
+                        } catch(e) { console.warn("Echo init failed:", e); }
+                    </script>'
                 )
             );
     }

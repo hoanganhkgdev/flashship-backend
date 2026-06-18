@@ -12,6 +12,7 @@ use Modules\Core\Models\User;
 use Modules\Core\Services\FCMService;
 use Modules\Core\Services\RTDBService;
 use Illuminate\Support\Collection;
+use App\Events\DispatchStateChanged;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Redis;
@@ -125,6 +126,7 @@ class DispatchService
         AutoCancelOrderJob::dispatch($order->id)->delay($now->copy()->addSeconds(self::TIMEOUT_SECS));
 
         $this->buildQueueAndSend($order, self::RADIUS_KM_STAGES[0]);
+        broadcast(new DispatchStateChanged());
     }
 
     /**
@@ -200,6 +202,7 @@ class DispatchService
         if (!$cancelled) return;
 
         $this->clearDispatchCache($order->id);
+        broadcast(new DispatchStateChanged());
 
         if ($order->voucher_code) {
             Voucher::where('code', $order->voucher_code)->decrement('used_count');
@@ -239,6 +242,7 @@ class DispatchService
         Log::info("║  Tài xế  : #{$driver->id} {$driver->name} | SĐT: {$driver->phone}");
         Log::info("║  Sau lần thử: #{$attempts}");
         Log::info("╚══════════════════════════════════════════════════════════════");
+        broadcast(new DispatchStateChanged());
     }
 
     // =========================================================================
@@ -495,6 +499,8 @@ class DispatchService
 
         DispatchOrderJob::dispatch($order->id, $driver->id)
             ->delay(now()->addSeconds(self::DRIVER_OFFER_SECS));
+
+        broadcast(new DispatchStateChanged());
     }
 
     public function getCandidates(Order $order, float $radiusKm, array $excludeIds = []): Collection

@@ -64,7 +64,7 @@ class OrderResource extends Resource
         'cancelled'  => 'danger',
     ];
 
-    private static array $statusTextColors = [
+    protected static array $statusTextColors = [
         'pending'    => '#f59e0b',
         'assigned'   => '#3b82f6',
         'processing' => '#f97316',
