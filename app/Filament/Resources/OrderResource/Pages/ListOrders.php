@@ -15,15 +15,19 @@ class ListOrders extends ListRecords
 
     public function getDefaultActiveTab(): string | int | null
     {
-        return 'processing';
+        return 'new';
     }
 
     public function getTabs(): array
     {
         return [
+            'new' => Tab::make('Đơn mới')
+                ->icon('heroicon-m-bell-alert')
+                ->modifyQueryUsing(fn (Builder $query) => $query->where('status', 'pending')),
+
             'processing' => Tab::make('Đang xử lý')
                 ->icon('heroicon-m-clock')
-                ->modifyQueryUsing(fn (Builder $query) => $query->whereNotIn('status', ['completed', 'cancelled'])),
+                ->modifyQueryUsing(fn (Builder $query) => $query->whereIn('status', ['assigned', 'processing', 'on_the_way'])),
 
             'completed' => Tab::make('Hoàn thành')
                 ->icon('heroicon-m-check-circle')
