@@ -11,8 +11,11 @@ use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
 use Filament\Tables\Filters\SelectFilter;
+use Filament\Tables\Columns\Layout\Split;
+use Filament\Tables\Columns\Layout\Stack;
 use Filament\Notifications\Notification;
 use Illuminate\Database\Eloquent\Builder;
+use Modules\Core\Models\ServiceType;
 use Modules\Order\Models\Order;
 
 class OrderResource extends Resource
@@ -37,14 +40,11 @@ class OrderResource extends Resource
     protected static ?string $pluralModelLabel = 'Đơn hàng';
     protected static ?int    $navigationSort  = 1;
 
-    private static array $serviceLabels = [
-        'delivery' => 'Giao hàng',
-        'shopping' => 'Mua sắm',
-        'topup'    => 'Nạp tiền',
-        'bike'     => 'Xe máy',
-        'motor'    => 'Xe máy lớn',
-        'car'      => 'Ô tô',
-    ];
+    private static function serviceLabels(): array
+    {
+        static $cache = null;
+        return $cache ??= ServiceType::pluck('label', 'key')->toArray();
+    }
 
     private static array $statusLabels = [
         'pending'    => 'Chờ tài xế',
@@ -64,6 +64,15 @@ class OrderResource extends Resource
         'cancelled'  => 'danger',
     ];
 
+    private static array $statusTextColors = [
+        'pending'    => '#f59e0b',
+        'assigned'   => '#3b82f6',
+        'processing' => '#f97316',
+        'on_the_way' => '#8b5cf6',
+        'completed'  => '#22c55e',
+        'cancelled'  => '#ef4444',
+    ];
+
     private static array $paymentLabels = [
         'cod'     => 'COD',
         'prepaid' => 'Thanh toán trước',
@@ -81,7 +90,7 @@ class OrderResource extends Resource
 
                 Forms\Components\Select::make('service_type')
                     ->label('Loại dịch vụ')
-                    ->options(self::$serviceLabels)
+                    ->options(self::serviceLabels())
                     ->disabled(),
 
                 Forms\Components\TextInput::make('cancel_reason')
@@ -124,7 +133,7 @@ class OrderResource extends Resource
                 Infolists\Components\TextEntry::make('service_type')
                     ->label('Dịch vụ')
                     ->badge()
-                    ->formatStateUsing(fn ($state) => self::$serviceLabels[$state] ?? $state)
+                    ->formatStateUsing(fn ($state) => self::serviceLabels()[$state] ?? $state)
                     ->color('info'),
 
                 Infolists\Components\TextEntry::make('status')
@@ -231,90 +240,68 @@ class OrderResource extends Resource
     {
         return $table
             ->columns([
-                Tables\Columns\TextColumn::make('code')
-                    ->label('Mã đơn')
-                    ->alignCenter()
-                    ->searchable()
-                    ->copyable()
-                    ->weight('semibold'),
+                // Dòng 1: mã đơn + badge dịch vụ (trái) | giờ (phải)
+                Split::make([
+                    Tables\Columns\TextColumn::make('code')
+                        ->searchable()
+                        ->copyable()
+                        ->formatStateUsing(fn ($state, $record) =>
+                            '<span style="font-weight:700">#' . e($state) . '</span>'
+                            . '<span style="color:#9ca3af;margin:0 6px">·</span>'
+                            . '<span style="font-weight:700;color:rgb(var(--primary-500))">' . e(self::serviceLabels()[$record->service_type] ?? $record->service_type) . '</span>'
+                            . '<span style="color:#9ca3af;margin:0 6px">·</span>'
+                            . '<span style="font-weight:600;color:' . self::$statusTextColors[$record->status] . '">' . e(self::$statusLabels[$record->status] ?? $record->status) . '</span>'
+                        )
+                        ->html()
+                        ->grow(true),
+                    Tables\Columns\TextColumn::make('created_at')
+                        ->dateTime('d/m H:i')
+                        ->color('gray')
+                        ->size('xs')
+                        ->alignEnd()
+                        ->grow(false),
+                ]),
 
-                Tables\Columns\TextColumn::make('service_type')
-                    ->label('Dịch vụ')
-                    ->badge()
-                    ->formatStateUsing(fn ($state) => self::$serviceLabels[$state] ?? $state)
-                    ->color('info'),
+                // Dòng 3: địa chỉ lấy → giao
+                Stack::make([
+                    Tables\Columns\TextColumn::make('pickup_address')
+                        ->icon('heroicon-m-arrow-up-circle')
+                        ->iconColor('warning')
+                        ->formatStateUsing(fn ($state) => \Illuminate\Support\Str::limit($state, 45))
+                        ->tooltip(fn ($record) => $record->pickup_address)
+                        ->size('sm'),
+                    Tables\Columns\TextColumn::make('delivery_address')
+                        ->icon('heroicon-m-arrow-down-circle')
+                        ->iconColor('success')
+                        ->formatStateUsing(fn ($state) => \Illuminate\Support\Str::limit($state, 45))
+                        ->tooltip(fn ($record) => $record->delivery_address)
+                        ->size('sm'),
+                ]),
 
-                Tables\Columns\TextColumn::make('status')
-                    ->label('Trạng thái')
-                    ->alignCenter()
-                    ->badge()
-                    ->formatStateUsing(fn ($state) => self::$statusLabels[$state] ?? $state)
-                    ->color(fn ($state) => self::$statusColors[$state] ?? 'gray'),
-
-                Tables\Columns\TextColumn::make('driver.name')
-                    ->label('Tài xế')
-                    ->default('—')
-                    ->searchable(),
-
-                Tables\Columns\TextColumn::make('pickup_address')
-                    ->label('Lấy hàng')
-                    ->limit(28)
-                    ->tooltip(fn ($record) => $record->pickup_address),
-
-                Tables\Columns\TextColumn::make('delivery_address')
-                    ->label('Giao hàng')
-                    ->limit(28)
-                    ->tooltip(fn ($record) => $record->delivery_address),
-
-                Tables\Columns\TextColumn::make('shipping_fee')
-                    ->label('Phí ship')
-                    ->alignCenter()
-                    ->formatStateUsing(fn ($state) => number_format((int) $state) . 'đ'),
-
-                Tables\Columns\TextColumn::make('distance')
-                    ->label('km')
-                    ->alignCenter()
-                    ->formatStateUsing(fn ($state) => $state ? number_format((float) $state, 1) : '—')
-                    ->toggleable(isToggledHiddenByDefault: true),
-
-                Tables\Columns\TextColumn::make('payment_method')
-                    ->label('TT')
-                    ->alignCenter()
-                    ->badge()
-                    ->formatStateUsing(fn ($state) => self::$paymentLabels[$state] ?? $state)
-                    ->color('gray'),
-
-                Tables\Columns\TextColumn::make('city.name')
-                    ->label('Thành phố')
-                    ->alignCenter()
-                    ->badge()
-                    ->color('gray')
-                    ->toggleable(isToggledHiddenByDefault: true),
-
-                Tables\Columns\TextColumn::make('created_at')
-                    ->label('Tạo lúc')
-                    ->alignCenter()
-                    ->dateTime('d/m H:i'),
+                // Dòng 4: tài xế (trái) | phí + thanh toán (phải)
+                Split::make([
+                    Tables\Columns\TextColumn::make('driver.name')
+                        ->icon('heroicon-m-user-circle')
+                        ->iconColor('gray')
+                        ->default('Chưa phân công')
+                        ->color(fn ($record) => $record->driver_id ? 'primary' : 'gray')
+                        ->size('sm')
+                        ->searchable(),
+                    Tables\Columns\TextColumn::make('shipping_fee')
+                        ->formatStateUsing(fn ($state) => number_format((int) $state) . 'đ')
+                        ->weight('bold')
+                        ->color('primary')
+                        ->alignEnd(),
+                ]),
             ])
-            ->filters([
-                SelectFilter::make('status')
-                    ->label('Trạng thái')
-                    ->options(self::$statusLabels),
-
-                SelectFilter::make('service_type')
-                    ->label('Loại dịch vụ')
-                    ->options(self::$serviceLabels),
-
-                SelectFilter::make('payment_method')
-                    ->label('Thanh toán')
-                    ->options(self::$paymentLabels),
-
-                SelectFilter::make('city_id')
-                    ->label('Thành phố')
-                    ->relationship('city', 'name'),
+            ->contentGrid([
+                'default' => 1,
+                'sm'      => 2,
+                'xl'      => 3,
             ])
+            ->filters([])
             ->actions([
-                Tables\Actions\ViewAction::make()->label(''),
+                Tables\Actions\EditAction::make()->label(''),
 
                 Tables\Actions\Action::make('cancel')
                     ->label('')
@@ -330,13 +317,9 @@ class OrderResource extends Resource
                         Notification::make()->title('Đã huỷ đơn ' . $record->code)->warning()->send();
                     }),
 
-                Tables\Actions\EditAction::make()->label(''),
             ])
-            ->bulkActions([
-                Tables\Actions\BulkActionGroup::make([
-                    Tables\Actions\DeleteBulkAction::make(),
-                ]),
-            ])
+            ->bulkActions([])
+            ->actionsAlignment('end')
             ->defaultSort('created_at', 'desc')
             ->poll('15s');
     }
