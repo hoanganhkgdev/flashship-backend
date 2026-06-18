@@ -267,13 +267,13 @@ class OrderResource extends Resource
                     Tables\Columns\TextColumn::make('pickup_address')
                         ->icon('heroicon-m-arrow-up-circle')
                         ->iconColor('warning')
-                        ->formatStateUsing(fn ($state) => \Illuminate\Support\Str::limit($state, 40))
+                        ->formatStateUsing(fn ($state) => \Illuminate\Support\Str::limit($state, 36))
                         ->tooltip(fn ($record) => $record->pickup_address)
                         ->size('sm'),
                     Tables\Columns\TextColumn::make('delivery_address')
                         ->icon('heroicon-m-arrow-down-circle')
                         ->iconColor('success')
-                        ->formatStateUsing(fn ($state) => \Illuminate\Support\Str::limit($state, 40))
+                        ->formatStateUsing(fn ($state) => \Illuminate\Support\Str::limit($state, 36))
                         ->tooltip(fn ($record) => $record->delivery_address)
                         ->size('sm'),
                 ]),
@@ -323,6 +323,8 @@ class OrderResource extends Resource
             ->bulkActions([])
             ->actionsAlignment('end')
             ->defaultSort('created_at', 'desc')
+            ->defaultPaginationPageOption(12)
+            ->paginationPageOptions([12, 24, 48])
             ->poll('15s');
     }
 

@@ -3,16 +3,16 @@
 namespace App\Filament\Resources;
 
 use App\Filament\Resources\DriverRatingResource\Pages;
-use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Form;
 use Filament\Infolists;
 use Filament\Infolists\Infolist;
 use Filament\Resources\Resource;
 use Filament\Tables;
-use Filament\Tables\Filters\Filter;
-use Filament\Tables\Filters\SelectFilter;
+use Filament\Tables\Columns\Layout\Split;
+use Filament\Tables\Columns\Layout\Stack;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Modules\Core\Models\ServiceType;
 use Modules\Order\Models\Order;
 
 class DriverRatingResource extends Resource
@@ -115,112 +115,96 @@ class DriverRatingResource extends Resource
         ]);
     }
 
+    private static function serviceLabels(): array
+    {
+        static $cache = null;
+        return $cache ??= ServiceType::pluck('label', 'key')->toArray();
+    }
+
+    private static function ratingColor(int $rating): string
+    {
+        return match (true) {
+            $rating <= 2 => '#ef4444',
+            $rating === 3 => '#f59e0b',
+            default       => '#22c55e',
+        };
+    }
+
+    private static function ratingStars(int $rating): string
+    {
+        $color = self::ratingColor($rating);
+        $stars = str_repeat('<span style="color:' . $color . '">★</span>', $rating)
+               . str_repeat('<span style="color:#d1d5db">★</span>', 5 - $rating);
+        return '<span style="font-size:1rem;letter-spacing:1px">' . $stars . '</span>';
+    }
+
     public static function table(Table $table): Table
     {
         return $table
             ->columns([
-                Tables\Columns\TextColumn::make('index')
-                    ->rowIndex()
-                    ->label('#')
-                    ->alignCenter()
-                    ->width(40),
+                Split::make([
+                    // Sao + tên tài xế (trái)
+                    Stack::make([
+                        Tables\Columns\TextColumn::make('driver_rating')
+                            ->formatStateUsing(fn ($state) => self::ratingStars((int) $state))
+                            ->html()
+                            ->grow(false),
 
-                Tables\Columns\TextColumn::make('code')
-                    ->label('Mã đơn')
-                    ->alignCenter()
-                    ->searchable()
-                    ->copyable()
-                    ->weight('bold'),
+                        Tables\Columns\TextColumn::make('driver.name')
+                                                        ->weight('bold')
+                            ->size('sm')
+                            ->placeholder('—'),
 
-                Tables\Columns\TextColumn::make('driver.name')
-                    ->label('Tài xế')
-                    ->searchable()
-                    ->description(fn (Order $r) => $r->driver?->phone ?? '')
-                    ->placeholder('—'),
+                        Tables\Columns\TextColumn::make('driver.phone')
+                            ->color('gray')
+                            ->size('xs'),
+                    ])->grow(true),
 
-                Tables\Columns\TextColumn::make('sender.name')
-                    ->label('Khách hàng')
-                    ->searchable()
-                    ->description(fn (Order $r) => $r->sender?->phone ?? '')
-                    ->placeholder('—'),
+                    // Ngày + dịch vụ (phải)
+                    Stack::make([
+                        Tables\Columns\TextColumn::make('completed_at')
+                            ->dateTime('d/m H:i')
+                            ->color('gray')
+                            ->size('xs')
+                            ->alignEnd(),
 
-                Tables\Columns\TextColumn::make('service_type')
-                    ->label('Dịch vụ')
-                    ->badge()
-                    ->formatStateUsing(fn ($state) => match ($state) {
-                        'delivery' => 'Lấy hộ',
-                        'shopping' => 'Mua hộ',
-                        'topup'    => 'Nạp tiền',
-                        'bike'     => 'Xe ôm',
-                        'motor'    => 'Lái hộ xe máy',
-                        'car'      => 'Lái hộ ô tô',
-                        default    => $state,
-                    })
-                    ->color('info'),
+                        Tables\Columns\TextColumn::make('service_type')
+                            ->formatStateUsing(fn ($state) => self::serviceLabels()[$state] ?? $state)
+                            ->size('xs')
+                            ->color('primary')
+                            ->alignEnd(),
+                    ])->grow(false),
+                ]),
 
-                Tables\Columns\TextColumn::make('driver_rating')
-                    ->label('Đánh giá')
-                    ->alignCenter()
-                    ->formatStateUsing(fn ($state) => str_repeat('⭐', (int) $state))
-                    ->color(fn ($state) => $state <= 2 ? 'danger' : ($state >= 4 ? 'success' : 'warning')),
+                // Nhận xét
+                Stack::make([
+                    Tables\Columns\TextColumn::make('driver_rating_note')
+                        ->size('sm')
+                        ->color('gray')
+                        ->placeholder('Không có nhận xét')
+                        ->wrap(),
+                ]),
 
-                Tables\Columns\TextColumn::make('driver_rating_note')
-                    ->label('Nhận xét')
-                    ->limit(60)
-                    ->placeholder('—')
-                    ->wrap(),
+                // Khách hàng
+                Split::make([
+                    Tables\Columns\TextColumn::make('sender.name')
+                                                ->icon('heroicon-m-user')
+                        ->iconColor('gray')
+                        ->size('xs')
+                        ->color('gray')
+                        ->placeholder('—'),
 
-                Tables\Columns\TextColumn::make('completed_at')
-                    ->label('Ngày đánh giá')
-                    ->alignCenter()
-                    ->dateTime('d/m/Y H:i'),
+                    Tables\Columns\TextColumn::make('code')
+                                                ->copyable()
+                        ->size('xs')
+                        ->color('gray')
+                        ->formatStateUsing(fn ($state) => '#' . $state)
+                        ->alignEnd(),
+                ]),
             ])
-            ->filters([
-                SelectFilter::make('driver_rating')
-                    ->label('Số sao')
-                    ->options([
-                        '5' => '⭐⭐⭐⭐⭐ 5 sao',
-                        '4' => '⭐⭐⭐⭐ 4 sao',
-                        '3' => '⭐⭐⭐ 3 sao',
-                        '2' => '⭐⭐ 2 sao',
-                        '1' => '⭐ 1 sao',
-                    ]),
-
-                SelectFilter::make('service_type')
-                    ->label('Dịch vụ')
-                    ->options([
-                        'delivery' => 'Lấy hộ',
-                        'shopping' => 'Mua hộ',
-                        'topup'    => 'Nạp tiền',
-                        'bike'     => 'Xe ôm',
-                        'motor'    => 'Lái hộ xe máy',
-                        'car'      => 'Lái hộ ô tô',
-                    ]),
-
-                Filter::make('date_range')
-                    ->label('Khoảng thời gian')
-                    ->form([
-                        DatePicker::make('from')->label('Từ ngày'),
-                        DatePicker::make('to')->label('Đến ngày'),
-                    ])
-                    ->query(fn (Builder $query, array $data) => $query
-                        ->when($data['from'], fn ($q) => $q->whereDate('completed_at', '>=', $data['from']))
-                        ->when($data['to'],   fn ($q) => $q->whereDate('completed_at', '<=', $data['to']))
-                    ),
-
-                Filter::make('low_rating')
-                    ->label('Đánh giá thấp (≤ 2 sao)')
-                    ->query(fn (Builder $q) => $q->where('driver_rating', '<=', 2))
-                    ->toggle(),
-
-                Filter::make('has_note')
-                    ->label('Có nhận xét')
-                    ->query(fn (Builder $q) => $q->whereNotNull('driver_rating_note')->where('driver_rating_note', '!=', ''))
-                    ->toggle(),
-            ])
+            ->contentGrid(['default' => 1, 'sm' => 2, 'xl' => 3])
+            ->filters([])
             ->actions([
-                Tables\Actions\ViewAction::make()->label(''),
-
                 Tables\Actions\Action::make('delete_rating')
                     ->label('')
                     ->icon('heroicon-o-trash')
@@ -234,18 +218,10 @@ class DriverRatingResource extends Resource
                         'driver_rating_note' => null,
                     ])),
             ])
-            ->bulkActions([
-                Tables\Actions\BulkAction::make('delete_ratings')
-                    ->label('Xóa đánh giá đã chọn')
-                    ->icon('heroicon-o-trash')
-                    ->color('danger')
-                    ->requiresConfirmation()
-                    ->action(fn ($records) => $records->each->update([
-                        'driver_rating'      => null,
-                        'driver_rating_note' => null,
-                    ]))
-                    ->deselectRecordsAfterCompletion(),
-            ])
+            ->bulkActions([])
+            ->actionsAlignment('end')
+            ->defaultPaginationPageOption(12)
+            ->paginationPageOptions([12, 24, 48])
             ->poll('30s');
     }
 
@@ -253,7 +229,6 @@ class DriverRatingResource extends Resource
     {
         return [
             'index' => Pages\ListDriverRatings::route('/'),
-            'view'  => Pages\ViewDriverRating::route('/{record}'),
         ];
     }
 }

@@ -12,12 +12,7 @@ class ListDriverRatings extends ListRecords
 
     protected static string $resource = DriverRatingResource::class;
 
-    protected function getHeaderWidgets(): array
-    {
-        return [
-            DriverRatingResource\Widgets\RatingStatsWidget::class,
-        ];
-    }
+    public function getHeading(): string { return ''; }
 
     protected function getHeaderActions(): array
     {
