@@ -23,15 +23,15 @@ class ListOrders extends ListRecords
         return [
             'processing' => Tab::make('Đang xử lý')
                 ->icon('heroicon-m-clock')
-                ->modifyQueryUsing(fn (Builder $q) => $q->whereNotIn('status', ['completed', 'cancelled'])),
+                ->modifyQueryUsing(fn (Builder $query) => $query->whereNotIn('status', ['completed', 'cancelled'])),
 
             'completed' => Tab::make('Hoàn thành')
                 ->icon('heroicon-m-check-circle')
-                ->modifyQueryUsing(fn (Builder $q) => $q->where('status', 'completed')),
+                ->modifyQueryUsing(fn (Builder $query) => $query->where('status', 'completed')),
 
             'cancelled' => Tab::make('Đã hủy')
                 ->icon('heroicon-m-x-circle')
-                ->modifyQueryUsing(fn (Builder $q) => $q->where('status', 'cancelled')),
+                ->modifyQueryUsing(fn (Builder $query) => $query->where('status', 'cancelled')),
         ];
     }
 }
