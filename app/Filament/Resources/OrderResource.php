@@ -303,6 +303,8 @@ class OrderResource extends Resource
             ->actions([
                 Tables\Actions\EditAction::make()->label(''),
 
+                Tables\Actions\DeleteAction::make()->label(''),
+
                 Tables\Actions\Action::make('cancel')
                     ->label('')
                     ->icon('heroicon-o-x-circle')
