@@ -14,9 +14,12 @@ use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Filters\TernaryFilter;
 use Illuminate\Database\Eloquent\Builder;
 use Modules\Core\Models\User;
+use App\Filament\Traits\HideFromCityManager;
 
 class DriverResource extends Resource
 {
+    use HideFromCityManager;
+
     protected static ?string $model = User::class;
 
     protected static ?string $navigationIcon  = 'heroicon-o-truck';

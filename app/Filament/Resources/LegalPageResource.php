@@ -9,9 +9,12 @@ use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
 use Modules\Admin\Models\Page;
+use App\Filament\Traits\HideFromCityManager;
 
 class LegalPageResource extends Resource
 {
+    use HideFromCityManager;
+
     protected static ?string $model = Page::class;
 
     protected static ?string $navigationIcon  = 'heroicon-o-document-text';

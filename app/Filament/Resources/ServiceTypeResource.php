@@ -9,9 +9,12 @@ use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
 use Modules\Core\Models\ServiceType;
+use App\Filament\Traits\HideFromCityManager;
 
 class ServiceTypeResource extends Resource
 {
+    use HideFromCityManager;
+
     protected static ?string $model          = ServiceType::class;
     protected static ?string $navigationIcon = 'heroicon-o-squares-2x2';
     protected static ?string $navigationGroup = 'Cấu hình';

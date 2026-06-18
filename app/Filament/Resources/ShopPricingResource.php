@@ -9,9 +9,12 @@ use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
 use Modules\Shop\Models\ShopPricingConfig;
+use App\Filament\Traits\HideFromCityManager;
 
 class ShopPricingResource extends Resource
 {
+    use HideFromCityManager;
+
     protected static ?string $model           = ShopPricingConfig::class;
     protected static ?string $navigationIcon  = 'heroicon-o-tag';
     protected static ?string $navigationGroup = 'Cấu hình';

@@ -25,6 +25,11 @@ class AppVersionSettingsPage extends Page implements HasForms
 
     protected static string $view = 'filament.pages.app-version-settings';
 
+    public static function canAccess(): bool
+    {
+        return auth()->user()?->user_type !== 'city_manager';
+    }
+
     public array $data = [];
 
     public function mount(): void

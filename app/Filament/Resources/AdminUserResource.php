@@ -11,9 +11,12 @@ use Filament\Tables\Table;
 use Filament\Tables\Filters\SelectFilter;
 use Illuminate\Database\Eloquent\Builder;
 use Modules\Core\Models\User;
+use App\Filament\Traits\HideFromCityManager;
 
 class AdminUserResource extends Resource
 {
+    use HideFromCityManager;
+
     protected static ?string $model = User::class;
 
     protected static ?string $navigationIcon  = 'heroicon-o-shield-check';

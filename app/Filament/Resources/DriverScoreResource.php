@@ -17,9 +17,12 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 use Modules\Core\Models\User;
 use Modules\Driver\Services\DriverScoreService;
+use App\Filament\Traits\HideFromCityManager;
 
 class DriverScoreResource extends Resource
 {
+    use HideFromCityManager;
+
     protected static ?string $model            = User::class;
     protected static ?string $navigationIcon   = 'heroicon-o-trophy';
     protected static ?string $navigationGroup  = 'Người dùng';

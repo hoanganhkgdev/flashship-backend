@@ -30,6 +30,11 @@ class CallCenterPage extends Page implements HasForms
 
     protected static string $view = 'filament.pages.call-center';
 
+    public static function canAccess(): bool
+    {
+        return auth()->user()?->user_type !== 'city_manager';
+    }
+
     public string $rawText  = '';
     public string $aiStatus = '';
     public array  $data     = [];

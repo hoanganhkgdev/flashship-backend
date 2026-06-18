@@ -17,6 +17,11 @@ class RevenueReportPage extends Page
     protected static ?int    $navigationSort  = 1;
     protected static string  $view            = 'filament.pages.revenue-report';
 
+    public static function canAccess(): bool
+    {
+        return auth()->user()?->user_type !== 'city_manager';
+    }
+
     public string $from      = '';
     public string $to        = '';
     public string $city_id   = '';

@@ -11,9 +11,12 @@ use Filament\Tables;
 use Filament\Tables\Table;
 use Modules\Core\Models\City;
 use Modules\Pricing\Models\PricingConfig;
+use App\Filament\Traits\HideFromCityManager;
 
 class PricingResource extends Resource
 {
+    use HideFromCityManager;
+
     protected static ?string $model           = PricingConfig::class;
     protected static ?string $navigationIcon  = 'heroicon-o-banknotes';
     protected static ?string $navigationGroup = 'Cấu hình';

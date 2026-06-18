@@ -16,9 +16,12 @@ use Modules\Core\Models\City;
 use Modules\Core\Models\User;
 use Modules\Driver\Models\DriverDebt;
 use Modules\Driver\Services\DriverWalletService;
+use App\Filament\Traits\HideFromCityManager;
 
 class DriverDebtResource extends Resource
 {
+    use HideFromCityManager;
+
     protected static ?string $model            = DriverDebt::class;
     protected static ?string $navigationIcon   = 'heroicon-o-document-minus';
     protected static ?string $navigationGroup  = 'Công nợ';

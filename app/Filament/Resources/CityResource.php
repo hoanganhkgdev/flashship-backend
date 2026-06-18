@@ -13,9 +13,12 @@ use Filament\Tables;
 use Filament\Tables\Table;
 use Illuminate\Support\Facades\Http;
 use Modules\Core\Models\City;
+use App\Filament\Traits\HideFromCityManager;
 
 class CityResource extends Resource
 {
+    use HideFromCityManager;
+
     protected static ?string $model          = City::class;
     protected static ?string $navigationIcon = 'heroicon-o-map-pin';
     protected static ?string $navigationGroup = 'Cấu hình';

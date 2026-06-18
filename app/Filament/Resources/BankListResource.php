@@ -9,9 +9,12 @@ use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
 use Modules\Driver\Models\BankList;
+use App\Filament\Traits\HideFromCityManager;
 
 class BankListResource extends Resource
 {
+    use HideFromCityManager;
+
     protected static ?string $model            = BankList::class;
     protected static ?string $navigationIcon   = 'heroicon-o-building-library';
     protected static ?string $navigationGroup  = 'Cấu hình';

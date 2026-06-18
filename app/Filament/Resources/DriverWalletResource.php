@@ -15,9 +15,12 @@ use Filament\Tables\Table;
 use Modules\Core\Models\City;
 use Modules\Driver\Models\DriverWallet;
 use Modules\Driver\Services\DriverWalletService;
+use App\Filament\Traits\HideFromCityManager;
 
 class DriverWalletResource extends Resource
 {
+    use HideFromCityManager;
+
     protected static ?string $model             = DriverWallet::class;
     protected static ?string $navigationIcon    = 'heroicon-o-wallet';
     protected static ?string $navigationGroup   = 'Quản lý ví';

@@ -13,9 +13,12 @@ use Filament\Tables\Filters\TernaryFilter;
 use Filament\Tables\Table;
 use Modules\Core\Models\User;
 use Modules\Core\Models\Voucher;
+use App\Filament\Traits\HideFromCityManager;
 
 class VoucherResource extends Resource
 {
+    use HideFromCityManager;
+
     protected static ?string $model = Voucher::class;
 
     protected static ?string $navigationIcon = 'heroicon-o-ticket';

@@ -10,9 +10,12 @@ use Filament\Tables;
 use Filament\Tables\Table;
 use Modules\Admin\Models\SupportConfig;
 use Modules\Core\Models\City;
+use App\Filament\Traits\HideFromCityManager;
 
 class SupportConfigResource extends Resource
 {
+    use HideFromCityManager;
+
     protected static ?string $model            = SupportConfig::class;
     protected static ?string $navigationIcon   = 'heroicon-o-lifebuoy';
     protected static ?string $navigationGroup  = 'Cài đặt';

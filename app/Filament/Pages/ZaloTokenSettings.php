@@ -23,6 +23,11 @@ class ZaloTokenSettings extends Page
 
     protected static string $view = 'filament.pages.zalo-token-settings';
 
+    public static function canAccess(): bool
+    {
+        return auth()->user()?->user_type !== 'city_manager';
+    }
+
     public static function getNavigationBadge(): ?string
     {
         $row = DB::table('zalo_tokens')->orderByDesc('id')->first();

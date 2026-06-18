@@ -9,9 +9,12 @@ use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
 use Modules\Admin\Models\Banner;
+use App\Filament\Traits\HideFromCityManager;
 
 class BannerResource extends Resource
 {
+    use HideFromCityManager;
+
     protected static ?string $model = Banner::class;
 
     protected static ?string $navigationIcon = 'heroicon-o-photo';

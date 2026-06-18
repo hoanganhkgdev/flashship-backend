@@ -14,9 +14,12 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Modules\Driver\Models\WithdrawRequest;
 use Modules\Driver\Services\DriverWalletService;
+use App\Filament\Traits\HideFromCityManager;
 
 class WithdrawRequestResource extends Resource
 {
+    use HideFromCityManager;
+
     protected static ?string $model            = WithdrawRequest::class;
     protected static ?string $navigationIcon   = 'heroicon-o-arrow-down-tray';
     protected static ?string $navigationGroup  = 'Quản lý ví';
