@@ -41,7 +41,7 @@ class User extends Authenticatable implements FilamentUser
         'status',
         'uid',
         'profile_photo_path',
-        'avatar_locked',
+        'avatar_updated_at',
         'last_login_at',
         'player_id',          // Deprecated — kept for backward compatibility
         'fcm_token',
@@ -66,6 +66,7 @@ class User extends Authenticatable implements FilamentUser
             'password'               => 'hashed',
             'name_updated_at'     => 'datetime',
             'delete_requested_at' => 'datetime',
+            'avatar_updated_at'   => 'datetime',
             'is_online'              => 'boolean',
             'online_since'           => 'datetime',
             'score_suspended_until'  => 'datetime',

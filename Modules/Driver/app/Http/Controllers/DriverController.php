@@ -43,8 +43,12 @@ class DriverController extends Controller
         $cccd = $user->driverCccdImages->sortByDesc('id')->first();
         $data['cccd_image_status'] = $cccd?->status;
         $data['cccd_image_url']    = $cccd?->image_path ? url('storage/' . $cccd->image_path) : null;
-        $data['name_locked']       = (bool) $user->name_updated_at;
-        $data['avatar_locked']     = (bool) $user->avatar_locked;
+        $data['name_locked']          = (bool) $user->name_updated_at;
+        $avatarCooldown               = $user->avatar_updated_at && $user->avatar_updated_at->diffInDays(now()) < 30;
+        $data['avatar_locked']        = $avatarCooldown;
+        $data['avatar_next_update_at'] = $avatarCooldown
+            ? $user->avatar_updated_at->addDays(30)->toIso8601String()
+            : null;
 
         return response()->json(['success' => true, 'data' => ['user' => $data]]);
     }
@@ -175,17 +179,20 @@ class DriverController extends Controller
 
         // Avatar chỉ được upload 1 lần
         if ($request->hasFile('avatar')) {
-            if ($user->avatar_locked) {
+            $lastUpdate = $user->avatar_updated_at;
+            if ($lastUpdate && $lastUpdate->diffInDays(now()) < 30) {
+                $nextAllowed = $lastUpdate->addDays(30);
+                $daysLeft    = (int) ceil(now()->floatDiffInDays($nextAllowed));
                 return response()->json([
                     'success' => false,
-                    'message' => 'Ảnh đại diện chỉ được thay đổi một lần.',
+                    'message' => "Ảnh đại diện chỉ được thay đổi 1 tháng 1 lần. Còn {$daysLeft} ngày nữa.",
                 ], 403);
             }
             if ($user->profile_photo_path) {
                 Storage::disk('public')->delete($user->profile_photo_path);
             }
             $data['profile_photo_path'] = $request->file('avatar')->store('profile-photos', 'public');
-            $data['avatar_locked'] = true;
+            $data['avatar_updated_at']  = now();
         }
         unset($data['avatar']);
 
