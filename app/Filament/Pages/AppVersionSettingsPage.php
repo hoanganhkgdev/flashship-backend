@@ -47,24 +47,18 @@ class AppVersionSettingsPage extends Page implements HasForms
             'customer_force_message' => $customer->force_message,
 
             // Driver
-            'driver_android_min_version'    => $driver->android_min_version,
-            'driver_android_latest_version' => $driver->android_latest_version,
-            'driver_ios_min_version'        => $driver->ios_min_version,
-            'driver_ios_latest_version'     => $driver->ios_latest_version,
-            'driver_android_url'            => $driver->android_url,
-            'driver_ios_url'                => $driver->ios_url,
-            'driver_force_update'           => $driver->force_update,
-            'driver_force_message'          => $driver->force_message,
+            'driver_min_version'   => $driver->min_version ?? $driver->android_min_version,
+            'driver_android_url'   => $driver->android_url,
+            'driver_ios_url'       => $driver->ios_url,
+            'driver_force_update'  => $driver->force_update,
+            'driver_force_message' => $driver->force_message,
 
             // Shop
-            'shop_android_min_version'    => $shop->android_min_version,
-            'shop_android_latest_version' => $shop->android_latest_version,
-            'shop_ios_min_version'        => $shop->ios_min_version,
-            'shop_ios_latest_version'     => $shop->ios_latest_version,
-            'shop_android_url'            => $shop->android_url,
-            'shop_ios_url'                => $shop->ios_url,
-            'shop_force_update'           => $shop->force_update,
-            'shop_force_message'          => $shop->force_message,
+            'shop_min_version'   => $shop->min_version ?? $shop->android_min_version,
+            'shop_android_url'   => $shop->android_url,
+            'shop_ios_url'       => $shop->ios_url,
+            'shop_force_update'  => $shop->force_update,
+            'shop_force_message' => $shop->force_message,
         ]);
     }
 
@@ -92,74 +86,36 @@ class AppVersionSettingsPage extends Page implements HasForms
             Section::make('App Tài xế')
                 ->icon('heroicon-o-truck')
                 ->schema([
-                    Section::make('Android')
-                        ->icon('heroicon-o-device-phone-mobile')
-                        ->schema([
-                            TextInput::make('driver_android_min_version')
-                                ->label('Phiên bản tối thiểu (force update)')
-                                ->placeholder('1.0.0'),
-                            TextInput::make('driver_android_latest_version')
-                                ->label('Phiên bản mới nhất (soft update)')
-                                ->placeholder('1.0.1'),
-                            TextInput::make('driver_android_url')
-                                ->label('Google Play URL')->url()->columnSpan(2),
-                        ])->columns(2),
-
-                    Section::make('iOS')
-                        ->icon('heroicon-o-device-phone-mobile')
-                        ->schema([
-                            TextInput::make('driver_ios_min_version')
-                                ->label('Phiên bản tối thiểu (force update)')
-                                ->placeholder('1.0.0'),
-                            TextInput::make('driver_ios_latest_version')
-                                ->label('Phiên bản mới nhất (soft update)')
-                                ->placeholder('1.0.1'),
-                            TextInput::make('driver_ios_url')
-                                ->label('App Store URL')->url()->columnSpan(2),
-                        ])->columns(2),
-
+                    TextInput::make('driver_min_version')
+                        ->label('Phiên bản tối thiểu (iOS & Android)')
+                        ->placeholder('1.0.0')
+                        ->helperText('Áp dụng cho cả Android và iOS — dùng app thấp hơn sẽ bị bắt cập nhật.'),
                     Toggle::make('driver_force_update')
-                        ->label('Bật force update')
-                        ->helperText('Tài xế dùng app < phiên bản tối thiểu sẽ bị bắt buộc cập nhật.'),
+                        ->label('Bật force update'),
+                    TextInput::make('driver_android_url')
+                        ->label('Google Play URL')->url(),
+                    TextInput::make('driver_ios_url')
+                        ->label('App Store URL')->url(),
                     Textarea::make('driver_force_message')
-                        ->label('Nội dung thông báo')->rows(2),
-                ]),
+                        ->label('Nội dung thông báo')->rows(2)->columnSpan(2),
+                ])->columns(2),
 
             Section::make('App Shop')
                 ->icon('heroicon-o-building-storefront')
                 ->schema([
-                    Section::make('Android')
-                        ->icon('heroicon-o-device-phone-mobile')
-                        ->schema([
-                            TextInput::make('shop_android_min_version')
-                                ->label('Phiên bản tối thiểu (force update)')
-                                ->placeholder('1.0.0'),
-                            TextInput::make('shop_android_latest_version')
-                                ->label('Phiên bản mới nhất (soft update)')
-                                ->placeholder('1.0.1'),
-                            TextInput::make('shop_android_url')
-                                ->label('Google Play URL')->url()->columnSpan(2),
-                        ])->columns(2),
-
-                    Section::make('iOS')
-                        ->icon('heroicon-o-device-phone-mobile')
-                        ->schema([
-                            TextInput::make('shop_ios_min_version')
-                                ->label('Phiên bản tối thiểu (force update)')
-                                ->placeholder('1.0.0'),
-                            TextInput::make('shop_ios_latest_version')
-                                ->label('Phiên bản mới nhất (soft update)')
-                                ->placeholder('1.0.1'),
-                            TextInput::make('shop_ios_url')
-                                ->label('App Store URL')->url()->columnSpan(2),
-                        ])->columns(2),
-
+                    TextInput::make('shop_min_version')
+                        ->label('Phiên bản tối thiểu (iOS & Android)')
+                        ->placeholder('1.0.0')
+                        ->helperText('Áp dụng cho cả Android và iOS — dùng app thấp hơn sẽ bị bắt cập nhật.'),
                     Toggle::make('shop_force_update')
-                        ->label('Bật force update')
-                        ->helperText('Shop dùng app < phiên bản tối thiểu sẽ bị bắt buộc cập nhật.'),
+                        ->label('Bật force update'),
+                    TextInput::make('shop_android_url')
+                        ->label('Google Play URL')->url(),
+                    TextInput::make('shop_ios_url')
+                        ->label('App Store URL')->url(),
                     Textarea::make('shop_force_message')
-                        ->label('Nội dung thông báo')->rows(2),
-                ]),
+                        ->label('Nội dung thông báo')->rows(2)->columnSpan(2),
+                ])->columns(2),
 
         ])->statePath('data');
     }
@@ -168,37 +124,37 @@ class AppVersionSettingsPage extends Page implements HasForms
     {
         $values = $this->form->getState();
 
-        $customerMinVersion = $values['customer_min_version'] ?: null;
+        $customerMin = $values['customer_min_version'] ?: null;
         AppVersionSetting::forPlatform('customer')->update([
-            'min_version'            => $customerMinVersion,
-            'android_min_version'    => $customerMinVersion,
-            'ios_min_version'        => $customerMinVersion,
-            'android_url'            => $values['customer_android_url'] ?: null,
-            'ios_url'                => $values['customer_ios_url'] ?: null,
-            'force_update'           => $values['customer_force_update'],
-            'force_message'          => $values['customer_force_message'],
+            'min_version'         => $customerMin,
+            'android_min_version' => $customerMin,
+            'ios_min_version'     => $customerMin,
+            'android_url'         => $values['customer_android_url'] ?: null,
+            'ios_url'             => $values['customer_ios_url'] ?: null,
+            'force_update'        => $values['customer_force_update'],
+            'force_message'       => $values['customer_force_message'],
         ]);
 
+        $driverMin = $values['driver_min_version'] ?: null;
         AppVersionSetting::forPlatform('driver')->update([
-            'android_min_version'    => $values['driver_android_min_version'] ?: null,
-            'android_latest_version' => $values['driver_android_latest_version'] ?: null,
-            'ios_min_version'        => $values['driver_ios_min_version'] ?: null,
-            'ios_latest_version'     => $values['driver_ios_latest_version'] ?: null,
-            'android_url'            => $values['driver_android_url'] ?: null,
-            'ios_url'                => $values['driver_ios_url'] ?: null,
-            'force_update'           => $values['driver_force_update'],
-            'force_message'          => $values['driver_force_message'],
+            'min_version'         => $driverMin,
+            'android_min_version' => $driverMin,
+            'ios_min_version'     => $driverMin,
+            'android_url'         => $values['driver_android_url'] ?: null,
+            'ios_url'             => $values['driver_ios_url'] ?: null,
+            'force_update'        => $values['driver_force_update'],
+            'force_message'       => $values['driver_force_message'],
         ]);
 
+        $shopMin = $values['shop_min_version'] ?: null;
         AppVersionSetting::forPlatform('shop')->update([
-            'android_min_version'    => $values['shop_android_min_version'] ?: null,
-            'android_latest_version' => $values['shop_android_latest_version'] ?: null,
-            'ios_min_version'        => $values['shop_ios_min_version'] ?: null,
-            'ios_latest_version'     => $values['shop_ios_latest_version'] ?: null,
-            'android_url'            => $values['shop_android_url'] ?: null,
-            'ios_url'                => $values['shop_ios_url'] ?: null,
-            'force_update'           => $values['shop_force_update'],
-            'force_message'          => $values['shop_force_message'],
+            'min_version'         => $shopMin,
+            'android_min_version' => $shopMin,
+            'ios_min_version'     => $shopMin,
+            'android_url'         => $values['shop_android_url'] ?: null,
+            'ios_url'             => $values['shop_ios_url'] ?: null,
+            'force_update'        => $values['shop_force_update'],
+            'force_message'       => $values['shop_force_message'],
         ]);
 
         Notification::make()
