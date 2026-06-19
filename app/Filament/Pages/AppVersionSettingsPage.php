@@ -40,14 +40,11 @@ class AppVersionSettingsPage extends Page implements HasForms
 
         $this->form->fill([
             // Customer
-            'customer_android_min_version'    => $customer->android_min_version,
-            'customer_android_latest_version' => $customer->android_latest_version,
-            'customer_ios_min_version'        => $customer->ios_min_version,
-            'customer_ios_latest_version'     => $customer->ios_latest_version,
-            'customer_android_url'            => $customer->android_url,
-            'customer_ios_url'                => $customer->ios_url,
-            'customer_force_update'           => $customer->force_update,
-            'customer_force_message'          => $customer->force_message,
+            'customer_min_version'   => $customer->min_version ?? $customer->android_min_version,
+            'customer_android_url'   => $customer->android_url,
+            'customer_ios_url'       => $customer->ios_url,
+            'customer_force_update'  => $customer->force_update,
+            'customer_force_message' => $customer->force_message,
 
             // Driver
             'driver_android_min_version'    => $driver->android_min_version,
@@ -78,38 +75,19 @@ class AppVersionSettingsPage extends Page implements HasForms
             Section::make('App Khách hàng')
                 ->icon('heroicon-o-user')
                 ->schema([
-                    Section::make('Android')
-                        ->icon('heroicon-o-device-phone-mobile')
-                        ->schema([
-                            TextInput::make('customer_android_min_version')
-                                ->label('Phiên bản tối thiểu (force update)')
-                                ->placeholder('1.0.0'),
-                            TextInput::make('customer_android_latest_version')
-                                ->label('Phiên bản mới nhất (soft update)')
-                                ->placeholder('1.0.1'),
-                            TextInput::make('customer_android_url')
-                                ->label('Google Play URL')->url()->columnSpan(2),
-                        ])->columns(2),
-
-                    Section::make('iOS')
-                        ->icon('heroicon-o-device-phone-mobile')
-                        ->schema([
-                            TextInput::make('customer_ios_min_version')
-                                ->label('Phiên bản tối thiểu (force update)')
-                                ->placeholder('1.0.0'),
-                            TextInput::make('customer_ios_latest_version')
-                                ->label('Phiên bản mới nhất (soft update)')
-                                ->placeholder('1.0.1'),
-                            TextInput::make('customer_ios_url')
-                                ->label('App Store URL')->url()->columnSpan(2),
-                        ])->columns(2),
-
+                    TextInput::make('customer_min_version')
+                        ->label('Phiên bản tối thiểu (iOS & Android)')
+                        ->placeholder('3.0.2')
+                        ->helperText('Áp dụng cho cả Android và iOS — dùng app thấp hơn sẽ bị bắt cập nhật.'),
                     Toggle::make('customer_force_update')
-                        ->label('Bật force update')
-                        ->helperText('User dùng app < phiên bản tối thiểu sẽ bị bắt buộc cập nhật.'),
+                        ->label('Bật force update'),
+                    TextInput::make('customer_android_url')
+                        ->label('Google Play URL')->url(),
+                    TextInput::make('customer_ios_url')
+                        ->label('App Store URL')->url(),
                     Textarea::make('customer_force_message')
-                        ->label('Nội dung thông báo')->rows(2),
-                ]),
+                        ->label('Nội dung thông báo')->rows(2)->columnSpan(2),
+                ])->columns(2),
 
             Section::make('App Tài xế')
                 ->icon('heroicon-o-truck')
@@ -190,11 +168,11 @@ class AppVersionSettingsPage extends Page implements HasForms
     {
         $values = $this->form->getState();
 
+        $customerMinVersion = $values['customer_min_version'] ?: null;
         AppVersionSetting::forPlatform('customer')->update([
-            'android_min_version'    => $values['customer_android_min_version'] ?: null,
-            'android_latest_version' => $values['customer_android_latest_version'] ?: null,
-            'ios_min_version'        => $values['customer_ios_min_version'] ?: null,
-            'ios_latest_version'     => $values['customer_ios_latest_version'] ?: null,
+            'min_version'            => $customerMinVersion,
+            'android_min_version'    => $customerMinVersion,
+            'ios_min_version'        => $customerMinVersion,
             'android_url'            => $values['customer_android_url'] ?: null,
             'ios_url'                => $values['customer_ios_url'] ?: null,
             'force_update'           => $values['customer_force_update'],
