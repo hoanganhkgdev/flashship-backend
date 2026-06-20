@@ -135,26 +135,14 @@ class WithdrawRequestResource extends Resource
                             ->rows(2),
                     ])
                     ->action(function (WithdrawRequest $record, array $data) {
-                        try {
-                            DB::transaction(function () use ($record, $data) {
-                                DriverWalletService::adjust(
-                                    $record->driver_id,
-                                    $record->amount,
-                                    'debit',
-                                    'Rút tiền #' . $record->id,
-                                    'withdraw_' . $record->id
-                                );
-                                $record->update([
-                                    'status'       => 'approved',
-                                    'admin_note'   => $data['admin_note'] ?? null,
-                                    'processed_by' => Auth::id(),
-                                    'processed_at' => now(),
-                                ]);
-                            });
-                            Notification::make()->success()->title('Đã duyệt yêu cầu rút tiền.')->send();
-                        } catch (\Exception $e) {
-                            Notification::make()->danger()->title('Lỗi: ' . $e->getMessage())->send();
-                        }
+                        // Balance already deducted on submit — just mark approved
+                        $record->update([
+                            'status'       => 'approved',
+                            'admin_note'   => $data['admin_note'] ?? null,
+                            'processed_by' => Auth::id(),
+                            'processed_at' => now(),
+                        ]);
+                        Notification::make()->success()->title('Đã duyệt yêu cầu rút tiền.')->send();
                     }),
 
                 Tables\Actions\Action::make('reject')
@@ -170,13 +158,27 @@ class WithdrawRequestResource extends Resource
                             ->rows(2),
                     ])
                     ->action(function (WithdrawRequest $record, array $data) {
-                        $record->update([
-                            'status'       => 'rejected',
-                            'admin_note'   => $data['admin_note'],
-                            'processed_by' => Auth::id(),
-                            'processed_at' => now(),
-                        ]);
-                        Notification::make()->success()->title('Đã từ chối yêu cầu.')->send();
+                        try {
+                            DB::transaction(function () use ($record, $data) {
+                                // Refund the held balance
+                                DriverWalletService::adjust(
+                                    $record->driver_id,
+                                    $record->amount,
+                                    'credit',
+                                    'Hoàn tiền yêu cầu rút #' . $record->id,
+                                    'withdraw_refund_' . $record->id
+                                );
+                                $record->update([
+                                    'status'       => 'rejected',
+                                    'admin_note'   => $data['admin_note'],
+                                    'processed_by' => Auth::id(),
+                                    'processed_at' => now(),
+                                ]);
+                            });
+                            Notification::make()->success()->title('Đã từ chối và hoàn tiền cho tài xế.')->send();
+                        } catch (\Exception $e) {
+                            Notification::make()->danger()->title('Lỗi: ' . $e->getMessage())->send();
+                        }
                     }),
             ]);
     }

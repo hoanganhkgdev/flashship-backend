@@ -6,6 +6,8 @@ use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Modules\Driver\Models\DriverWallet;
 use Modules\Driver\Models\WithdrawRequest;
+use Modules\Driver\Services\DriverWalletService;
+use Illuminate\Support\Facades\DB;
 
 class WalletController extends Controller
 {
@@ -37,17 +39,28 @@ class WalletController extends Controller
     {
         $data = $request->validate(['amount' => 'required|numeric|min:50000']);
 
-        $wallet = DriverWallet::firstOrCreate(['driver_id' => $request->user()->id]);
+        $user   = $request->user();
+        $wallet = DriverWallet::firstOrCreate(['driver_id' => $user->id]);
 
         if ($wallet->balance < $data['amount']) {
             return response()->json(['success' => false, 'message' => 'Số dư không đủ'], 400);
         }
 
-        WithdrawRequest::create([
-            'driver_id' => $request->user()->id,
-            'amount'    => $data['amount'],
-            'status'    => 'pending',
-        ]);
+        DB::transaction(function () use ($user, $data, $wallet) {
+            $req = WithdrawRequest::create([
+                'driver_id' => $user->id,
+                'amount'    => $data['amount'],
+                'status'    => 'pending',
+            ]);
+
+            DriverWalletService::adjust(
+                $user->id,
+                $data['amount'],
+                'debit',
+                'Yêu cầu rút tiền #' . $req->id,
+                'withdraw_hold_' . $req->id
+            );
+        });
 
         return response()->json(['success' => true, 'message' => 'Yêu cầu rút tiền đã được gửi']);
     }
