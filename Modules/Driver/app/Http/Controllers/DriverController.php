@@ -156,10 +156,12 @@ class DriverController extends Controller
     public function updateProfile(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'name'    => 'nullable|string|max:255',
-            'email'   => ['nullable', 'email', 'max:255', Rule::unique('users', 'email')->ignore($request->user()->id)],
-            'city_id' => 'nullable|integer|exists:cities,id',
-            'avatar'  => 'nullable|image|mimes:jpg,jpeg,png,webp|max:2048',
+            'name'          => 'nullable|string|max:255',
+            'email'         => ['nullable', 'email', 'max:255', Rule::unique('users', 'email')->ignore($request->user()->id)],
+            'city_id'       => 'nullable|integer|exists:cities,id',
+            'avatar'        => 'nullable|image|mimes:jpg,jpeg,png,webp|max:2048',
+            'vehicle_type'  => 'nullable|in:motorbike,car',
+            'license_plate' => 'nullable|string|max:20',
         ]);
 
         $user = $request->user();
