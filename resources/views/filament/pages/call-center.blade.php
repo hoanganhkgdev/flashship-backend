@@ -1,69 +1,86 @@
 <x-filament-panels::page>
 
-{{-- ══════════════════════════════════════════════════════ --}}
-{{-- BANNER KẾT QUẢ                                        --}}
-{{-- ══════════════════════════════════════════════════════ --}}
+@php
+    $ready      = ['delivery', 'shopping', 'topup', 'bike', 'motor', 'car'];
+    $activeSvc  = $this::services()[$serviceType];
+@endphp
+
+{{-- ══ TABS ══════════════════════════════════════════════════════════════════ --}}
+<div class="mb-5">
+    <div class="flex flex-wrap gap-2">
+        @foreach ($this::services() as $key => $svc)
+        @php $active = $serviceType === $key; @endphp
+        <button
+            wire:click="selectService('{{ $key }}')"
+            wire:key="svc-{{ $key }}"
+            style="{{ $active
+                ? 'background:'.$svc['color'].';box-shadow:0 2px 10px '.$svc['color'].'55;'
+                : 'background:#fff;border:1.5px solid #e5e7eb;' }}"
+            class="flex items-center gap-1.5 whitespace-nowrap rounded-full px-3.5 py-2 text-xs font-semibold transition-all duration-200 focus:outline-none active:scale-95 {{ $active ? 'text-white' : 'text-gray-500 dark:text-gray-400 dark:bg-gray-800 dark:border-gray-700' }}"
+        >
+            <x-dynamic-component :component="$svc['icon']" class="h-3.5 w-3.5 flex-shrink-0" />
+            {{ $svc['label'] }}
+        </button>
+        @endforeach
+    </div>
+</div>
+
+{{-- ══ BANNER THÀNH CÔNG ═══════════════════════════════════════════════════ --}}
 @if ($resultOrderCode)
-<div class="mb-6 overflow-hidden rounded-2xl bg-gradient-to-r from-success-500 to-emerald-600 shadow-lg">
-    <div class="flex items-center justify-between p-6">
-        <div class="flex items-center gap-6">
-            <div class="flex h-14 w-14 items-center justify-center rounded-full bg-white/20">
-                <x-heroicon-o-check-circle class="h-8 w-8 text-white" />
+<div class="mb-5 overflow-hidden rounded-2xl shadow-lg" style="background:linear-gradient(135deg,#22c55e 0%,#16a34a 100%);">
+    <div class="relative flex flex-col sm:flex-row sm:items-center gap-4 p-5">
+        <div class="flex items-center gap-4 flex-1">
+            <div class="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full bg-white/25">
+                <x-heroicon-o-check-circle class="h-6 w-6 text-white" />
             </div>
             <div>
-                <p class="text-sm font-medium text-white/80">Đặt đơn thành công</p>
-                <p class="text-3xl font-bold tracking-wider text-white">{{ $resultOrderCode }}</p>
+                <p class="text-xs font-semibold uppercase tracking-widest text-white/65">Đặt đơn thành công</p>
+                <p class="text-2xl font-black tracking-wider text-white">{{ $resultOrderCode }}</p>
             </div>
-            @if ($resultFee !== null || $resultDistance)
-            <div class="ml-4 flex gap-6 border-l border-white/30 pl-6">
-                @if ($resultDistance)
-                <div>
-                    <p class="text-xs text-white/70">Khoảng cách</p>
-                    <p class="text-xl font-bold text-white">{{ $resultDistance }}</p>
-                </div>
-                @endif
-                @if ($resultFee !== null)
-                <div>
-                    <p class="text-xs text-white/70">Phí ship</p>
-                    <p class="text-xl font-bold text-white">{{ number_format($resultFee) }}đ</p>
-                </div>
-                @endif
+        </div>
+        @if ($resultFee !== null || $resultDistance)
+        <div class="flex items-center gap-5 rounded-xl bg-white/15 px-4 py-2 sm:ml-0 ml-14">
+            @if ($resultDistance)
+            <div>
+                <p class="text-[10px] font-semibold uppercase text-white/55">Khoảng cách</p>
+                <p class="text-base font-bold text-white">{{ $resultDistance }}</p>
+            </div>
+            @endif
+            @if ($resultFee !== null)
+            <div class="border-l border-white/25 pl-5">
+                <p class="text-[10px] font-semibold uppercase text-white/55">Phí ship</p>
+                <p class="text-base font-bold text-white">{{ number_format($resultFee) }}đ</p>
             </div>
             @endif
         </div>
-        <button wire:click="clearResult" class="rounded-full p-1 text-white/70 transition hover:bg-white/20 hover:text-white">
-            <x-heroicon-o-x-mark class="h-5 w-5" />
+        @endif
+        <button wire:click="clearResult"
+            class="absolute right-4 top-4 sm:static flex h-8 w-8 items-center justify-center rounded-full text-white/60 hover:bg-white/20 hover:text-white transition">
+            <x-heroicon-o-x-mark class="h-4 w-4" />
         </button>
     </div>
 </div>
 @endif
 
+{{-- ══ BANNER LỖI ══════════════════════════════════════════════════════════ --}}
 @if ($resultError)
-<div class="mb-6 flex items-center gap-3 rounded-2xl border border-danger-200 bg-danger-50 p-4 dark:border-danger-800 dark:bg-danger-950/60">
-    <div class="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-danger-100 dark:bg-danger-900">
-        <x-heroicon-o-exclamation-circle class="h-5 w-5 text-danger-600 dark:text-danger-400" />
-    </div>
-    <p class="text-sm font-medium text-danger-700 dark:text-danger-300">{{ $resultError }}</p>
+<div class="mb-5 flex items-start gap-3 rounded-2xl border border-red-200 bg-red-50 p-4 dark:border-red-800 dark:bg-red-950/40">
+    <x-heroicon-o-exclamation-circle class="mt-0.5 h-5 w-5 flex-shrink-0 text-red-500" />
+    <p class="text-sm font-medium text-red-700 dark:text-red-300">{{ $resultError }}</p>
 </div>
 @endif
 
-{{-- ══════════════════════════════════════════════════════ --}}
-{{-- LAYOUT 2 CỘT                                          --}}
-{{-- ══════════════════════════════════════════════════════ --}}
-<div class="grid grid-cols-1 gap-6 xl:grid-cols-5">
+{{-- ══ NỘI DUNG TAB ════════════════════════════════════════════════════════ --}}
+@if (in_array($serviceType, $ready))
 
-    {{-- CỘT TRÁI: Form --}}
-    <div class="xl:col-span-3">
+<form wire:submit="placeOrder">
+        {{ $this->form }}
 
-        {{-- FORM --}}
-        <form wire:submit="placeOrder">
-            <div>
-                {{ $this->form }}
-            </div>
+        {{-- ── Action bar ── --}}
+        <div class="mt-5 space-y-3">
 
-            {{-- TÍNH PHÍ + ĐẶT ĐƠN --}}
-            <div class="mt-4 flex items-center gap-3 rounded-2xl border border-gray-200 bg-gray-50 px-5 py-4 dark:border-gray-700 dark:bg-gray-800/50">
-
+            {{-- Tính phí + kết quả --}}
+            <div class="flex flex-wrap items-center gap-3 rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 dark:border-gray-700 dark:bg-gray-800/50">
                 <x-filament::button
                     wire:click.prevent="calculateFee"
                     wire:loading.attr="disabled"
@@ -76,99 +93,363 @@
                     <span wire:loading wire:target="calculateFee">Đang tính...</span>
                 </x-filament::button>
 
-                @if ($previewFee !== null)
-                <div class="flex items-center gap-4 rounded-xl bg-white px-4 py-2 shadow-sm dark:bg-gray-800">
-                    <div class="text-center">
-                        <p class="text-[10px] font-medium uppercase tracking-wide text-gray-400">Khoảng cách</p>
-                        <p class="text-base font-bold text-gray-700 dark:text-gray-200">{{ $previewDistance }}</p>
+                @if ($previewDistance || $previewFee !== null)
+                    <div class="flex items-center gap-3">
+                        @if ($previewDistance)
+                        <span class="flex items-center gap-1 text-sm text-gray-500 dark:text-gray-400">
+                            <x-heroicon-o-map-pin class="h-3.5 w-3.5" /> {{ $previewDistance }}
+                        </span>
+                        @endif
+                        @if ($previewFee !== null)
+                        <span class="rounded-lg px-2.5 py-1 text-sm font-bold" style="background:{{ $activeSvc['color'] }}15; color:{{ $activeSvc['color'] }};">
+                            {{ number_format($previewFee) }}đ
+                        </span>
+                        @endif
                     </div>
-                    <div class="h-8 w-px bg-gray-200 dark:bg-gray-600"></div>
-                    <div class="text-center">
-                        <p class="text-[10px] font-medium uppercase tracking-wide text-gray-400">Phí ship</p>
-                        <p class="text-base font-bold text-primary-600 dark:text-primary-400">{{ number_format($previewFee) }}đ</p>
-                    </div>
-                </div>
                 @elseif ($previewStatus)
-                <span class="text-xs {{ str_starts_with($previewStatus, '❌') ? 'text-danger-600' : 'text-gray-500' }}">
-                    {{ $previewStatus }}
-                </span>
+                    @php
+                        [$psType, $psText] = array_pad(explode(':', $previewStatus, 2), 2, $previewStatus);
+                        $psColor = match($psType) {
+                            'error'   => 'text-red-500',
+                            'warning' => 'text-amber-500',
+                            'success' => 'text-green-600',
+                            default   => 'text-gray-400',
+                        };
+                        $psIcon = match($psType) {
+                            'error'   => 'heroicon-o-x-circle',
+                            'warning' => 'heroicon-o-exclamation-triangle',
+                            'success' => 'heroicon-o-check-circle',
+                            default   => 'heroicon-o-arrow-path',
+                        };
+                    @endphp
+                    <span class="flex items-center gap-1 text-xs {{ $psColor }}">
+                        <x-dynamic-component :component="$psIcon" class="h-3.5 w-3.5 {{ $psType === 'loading' ? 'animate-spin' : '' }}" />
+                        {{ $psText }}
+                    </span>
                 @else
-                <span class="text-xs text-gray-400">Bấm để xem km & phí trước khi đặt</span>
+                    <span class="hidden text-xs text-gray-400 sm:block">Bấm để xem km & phí trước khi đặt</span>
                 @endif
-
-                <div class="ml-auto">
-                    <x-filament::button
-                        type="submit"
-                        wire:loading.attr="disabled"
-                        icon="heroicon-o-paper-airplane"
-                        size="lg"
-                        color="success"
-                    >
-                        <span wire:loading.remove wire:target="placeOrder">Đặt đơn ngay</span>
-                        <span wire:loading wire:target="placeOrder">Đang xử lý...</span>
-                    </x-filament::button>
-                </div>
             </div>
-        </form>
+
+            {{-- Đặt đơn — full width, lớn, màu theo dịch vụ --}}
+            <button
+                type="submit"
+                wire:loading.attr="disabled"
+                wire:loading.class="opacity-60 cursor-not-allowed"
+                class="w-full rounded-2xl py-4 text-[15px] font-bold text-white transition-all duration-150 active:scale-[.98] focus:outline-none"
+                style="background:linear-gradient(135deg, {{ $activeSvc['color'] }} 0%, {{ $activeSvc['color'] }}cc 100%); box-shadow:0 6px 22px {{ $activeSvc['color'] }}40;"
+            >
+                <span wire:loading.remove wire:target="placeOrder" class="flex items-center justify-center gap-2">
+                    <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/>
+                    </svg>
+                    Đặt đơn ngay
+                </span>
+                <span wire:loading wire:target="placeOrder" class="flex items-center justify-center gap-2">
+                    <svg class="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                    </svg>
+                    Đang xử lý...
+                </span>
+            </button>
+
+        </div>
+    </form>
+
+@else
+
+    <div class="flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-gray-200 bg-gray-50 py-20 dark:border-gray-700 dark:bg-gray-800/30">
+        <x-dynamic-component :component="$activeSvc['icon']" class="mb-3 h-12 w-12 text-gray-300 dark:text-gray-600" />
+        <p class="text-base font-semibold text-gray-700 dark:text-gray-200">{{ $activeSvc['label'] }}</p>
+        <p class="mt-1.5 text-sm text-gray-400">Dịch vụ này đang được phát triển</p>
     </div>
 
-    {{-- CỘT PHẢI: Hướng dẫn + Lịch sử --}}
-    <div class="xl:col-span-2 space-y-5">
+@endif
 
-        {{-- HƯỚNG DẪN --}}
-        <div class="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-gray-900">
-            <h4 class="mb-4 flex items-center gap-2 text-sm font-semibold text-gray-700 dark:text-gray-300">
-                <x-heroicon-o-information-circle class="h-4 w-4 text-primary-500" />
-                Quy trình đặt đơn
-            </h4>
-            <ol class="space-y-3">
-                @foreach ([
-                    ['icon' => 'heroicon-o-map-pin',         'color' => 'bg-blue-100 text-blue-600 dark:bg-blue-900 dark:text-blue-300',    'text' => 'Chọn khu vực & điền tên shop'],
-                    ['icon' => 'heroicon-o-pencil-square',   'color' => 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300',    'text' => 'Nhập địa chỉ lấy hàng & giao hàng'],
-                    ['icon' => 'heroicon-o-calculator',      'color' => 'bg-amber-100 text-amber-600 dark:bg-amber-900 dark:text-amber-300',  'text' => 'Bấm "Tính phí" để kiểm tra km'],
-                    ['icon' => 'heroicon-o-paper-airplane',  'color' => 'bg-success-100 text-success-600 dark:bg-success-900 dark:text-success-300', 'text' => 'Đặt đơn — tài xế nhận ngay'],
-                ] as $i => $step)
-                <li class="flex items-start gap-3">
-                    <div class="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full {{ $step['color'] }}">
-                        <x-dynamic-component :component="$step['icon']" class="h-3.5 w-3.5" />
-                    </div>
-                    <div class="pt-0.5">
-                        <span class="text-xs font-medium text-gray-600 dark:text-gray-400">Bước {{ $i + 1 }}.</span>
-                        <span class="ml-1 text-xs text-gray-500 dark:text-gray-500">{{ $step['text'] }}</span>
-                    </div>
-                </li>
-                @endforeach
-            </ol>
+<x-filament-actions::modals />
+
+{{-- ══════════════════════════════════════════════════════════════════════ --}}
+{{-- Center theo thành phố — element này NẰM TRONG Livewire, được morph    --}}
+{{-- Modal bị move ra body nên không được Livewire cập nhật                --}}
+{{-- ══════════════════════════════════════════════════════════════════════ --}}
+@php
+    $defaultCenter = ['lat' => 10.7769, 'lng' => 106.7009]; // HCM fallback
+    if (!empty($data['city_id'])) {
+        $cityRow = \Illuminate\Support\Facades\DB::table('cities')
+            ->where('id', $data['city_id'])
+            ->first(['lat', 'lng']);
+        if ($cityRow && $cityRow->lat) {
+            $defaultCenter = ['lat' => (float)$cityRow->lat, 'lng' => (float)$cityRow->lng];
+        }
+    }
+@endphp
+<div
+    id="cc-city-anchor"
+    data-lat="{{ $defaultCenter['lat'] }}"
+    data-lng="{{ $defaultCenter['lng'] }}"
+    style="display:none;"
+></div>
+
+{{-- ══════════════════════════════════════════════════════════════════════ --}}
+{{-- MAP PICKER — fullscreen, pin cố định giữa, kéo map để chọn           --}}
+{{-- ══════════════════════════════════════════════════════════════════════ --}}
+<div
+    id="cc-map-modal"
+    style="display:none; position:fixed; inset:0; z-index:99999; background:#000;"
+>
+
+    {{-- Map (toàn màn hình) --}}
+    <div id="cc-picker-map" style="position:absolute; inset:0; width:100%; height:100%;"></div>
+
+    {{-- Pin cố định ở giữa (kéo map, pin không di chuyển) --}}
+    <div style="position:absolute; top:50%; left:50%; transform:translate(-50%, -100%); z-index:10; pointer-events:none;">
+        <svg width="36" height="48" viewBox="0 0 36 48" fill="none">
+            <path d="M18 0C8.06 0 0 8.06 0 18C0 31.5 18 48 18 48C18 48 36 31.5 36 18C36 8.06 27.94 0 18 0Z" fill="#E8720C"/>
+            <circle cx="18" cy="18" r="8" fill="white"/>
+            <circle cx="18" cy="18" r="4" fill="#E8720C"/>
+        </svg>
+        {{-- Bóng đổ --}}
+        <div style="width:12px; height:4px; background:rgba(0,0,0,0.25); border-radius:50%; margin:0 auto; margin-top:-2px;"></div>
+    </div>
+
+    {{-- Header nổi --}}
+    <div style="position:absolute; top:0; left:0; right:0; z-index:20; padding:12px 16px; display:flex; align-items:center; gap:12px; background:linear-gradient(to bottom, rgba(0,0,0,0.55) 0%, transparent 100%);">
+        <button
+            onclick="ccCloseMapModal()"
+            style="width:38px; height:38px; border-radius:50%; border:none; background:rgba(255,255,255,0.95); cursor:pointer; display:flex; align-items:center; justify-content:center; box-shadow:0 2px 8px rgba(0,0,0,0.2); flex-shrink:0;"
+        >
+            <svg width="18" height="18" fill="none" stroke="#374151" stroke-width="2.5" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/>
+            </svg>
+        </button>
+        <span id="cc-modal-title" style="font-size:15px; font-weight:700; color:#fff; text-shadow:0 1px 3px rgba(0,0,0,0.4);">Chọn điểm lấy hàng</span>
+    </div>
+
+    {{-- Search bar nổi --}}
+    <div style="position:absolute; top:66px; left:16px; right:16px; z-index:20;">
+        <div style="display:flex; align-items:center; gap:10px; background:#fff; border-radius:14px; padding:10px 14px; box-shadow:0 4px 20px rgba(0,0,0,0.18);">
+            <svg width="18" height="18" fill="none" stroke="#9ca3af" stroke-width="2" viewBox="0 0 24 24" style="flex-shrink:0;">
+                <circle cx="11" cy="11" r="8"/><path stroke-linecap="round" d="M21 21l-4.35-4.35"/>
+            </svg>
+            <input
+                id="cc-modal-search"
+                type="text"
+                placeholder="Tìm địa chỉ..."
+                autocomplete="off"
+                style="flex:1; border:none; outline:none; font-size:14px; color:#111827; background:transparent;"
+            />
+        </div>
+    </div>
+
+    {{-- Nút định vị GPS --}}
+    <div style="position:absolute; right:16px; bottom:180px; z-index:20;">
+        <button
+            onclick="ccGotoMyLocation()"
+            style="width:44px; height:44px; border-radius:50%; border:none; background:#fff; cursor:pointer; display:flex; align-items:center; justify-content:center; box-shadow:0 2px 12px rgba(0,0,0,0.2);"
+            title="Vị trí của tôi"
+        >
+            <svg width="20" height="20" fill="none" stroke="#E8720C" stroke-width="2" viewBox="0 0 24 24">
+                <circle cx="12" cy="12" r="3"/><path stroke-linecap="round" d="M12 2v3M12 19v3M2 12h3M19 12h3"/><circle cx="12" cy="12" r="9" stroke-dasharray="2 2"/>
+            </svg>
+        </button>
+    </div>
+
+    {{-- Bottom sheet --}}
+    <div style="position:absolute; bottom:0; left:0; right:0; z-index:20; background:#fff; border-radius:20px 20px 0 0; padding:8px 20px 28px; box-shadow:0 -4px 24px rgba(0,0,0,0.12);">
+        {{-- Drag handle --}}
+        <div style="width:36px; height:4px; background:#e5e7eb; border-radius:2px; margin:0 auto 16px;"></div>
+
+        {{-- Địa chỉ đang chọn --}}
+        <div style="display:flex; align-items:flex-start; gap:10px; margin-bottom:16px; min-height:40px;">
+            <div style="width:36px; height:36px; border-radius:50%; background:#fff4ed; display:flex; align-items:center; justify-content:center; flex-shrink:0; margin-top:2px;">
+                <svg width="16" height="16" fill="#E8720C" viewBox="0 0 20 20">
+                    <path fill-rule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clip-rule="evenodd"/>
+                </svg>
+            </div>
+            <div style="flex:1;">
+                <p style="font-size:11px; font-weight:600; color:#9ca3af; text-transform:uppercase; letter-spacing:.05em; margin-bottom:3px;">Điểm lấy hàng</p>
+                <p id="cc-picker-addr-text" style="font-size:14px; font-weight:500; color:#111827; line-height:1.4;">Đang xác định vị trí...</p>
+            </div>
         </div>
 
-        {{-- GHI CHÚ NHANH --}}
-        <div class="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-700 dark:bg-gray-900">
-            <h4 class="mb-3 flex items-center gap-2 text-sm font-semibold text-gray-700 dark:text-gray-300">
-                <x-heroicon-o-light-bulb class="h-4 w-4 text-amber-500" />
-                Lưu ý
-            </h4>
-            <ul class="space-y-2 text-xs text-gray-500 dark:text-gray-400">
-                <li class="flex items-start gap-2">
-                    <span class="mt-0.5 text-success-500">✓</span>
-                    <span>Phí ship tính tự động theo khoảng cách thực (Google Maps)</span>
-                </li>
-                <li class="flex items-start gap-2">
-                    <span class="mt-0.5 text-success-500">✓</span>
-                    <span>Khu vực đã chọn giữ nguyên sau khi đặt đơn</span>
-                </li>
-                <li class="flex items-start gap-2">
-                    <span class="mt-0.5 text-success-500">✓</span>
-                    <span>Tài xế nhận đơn trong vòng bán kính 1–3km</span>
-                </li>
-                <li class="flex items-start gap-2">
-                    <span class="mt-0.5 text-amber-500">!</span>
-                    <span>Địa chỉ ngắn nên chọn đúng khu vực để AI geocode chính xác</span>
-                </li>
-            </ul>
-        </div>
+        {{-- Confirm button --}}
+        <button
+            onclick="ccConfirmMapSelection()"
+            style="width:100%; background:#E8720C; color:#fff; border:none; border-radius:14px; padding:15px; font-size:15px; font-weight:700; cursor:pointer; letter-spacing:.02em; transition:opacity .15s; box-shadow:0 4px 14px rgba(232,114,12,0.35);"
+            onmouseover="this.style.opacity='.9'" onmouseout="this.style.opacity='1'"
+        >
+            Xác nhận địa chỉ này
+        </button>
     </div>
 </div>
 
-<x-filament-actions::modals />
+{{-- ══════════════════════════════════════════════════════════════════════ --}}
+{{-- GOOGLE MAPS + AUTOCOMPLETE JS                                          --}}
+{{-- ══════════════════════════════════════════════════════════════════════ --}}
+<script>
+// ── State ─────────────────────────────────────────────────────────────────────
+let _ccMap, _ccGeocoder, _ccGeocodeTimer;
+let _ccAddr = '', _ccLat = 0, _ccLng = 0;
+let _ccMapsReady = false;
+let _ccMapMode = 'pickup'; // 'pickup' | 'delivery'
+
+// ── Open / Close ───────────────────────────────────────────────────────────────
+function _ccCityCenter() {
+    // Đọc từ #cc-city-anchor — element này NẰM TRONG Livewire component
+    // nên được Livewire morph cập nhật mỗi khi user đổi khu vực.
+    // (Modal bị move ra body → Livewire không thể cập nhật attribute của nó)
+    const anchor = document.getElementById('cc-city-anchor');
+    return {
+        lat: parseFloat(anchor?.dataset?.lat || '10.7769'),
+        lng: parseFloat(anchor?.dataset?.lng || '106.7009'),
+    };
+}
+
+window.ccOpenMapModal = function (mode = 'pickup') {
+    _ccMapMode = mode;
+    _ccAddr    = '';
+
+    const modal = document.getElementById('cc-map-modal');
+    const title = modal.querySelector('#cc-modal-title');
+    if (title) title.textContent = mode === 'delivery' ? 'Chọn điểm giao hàng' : 'Chọn điểm lấy hàng';
+
+    const addrEl = document.getElementById('cc-picker-addr-text');
+    if (addrEl) addrEl.textContent = 'Đang xác định vị trí...';
+
+    modal.style.display = 'block';
+
+    // Luôn tạo lại map mỗi lần mở — tránh tile bị đen khi reopen sau khi đã close
+    _ccMap = null;
+    const mapDiv = document.getElementById('cc-picker-map');
+    if (mapDiv) mapDiv.innerHTML = '';
+
+    setTimeout(() => {
+        if (!_ccMapsReady) return;
+        _ccInitMap(_ccCityCenter());
+    }, 150);
+};
+
+window.ccCloseMapModal = function () {
+    document.getElementById('cc-map-modal').style.display = 'none';
+};
+
+// ── Init fullscreen map ────────────────────────────────────────────────────────
+function _ccInitMap(center) {
+    _ccLat = center.lat;
+    _ccLng = center.lng;
+
+    _ccMap = new google.maps.Map(document.getElementById('cc-picker-map'), {
+        center: center,
+        zoom: 15,
+        mapTypeControl: false,
+        fullscreenControl: false,
+        streetViewControl: false,
+        zoomControl: true,
+        zoomControlOptions: { position: google.maps.ControlPosition.RIGHT_CENTER },
+        gestureHandling: 'greedy',
+    });
+
+    _ccGeocoder = new google.maps.Geocoder();
+
+    // Khi map idle → reverse geocode tâm bản đồ (pin cố định ở giữa màn hình)
+    _ccMap.addListener('idle', () => {
+        const c = _ccMap.getCenter();
+        _ccLat = c.lat();
+        _ccLng = c.lng();
+
+        const el = document.getElementById('cc-picker-addr-text');
+        if (el) el.textContent = 'Đang xác định địa chỉ...';
+
+        clearTimeout(_ccGeocodeTimer);
+        _ccGeocodeTimer = setTimeout(() => {
+            _ccGeocoder.geocode({ location: { lat: _ccLat, lng: _ccLng } }, (res, st) => {
+                _ccAddr = (st === 'OK' && res[0]) ? res[0].formatted_address : `${_ccLat.toFixed(5)}, ${_ccLng.toFixed(5)}`;
+                if (el) el.textContent = _ccAddr;
+            });
+        }, 400);
+    });
+
+    // Autocomplete trong modal search
+    const searchEl = document.getElementById('cc-modal-search');
+    if (searchEl) {
+        const ac = new google.maps.places.Autocomplete(searchEl, { componentRestrictions: { country: 'vn' } });
+        ac.bindTo('bounds', _ccMap);
+        ac.addListener('place_changed', () => {
+            const p = ac.getPlace();
+            if (!p.geometry?.location) return;
+            _ccMap.panTo(p.geometry.location);
+            _ccMap.setZoom(17);
+            searchEl.blur();
+        });
+    }
+}
+
+// ── GPS: về vị trí hiện tại ───────────────────────────────────────────────────
+window.ccGotoMyLocation = function () {
+    if (!navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(pos => {
+        if (_ccMap) _ccMap.panTo({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+    });
+};
+
+// ── Xác nhận ─────────────────────────────────────────────────────────────────
+window.ccConfirmMapSelection = function () {
+    if (!_ccAddr || _ccAddr === 'Đang xác định địa chỉ...') return;
+    if (_ccMapMode === 'delivery') {
+        @this.call('setDeliveryLocation', _ccAddr, _ccLat, _ccLng);
+    } else {
+        @this.call('setPickupLocation', _ccAddr, _ccLat, _ccLng);
+    }
+    ccCloseMapModal();
+};
+
+// ── Autocomplete ──────────────────────────────────────────────────────────────
+function _initAutocomplete(inputId, livewireMethod) {
+    const input = document.getElementById(inputId);
+    if (!input || input._ccAcInit || !_ccMapsReady) return;
+    input._ccAcInit = true;
+    const ac = new google.maps.places.Autocomplete(input, { componentRestrictions: { country: 'vn' } });
+    ac.addListener('place_changed', () => {
+        const p = ac.getPlace();
+        if (!p.geometry?.location) return;
+        @this.call(livewireMethod,
+            p.formatted_address || input.value,
+            p.geometry.location.lat(),
+            p.geometry.location.lng()
+        );
+    });
+}
+
+function _initAllAutocomplete() {
+    _initAutocomplete('cc-pickup-addr',   'setPickupLocation');
+    _initAutocomplete('cc-delivery-addr', 'setDeliveryLocation');
+}
+
+// ── Google Maps callback ──────────────────────────────────────────────────────
+window.ccInitGoogleMaps = function () {
+    _ccMapsReady = true;
+    const modal = document.getElementById('cc-map-modal');
+    if (modal && modal.parentElement !== document.body) document.body.appendChild(modal);
+    _initAllAutocomplete();
+};
+
+// ── Filament suffixAction events ──────────────────────────────────────────────
+window.addEventListener('openMapPicker',         () => ccOpenMapModal('pickup'));
+window.addEventListener('openDeliveryMapPicker', () => ccOpenMapModal('delivery'));
+
+// ── Re-init autocomplete sau Livewire update ───────────────────────────────────
+document.addEventListener('livewire:initialized', () => {
+    Livewire.hook('commit', ({ succeed }) => {
+        succeed(() => setTimeout(_initAllAutocomplete, 60));
+    });
+});
+</script>
+
+{{-- Google Maps API --}}
+<script
+    src="https://maps.googleapis.com/maps/api/js?key={{ config('services.google_maps.api_key') }}&libraries=places&callback=ccInitGoogleMaps&loading=async"
+    async defer
+></script>
 
 </x-filament-panels::page>
