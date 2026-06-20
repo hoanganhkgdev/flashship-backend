@@ -488,15 +488,15 @@ class CallCenterPage extends Page implements HasForms
                 'pickup_address'     => $values['pickup_address'],
                 'pickup_lat'         => $pickupLat,
                 'pickup_lng'         => $pickupLng,
-                'pickup_phone'       => $values['pickup_phone'] ?: null,
+                'pickup_phone'       => ($values['pickup_phone'] ?? null) ?: null,
                 'delivery_address'   => $this->serviceType === 'topup'
                     ? $values['pickup_address']
-                    : $values['delivery_address'],
+                    : ($values['delivery_address'] ?? ''),
                 'delivery_lat'       => $deliveryLat,
                 'delivery_lng'       => $deliveryLng,
                 'delivery_phone'     => $this->serviceType === 'topup' || $this->isRide()
-                    ? ($values['pickup_phone'] ?: null)
-                    : ($values['delivery_phone'] ?: null),
+                    ? (($values['pickup_phone'] ?? null) ?: null)
+                    : (($values['delivery_phone'] ?? null) ?: null),
                 'receiver_name'      => null,
                 // Mua hộ: ghép nội dung đơn vào đầu order_note
                 'order_note'         => $this->serviceType === 'shopping'
