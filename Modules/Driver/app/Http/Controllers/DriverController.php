@@ -69,6 +69,17 @@ class DriverController extends Controller
                     'message' => 'Bạn cần tải lên và được duyệt CCCD trước khi có thể hoạt động.',
                 ], 403);
             }
+
+            // Chặn bật online khi có công nợ quá hạn
+            $overdueDebt = $user->debts()->where('status', 'overdue')->first();
+            if ($overdueDebt) {
+                $remaining = $overdueDebt->amount_due - $overdueDebt->amount_paid;
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Bạn có công nợ quá hạn ' . number_format($remaining, 0, ',', '.') . '₫. Vui lòng thanh toán trước khi hoạt động.',
+                    'code'    => 'debt_overdue',
+                ], 403);
+            }
         }
 
         // Tích lũy thời gian online khi chuyển sang offline

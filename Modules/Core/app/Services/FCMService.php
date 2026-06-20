@@ -293,6 +293,15 @@ class FCMService
         return ['sent' => $sent, 'failed' => $failed];
     }
 
+    public function sendOverdueDebt(string $fcmToken, string $amount): void
+    {
+        $this->send($fcmToken, [
+            'title' => '⚠️ Công nợ quá hạn',
+            'body'  => "Bạn có công nợ {$amount}₫ đã quá hạn. Vui lòng thanh toán để tiếp tục nhận đơn.",
+            'data'  => ['type' => 'debt_overdue'],
+        ]);
+    }
+
     private function send(string $token, array $payload): void
     {
         try {
