@@ -26,20 +26,24 @@ jobs:
             git pull origin main
             composer install --no-dev --optimize-autoloader --ignore-platform-req=ext-intl
 
-            # Inject APNS_PRIVATE_KEY
-            if ! grep -q "APNS_PRIVATE_KEY" .env; then
-              echo "APNS_PRIVATE_KEY=\"$APNS_PRIVATE_KEY\"" >> .env
-            else
-              sed -i "s|^APNS_PRIVATE_KEY=.*|APNS_PRIVATE_KEY=\"$APNS_PRIVATE_KEY\"|" .env
+            # Inject APNS_PRIVATE_KEY (chỉ ghi nếu secret có giá trị)
+            if [ -n "$APNS_PRIVATE_KEY" ]; then
+              if ! grep -q "APNS_PRIVATE_KEY" .env; then
+                echo "APNS_PRIVATE_KEY=\"$APNS_PRIVATE_KEY\"" >> .env
+              else
+                sed -i "s|^APNS_PRIVATE_KEY=.*|APNS_PRIVATE_KEY=\"$APNS_PRIVATE_KEY\"|" .env
+              fi
             fi
 
-            # Inject PayOS keys
+            # Inject PayOS keys (chỉ ghi nếu secret có giá trị)
             for key in PAYOS_CLIENT_ID PAYOS_API_KEY PAYOS_CHECKSUM_KEY; do
               val="${!key}"
-              if ! grep -q "^${key}=" .env; then
-                echo "${key}=${val}" >> .env
-              else
-                sed -i "s|^${key}=.*|${key}=${val}|" .env
+              if [ -n "$val" ]; then
+                if ! grep -q "^${key}=" .env; then
+                  echo "${key}=${val}" >> .env
+                else
+                  sed -i "s|^${key}=.*|${key}=${val}|" .env
+                fi
               fi
             done
 
