@@ -12,7 +12,6 @@ use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Textarea;
 use Filament\Notifications\Notification;
 use Illuminate\Support\Facades\DB;
-use Gemini\Laravel\Facades\Gemini;
 use Modules\Core\Services\GoogleMapService;
 use Modules\Order\Models\Order;
 use Modules\Order\Services\OrderService;
@@ -35,9 +34,7 @@ class CallCenterPage extends Page implements HasForms
         return auth()->user()?->user_type !== 'city_manager';
     }
 
-    public string $rawText  = '';
-    public string $aiStatus = '';
-    public array  $data     = [];
+    public array $data = [];
 
     // Preview phí trước khi đặt
     public ?int    $previewFee      = null;
@@ -159,87 +156,6 @@ class CallCenterPage extends Page implements HasForms
     {
         if (!$cityName || mb_stripos($address, $cityName) !== false) return $address;
         return $address . ', ' . $cityName;
-    }
-
-    // ─── AI Parsing ──────────────────────────────────────────────────────────
-
-    public function parseWithAI(): void
-    {
-        $text = trim($this->rawText);
-        if (!$text) {
-            $this->aiStatus = 'Vui lòng nhập nội dung đơn hàng.';
-            return;
-        }
-
-        $this->aiStatus = '⏳ Đang phân tích...';
-
-        $cityName    = $this->cityName();
-        $cityHint    = $cityName
-            ? "- Khu vực đặt đơn là: {$cityName}. Nếu địa chỉ không có tên thành phố/tỉnh, hãy tự thêm \", {$cityName}\" vào cuối."
-            : '- Giữ nguyên địa chỉ như trong text.';
-
-        $prompt = <<<PROMPT
-Bạn là trợ lý đặt đơn giao hàng. Phân tích đoạn text và trả về JSON thuần (không markdown, không ```).
-
-TEXT:
-{$text}
-
-JSON cần trả về:
-{
-  "store_name": "",
-  "pickup_name": "",
-  "pickup_phone": "",
-  "pickup_address": "",
-  "delivery_name": "",
-  "delivery_phone": "",
-  "delivery_address": "",
-  "cod_amount": null,
-  "cargo_type": "parcel",
-  "order_note": ""
-}
-
-Quy tắc:
-- cargo_type chỉ được là: "food", "parcel", hoặc "flowers"
-- cod_amount là số nguyên hoặc null
-{$cityHint}
-- Chỉ trả về JSON thuần
-PROMPT;
-
-        try {
-            $response = Gemini::generativeModel(model: 'models/gemini-2.5-flash')
-                ->generateContent($prompt);
-
-            $json = trim($response->text());
-            $json = preg_replace('/^```[a-z]*\n?/i', '', $json);
-            $json = preg_replace('/\n?```$/i', '', $json);
-
-            $parsed = json_decode($json, true);
-
-            if (!is_array($parsed)) {
-                $this->aiStatus = '❌ AI không trả về dữ liệu hợp lệ.';
-                return;
-            }
-
-            $this->form->fill(array_merge($this->data, array_filter([
-                'store_name'       => $parsed['store_name']       ?: null,
-                'pickup_name'      => $parsed['pickup_name']      ?: null,
-                'pickup_phone'     => $parsed['pickup_phone']     ?: null,
-                'pickup_address'   => $parsed['pickup_address']   ?: null,
-                'delivery_name'    => $parsed['delivery_name']    ?: null,
-                'delivery_phone'   => $parsed['delivery_phone']   ?: null,
-                'delivery_address' => $parsed['delivery_address'] ?: null,
-                'order_note'       => $parsed['order_note']       ?: null,
-                'cod_amount'       => isset($parsed['cod_amount']) && $parsed['cod_amount'] > 0
-                                      ? (int) $parsed['cod_amount'] : null,
-                'cargo_type'       => in_array($parsed['cargo_type'] ?? '', ['food', 'parcel', 'flowers'])
-                                      ? $parsed['cargo_type'] : 'parcel',
-            ], fn($v) => $v !== null)));
-
-            $this->aiStatus = '✅ Đã điền thông tin từ AI. Kiểm tra lại trước khi đặt.';
-
-        } catch (\Throwable $e) {
-            $this->aiStatus = '❌ Lỗi AI: ' . $e->getMessage();
-        }
     }
 
     // ─── Preview phí ─────────────────────────────────────────────────────────

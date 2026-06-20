@@ -52,52 +52,8 @@
 {{-- ══════════════════════════════════════════════════════ --}}
 <div class="grid grid-cols-1 gap-6 xl:grid-cols-5">
 
-    {{-- CỘT TRÁI: AI + Form --}}
+    {{-- CỘT TRÁI: Form --}}
     <div class="xl:col-span-3">
-
-        {{-- AI PARSE CARD --}}
-        <div class="mb-5 overflow-hidden rounded-2xl border border-violet-200 bg-gradient-to-br from-violet-50 to-purple-50 shadow-sm dark:border-violet-800 dark:from-violet-950/40 dark:to-purple-950/40">
-            <div class="border-b border-violet-200/70 px-5 py-4 dark:border-violet-700/50">
-                <div class="flex items-center gap-2">
-                    <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-violet-600 shadow-sm">
-                        <x-heroicon-o-sparkles class="h-4 w-4 text-white" />
-                    </div>
-                    <div>
-                        <h3 class="text-sm font-semibold text-violet-800 dark:text-violet-200">AI tự động điền đơn</h3>
-                        <p class="text-xs text-violet-500 dark:text-violet-400">Dán tin nhắn khách → Gemini phân tích</p>
-                    </div>
-                </div>
-            </div>
-            <div class="p-5">
-                <textarea
-                    wire:model="rawText"
-                    rows="6"
-                    placeholder="Dán nội dung tin nhắn / mẫu đặt hàng vào đây...&#10;&#10;Ví dụ:&#10;Lấy: 11 Lý Thường Kiệt ☎ 0942526271&#10;Giao: 355 Nguyễn Trung Trực ☎ 0942373073&#10;COD: 150.000đ"
-                    class="w-full resize-none rounded-xl border border-violet-200 bg-white/80 p-4 text-sm leading-relaxed text-gray-700 shadow-inner placeholder:text-gray-400 focus:border-violet-400 focus:outline-none focus:ring-2 focus:ring-violet-200 dark:border-violet-700 dark:bg-gray-900/80 dark:text-gray-200 dark:focus:ring-violet-800"
-                ></textarea>
-                <div class="mt-3 flex items-center justify-between">
-                    <x-filament::button
-                        wire:click="parseWithAI"
-                        wire:loading.attr="disabled"
-                        icon="heroicon-o-sparkles"
-                        color="primary"
-                        size="sm"
-                        style="background: linear-gradient(135deg, #7c3aed, #6d28d9); border: none;"
-                    >
-                        <span wire:loading.remove wire:target="parseWithAI">Phân tích đơn</span>
-                        <span wire:loading wire:target="parseWithAI">⏳ Đang phân tích...</span>
-                    </x-filament::button>
-                    @if ($aiStatus)
-                    <span class="text-xs font-medium
-                        {{ str_starts_with($aiStatus, '✅') ? 'text-success-600 dark:text-success-400'
-                         : (str_starts_with($aiStatus, '❌') ? 'text-danger-600 dark:text-danger-400'
-                         : 'text-violet-500 dark:text-violet-400') }}">
-                        {{ $aiStatus }}
-                    </span>
-                    @endif
-                </div>
-            </div>
-        </div>
 
         {{-- FORM --}}
         <form wire:submit="placeOrder">
@@ -168,7 +124,7 @@
             <ol class="space-y-3">
                 @foreach ([
                     ['icon' => 'heroicon-o-map-pin',         'color' => 'bg-blue-100 text-blue-600 dark:bg-blue-900 dark:text-blue-300',    'text' => 'Chọn khu vực & điền tên shop'],
-                    ['icon' => 'heroicon-o-sparkles',        'color' => 'bg-violet-100 text-violet-600 dark:bg-violet-900 dark:text-violet-300', 'text' => 'Dán text → AI tự điền địa chỉ'],
+                    ['icon' => 'heroicon-o-pencil-square',   'color' => 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300',    'text' => 'Nhập địa chỉ lấy hàng & giao hàng'],
                     ['icon' => 'heroicon-o-calculator',      'color' => 'bg-amber-100 text-amber-600 dark:bg-amber-900 dark:text-amber-300',  'text' => 'Bấm "Tính phí" để kiểm tra km'],
                     ['icon' => 'heroicon-o-paper-airplane',  'color' => 'bg-success-100 text-success-600 dark:bg-success-900 dark:text-success-300', 'text' => 'Đặt đơn — tài xế nhận ngay'],
                 ] as $i => $step)
@@ -183,26 +139,6 @@
                 </li>
                 @endforeach
             </ol>
-        </div>
-
-        {{-- ĐỊNH DẠNG MẪU --}}
-        <div class="rounded-2xl border border-amber-200 bg-amber-50 p-5 dark:border-amber-800 dark:bg-amber-950/30">
-            <h4 class="mb-3 flex items-center gap-2 text-sm font-semibold text-amber-700 dark:text-amber-300">
-                <x-heroicon-o-document-text class="h-4 w-4" />
-                Mẫu tin nhắn đặt hàng
-            </h4>
-            <div class="rounded-xl bg-white/80 p-3 font-mono text-xs leading-relaxed text-gray-600 dark:bg-gray-900/60 dark:text-gray-400">
-                <p class="text-gray-400">Lấy hàng:</p>
-                <p>11 Lý Thường Kiệt ☎ 0942526271</p>
-                <br>
-                <p class="text-gray-400">Giao hàng:</p>
-                <p>355 Nguyễn Trung Trực ☎ 0942373073</p>
-                <br>
-                <p class="text-gray-400">COD: 150.000đ</p>
-            </div>
-            <p class="mt-2 text-[11px] text-amber-600 dark:text-amber-400">
-                💡 Khu vực đã chọn sẽ tự thêm vào địa chỉ khi geocode.
-            </p>
         </div>
 
         {{-- GHI CHÚ NHANH --}}
