@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\ValidationException;
 use Modules\Core\Models\User;
 use Modules\Core\Services\OtpService;
+use Modules\Core\Services\RTDBService;
 
 class AuthController extends Controller
 {
@@ -195,6 +196,11 @@ class AuthController extends Controller
         $tokenName = $deviceId ? "api_token_{$deviceId}" : 'api_token';
         $user->tokens()->where('name', 'like', 'api_token%')->delete();
         $token = $user->createToken($tokenName)->plainTextToken;
+
+        // Ghi device_id lên RTDB — thiết bị cũ sẽ tự detect và force logout
+        if ($deviceId) {
+            RTDBService::writeSessionDevice($user->id, $deviceId);
+        }
 
         return response()->json([
             'success' => true,

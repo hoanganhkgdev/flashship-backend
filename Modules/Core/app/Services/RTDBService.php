@@ -124,6 +124,19 @@ class RTDBService
     }
 
     /**
+     * Ghi device_id hiện tại của tài xế — thiết bị khác sẽ detect và force logout.
+     * Path: drivers/{driverId}/session_device
+     */
+    public static function writeSessionDevice(int $driverId, string $deviceId): void
+    {
+        try {
+            self::db()->getReference("drivers/{$driverId}/session_device")->set($deviceId);
+        } catch (\Throwable $e) {
+            Log::error('[RTDB] writeSessionDevice failed: ' . $e->getMessage());
+        }
+    }
+
+    /**
      * Cập nhật trạng thái online/offline của tài xế trên RTDB.
      */
     public static function setDriverOnlineStatus(int $driverId, bool $isOnline): void
