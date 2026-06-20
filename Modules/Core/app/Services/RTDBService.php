@@ -130,7 +130,7 @@ class RTDBService
     public static function setAccountLocked(int $driverId, bool $locked): void
     {
         try {
-            $ref = self::db()->getReference("drivers/{$driverId}/account_locked");
+            $ref = self::db()->getReference("dispatch/driver_{$driverId}/account_locked");
             $locked ? $ref->set(true) : $ref->remove();
         } catch (\Throwable $e) {
             Log::error('[RTDB] setAccountLocked failed: ' . $e->getMessage());
@@ -139,12 +139,12 @@ class RTDBService
 
     /**
      * Ghi device_id hiện tại của tài xế — thiết bị khác sẽ detect và force logout.
-     * Path: drivers/{driverId}/session_device
+     * Path: dispatch/driver_{driverId}/session_device
      */
     public static function writeSessionDevice(int $driverId, string $deviceId): void
     {
         try {
-            self::db()->getReference("drivers/{$driverId}/session_device")->set($deviceId);
+            self::db()->getReference("dispatch/driver_{$driverId}/session_device")->set($deviceId);
         } catch (\Throwable $e) {
             Log::error('[RTDB] writeSessionDevice failed: ' . $e->getMessage());
         }
