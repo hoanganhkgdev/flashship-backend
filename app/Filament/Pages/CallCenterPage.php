@@ -506,6 +506,8 @@ class CallCenterPage extends Page implements HasForms
                 'distance'           => $pricing['distance_km']   ?? null,
             ]);
 
+            $order->refresh();
+
             app(OrderService::class)->dispatchNewOrder($order->id);
 
             $this->resultOrderCode = $order->code;
