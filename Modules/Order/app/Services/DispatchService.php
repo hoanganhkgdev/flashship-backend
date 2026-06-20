@@ -522,9 +522,15 @@ class DispatchService
             Log::debug("     [Candidates] Loại {$removed} tài xế do nợ quá hạn");
         }
 
-        $afterLicense = $afterDebt->filter(fn(User $d) => $order->service_type !== 'car' || $d->has_car_license);
+        $afterLicense = $afterDebt->filter(function (User $d) use ($order) {
+            return match ($order->service_type) {
+                'bike', 'motor' => $d->vehicle_type === 'motorbike',
+                'car'           => $d->vehicle_type === 'car' && $d->has_car_license,
+                default         => true,
+            };
+        });
         if (($removed = $afterDebt->count() - $afterLicense->count()) > 0) {
-            Log::debug("     [Candidates] Loại {$removed} tài xế do không có bằng xe hơi");
+            Log::debug("     [Candidates] Loại {$removed} tài xế do không phù hợp loại xe ({$order->service_type})");
         }
 
         // ── 4. Loại tài xế đang bận nếu đi quá vòng ─────────────────────────────
