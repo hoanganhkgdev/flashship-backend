@@ -124,6 +124,20 @@ class RTDBService
     }
 
     /**
+     * Khóa/mở khóa tài khoản tài xế real-time — app sẽ detect và force logout.
+     * Path: drivers/{driverId}/account_locked
+     */
+    public static function setAccountLocked(int $driverId, bool $locked): void
+    {
+        try {
+            $ref = self::db()->getReference("drivers/{$driverId}/account_locked");
+            $locked ? $ref->set(true) : $ref->remove();
+        } catch (\Throwable $e) {
+            Log::error('[RTDB] setAccountLocked failed: ' . $e->getMessage());
+        }
+    }
+
+    /**
      * Ghi device_id hiện tại của tài xế — thiết bị khác sẽ detect và force logout.
      * Path: drivers/{driverId}/session_device
      */

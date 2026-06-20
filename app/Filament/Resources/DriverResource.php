@@ -14,6 +14,7 @@ use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Filters\TernaryFilter;
 use Illuminate\Database\Eloquent\Builder;
 use Modules\Core\Models\User;
+use Modules\Core\Services\RTDBService;
 use App\Filament\Traits\HideFromCityManager;
 
 class DriverResource extends Resource
@@ -225,9 +226,16 @@ class DriverResource extends Resource
                     ->icon('heroicon-o-lock-closed')
                     ->color('danger')
                     ->visible(fn (User $record) => $record->status == 1)
-                    ->requiresConfirmation()
-                    ->action(function (User $record) {
+                    ->modalHeading('Khóa tài khoản')
+                    ->form([
+                        Forms\Components\Textarea::make('reason')
+                            ->label('Lý do khóa (tuỳ chọn)')
+                            ->rows(2),
+                    ])
+                    ->action(function (User $record, array $data) {
                         $record->update(['status' => 2]);
+                        $record->tokens()->delete();
+                        RTDBService::setAccountLocked($record->id, true);
                         Notification::make()->title('Đã khóa tài xế ' . $record->name)->warning()->send();
                     }),
 
@@ -239,6 +247,7 @@ class DriverResource extends Resource
                     ->requiresConfirmation()
                     ->action(function (User $record) {
                         $record->update(['status' => 1]);
+                        RTDBService::setAccountLocked($record->id, false);
                         Notification::make()->title('Đã mở khóa tài xế ' . $record->name)->success()->send();
                     }),
 
