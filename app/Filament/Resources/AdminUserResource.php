@@ -72,8 +72,8 @@ class AdminUserResource extends Resource
                         ->orderBy('name')
                         ->pluck('name', 'id'))
                     ->searchable()
-                    ->visible(fn (Forms\Get $get) => $get('user_type') === 'city_manager')
-                    ->required(fn (Forms\Get $get) => $get('user_type') === 'city_manager'),
+                    ->visible(fn (Forms\Get $get) => in_array($get('user_type'), ['city_manager', 'call_center']))
+                    ->required(fn (Forms\Get $get) => in_array($get('user_type'), ['city_manager', 'call_center'])),
 
                 Forms\Components\Select::make('status')
                     ->label('Trạng thái')
