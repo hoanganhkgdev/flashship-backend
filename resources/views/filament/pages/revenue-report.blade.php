@@ -70,7 +70,7 @@
         </div>
         <div class="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
             @forelse($services as $row)
-            <div class="relative overflow-hidden rounded-2xl border border-gray-100 bg-white p-4 shadow-sm dark:border-gray-800 dark:bg-gray-900">
+            <div class="relative overflow-hidden rounded-3xl border border-gray-100 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900">
                 {{-- Top: icon + tên --}}
                 <div class="mb-4 flex items-center gap-2">
                     <div class="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg" style="background:{{ $row['color'] }};">
