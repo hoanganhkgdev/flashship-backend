@@ -20,17 +20,17 @@
 {{-- ══ BỘ LỌC ══════════════════════════════════════════════════════════════ --}}
 <div class="mb-6 flex flex-wrap items-end gap-4">
     <div class="flex-1 min-w-[140px] max-w-[180px]">
-        <label class="mb-2 block text-xs font-medium text-gray-400 dark:text-gray-500">Từ ngày</label>
+        <label class="mb-2 block pl-1 text-xs font-medium text-gray-400 dark:text-gray-500">Từ ngày</label>
         <input type="date" wire:model.live="from"
             class="fi-input w-full rounded-lg border-gray-300 bg-white h-9 px-3 text-sm shadow-sm transition focus:border-primary-500 focus:ring-1 focus:ring-primary-500 dark:border-gray-600 dark:bg-gray-800 dark:text-white">
     </div>
     <div class="flex-1 min-w-[140px] max-w-[180px]">
-        <label class="mb-2 block text-xs font-medium text-gray-400 dark:text-gray-500">Đến ngày</label>
+        <label class="mb-2 block pl-1 text-xs font-medium text-gray-400 dark:text-gray-500">Đến ngày</label>
         <input type="date" wire:model.live="to"
             class="fi-input w-full rounded-lg border-gray-300 bg-white h-9 px-3 text-sm shadow-sm transition focus:border-primary-500 focus:ring-1 focus:ring-primary-500 dark:border-gray-600 dark:bg-gray-800 dark:text-white">
     </div>
     <div class="flex-1 min-w-[160px] max-w-[200px]">
-        <label class="mb-2 block text-xs font-medium text-gray-400 dark:text-gray-500">Khu vực</label>
+        <label class="mb-2 block pl-1 text-xs font-medium text-gray-400 dark:text-gray-500">Khu vực</label>
         <select wire:model.live="city_id"
             class="fi-input w-full rounded-lg border-gray-300 bg-white h-9 px-3 text-sm shadow-sm transition focus:border-primary-500 focus:ring-1 focus:ring-primary-500 dark:border-gray-600 dark:bg-gray-800 dark:text-white">
             <option value="">Tất cả khu vực</option>
