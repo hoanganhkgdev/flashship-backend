@@ -64,7 +64,7 @@
 
     {{-- Theo dịch vụ --}}
     <div class="lg:col-span-2">
-        <div class="mb-3 flex items-center gap-2 pl-1">
+        <div class="mb-5 flex items-center gap-2 pl-1">
             <x-heroicon-o-squares-2x2 class="h-4 w-4 text-gray-400" />
             <span class="text-sm font-bold text-gray-700 dark:text-gray-200">Theo dịch vụ</span>
         </div>
