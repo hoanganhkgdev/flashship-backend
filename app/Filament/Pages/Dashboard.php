@@ -2,12 +2,16 @@
 
 namespace App\Filament\Pages;
 
-class Dashboard extends \Filament\Pages\Dashboard
+use Filament\Pages\Dashboard as BaseDashboard;
+
+class Dashboard extends BaseDashboard
 {
     public function getHeading(): string { return ''; }
 
-    public static function canAccess(): bool
+    public function mount(): void
     {
-        return !auth()->user()?->isCallCenter();
+        if (auth()->user()?->isCallCenter()) {
+            $this->redirect(CallCenterPage::getUrl());
+        }
     }
 }
