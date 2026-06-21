@@ -54,6 +54,7 @@ class RevenueReportPage extends Page
         return [
             'total_orders'     => $q->count(),
             'completed_orders' => (clone $q)->where('status', 'completed')->count(),
+            'active_orders'    => (clone $q)->whereIn('status', ['pending', 'assigned', 'processing', 'on_the_way'])->count(),
             'cancelled_orders' => (clone $q)->where('status', 'cancelled')->count(),
             'total_revenue'    => (clone $q)->where('status', 'completed')->sum('shipping_fee'),
             'avg_fee'          => (int) (clone $q)->where('status', 'completed')->avg('shipping_fee'),

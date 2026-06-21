@@ -8,55 +8,56 @@
     $days      = $this->getByDay();
 
     $statCards = [
-        ['label' => 'Tổng đơn',      'value' => number_format($summary['total_orders']),                    'icon' => 'heroicon-o-clipboard-document-list', 'color' => '#6366f1', 'sub' => null],
-        ['label' => 'Hoàn thành',     'value' => number_format($summary['completed_orders']),                'icon' => 'heroicon-o-check-circle',            'color' => '#22c55e', 'sub' => $rate . '%'],
-        ['label' => 'Đã huỷ',        'value' => number_format($summary['cancelled_orders']),                'icon' => 'heroicon-o-x-circle',                'color' => '#ef4444', 'sub' => null],
-        ['label' => 'Doanh thu',      'value' => number_format($summary['total_revenue'], 0, ',', '.') . 'đ', 'icon' => 'heroicon-o-banknotes',             'color' => '#f97316', 'sub' => null],
-        ['label' => 'TB / đơn',      'value' => number_format($summary['avg_fee'], 0, ',', '.') . 'đ',      'icon' => 'heroicon-o-calculator',              'color' => '#3b82f6', 'sub' => null],
+        ['label' => 'Tổng đơn',    'value' => number_format($summary['total_orders']),                      'icon' => 'heroicon-o-clipboard-document-list', 'color' => '#6366f1', 'desc' => 'đơn trong khoảng thời gian'],
+        ['label' => 'Hoàn thành',   'value' => number_format($summary['completed_orders']),                  'icon' => 'heroicon-o-check-circle',            'color' => '#22c55e', 'desc' => $rate . '% tỉ lệ hoàn thành'],
+        ['label' => 'Đang xử lý',  'value' => number_format($summary['active_orders']),                     'icon' => 'heroicon-o-arrow-path',              'color' => '#f59e0b', 'desc' => 'chờ / đang giao'],
+        ['label' => 'Đã huỷ',      'value' => number_format($summary['cancelled_orders']),                  'icon' => 'heroicon-o-x-circle',                'color' => '#ef4444', 'desc' => 'đơn bị huỷ'],
+        ['label' => 'Doanh thu',    'value' => number_format($summary['total_revenue'], 0, ',', '.') . 'đ', 'icon' => 'heroicon-o-banknotes',                'color' => '#f97316', 'desc' => 'tổng phí ship thu được'],
+        ['label' => 'TB / đơn',    'value' => number_format($summary['avg_fee'], 0, ',', '.') . 'đ',        'icon' => 'heroicon-o-calculator',               'color' => '#3b82f6', 'desc' => 'phí trung bình mỗi đơn'],
     ];
 @endphp
 
 {{-- ══ BỘ LỌC ══════════════════════════════════════════════════════════════ --}}
-<div class="mb-6 flex flex-wrap items-end gap-3">
-    <div class="flex-1 min-w-[140px] max-w-[180px]">
-        <label class="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">Từ ngày</label>
-        <input type="date" wire:model.live="from"
-            class="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm shadow-sm transition focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 dark:border-gray-700 dark:bg-gray-900">
-    </div>
-    <div class="flex-1 min-w-[140px] max-w-[180px]">
-        <label class="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">Đến ngày</label>
-        <input type="date" wire:model.live="to"
-            class="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm shadow-sm transition focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 dark:border-gray-700 dark:bg-gray-900">
-    </div>
-    <div class="flex-1 min-w-[160px] max-w-[200px]">
-        <label class="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-gray-400">Khu vực</label>
-        <select wire:model.live="city_id"
-            class="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm shadow-sm transition focus:border-primary-500 focus:ring-2 focus:ring-primary-500/20 dark:border-gray-700 dark:bg-gray-900">
-            <option value="">Tất cả khu vực</option>
-            @foreach($this->getCities() as $id => $name)
-                <option value="{{ $id }}">{{ $name }}</option>
-            @endforeach
-        </select>
-    </div>
-</div>
-
-{{-- ══ TỔNG QUAN ════════════════════════════════════════════════════════════ --}}
-<div class="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-    @foreach($statCards as $card)
-    <div class="relative overflow-hidden rounded-2xl border border-gray-100 bg-white p-4 shadow-sm dark:border-gray-800 dark:bg-gray-900">
-        <div class="flex items-start justify-between">
-            <div>
-                <p class="text-[11px] font-semibold uppercase tracking-wider text-gray-400">{{ $card['label'] }}</p>
-                <p class="mt-1 text-xl font-extrabold" style="color:{{ $card['color'] }}">{{ $card['value'] }}</p>
-                @if($card['sub'])
-                    <p class="mt-0.5 text-xs font-semibold text-gray-400">{{ $card['sub'] }}</p>
-                @endif
-            </div>
-            <div class="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl" style="background:{{ $card['color'] }}12">
-                <x-dynamic-component :component="$card['icon']" class="h-5 w-5" style="color:{{ $card['color'] }}" />
-            </div>
+<x-filament::section>
+    <div class="flex flex-wrap items-end gap-4">
+        <div class="flex-1 min-w-[140px] max-w-[180px]">
+            <label class="mb-1.5 block text-xs font-medium text-gray-400 dark:text-gray-500">Từ ngày</label>
+            <input type="date" wire:model.live="from"
+                class="fi-input w-full rounded-lg border-gray-300 bg-white h-9 px-3 text-sm shadow-sm transition focus:border-primary-500 focus:ring-1 focus:ring-primary-500 dark:border-gray-600 dark:bg-gray-800 dark:text-white">
+        </div>
+        <div class="flex-1 min-w-[140px] max-w-[180px]">
+            <label class="mb-1.5 block text-xs font-medium text-gray-400 dark:text-gray-500">Đến ngày</label>
+            <input type="date" wire:model.live="to"
+                class="fi-input w-full rounded-lg border-gray-300 bg-white h-9 px-3 text-sm shadow-sm transition focus:border-primary-500 focus:ring-1 focus:ring-primary-500 dark:border-gray-600 dark:bg-gray-800 dark:text-white">
+        </div>
+        <div class="flex-1 min-w-[160px] max-w-[200px]">
+            <label class="mb-1.5 block text-xs font-medium text-gray-400 dark:text-gray-500">Khu vực</label>
+            <select wire:model.live="city_id"
+                class="fi-input w-full rounded-lg border-gray-300 bg-white h-9 px-3 text-sm shadow-sm transition focus:border-primary-500 focus:ring-1 focus:ring-primary-500 dark:border-gray-600 dark:bg-gray-800 dark:text-white">
+                <option value="">Tất cả khu vực</option>
+                @foreach($this->getCities() as $id => $name)
+                    <option value="{{ $id }}">{{ $name }}</option>
+                @endforeach
+            </select>
         </div>
     </div>
+</x-filament::section>
+
+{{-- ══ TỔNG QUAN ════════════════════════════════════════════════════════════ --}}
+<div class="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
+    @foreach($statCards as $card)
+    <x-filament::section>
+        <div class="flex items-center gap-3">
+            <div class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg" style="background:{{ $card['color'] }}15;">
+                <x-dynamic-component :component="$card['icon']" class="h-5 w-5" style="color:{{ $card['color'] }}" />
+            </div>
+            <div class="min-w-0">
+                <p class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ $card['label'] }}</p>
+                <p class="text-lg font-extrabold text-gray-900 dark:text-white">{{ $card['value'] }}</p>
+            </div>
+        </div>
+        <p class="mt-2 text-[11px] text-gray-400">{{ $card['desc'] }}</p>
+    </x-filament::section>
     @endforeach
 </div>
 
