@@ -63,8 +63,8 @@
 <div class="grid grid-cols-1 gap-5 lg:grid-cols-2">
 
     {{-- Theo dịch vụ --}}
-    <div class="lg:col-span-2">
-        <div class="mb-3 flex items-center gap-2 pl-1">
+    <div class="lg:col-span-2 mt-2">
+        <div class="mb-4 flex items-center gap-2 pl-1">
             <x-heroicon-o-squares-2x2 class="h-4 w-4 text-gray-400" />
             <span class="text-sm font-bold text-gray-700 dark:text-gray-200">Theo dịch vụ</span>
         </div>
