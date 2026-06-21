@@ -8,6 +8,11 @@ use Modules\Order\Models\Order;
 
 class StatsOverviewWidget extends Widget
 {
+    public static function canView(): bool
+    {
+        return !auth()->user()?->isCallCenter();
+    }
+
     protected static string $view = 'filament.widgets.stats-overview';
     protected static ?string $pollingInterval = '15s';
     protected int | string | array $columnSpan = 'full';

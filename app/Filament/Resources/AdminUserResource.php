@@ -15,6 +15,11 @@ use App\Filament\Traits\HideFromCityManager;
 
 class AdminUserResource extends Resource
 {
+    public static function canAccess(): bool
+    {
+        return !auth()->user()?->isCallCenter();
+    }
+
     use HideFromCityManager;
 
     protected static ?string $model = User::class;

@@ -13,6 +13,11 @@ use Modules\Customer\Http\Controllers\CustomerNotificationController;
 
 class SendNotificationPage extends Page
 {
+    public static function canAccess(): bool
+    {
+        return !auth()->user()?->isCallCenter();
+    }
+
     protected static ?string $navigationIcon  = 'heroicon-o-bell-alert';
     protected static ?string $navigationGroup = 'Cài đặt';
     protected static ?string $navigationLabel = 'Gửi thông báo';

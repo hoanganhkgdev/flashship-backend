@@ -13,6 +13,11 @@ use App\Filament\Traits\HideFromCityManager;
 
 class ServiceTypeResource extends Resource
 {
+    public static function canAccess(): bool
+    {
+        return !auth()->user()?->isCallCenter();
+    }
+
     use HideFromCityManager;
 
     protected static ?string $model          = ServiceType::class;

@@ -13,6 +13,11 @@ use App\Filament\Traits\HideFromCityManager;
 
 class ShopPricingResource extends Resource
 {
+    public static function canAccess(): bool
+    {
+        return !auth()->user()?->isCallCenter();
+    }
+
     use HideFromCityManager;
 
     protected static ?string $model           = ShopPricingConfig::class;

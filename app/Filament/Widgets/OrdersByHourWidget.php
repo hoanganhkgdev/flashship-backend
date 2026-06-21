@@ -7,6 +7,11 @@ use Modules\Order\Models\Order;
 
 class OrdersByHourWidget extends ChartWidget
 {
+    public static function canView(): bool
+    {
+        return !auth()->user()?->isCallCenter();
+    }
+
     protected static ?string $heading        = 'Đơn hàng theo giờ hôm nay';
     protected static ?string $pollingInterval = '60s';
     protected int | string | array $columnSpan = 'full';

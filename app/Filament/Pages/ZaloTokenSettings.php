@@ -25,7 +25,7 @@ class ZaloTokenSettings extends Page
 
     public static function canAccess(): bool
     {
-        return auth()->user()?->user_type !== 'city_manager';
+        return !in_array(auth()->user()?->user_type, ['city_manager', 'call_center']);
     }
 
     public static function getNavigationBadge(): ?string

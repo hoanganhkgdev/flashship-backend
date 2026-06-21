@@ -8,6 +8,11 @@ use Illuminate\Support\Facades\Storage;
 
 class DriverMapPage extends Page
 {
+    public static function canAccess(): bool
+    {
+        return !auth()->user()?->isCallCenter();
+    }
+
     protected static ?string $navigationIcon  = 'heroicon-o-map-pin';
     protected static ?string $navigationGroup = 'Vận hành';
     protected static ?string $navigationLabel = 'Bản đồ tài xế';

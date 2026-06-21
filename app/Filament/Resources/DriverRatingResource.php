@@ -17,6 +17,11 @@ use Modules\Order\Models\Order;
 
 class DriverRatingResource extends Resource
 {
+    public static function canAccess(): bool
+    {
+        return !auth()->user()?->isCallCenter();
+    }
+
     protected static ?string $model            = Order::class;
     protected static ?string $navigationIcon   = 'heroicon-o-star';
     protected static ?string $navigationGroup  = 'Đơn hàng';

@@ -17,6 +17,11 @@ use App\Filament\Traits\HideFromCityManager;
 
 class VoucherResource extends Resource
 {
+    public static function canAccess(): bool
+    {
+        return !auth()->user()?->isCallCenter();
+    }
+
     use HideFromCityManager;
 
     protected static ?string $model = Voucher::class;

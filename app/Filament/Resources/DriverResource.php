@@ -19,6 +19,11 @@ use App\Filament\Traits\HideFromCityManager;
 
 class DriverResource extends Resource
 {
+    public static function canAccess(): bool
+    {
+        return !auth()->user()?->isCallCenter();
+    }
+
     use HideFromCityManager;
 
     protected static ?string $model = User::class;

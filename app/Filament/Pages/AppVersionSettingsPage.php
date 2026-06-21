@@ -27,7 +27,7 @@ class AppVersionSettingsPage extends Page implements HasForms
 
     public static function canAccess(): bool
     {
-        return auth()->user()?->user_type !== 'city_manager';
+        return !in_array(auth()->user()?->user_type, ['city_manager', 'call_center']);
     }
 
     public array $data = [];

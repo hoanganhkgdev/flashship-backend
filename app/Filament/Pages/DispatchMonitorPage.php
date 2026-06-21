@@ -12,6 +12,11 @@ use Modules\Order\Services\DispatchService;
 
 class DispatchMonitorPage extends Page
 {
+    public static function canAccess(): bool
+    {
+        return !auth()->user()?->isCallCenter();
+    }
+
     protected static ?string $navigationIcon  = 'heroicon-o-signal';
     protected static ?string $navigationGroup = 'Đơn hàng';
     protected static ?string $navigationLabel = 'Theo dõi phát đơn';
