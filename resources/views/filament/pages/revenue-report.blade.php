@@ -68,41 +68,42 @@
             <x-heroicon-o-squares-2x2 class="h-4 w-4 text-gray-400" />
             <span class="text-sm font-bold text-gray-700 dark:text-gray-200">Theo dịch vụ</span>
         </div>
-        <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+        <div class="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
             @forelse($services as $row)
-            <x-filament::section>
-                <div class="flex items-center gap-2.5 mb-3">
-                    <div class="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl" style="background:{{ $row['color'] }}15;">
-                        <x-dynamic-component :component="$row['icon']" class="h-[18px] w-[18px]" style="color:{{ $row['color'] }}" />
+            <div class="relative overflow-hidden rounded-2xl border border-gray-100 bg-white p-4 shadow-sm dark:border-gray-800 dark:bg-gray-900">
+                {{-- Top: icon + tên --}}
+                <div class="mb-4 flex items-center gap-2">
+                    <div class="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg" style="background:{{ $row['color'] }};">
+                        <x-dynamic-component :component="$row['icon']" class="h-4 w-4 text-white" />
                     </div>
-                    <span class="text-xs font-bold text-gray-700 dark:text-gray-200">{{ $row['label'] }}</span>
+                    <span class="text-[13px] font-bold text-gray-800 dark:text-gray-100">{{ $row['label'] }}</span>
                 </div>
-                <div class="space-y-2">
-                    <div class="flex items-center justify-between">
-                        <span class="text-[11px] text-gray-400">Tổng đơn</span>
-                        <span class="text-sm font-extrabold text-gray-900 dark:text-white">{{ $row['total'] }}</span>
+
+                {{-- Số đơn lớn --}}
+                <div class="mb-3">
+                    <p class="text-2xl font-black text-gray-900 dark:text-white leading-none">{{ $row['total'] }}</p>
+                    <p class="mt-1 text-[11px] text-gray-400">tổng đơn</p>
+                </div>
+
+                {{-- Progress bar --}}
+                <div class="mb-3">
+                    <div class="h-1.5 w-full overflow-hidden rounded-full bg-gray-100 dark:bg-gray-700">
+                        <div class="h-full rounded-full transition-all" style="width:{{ $row['rate'] }}%;background:{{ $row['color'] }};"></div>
                     </div>
-                    <div class="flex items-center justify-between">
-                        <span class="text-[11px] text-gray-400">Hoàn thành</span>
-                        <span class="text-sm font-bold text-green-600">{{ $row['completed'] }}</span>
-                    </div>
-                    <div class="flex items-center justify-between">
-                        <span class="text-[11px] text-gray-400">Tỉ lệ</span>
-                        <span class="inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold
-                            {{ $row['rate'] >= 80 ? 'bg-green-50 text-green-600' : ($row['rate'] >= 50 ? 'bg-amber-50 text-amber-600' : 'bg-red-50 text-red-600') }}">
-                            {{ $row['rate'] }}%
-                        </span>
-                    </div>
-                    <div class="border-t border-gray-100 dark:border-gray-700 pt-2">
-                        <div class="flex items-center justify-between">
-                            <span class="text-[11px] text-gray-400">Doanh thu</span>
-                            <span class="text-sm font-extrabold" style="color:{{ $row['color'] }}">{{ $row['revenue'] }}đ</span>
-                        </div>
+                    <div class="mt-1.5 flex items-center justify-between">
+                        <span class="text-[10px] font-semibold text-green-600">{{ $row['completed'] }} OK</span>
+                        <span class="text-[10px] font-bold" style="color:{{ $row['color'] }}">{{ $row['rate'] }}%</span>
                     </div>
                 </div>
-            </x-filament::section>
+
+                {{-- Doanh thu --}}
+                <div class="rounded-lg px-2.5 py-1.5" style="background:{{ $row['color'] }}08;">
+                    <p class="text-[10px] text-gray-400">Doanh thu</p>
+                    <p class="text-sm font-extrabold" style="color:{{ $row['color'] }};">{{ $row['revenue'] }}đ</p>
+                </div>
+            </div>
             @empty
-            <div class="lg:col-span-6 py-10 text-center text-gray-300">Không có dữ liệu</div>
+            <div class="col-span-full py-10 text-center text-gray-300">Không có dữ liệu</div>
             @endforelse
         </div>
     </div>
