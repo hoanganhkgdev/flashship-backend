@@ -37,6 +37,15 @@ class RevenueReportPage extends Page
         'car'      => 'Lái hộ ô tô',
     ];
 
+    private static array $serviceMeta = [
+        'delivery' => ['icon' => 'heroicon-o-archive-box',       'color' => '#FF6B35'],
+        'shopping' => ['icon' => 'heroicon-o-shopping-bag',      'color' => '#7C4DFF'],
+        'topup'    => ['icon' => 'heroicon-o-banknotes',         'color' => '#00C896'],
+        'bike'     => ['icon' => 'heroicon-o-bolt',              'color' => '#FFB300'],
+        'motor'    => ['icon' => 'heroicon-o-wrench-screwdriver','color' => '#1E88E5'],
+        'car'      => ['icon' => 'heroicon-o-truck',             'color' => '#E53935'],
+    ];
+
     public function mount(): void
     {
         $this->from = now()->startOfMonth()->toDateString();
@@ -76,7 +85,10 @@ class RevenueReportPage extends Page
             ->orderByDesc('total')
             ->get()
             ->map(fn ($r) => [
+                'key'       => $r->service_type,
                 'label'     => self::$serviceLabels[$r->service_type] ?? $r->service_type,
+                'icon'      => self::$serviceMeta[$r->service_type]['icon'] ?? 'heroicon-o-square-3-stack-3d',
+                'color'     => self::$serviceMeta[$r->service_type]['color'] ?? '#6b7280',
                 'total'     => $r->total,
                 'completed' => $r->completed,
                 'cancelled' => $r->cancelled,
