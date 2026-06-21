@@ -134,7 +134,7 @@ class RevenueReportPage extends Page
                 DB::raw("SUM(CASE WHEN status = 'completed' THEN shipping_fee ELSE 0 END) as revenue")
             )
             ->groupBy('day')
-            ->orderBy('day')
+            ->orderByDesc('day')
             ->get()
             ->map(fn ($r) => [
                 'day'     => \Carbon\Carbon::parse($r->day)->format('d/m'),
