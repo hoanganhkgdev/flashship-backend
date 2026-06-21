@@ -67,7 +67,6 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::prefix('debts')->group(function () {
         Route::get('/',                 [DebtController::class, 'index']);
         Route::get('/{id}',             [DebtController::class, 'show']);
-        Route::post('/{id}/pay/wallet', [DebtController::class, 'payWithWallet']);
     });
 
     Route::prefix('driver/payment')->group(function () {
