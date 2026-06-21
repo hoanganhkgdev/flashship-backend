@@ -16,7 +16,7 @@ use Illuminate\Support\Facades\DB;
 use Modules\Core\Services\GoogleMapService;
 use Modules\Order\Models\Order;
 use Modules\Order\Services\OrderService;
-use Modules\Shop\Services\ShopPricingService;
+use Modules\Pricing\Services\PricingService;
 
 class CallCenterPage extends Page implements HasForms
 {
@@ -377,7 +377,6 @@ class CallCenterPage extends Page implements HasForms
         $this->previewDistance = null;
 
         $cityName  = $this->cityName();
-        $cargoType = 'parcel';
 
         // Dùng stored coords từ map picker/autocomplete nếu có, không thì geocode
         $pickupLat  = $this->pickupLat;
@@ -396,12 +395,19 @@ class CallCenterPage extends Page implements HasForms
             $deliveryLng = $deliveryGeo['lng'] ?? null;
         }
 
-        if ($pickupLat && $deliveryLat) {
-            $pricing = ShopPricingService::estimateFromCoords(
-                $cargoType,
+        if ($this->serviceType === 'topup') {
+            $amount = (int) ($this->data['cod_amount'] ?? 0);
+            $fee    = PricingService::topupFee($amount, $cityId);
+            $this->previewFee            = $fee;
+            $this->previewDistance       = null;
+            $this->previewStatus         = 'success:Đã tính xong.';
+            $this->data['shipping_fee']  = $fee;
+        } elseif ($pickupLat && $deliveryLat) {
+            $pricing = PricingService::estimateFromCoords(
+                $this->serviceType,
                 $pickupLat,  $pickupLng,
                 $deliveryLat, $deliveryLng,
-                null, $cityId
+                $cityId
             );
             $this->previewFee      = $pricing['fee'];
             $this->previewDistance = number_format($pricing['distance_km'], 1) . ' km';
@@ -456,17 +462,21 @@ class CallCenterPage extends Page implements HasForms
                 }
             }
 
-            $cargoType = 'parcel';
-
-            if ($pickupLat && $deliveryLat) {
-                $pricing = ShopPricingService::estimateFromCoords(
-                    $cargoType,
+            if ($this->serviceType === 'topup') {
+                $amount  = (int) ($values['cod_amount'] ?? 0);
+                $pricing = [
+                    'fee'         => PricingService::topupFee($amount, $cityId),
+                    'distance_km' => 0,
+                ];
+            } elseif ($pickupLat && $deliveryLat) {
+                $pricing = PricingService::estimateFromCoords(
+                    $this->serviceType,
                     $pickupLat,  $pickupLng,
                     $deliveryLat, $deliveryLng,
-                    null, $cityId
+                    $cityId
                 );
             } else {
-                $pricing = ShopPricingService::estimate($cargoType, 3.0, null, $cityId);
+                $pricing = PricingService::estimate($this->serviceType, 3.0, $cityId);
             }
 
             $shippingFee = !empty($values['shipping_fee']) ? (int) $values['shipping_fee'] : ($pricing['fee'] ?? 0);
