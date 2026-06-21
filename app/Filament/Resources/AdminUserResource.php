@@ -33,7 +33,7 @@ class AdminUserResource extends Resource
 
     public static function getEloquentQuery(): Builder
     {
-        return parent::getEloquentQuery()->whereIn('user_type', ['admin', 'subadmin', 'city_manager']);
+        return parent::getEloquentQuery()->whereIn('user_type', ['admin', 'subadmin', 'city_manager', 'call_center']);
     }
 
     public static function form(Form $form): Form
@@ -60,6 +60,7 @@ class AdminUserResource extends Resource
                         'admin'        => 'Quản trị viên',
                         'subadmin'     => 'Quản trị viên phụ',
                         'city_manager' => 'Quản lý khu vực',
+                        'call_center'  => 'Tổng đài viên',
                     ])
                     ->live()
                     ->required(),
@@ -164,6 +165,7 @@ class AdminUserResource extends Resource
                         'admin'        => 'Quản trị viên',
                         'subadmin'     => 'Quản trị viên phụ',
                         'city_manager' => 'Quản lý khu vực',
+                        'call_center'  => 'Tổng đài viên',
                     ]),
                 SelectFilter::make('city_id')
                     ->label('Khu vực')
