@@ -156,7 +156,7 @@
     </div>
 
     {{-- Theo ngày --}}
-    <div class="lg:col-span-2 mt-2">
+    <div class="lg:col-span-2 mt-6">
         <div class="mb-4 flex items-center gap-2 pl-1">
             <x-heroicon-o-calendar-days class="h-4 w-4 text-gray-400" />
             <span class="text-sm font-bold text-gray-700 dark:text-gray-200">Theo ngày</span>
