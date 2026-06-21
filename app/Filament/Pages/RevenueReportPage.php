@@ -14,6 +14,7 @@ class RevenueReportPage extends Page
     protected static ?string $navigationIcon  = 'heroicon-o-chart-bar';
     protected static ?string $navigationGroup = 'Tổng quan';
     protected static ?string $navigationLabel = 'Báo cáo doanh thu';
+    protected static ?string $title           = ' ';
     protected static ?int    $navigationSort  = 1;
     protected static string  $view            = 'filament.pages.revenue-report';
 
