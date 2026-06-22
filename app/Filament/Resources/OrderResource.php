@@ -243,7 +243,17 @@ class OrderResource extends Resource
                 // Dòng 1: mã đơn + badge dịch vụ (trái) | giờ (phải)
                 Split::make([
                     Tables\Columns\TextColumn::make('code')
-                        ->searchable()
+                        ->searchable(query: function (Builder $query, string $search): Builder {
+                            return $query->where(function ($q) use ($search) {
+                                $q->where('code', 'like', "%{$search}%")
+                                  ->orWhere('pickup_phone', 'like', "%{$search}%")
+                                  ->orWhere('delivery_phone', 'like', "%{$search}%")
+                                  ->orWhere('pickup_address', 'like', "%{$search}%")
+                                  ->orWhere('delivery_address', 'like', "%{$search}%")
+                                  ->orWhere('order_note', 'like', "%{$search}%")
+                                  ->orWhereHas('driver', fn ($q) => $q->where('phone', 'like', "%{$search}%"));
+                            });
+                        })
                         ->copyable()
                         ->formatStateUsing(fn ($state, $record) =>
                             '<span style="font-weight:700">#' . e($state) . '</span>'
