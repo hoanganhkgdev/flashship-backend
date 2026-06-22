@@ -12,7 +12,7 @@ class DriverScoreService
     const MAX_SCORE            = 150;
 
     const SCORE_DECLINE        = -2;
-    const SCORE_TIMEOUT        = -2;
+    const SCORE_TIMEOUT        = -1;
 
     const RATING_DELTAS        = [5 => 1, 4 => 0, 3 => -1, 2 => -3, 1 => -5];
 
@@ -43,7 +43,7 @@ class DriverScoreService
                 ->first();
 
             $streak     = (int) ($driver->consecutive_completed ?? 0) + 1;
-            $bonusDelta = self::STREAK_MILESTONES[$streak] ?? 0;
+            $bonusDelta = 1 + (self::STREAK_MILESTONES[$streak] ?? 0);
 
             // Reset streak sau khi đạt mốc 10
             $newStreak = $streak >= self::STREAK_RESET_AT ? 0 : $streak;
@@ -53,13 +53,9 @@ class DriverScoreService
                 'driver_last_active_date' => now()->toDateString(),
             ]);
 
-            if ($bonusDelta > 0) {
-                self::adjust($driverId, $bonusDelta, "streak_{$streak}", $driver->driver_score);
-            }
+            $reason = ($bonusDelta > 1) ? "complete+streak_{$streak}" : 'complete';
+            self::adjust($driverId, $bonusDelta, $reason, $driver->driver_score);
         });
-
-        // Score chỉ thay đổi khi có bonus milestone — adjust() đã ping trong trường hợp đó.
-        // Khi không có milestone, score không đổi nên không cần ping.
     }
 
     public static function onDecline(int $driverId): void
