@@ -301,8 +301,7 @@ class CallCenterPage extends Page implements HasForms
                 ->schema([
                     TextInput::make('delivery_address')
                         ->label('Địa chỉ giao')
-                        ->placeholder('Số nhà, đường, phường, quận...')
-                        ->required(fn() => in_array($this->serviceType, ['delivery', 'shopping']))
+                        ->placeholder('Số nhà, đường, phường, quận... (có thể để trống)')
                         ->extraInputAttributes(['id' => 'cc-delivery-addr', 'autocomplete' => 'off'])
                         ->suffixActions([
                             Action::make('openDeliveryMapPicker')
@@ -312,8 +311,7 @@ class CallCenterPage extends Page implements HasForms
                     TextInput::make('delivery_phone')
                         ->label('SĐT khách')
                         ->tel()
-                        ->placeholder('0xxx xxx xxx')
-                        ->required(fn() => in_array($this->serviceType, ['delivery', 'shopping'])),
+                        ->placeholder('0xxx xxx xxx'),
                 ])->columns(2),
 
             // ── CHUNG: Cước phí ──────────────────────────────────────────────
@@ -493,7 +491,6 @@ class CallCenterPage extends Page implements HasForms
                 'status'             => 'pending',
                 'payment_method'     => 'cod',
                 'sender_platform_id' => null,
-                'cargo_type'         => $cargoType,
                 'pickup_place_name'  => null,
                 'pickup_address'     => $values['pickup_address'],
                 'pickup_lat'         => $pickupLat,
