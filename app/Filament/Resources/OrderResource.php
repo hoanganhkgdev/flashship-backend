@@ -288,7 +288,17 @@ class OrderResource extends Resource
                         ->size('sm'),
                 ]),
 
-                // Dòng 4: tài xế (trái) | phí + thanh toán (phải)
+                // Dòng 4: ghi chú
+                Tables\Columns\TextColumn::make('order_note')
+                    ->icon('heroicon-m-chat-bubble-left-ellipsis')
+                    ->iconColor('warning')
+                    ->formatStateUsing(fn ($state) => \Illuminate\Support\Str::limit($state, 50))
+                    ->tooltip(fn ($record) => $record->order_note)
+                    ->size('sm')
+                    ->color('gray')
+                    ->placeholder('—'),
+
+                // Dòng 5: tài xế (trái) | phí + thanh toán (phải)
                 Split::make([
                     Tables\Columns\TextColumn::make('driver.name')
                         ->icon('heroicon-m-user-circle')
