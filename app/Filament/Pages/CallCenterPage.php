@@ -83,7 +83,33 @@ class CallCenterPage extends Page implements HasForms
 
     public function mount(): void
     {
-        $this->form->fill($this->defaultFormData());
+        $request = request();
+
+        if ($request->has('reorder')) {
+            $service = $request->get('service', 'delivery');
+            if (array_key_exists($service, self::services())) {
+                $this->serviceType = $service;
+            }
+
+            $this->pickupLat   = $request->filled('pickup_lat')   ? (float) $request->get('pickup_lat')   : null;
+            $this->pickupLng   = $request->filled('pickup_lng')   ? (float) $request->get('pickup_lng')   : null;
+            $this->deliveryLat = $request->filled('delivery_lat') ? (float) $request->get('delivery_lat') : null;
+            $this->deliveryLng = $request->filled('delivery_lng') ? (float) $request->get('delivery_lng') : null;
+
+            $this->form->fill([
+                'city_id'          => $request->get('city_id', 2),
+                'pickup_address'   => $request->get('pickup_address', ''),
+                'pickup_phone'     => $request->get('pickup_phone', ''),
+                'delivery_address' => $request->get('delivery_address', ''),
+                'delivery_phone'   => $request->get('delivery_phone', ''),
+                'shopping_note'    => '',
+                'order_note'       => $request->get('order_note', ''),
+                'cod_amount'       => null,
+                'shipping_fee'     => null,
+            ]);
+        } else {
+            $this->form->fill($this->defaultFormData());
+        }
     }
 
     private function defaultFormData(mixed $cityId = null): array

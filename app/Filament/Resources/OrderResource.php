@@ -408,6 +408,27 @@ class OrderResource extends Resource
                         Notification::make()->title('Đã huỷ đơn ' . $record->code)->warning()->send();
                     }),
 
+                Tables\Actions\Action::make('reorder')
+                    ->label('')
+                    ->icon('heroicon-o-arrow-path')
+                    ->color('success')
+                    ->tooltip('Đặt lại')
+                    ->visible(fn (Order $record) => in_array($record->status, ['cancelled', 'completed']))
+                    ->url(fn (Order $record) => route('filament.admin.pages.call-center-page') . '?' . http_build_query(array_filter([
+                        'reorder'          => $record->id,
+                        'service'          => $record->service_type,
+                        'city_id'          => $record->city_id,
+                        'pickup_address'   => $record->pickup_address,
+                        'pickup_phone'     => $record->pickup_phone,
+                        'pickup_lat'       => $record->pickup_lat,
+                        'pickup_lng'       => $record->pickup_lng,
+                        'delivery_address' => $record->delivery_address,
+                        'delivery_phone'   => $record->delivery_phone,
+                        'delivery_lat'     => $record->delivery_lat,
+                        'delivery_lng'     => $record->delivery_lng,
+                        'order_note'       => $record->order_note,
+                    ]))),
+
             ])
             ->bulkActions([])
             ->actionsAlignment('end')
