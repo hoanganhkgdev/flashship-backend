@@ -284,6 +284,12 @@ class OrderResource extends Resource
                         ->icon('heroicon-m-user-circle')
                         ->iconColor('gray')
                         ->default('Chưa phân công')
+                        ->formatStateUsing(fn ($state, $record) =>
+                            $record->driver
+                                ? e($state) . '<span style="color:#9ca3af;margin:0 6px">·</span>' . '<a href="https://zalo.me/' . e(ltrim($record->driver->phone ?? '', '0')) . '" target="_blank" style="text-decoration:underline">' . e($record->driver->phone ?? '') . '</a>'
+                                : $state
+                        )
+                        ->html()
                         ->color(fn ($record) => $record->driver_id ? 'primary' : 'gray')
                         ->size('sm')
                         ->grow(true),
@@ -300,6 +306,7 @@ class OrderResource extends Resource
                 'sm'      => 2,
                 'xl'      => 3,
             ])
+            ->recordUrl(null)
             ->filters([])
             ->actions([
                 Tables\Actions\EditAction::make()->label(''),
