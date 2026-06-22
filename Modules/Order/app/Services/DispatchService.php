@@ -24,9 +24,9 @@ class DispatchService
     // không phụ thuộc thời gian nữa (queue-based thay vì time-based).
     const RADIUS_KM_STAGES = [3.0, 6.0];
 
-    const DRIVER_OFFER_SECS  = 20;   // giây để mở app (trước khi offer_viewed_at set)
+    const DRIVER_OFFER_SECS  = 25;   // giây để mở app (trước khi offer_viewed_at set)
     const APP_DECISION_SECS  = 30;   // giây để đọc & quyết định SAU KHI mở app (như ShopeeFood)
-    const FCM_TTL_SECS       = 20;
+    const FCM_TTL_SECS       = 25;
     const MAX_DRIVERS        = 50;
     const QUEUE_TTL_SECS     = 600;
 
@@ -132,7 +132,11 @@ class DispatchService
         }
 
         DriverScoreService::onTimeout($driverId);
-        Log::info("⏱  [Dispatch] Đơn #{$order->id}: Tài xế {$name} timeout → -1 điểm, pop tài xế tiếp theo");
+        if ($order->offer_viewed_at) {
+            Log::info("⏱  [Dispatch] Đơn #{$order->id}: Tài xế {$name} xem đơn nhưng hết giờ → -1 điểm, pop tiếp");
+        } else {
+            Log::info("⏱  [Dispatch] Đơn #{$order->id}: Tài xế {$name} timeout → -1 điểm, pop tài xế tiếp theo");
+        }
 
         RTDBService::clearDriverOffer($driverId);
 

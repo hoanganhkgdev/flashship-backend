@@ -13,6 +13,12 @@ class DriverScoreService
 
     const SCORE_DECLINE        = -2;
     const SCORE_TIMEOUT        = -1;
+    const SCORE_CANCEL         = -3;
+
+    // Tạm ngưng nhận đơn
+    const SUSPEND_3_CONSECUTIVE_MINS = 10;
+    const SUSPEND_5_CONSECUTIVE_MINS = 30;
+    const SUSPEND_CANCEL_2_DAILY_MINS = 60;
 
     const RATING_DELTAS        = [5 => 1, 4 => 0, 3 => -1, 2 => -3, 1 => -5];
 
@@ -61,11 +67,19 @@ class DriverScoreService
     public static function onDecline(int $driverId): void
     {
         self::adjustWithStreakReset($driverId, self::SCORE_DECLINE, 'decline');
+        self::checkSuspension($driverId, 'decline');
     }
 
     public static function onTimeout(int $driverId): void
     {
         self::adjustWithStreakReset($driverId, self::SCORE_TIMEOUT, 'timeout');
+        self::checkSuspension($driverId, 'timeout');
+    }
+
+    public static function onCancel(int $driverId): void
+    {
+        self::adjustWithStreakReset($driverId, self::SCORE_CANCEL, 'cancel_after_accept');
+        self::checkCancelSuspension($driverId);
     }
 
     public static function onRated(int $driverId, int $stars): void
@@ -148,6 +162,55 @@ class DriverScoreService
         ]);
 
         Log::info("[DriverScore] Driver #{$driverId} {$reason}: {$current} → {$newScore} (Δ{$delta})");
+        RTDBService::pingDriverScore($driverId);
+    }
+
+    // ─── Suspension ─────────────────────────────────────────────────────────────
+
+    private static function checkSuspension(int $driverId, string $type): void
+    {
+        $recent = DB::table('driver_score_logs')
+            ->where('driver_id', $driverId)
+            ->whereIn('reason', ['timeout', 'decline'])
+            ->latest('created_at')
+            ->limit(5)
+            ->pluck('reason')
+            ->toArray();
+
+        $consecutive = 0;
+        foreach ($recent as $r) {
+            if (in_array($r, ['timeout', 'decline'])) $consecutive++;
+            else break;
+        }
+
+        if ($consecutive >= 5) {
+            self::suspendDriver($driverId, self::SUSPEND_5_CONSECUTIVE_MINS, "5 lần bỏ qua/từ chối liên tiếp");
+        } elseif ($consecutive >= 3) {
+            self::suspendDriver($driverId, self::SUSPEND_3_CONSECUTIVE_MINS, "3 lần bỏ qua/từ chối liên tiếp");
+        }
+    }
+
+    private static function checkCancelSuspension(int $driverId): void
+    {
+        $today = now()->toDateString();
+        $cancelCount = DB::table('driver_score_logs')
+            ->where('driver_id', $driverId)
+            ->where('reason', 'cancel_after_accept')
+            ->whereDate('created_at', $today)
+            ->count();
+
+        if ($cancelCount >= 2) {
+            self::suspendDriver($driverId, self::SUSPEND_CANCEL_2_DAILY_MINS, "Huỷ {$cancelCount} đơn sau khi nhận trong ngày");
+        }
+    }
+
+    private static function suspendDriver(int $driverId, int $minutes, string $reason): void
+    {
+        $until = now()->addMinutes($minutes);
+        DB::table('users')->where('id', $driverId)->update([
+            'score_suspended_until' => $until,
+        ]);
+        Log::warning("[DriverScore] Driver #{$driverId} tạm ngưng {$minutes} phút: {$reason} (đến {$until})");
         RTDBService::pingDriverScore($driverId);
     }
 

@@ -11,6 +11,7 @@ use Modules\Order\Models\Order;
 use Modules\Order\Models\OrderDispatchLog;
 use Modules\Order\Services\DispatchService;
 use Modules\Order\Services\OrderService;
+use Modules\Driver\Services\DriverScoreService;
 
 class OrderController extends Controller
 {
@@ -103,6 +104,32 @@ class OrderController extends Controller
         $status = $result['status'];
         unset($result['status']);
         return response()->json($result, $status);
+    }
+
+    public function cancelOrder(Request $request, Order $order): JsonResponse
+    {
+        $driver = $request->user();
+        if ((int) $order->delivery_man_id !== $driver->id) {
+            return response()->json(['success' => false, 'message' => 'Không phải đơn của bạn'], 403);
+        }
+        if (!in_array($order->status, ['assigned', 'processing', 'on_the_way'])) {
+            return response()->json(['success' => false, 'message' => 'Không thể huỷ đơn ở trạng thái này'], 400);
+        }
+
+        $data = $request->validate(['reason' => 'nullable|string|max:255']);
+
+        $order->update([
+            'status'           => 'pending',
+            'delivery_man_id'  => null,
+            'cancel_reason'    => 'driver:' . ($data['reason'] ?? 'Tài xế huỷ đơn'),
+        ]);
+
+        DriverScoreService::onCancel($driver->id);
+        RTDBService::clearOrder($order->code);
+
+        app(OrderService::class)->dispatchNewOrder($order->id);
+
+        return response()->json(['success' => true, 'message' => 'Đã huỷ đơn, đơn sẽ được phát lại cho tài xế khác']);
     }
 
     public function updateStatus(Request $request, Order $order): JsonResponse
