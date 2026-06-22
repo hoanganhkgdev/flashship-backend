@@ -10,6 +10,8 @@ class EditOrder extends EditRecord
 {
     protected static string $resource = OrderResource::class;
 
+    protected static string $view = 'filament.resources.order-resource.pages.edit-order';
+
     protected function getHeaderActions(): array
     {
         return [

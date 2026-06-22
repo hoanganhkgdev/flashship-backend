@@ -82,43 +82,104 @@ class OrderResource extends Resource
     public static function form(Form $form): Form
     {
         return $form->schema([
-            Forms\Components\Section::make('Trạng thái & dịch vụ')->schema([
-                Forms\Components\Select::make('status')
-                    ->label('Trạng thái')
-                    ->options(self::$statusLabels)
-                    ->required(),
+            // ── Cột trái: các trường có thể sửa ──
+            Forms\Components\Group::make()->schema([
 
-                Forms\Components\Select::make('service_type')
-                    ->label('Loại dịch vụ')
-                    ->options(self::serviceLabels())
-                    ->disabled(),
+                Forms\Components\Section::make('Trạng thái')->schema([
+                    Forms\Components\Select::make('status')
+                        ->label('Trạng thái')
+                        ->options(self::$statusLabels)
+                        ->required()
+                        ->live(),
+                    Forms\Components\TextInput::make('cancel_reason')
+                        ->label('Lý do huỷ')
+                        ->visible(fn ($get) => $get('status') === 'cancelled'),
+                ])->columns(2),
 
-                Forms\Components\TextInput::make('cancel_reason')
-                    ->label('Lý do huỷ')
-                    ->visible(fn ($get) => $get('status') === 'cancelled'),
-            ])->columns(3),
+                Forms\Components\Section::make('Điểm lấy hàng')->schema([
+                    Forms\Components\TextInput::make('pickup_address')->label('Địa chỉ lấy')
+                        ->extraInputAttributes(['id' => 'edit-pickup-addr', 'autocomplete' => 'off'])
+                        ->suffixActions([
+                            Forms\Components\Actions\Action::make('pickupMap')
+                                ->label('Bản đồ')->icon('heroicon-o-map-pin')->color('warning')
+                                ->action(fn ($livewire) => $livewire->dispatch('openEditPickupMap')),
+                        ]),
+                    Forms\Components\TextInput::make('pickup_phone')->label('SĐT lấy hàng'),
+                ])->columns(2),
 
-            Forms\Components\Section::make('Lấy hàng')->schema([
-                Forms\Components\TextInput::make('sender_name')->label('Người gửi'),
-                Forms\Components\TextInput::make('pickup_phone')->label('SĐT lấy hàng'),
-                Forms\Components\TextInput::make('pickup_address')->label('Địa chỉ lấy hàng')->columnSpan(2),
-            ])->columns(2),
+                Forms\Components\Section::make('Điểm giao hàng')->schema([
+                    Forms\Components\TextInput::make('delivery_address')->label('Địa chỉ giao')
+                        ->extraInputAttributes(['id' => 'edit-delivery-addr', 'autocomplete' => 'off'])
+                        ->suffixActions([
+                            Forms\Components\Actions\Action::make('deliveryMap')
+                                ->label('Bản đồ')->icon('heroicon-o-map-pin')->color('warning')
+                                ->action(fn ($livewire) => $livewire->dispatch('openEditDeliveryMap')),
+                        ]),
+                    Forms\Components\TextInput::make('delivery_phone')->label('SĐT giao hàng'),
+                ])->columns(2),
 
-            Forms\Components\Section::make('Giao hàng')->schema([
-                Forms\Components\TextInput::make('receiver_name')->label('Người nhận'),
-                Forms\Components\TextInput::make('delivery_phone')->label('SĐT giao hàng'),
-                Forms\Components\TextInput::make('delivery_address')->label('Địa chỉ giao hàng')->columnSpan(2),
-            ])->columns(2),
+                Forms\Components\Section::make('Phí & thanh toán')->schema([
+                    Forms\Components\TextInput::make('shipping_fee')->label('Phí ship')->numeric()->suffix('đ'),
+                ])->columns(1),
 
-            Forms\Components\Section::make('Tài chính')->schema([
-                Forms\Components\TextInput::make('shipping_fee')->label('Phí ship')->numeric()->suffix('đ'),
-                Forms\Components\TextInput::make('bonus_fee')->label('Thưởng thêm')->numeric()->suffix('đ'),
-                Forms\Components\TextInput::make('cod_amount')->label('Thu hộ COD')->numeric()->suffix('đ'),
-                Forms\Components\TextInput::make('discount_amount')->label('Giảm giá')->numeric()->suffix('đ'),
-                Forms\Components\TextInput::make('distance')->label('Khoảng cách')->numeric()->suffix('km'),
-                Forms\Components\Select::make('payment_method')->label('Thanh toán')->options(self::$paymentLabels),
-            ])->columns(3),
-        ]);
+                Forms\Components\Section::make('Ghi chú')->schema([
+                    Forms\Components\Textarea::make('order_note')->label('Ghi chú đơn hàng')->rows(8)->columnSpanFull(),
+                ]),
+
+            ])->columnSpan(2),
+
+            // ── Cột phải: thông tin chỉ xem ──
+            Forms\Components\Group::make()->schema([
+
+                Forms\Components\Section::make('Thông tin đơn')->schema([
+                    Forms\Components\Placeholder::make('info_display')
+                        ->label('')
+                        ->content(fn ($record) => new \Illuminate\Support\HtmlString(
+                            '<div style="line-height:2">'
+                            . '<b>Mã đơn:</b> #' . e($record->code) . '<br>'
+                            . '<b>Dịch vụ:</b> ' . e(self::serviceLabels()[$record->service_type] ?? $record->service_type) . '<br>'
+                            . '<b>Khu vực:</b> ' . e($record->city?->name ?? '—') . '<br>'
+                            . '<b>Nguồn đơn:</b> ' . e(match ($record->platform) {
+                                'customer_app' => 'App khách',
+                                'call_center'  => 'Tổng đài',
+                                'shop_app'     => 'App cửa hàng',
+                                default        => $record->platform ?? '—',
+                            }) . '<br>'
+                            . '<b>Tạo lúc:</b> ' . e($record->created_at?->format('d/m/Y H:i')) . '<br>'
+                            . '<b>Hoàn thành:</b> ' . e($record->completed_at?->format('d/m/Y H:i') ?? '—')
+                            . '</div>'
+                        )),
+                ]),
+
+                Forms\Components\Section::make('Tài xế')->schema([
+                    Forms\Components\Placeholder::make('driver_info_display')
+                        ->label('')
+                        ->content(fn ($record) => new \Illuminate\Support\HtmlString(
+                            '<div style="line-height:2">'
+                            . '<b>Tài xế:</b> ' . e($record->driver?->name ?? 'Chưa phân công') . '<br>'
+                            . '<b>SĐT:</b> ' . ($record->driver?->phone
+                                ? '<a href="https://zalo.me/' . e(ltrim($record->driver->phone, '0')) . '" target="_blank" style="text-decoration:underline">' . e($record->driver->phone) . '</a>'
+                                : '—')
+                            . '</div>'
+                        )),
+                ]),
+
+                Forms\Components\Section::make('Chi tiết phí')->schema([
+                    Forms\Components\Placeholder::make('fee_info_display')
+                        ->label('')
+                        ->content(fn ($record) => new \Illuminate\Support\HtmlString(
+                            '<div style="line-height:2">'
+                            . '<b>Khoảng cách:</b> ' . e($record->distance ? number_format((float) $record->distance, 1) . ' km' : '—') . '<br>'
+                            . '<b>Phụ phí đêm:</b> ' . e(number_format($record->night_surcharge ?? 0)) . 'đ<br>'
+                            . '<b>Giảm giá:</b> ' . e($record->discount_amount ? number_format($record->discount_amount) . 'đ' : '—') . ($record->voucher_code ? ' (' . e($record->voucher_code) . ')' : '') . '<br>'
+                            . '<b>Thanh toán:</b> ' . e(self::$paymentLabels[$record->payment_method] ?? $record->payment_method)
+                            . '</div>'
+                        )),
+                ]),
+
+            ])->columnSpan(1),
+
+        ])->columns(3);
     }
 
     public static function infolist(Infolist $infolist): Infolist
