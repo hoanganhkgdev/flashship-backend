@@ -282,6 +282,20 @@ class DispatchService
                 continue;
             }
 
+            // Check lại khoảng cách realtime — tài xế có thể đã di chuyển xa
+            if ($order->pickup_lat && $order->pickup_lng && $driver->latitude && $driver->longitude) {
+                $currentDist = $this->haversineKm(
+                    (float) $order->pickup_lat, (float) $order->pickup_lng,
+                    (float) $driver->latitude, (float) $driver->longitude
+                );
+                $maxRadius = end(self::RADIUS_KM_STAGES);
+                if ($currentDist > $maxRadius) {
+                    Log::debug("│  Skip #{$driverId} {$driver->name}: đã xa {$currentDist}km (max {$maxRadius}km)");
+                    $skipped++;
+                    continue;
+                }
+            }
+
             $busy = Order::where('delivery_man_id', $driverId)
                 ->whereIn('status', ['assigned', 'processing', 'on_the_way'])
                 ->count() >= 2;

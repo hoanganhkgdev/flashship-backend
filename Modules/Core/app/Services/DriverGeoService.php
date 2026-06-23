@@ -7,7 +7,7 @@ use Illuminate\Support\Facades\Redis;
 
 class DriverGeoService
 {
-    const GPS_TTL_SECS = 1800; // 30 phút — đủ lâu cho driver đứng chờ không di chuyển
+    const GPS_TTL_SECS = 600; // 10 phút — loại driver mất GPS sớm hơn
 
     private static function geoKey(int $cityId): string
     {
