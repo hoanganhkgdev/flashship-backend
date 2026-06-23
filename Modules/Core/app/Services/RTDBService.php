@@ -8,7 +8,7 @@ class RTDBService
 {
     private static ?\Kreait\Firebase\Contract\Database $db = null;
 
-    private static function db(): \Kreait\Firebase\Contract\Database
+    public static function db(): \Kreait\Firebase\Contract\Database
     {
         if (!self::$db) {
             self::$db = (new Factory)
