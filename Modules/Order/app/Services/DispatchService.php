@@ -288,12 +288,29 @@ class DispatchService
                     (float) $order->pickup_lat, (float) $order->pickup_lng,
                     (float) $driver->latitude, (float) $driver->longitude
                 );
-                $maxRadius = end(self::RADIUS_KM_STAGES);
+                $maxRadius = self::MAX_RADIUS_KM;
                 if ($currentDist > $maxRadius) {
                     Log::debug("│  Skip #{$driverId} {$driver->name}: đã xa {$currentDist}km (max {$maxRadius}km)");
                     $skipped++;
                     continue;
                 }
+            }
+
+            // Check heartbeat Firebase — app chết thì skip
+            try {
+                $fbData = RTDBService::db()
+                    ->getReference("flashship_main/locations/driver_{$driverId}")
+                    ->getValue();
+                if ($fbData && isset($fbData['heartbeat_at'])) {
+                    $hbAge = time() - (int)($fbData['heartbeat_at'] / 1000);
+                    if ($hbAge > 120) {
+                        Log::debug("│  Skip #{$driverId} {$driver->name}: heartbeat stale {$hbAge}s");
+                        $skipped++;
+                        continue;
+                    }
+                }
+            } catch (\Throwable $e) {
+                // Firebase lỗi → bỏ qua check, vẫn phát đơn
             }
 
             $busy = Order::where('delivery_man_id', $driverId)
@@ -570,6 +587,24 @@ class DispatchService
         });
         if (($removed = $afterLicense->count() - $afterDetour->count()) > 0) {
             Log::debug("     [Candidates] Loại {$removed} tài xế do đi ngược hướng đơn đang giao");
+        }
+
+        // ── 4b. Loại tài xế rảnh đang chạy ngược hướng điểm lấy ────────────
+        $afterBearing = $afterDetour->filter(function (User $d) use ($order, $hasCoords) {
+            if (!$hasCoords) return true;
+            if (!$d->bearing || $d->bearing == 0) return true;
+            if (!$d->latitude || !$d->longitude) return true;
+
+            $bearingToPickup = $this->bearingDeg(
+                (float) $d->latitude, (float) $d->longitude,
+                (float) $order->pickup_lat, (float) $order->pickup_lng
+            );
+            $diff = abs($d->bearing - $bearingToPickup);
+            if ($diff > 180) $diff = 360 - $diff;
+            return $diff <= 120;
+        });
+        if (($removed = $afterDetour->count() - $afterBearing->count()) > 0) {
+            Log::debug("     [Candidates] Loại {$removed} tài xế rảnh đang chạy ngược hướng (bearing)");
         }
 
         // ── 5. Sort theo composite score ──────────────────────────────────────────
