@@ -54,11 +54,14 @@ class SyncDriverGeoCommand extends Command
 
                 DriverGeoService::updateLocation($d->id, $d->city_id, (float) $data['lat'], (float) $data['lng']);
 
-                DB::table('users')->where('id', $d->id)->update([
+                $dbUpdate = [
                     'latitude'  => $data['lat'],
                     'longitude' => $data['lng'],
-                    'bearing'   => $data['bearing'] ?? null,
-                ]);
+                ];
+                if (isset($data['bearing']) && $data['bearing'] !== null) {
+                    $dbUpdate['bearing'] = $data['bearing'];
+                }
+                DB::table('users')->where('id', $d->id)->update($dbUpdate);
 
                 $synced++;
             } elseif ($d->latitude && $d->longitude) {
