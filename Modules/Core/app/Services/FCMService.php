@@ -30,15 +30,9 @@ class FCMService
         return self::$instance;
     }
 
-    /**
-     * Bỏ instance hiện tại (token có thể hỏng do worker chạy lâu) và tạo lại
-     * messaging client mới với credential tươi.
-     */
-    private function freshMessaging()
+    private static function resetInstance(): void
     {
-        self::$instance = null;
-        $this->messaging = self::getInstance()->messaging;
-        return $this->messaging;
+        self::$instance = new self();
     }
 
     /**
@@ -110,7 +104,7 @@ class FCMService
             try {
                 $this->messaging->send($message);
             } catch (AuthenticationError $e) {
-                $this->freshMessaging()->send($message);
+                self::resetInstance(); self::$instance->messaging->send($message);
             }
         } catch (\Throwable $e) {
             Log::error('[FCM] sendDriverWakeUp failed: ' . $e->getMessage());
@@ -164,7 +158,7 @@ class FCMService
                 try {
                     $this->messaging->sendAll($messages);
                 } catch (AuthenticationError $e) {
-                    $this->freshMessaging()->sendAll($messages);
+                    self::resetInstance(); self::$instance->messaging->sendAll($messages);
                 }
             } catch (\Throwable $e) {
                 Log::error('[FCM] Multicast failed: ' . $e->getMessage());
@@ -281,7 +275,7 @@ class FCMService
                 try {
                     $report = $this->messaging->sendAll($messages);
                 } catch (AuthenticationError $e) {
-                    $report = $this->freshMessaging()->sendAll($messages);
+                    $report = self::resetInstance(); self::$instance->messaging->sendAll($messages);
                 }
                 $sent   += $report->successes()->count();
                 $failed += $report->failures()->count();
@@ -337,7 +331,7 @@ class FCMService
             try {
                 $this->messaging->send($message);
             } catch (AuthenticationError $e) {
-                $this->freshMessaging()->send($message);
+                self::resetInstance(); self::$instance->messaging->send($message);
             }
         } catch (\Throwable $e) {
             $prev = $e->getPrevious();
