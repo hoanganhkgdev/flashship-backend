@@ -50,6 +50,19 @@ class DriverController extends Controller
             ? $user->avatar_updated_at->addDays(30)->toIso8601String()
             : null;
 
+        if ($user->is_online && $user->online_since) {
+            $today = now()->toDateString();
+            $sessionStart = $user->online_since->toDateString() === $today
+                ? $user->online_since
+                : now()->startOfDay();
+            $currentSession = max(0, (int) $sessionStart->diffInSeconds(now()));
+            $accumulated = ($user->daily_online_date === $today)
+                ? (int) ($user->daily_online_seconds ?? 0)
+                : 0;
+            $data['daily_online_seconds'] = $accumulated + $currentSession;
+            $data['online_since'] = $user->online_since->toIso8601String();
+        }
+
         return response()->json(['success' => true, 'data' => ['user' => $data]]);
     }
 
