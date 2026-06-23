@@ -22,7 +22,7 @@ class DispatchService
 {
     // Bán kính mở rộng theo thứ tự — chuyển sang bán kính tiếp theo khi queue cạn,
     // không phụ thuộc thời gian nữa (queue-based thay vì time-based).
-    const RADIUS_KM_STAGES = [2.0, 4.0];
+    const RADIUS_KM_STAGES = [2.0, 4.0, 6.0];
 
     const DRIVER_OFFER_SECS  = 25;   // giây để mở app (trước khi offer_viewed_at set)
     const APP_DECISION_SECS  = 30;   // giây để đọc & quyết định SAU KHI mở app (như ShopeeFood)
@@ -38,7 +38,7 @@ class DispatchService
 
     const WAIT_TIME_CAP_MINS = 60;
     const RATING_COUNT_CAP   = 200;
-    const MAX_RADIUS_KM      = 4.0;
+    const MAX_RADIUS_KM      = 6.0;
     const MAX_DETOUR_KM      = 2.0;
 
     // =========================================================================
