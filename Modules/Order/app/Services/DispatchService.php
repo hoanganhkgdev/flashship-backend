@@ -608,7 +608,7 @@ class DispatchService
         }
 
         // ── 5. Sort theo composite score ──────────────────────────────────────────
-        $driverIds   = $afterDetour->pluck('id')->toArray();
+        $driverIds   = $afterBearing->pluck('id')->toArray();
         $ratingStats = Order::whereIn('delivery_man_id', $driverIds)
             ->whereNotNull('driver_rating')
             ->where('status', 'completed')
@@ -616,7 +616,7 @@ class DispatchService
             ->groupBy('delivery_man_id')
             ->pluck('rating_count', 'delivery_man_id');
 
-        $sorted = $afterDetour
+        $sorted = $afterBearing
             ->sortByDesc(function (User $d) use ($ratingStats, $nearbyDrivers) {
                 return $this->compositeScore($d, (int) ($ratingStats[$d->id] ?? 0), $nearbyDrivers[$d->id] ?? 0.0);
             })
@@ -726,5 +726,13 @@ class DispatchService
         $dLng = deg2rad($lng2 - $lng1);
         $a    = sin($dLat / 2) ** 2 + cos(deg2rad($lat1)) * cos(deg2rad($lat2)) * sin($dLng / 2) ** 2;
         return $R * 2 * atan2(sqrt($a), sqrt(1 - $a));
+    }
+
+    private function bearingDeg(float $lat1, float $lng1, float $lat2, float $lng2): float
+    {
+        $dLng = deg2rad($lng2 - $lng1);
+        $y    = sin($dLng) * cos(deg2rad($lat2));
+        $x    = cos(deg2rad($lat1)) * sin(deg2rad($lat2)) - sin(deg2rad($lat1)) * cos(deg2rad($lat2)) * cos($dLng);
+        return fmod(rad2deg(atan2($y, $x)) + 360, 360);
     }
 }
