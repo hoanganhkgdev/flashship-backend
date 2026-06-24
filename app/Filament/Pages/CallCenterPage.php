@@ -398,26 +398,42 @@ class CallCenterPage extends Page implements HasForms
             return;
         }
 
-        try {
-            $cityName    = $this->cityName();
+        $pickupLabel = match ($this->serviceType) {
+            'shopping' => 'địa chỉ cửa hàng',
+            'topup'    => 'điểm nạp',
+            'bike', 'motor', 'car' => 'điểm đón',
+            default    => 'điểm lấy hàng',
+        };
 
-            // Pickup: dùng stored coords từ map/autocomplete, fallback geocode
+        $pickupAddress = trim($values['pickup_address'] ?? '');
+        if (!$pickupAddress) {
+            $this->resultError = "Vui lòng nhập {$pickupLabel}.";
+            return;
+        }
+
+        try {
+            $cityName = $this->cityName();
+
             $pickupLat = $this->pickupLat;
             $pickupLng = $this->pickupLng;
             if ($pickupLat === null) {
-                $pickupGeo = GoogleMapService::geocode($this->withCity($values['pickup_address'], $cityName));
+                $pickupGeo = GoogleMapService::geocode($this->withCity($pickupAddress, $cityName));
                 $pickupLat = $pickupGeo['lat'] ?? null;
                 $pickupLng = $pickupGeo['lng'] ?? null;
             }
 
-            // Topup: không có điểm giao riêng — dùng lại coords pickup
+            if (!$pickupLat || !$pickupLng) {
+                $this->resultError = "Không xác định được tọa độ {$pickupLabel}. Vui lòng chọn lại trên bản đồ hoặc nhập chính xác hơn.";
+                return;
+            }
+
             if ($this->serviceType === 'topup') {
                 $deliveryLat = $pickupLat;
                 $deliveryLng = $pickupLng;
             } else {
                 $deliveryLat = $this->deliveryLat;
                 $deliveryLng = $this->deliveryLng;
-                if ($deliveryLat === null) {
+                if ($deliveryLat === null && !empty($values['delivery_address'])) {
                     $deliveryGeo = GoogleMapService::geocode($this->withCity($values['delivery_address'], $cityName));
                     $deliveryLat = $deliveryGeo['lat'] ?? null;
                     $deliveryLng = $deliveryGeo['lng'] ?? null;
