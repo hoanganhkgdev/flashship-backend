@@ -487,24 +487,7 @@ class CallCenterPage extends Page implements HasForms
                 }
             }
 
-            if ($this->serviceType === 'topup') {
-                $amount  = (int) ($values['cod_amount'] ?? 0);
-                $pricing = [
-                    'fee'         => PricingService::topupFee($amount, $cityId),
-                    'distance_km' => 0,
-                ];
-            } elseif ($pickupLat && $deliveryLat) {
-                $pricing = PricingService::estimateFromCoords(
-                    $this->serviceType,
-                    $pickupLat,  $pickupLng,
-                    $deliveryLat, $deliveryLng,
-                    $cityId
-                );
-            } else {
-                $pricing = PricingService::estimate($this->serviceType, 3.0, $cityId);
-            }
-
-            $shippingFee = !empty($values['shipping_fee']) ? (int) $values['shipping_fee'] : ($pricing['fee'] ?? 0);
+            $shippingFee = (int) ($values['shipping_fee'] ?? 0);
 
             $order = Order::create([
                 'code'               => '',
@@ -537,7 +520,7 @@ class CallCenterPage extends Page implements HasForms
                     ? trim(($values['shopping_note'] ?? '') . "\n" . ($values['order_note'] ?? ''))  ?: null
                     : ($values['order_note'] ?: null),
                 'cod_amount'         => !empty($values['cod_amount']) ? (int) $values['cod_amount'] : null,
-                'distance'           => $pricing['distance_km']   ?? null,
+                'distance'           => null,
             ]);
 
             $order->refresh();
@@ -546,8 +529,7 @@ class CallCenterPage extends Page implements HasForms
 
             $this->resultOrderCode = $order->code;
             $this->resultFee       = $shippingFee;
-            $this->resultDistance  = isset($pricing['distance_km'])
-                ? number_format($pricing['distance_km'], 1) . ' km' : null;
+            $this->resultDistance  = null;
 
             $this->form->fill($this->defaultFormData($cityId));
 
