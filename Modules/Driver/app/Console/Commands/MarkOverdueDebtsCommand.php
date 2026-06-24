@@ -14,12 +14,11 @@ class MarkOverdueDebtsCommand extends Command
 
     public function handle(): int
     {
-        $today = Carbon::today()->toDateString();
+        $cutoff = Carbon::now()->subHours(24);
 
-        // Lấy danh sách debt sắp được đánh dấu overdue (để gửi FCM)
         $debts = DriverDebt::with('driver')
             ->where('status', 'pending')
-            ->where('week_end', '<=', $today)
+            ->where('created_at', '<=', $cutoff)
             ->get();
 
         $count = 0;
