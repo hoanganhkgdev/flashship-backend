@@ -381,69 +381,6 @@ class CallCenterPage extends Page implements HasForms
         return $address . ', ' . $cityName;
     }
 
-    // ─── Tính phí ────────────────────────────────────────────────────────────
-
-    public function calculateFee(): void
-    {
-        $pickup   = trim($this->data['pickup_address']   ?? '');
-        // Topup: chỉ 1 điểm, dùng pickup làm delivery
-        $delivery = $this->serviceType === 'topup'
-            ? $pickup
-            : trim($this->data['delivery_address'] ?? '');
-        $cityId   = $this->data['city_id'] ?? null;
-
-        if (!$pickup || !$delivery) {
-            $this->previewStatus = 'warning:Vui lòng điền đủ địa chỉ.';
-            return;
-        }
-
-        $this->previewStatus   = 'loading:Đang tính...';
-        $this->previewFee      = null;
-        $this->previewDistance = null;
-
-        $cityName  = $this->cityName();
-
-        // Dùng stored coords từ map picker/autocomplete nếu có, không thì geocode
-        $pickupLat  = $this->pickupLat;
-        $pickupLng  = $this->pickupLng;
-        if ($pickupLat === null) {
-            $pickupGeo = GoogleMapService::geocode($this->withCity($pickup, $cityName));
-            $pickupLat = $pickupGeo['lat'] ?? null;
-            $pickupLng = $pickupGeo['lng'] ?? null;
-        }
-
-        $deliveryLat = $this->deliveryLat;
-        $deliveryLng = $this->deliveryLng;
-        if ($deliveryLat === null) {
-            $deliveryGeo = GoogleMapService::geocode($this->withCity($delivery, $cityName));
-            $deliveryLat = $deliveryGeo['lat'] ?? null;
-            $deliveryLng = $deliveryGeo['lng'] ?? null;
-        }
-
-        if ($this->serviceType === 'topup') {
-            $amount = (int) ($this->data['cod_amount'] ?? 0);
-            $fee    = PricingService::topupFee($amount, $cityId);
-            $this->previewFee            = $fee;
-            $this->previewDistance       = null;
-            $this->previewStatus         = 'success:Đã tính xong.';
-            $this->data['shipping_fee']  = $fee;
-        } elseif ($pickupLat && $deliveryLat) {
-            $pricing = PricingService::estimateFromCoords(
-                $this->serviceType,
-                $pickupLat,  $pickupLng,
-                $deliveryLat, $deliveryLng,
-                $cityId
-            );
-            $this->previewFee      = $pricing['fee'];
-            $this->previewDistance = number_format($pricing['distance_km'], 1) . ' km';
-            $this->previewStatus   = 'success:Đã tính xong.';
-            $this->data['shipping_fee'] = $pricing['fee'];
-        } else {
-            $failed = !$pickupLat ? 'địa chỉ lấy hàng' : 'địa chỉ giao hàng';
-            $this->previewStatus = "error:Không geocode được {$failed}.";
-        }
-    }
-
     // ─── Đặt đơn ─────────────────────────────────────────────────────────────
 
     public function placeOrder(): void

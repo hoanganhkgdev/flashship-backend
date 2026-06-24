@@ -79,58 +79,6 @@
         {{-- ── Action bar ── --}}
         <div class="mt-5 space-y-3">
 
-            {{-- Tính phí + kết quả --}}
-            <div class="flex flex-wrap items-center gap-3 rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 dark:border-gray-700 dark:bg-gray-800/50">
-                <x-filament::button
-                    wire:click.prevent="calculateFee"
-                    wire:loading.attr="disabled"
-                    icon="heroicon-o-calculator"
-                    color="gray"
-                    size="sm"
-                    outlined
-                >
-                    <span wire:loading.remove wire:target="calculateFee">Tính phí</span>
-                    <span wire:loading wire:target="calculateFee">Đang tính...</span>
-                </x-filament::button>
-
-                @if ($previewDistance || $previewFee !== null)
-                    <div class="flex items-center gap-3">
-                        @if ($previewDistance)
-                        <span class="flex items-center gap-1 text-sm text-gray-500 dark:text-gray-400">
-                            <x-heroicon-o-map-pin class="h-3.5 w-3.5" /> {{ $previewDistance }}
-                        </span>
-                        @endif
-                        @if ($previewFee !== null)
-                        <span class="rounded-lg px-2.5 py-1 text-sm font-bold" style="background:{{ $activeSvc['color'] }}15; color:{{ $activeSvc['color'] }};">
-                            {{ number_format($previewFee) }}đ
-                        </span>
-                        @endif
-                    </div>
-                @elseif ($previewStatus)
-                    @php
-                        [$psType, $psText] = array_pad(explode(':', $previewStatus, 2), 2, $previewStatus);
-                        $psColor = match($psType) {
-                            'error'   => 'text-red-500',
-                            'warning' => 'text-amber-500',
-                            'success' => 'text-green-600',
-                            default   => 'text-gray-400',
-                        };
-                        $psIcon = match($psType) {
-                            'error'   => 'heroicon-o-x-circle',
-                            'warning' => 'heroicon-o-exclamation-triangle',
-                            'success' => 'heroicon-o-check-circle',
-                            default   => 'heroicon-o-arrow-path',
-                        };
-                    @endphp
-                    <span class="flex items-center gap-1 text-xs {{ $psColor }}">
-                        <x-dynamic-component :component="$psIcon" class="h-3.5 w-3.5 {{ $psType === 'loading' ? 'animate-spin' : '' }}" />
-                        {{ $psText }}
-                    </span>
-                @else
-                    <span class="hidden text-xs text-gray-400 sm:block">Bấm để xem km & phí trước khi đặt</span>
-                @endif
-            </div>
-
             {{-- Đặt đơn — full width, lớn, màu theo dịch vụ --}}
             <button
                 type="submit"
