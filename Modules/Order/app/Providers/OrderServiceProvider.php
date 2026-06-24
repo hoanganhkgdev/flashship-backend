@@ -18,7 +18,6 @@ class OrderServiceProvider extends ModuleServiceProvider
     protected string $nameLower = 'order';
 
     protected array $commands = [
-        \Modules\Order\Console\Commands\AutoCancelPendingOrders::class,
         \Modules\Order\Console\Commands\DispatchScheduledOrders::class,
     ];
 
@@ -29,8 +28,6 @@ class OrderServiceProvider extends ModuleServiceProvider
 
     protected function configureSchedules(Schedule $schedule): void
     {
-        // Bỏ auto cancel — dispatch loop xoay vòng 15s, tổng đài tự xử lý
-        // $schedule->command('orders:auto-cancel-pending')->everyMinute();
         $schedule->command('orders:dispatch-scheduled')->everyMinute();
     }
 }
