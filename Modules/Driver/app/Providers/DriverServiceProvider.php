@@ -9,6 +9,7 @@ use Modules\Driver\Console\Commands\InactivityDecayCommand;
 use Modules\Driver\Console\Commands\MarkOverdueDebtsCommand;
 use Modules\Driver\Console\Commands\SyncDriverGeoCommand;
 use Modules\Driver\Console\Commands\WeeklyScoreCommand;
+use Modules\Driver\Console\Commands\ResetDailyOnlineCommand;
 
 class DriverServiceProvider extends ModuleServiceProvider
 {
@@ -21,6 +22,7 @@ class DriverServiceProvider extends ModuleServiceProvider
         MarkOverdueDebtsCommand::class,
         SyncDriverGeoCommand::class,
         WeeklyScoreCommand::class,
+        ResetDailyOnlineCommand::class,
     ];
 
     protected array $providers = [
@@ -32,6 +34,8 @@ class DriverServiceProvider extends ModuleServiceProvider
     {
         // Mỗi 5 phút — sync vị trí tài xế online từ DB vào Redis GEO (tự phục hồi khi Redis restart)
         $schedule->command('driver:sync-geo')->everyFiveMinutes();
+        // 06:00 hàng ngày — reset thời gian online trước ca mới
+        $schedule->command('driver:reset-daily-online')->dailyAt('06:00');
         // Hàng ngày 23:45 — trừ điểm tài xế online < 8h và không hoạt động (phải trước weekly-score)
         $schedule->command('drivers:daily-decay')->dailyAt('23:45');
         // Chủ nhật 23:50 — chốt điểm tuần (thưởng/phạt 50k vào ví) rồi reset về 100

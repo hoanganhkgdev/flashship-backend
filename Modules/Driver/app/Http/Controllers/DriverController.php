@@ -128,12 +128,15 @@ class DriverController extends Controller
 
         RTDBService::setDriverOnlineStatus($user->id, (bool) $user->is_online);
 
+        $responseSeconds = (int) ($user->daily_online_seconds ?? 0);
+        \Log::info("[Toggle] #{$user->id} → online={$user->is_online} daily_online_seconds={$responseSeconds}");
+
         return response()->json([
             'success'              => true,
             'message'             => $user->is_online ? 'Bạn đang online' : 'Bạn đang offline',
             'is_online'           => $user->is_online,
             'online_since'        => $user->online_since?->toIso8601String(),
-            'daily_online_seconds' => (int) ($user->daily_online_seconds ?? 0),
+            'daily_online_seconds' => $responseSeconds,
         ]);
     }
 
