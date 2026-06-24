@@ -376,7 +376,9 @@ class DispatchService
 
     private function tryExpandRadius(Order $order, float $currentKm): void
     {
-        // Quá 15 phút → đánh dấu không có tài xế, dừng quét, đơn vẫn pending
+        $order = $order->fresh();
+        if (!$order || $order->status !== 'pending') return;
+
         if ($order->dispatch_started_at) {
             $elapsed = now()->diffInMinutes($order->dispatch_started_at);
             if ($elapsed >= self::DISPATCH_TIMEOUT_MINS) {
