@@ -74,20 +74,18 @@ class WeeklyScoreCommand extends Command
             } elseif ($score <= DriverScoreService::WEEKLY_PENALTY_SCORE) {
                 $ref = "score_penalty_{$driver->id}_{$weekStart}";
 
-                try {
-                    DriverWalletService::adjust(
-                        driverId:      $driver->id,
-                        amount:        DriverScoreService::WEEKLY_PENALTY_AMOUNT,
-                        type:          'debit',
-                        desc:          "Phạt điểm tuần {$weekStart} — {$weekEnd} (điểm: {$score})",
-                        ref:           $ref,
-                        allowNegative: true,
-                    );
-                    $status = 'processed';
-                } catch (\Throwable $e) {
-                    Log::warning("[WeeklyScore] Lỗi phạt driver #{$driver->id}: " . $e->getMessage());
-                    $status = 'pending';
-                }
+                DB::table('driver_debts')->insert([
+                    'driver_id'  => $driver->id,
+                    'status'     => 'pending',
+                    'amount_due' => DriverScoreService::WEEKLY_PENALTY_AMOUNT,
+                    'amount_paid'=> 0,
+                    'week_start' => $weekStart,
+                    'week_end'   => $weekEnd,
+                    'ref_id'     => $ref,
+                    'note'       => "Phạt điểm tuần {$weekStart} — {$weekEnd} (điểm: {$score})",
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ]);
 
                 DB::table('driver_score_settlements')->insert([
                     'driver_id'           => $driver->id,
@@ -96,7 +94,7 @@ class WeeklyScoreCommand extends Command
                     'score_at_settlement' => $score,
                     'week_start'          => $weekStart,
                     'week_end'            => $weekEnd,
-                    'status'              => $status,
+                    'status'              => 'processed',
                     'created_at'          => $now,
                     'updated_at'          => $now,
                 ]);
