@@ -322,6 +322,9 @@ class OrderResource extends Resource
                             . '<span style="font-weight:700;color:rgb(var(--primary-500))">' . e(self::serviceLabels()[$record->service_type] ?? $record->service_type) . '</span>'
                             . '<span style="color:#9ca3af;margin:0 6px">·</span>'
                             . '<span style="font-weight:600;color:' . self::$statusTextColors[$record->status] . '">' . e(self::$statusLabels[$record->status] ?? $record->status) . '</span>'
+                            . ($record->status === 'pending' && $record->cancel_reason === 'no_driver'
+                                ? '<br><span style="color:#ef4444;font-size:11px;font-weight:600">⚠ Không tìm được tài xế — cần xử lý</span>'
+                                : '')
                         )
                         ->html()
                         ->grow(true),
