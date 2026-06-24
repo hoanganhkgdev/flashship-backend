@@ -29,7 +29,8 @@ class OrderServiceProvider extends ModuleServiceProvider
 
     protected function configureSchedules(Schedule $schedule): void
     {
-        $schedule->command('orders:auto-cancel-pending')->everyMinute();
+        // Bỏ auto cancel — dispatch loop xoay vòng 15s, tổng đài tự xử lý
+        // $schedule->command('orders:auto-cancel-pending')->everyMinute();
         $schedule->command('orders:dispatch-scheduled')->everyMinute();
     }
 }
