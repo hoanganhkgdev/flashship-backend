@@ -43,16 +43,16 @@
                         {{-- Divider --}}
                         <div class="mx-3 border-t border-gray-200 dark:border-gray-700"></div>
 
-                        {{-- Footer: Lần N · Xkm · Tên tài xế --}}
-                        <div class="flex items-center gap-1.5 px-3 py-3 text-xs text-gray-500 dark:text-gray-400 flex-wrap">
-                            <span>Lần <span class="font-semibold text-gray-700 dark:text-gray-200">{{ $o['attempts'] }}</span></span>
-                            <span class="text-gray-300 dark:text-gray-600">·</span>
-                            <span class="font-semibold text-gray-700 dark:text-gray-200">{{ $o['radius'] }}km</span>
-                            <span class="text-gray-300 dark:text-gray-600">·</span>
-                            @if($o['offering_to'])
-                                <span class="font-medium text-gray-700 dark:text-gray-200">{{ $o['offering_to'] }}</span>
+                        {{-- Footer: status --}}
+                        <div class="flex items-center gap-1.5 px-3 py-3 text-xs flex-wrap">
+                            @if(!empty($o['is_no_driver']))
+                                <span class="font-bold text-red-500">{{ $o['status'] }}</span>
                             @else
-                                <span class="italic">Đang tìm tài xế...</span>
+                                <span>Lần <span class="font-semibold text-gray-700 dark:text-gray-200">{{ $o['attempts'] }}</span></span>
+                                <span class="text-gray-300 dark:text-gray-600">·</span>
+                                <span class="font-semibold text-gray-700 dark:text-gray-200">{{ $o['radius'] }}</span>
+                                <span class="text-gray-300 dark:text-gray-600">·</span>
+                                <span class="italic text-gray-500 dark:text-gray-400">{{ $o['status'] }}</span>
                             @endif
                         </div>
                     </div>

@@ -54,14 +54,24 @@ class DispatchMonitorPage extends Page
 
                 $elapsedSecs = max(0, now()->getTimestamp() - \Carbon\Carbon::parse($o->dispatch_started_at)->getTimestamp());
 
+                $maxRadius = end(DispatchService::RADIUS_KM_STAGES) ?: 4;
+                $isNoDriver = $o->cancel_reason === 'no_driver';
+                $status = $isNoDriver
+                    ? 'Không tìm được tài xế'
+                    : ($driverName
+                        ? "Đang chờ {$driverName}"
+                        : "Đang quét 2-{$maxRadius}km...");
+
                 return [
                     'id'           => $o->id,
                     'service_type' => $this->serviceLabels()[$o->service_type] ?? $o->service_type,
-                    'city'         => $o->city_name,
+                    'city'         => $o->city?->name,
                     'elapsed'      => $elapsedSecs,
                     'attempts'     => $o->dispatch_attempts,
-                    'radius'       => $this->radiusForOrder($o->id),
+                    'radius'       => "2-{$maxRadius}km",
                     'offering_to'  => $driverName,
+                    'status'       => $status,
+                    'is_no_driver' => $isNoDriver,
                     'started_at'   => $o->dispatch_started_at,
                 ];
             })
