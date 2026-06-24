@@ -54,7 +54,7 @@ class DispatchMonitorPage extends Page
 
                 $elapsedSecs = max(0, now()->getTimestamp() - \Carbon\Carbon::parse($o->dispatch_started_at)->getTimestamp());
 
-                $maxRadius = end(DispatchService::RADIUS_KM_STAGES) ?: 4;
+                $maxRadius = DispatchService::MAX_RADIUS_KM;
                 $isNoDriver = $o->cancel_reason === 'no_driver';
                 $status = $isNoDriver
                     ? 'Không tìm được tài xế'
