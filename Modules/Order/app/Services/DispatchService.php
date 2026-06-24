@@ -222,6 +222,27 @@ class DispatchService
     /**
      * Scan tài xế tại bán kính cho trước → xây queue → phát đơn đầu tiên.
      */
+    public function markNoDriver(Order $order): void
+    {
+        DB::table('orders')->where('id', $order->id)->update([
+            'cancel_reason'            => 'no_driver',
+            'dispatching_to_driver_id' => null,
+            'updated_at'               => now(),
+        ]);
+
+        $this->clearDispatchCache($order->id);
+        broadcast(new DispatchStateChanged());
+
+        $admins = User::whereIn('user_type', ['admin', 'call_center', 'city_manager'])->get();
+        foreach ($admins as $admin) {
+            \Filament\Notifications\Notification::make()
+                ->title("Đơn #{$order->code} không tìm được tài xế")
+                ->body("Đơn từ {$order->pickup_address} đã quá " . self::DISPATCH_TIMEOUT_MINS . " phút không có tài xế nhận. Vui lòng xử lý.")
+                ->danger()
+                ->sendToDatabase($admin);
+        }
+    }
+
     public function buildQueueAndSend(Order $order, float $radiusKm): void
     {
         $alreadyOffered = OrderDispatchLog::where('order_id', $order->id)
