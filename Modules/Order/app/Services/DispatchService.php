@@ -617,7 +617,7 @@ class DispatchService
         $afterLicense = $afterDebt->filter(function (User $d) use ($order) {
             return match ($order->service_type) {
                 'bike', 'motor' => $d->vehicle_type === 'motorbike',
-                'car'           => $d->vehicle_type === 'car' && $d->has_car_license,
+                'car'           => $d->has_car_license,
                 default         => true,
             };
         });
