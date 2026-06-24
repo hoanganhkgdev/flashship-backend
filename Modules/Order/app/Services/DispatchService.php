@@ -355,23 +355,30 @@ class DispatchService
 
     private function tryExpandRadius(Order $order, float $currentKm): void
     {
-        // Quá 15 phút → thông báo tổng đài + huỷ đơn
+        // Quá 15 phút → đánh dấu không có tài xế, dừng quét, đơn vẫn pending
         if ($order->dispatch_started_at) {
             $elapsed = now()->diffInMinutes($order->dispatch_started_at);
             if ($elapsed >= self::DISPATCH_TIMEOUT_MINS) {
-                Log::info("╟── [Dispatch] Đơn #{$order->id}: Quá {$elapsed} phút không có tài xế → thông báo tổng đài + huỷ");
+                Log::info("╟── [Dispatch] Đơn #{$order->id}: Quá {$elapsed} phút không có tài xế → dừng quét");
 
-                // Thông báo tất cả admin/call_center trên Filament
+                DB::table('orders')->where('id', $order->id)->update([
+                    'cancel_reason'            => 'no_driver',
+                    'dispatching_to_driver_id' => null,
+                    'updated_at'               => now(),
+                ]);
+
+                $this->clearDispatchCache($order->id);
+                broadcast(new DispatchStateChanged());
+
                 $admins = User::whereIn('user_type', ['admin', 'call_center', 'city_manager'])->get();
                 foreach ($admins as $admin) {
                     \Filament\Notifications\Notification::make()
                         ->title("Đơn #{$order->code} không tìm được tài xế")
-                        ->body("Đơn từ {$order->pickup_address} đã quá 15 phút không có tài xế nhận. Đơn đã bị huỷ tự động.")
+                        ->body("Đơn từ {$order->pickup_address} đã quá 15 phút không có tài xế nhận. Vui lòng xử lý.")
                         ->danger()
                         ->sendToDatabase($admin);
                 }
 
-                $this->cancelIfNoDriver($order->fresh());
                 return;
             }
         }
