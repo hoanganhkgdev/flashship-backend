@@ -4,6 +4,7 @@ namespace Modules\Order\Services;
 use Carbon\Carbon;
 use Modules\Driver\Services\DriverScoreService;
 use Modules\Order\Jobs\DispatchOrderJob;
+use Modules\Order\Jobs\DispatchOrderRetryJob;
 use Modules\Order\Models\Order;
 use Modules\Order\Models\OrderDispatchLog;
 use Modules\Core\Models\User;
@@ -221,7 +222,7 @@ class DispatchService
     /**
      * Scan tài xế tại bán kính cho trước → xây queue → phát đơn đầu tiên.
      */
-    private function buildQueueAndSend(Order $order, float $radiusKm): void
+    public function buildQueueAndSend(Order $order, float $radiusKm): void
     {
         $alreadyOffered = OrderDispatchLog::where('order_id', $order->id)
             ->pluck('driver_id')
@@ -350,12 +351,31 @@ class DispatchService
         $this->tryExpandRadius($order, $currentKm);
     }
 
-    /**
-     * Tìm bán kính tiếp theo trong RADIUS_KM_STAGES và scan mới.
-     * Nếu đã hết tất cả bán kính → cancel đơn ngay.
-     */
+    const DISPATCH_TIMEOUT_MINS = 15;
+
     private function tryExpandRadius(Order $order, float $currentKm): void
     {
+        // Quá 15 phút → thông báo tổng đài + huỷ đơn
+        if ($order->dispatch_started_at) {
+            $elapsed = now()->diffInMinutes($order->dispatch_started_at);
+            if ($elapsed >= self::DISPATCH_TIMEOUT_MINS) {
+                Log::info("╟── [Dispatch] Đơn #{$order->id}: Quá {$elapsed} phút không có tài xế → thông báo tổng đài + huỷ");
+
+                // Thông báo tất cả admin/call_center trên Filament
+                $admins = User::whereIn('user_type', ['admin', 'call_center', 'city_manager'])->get();
+                foreach ($admins as $admin) {
+                    \Filament\Notifications\Notification::make()
+                        ->title("Đơn #{$order->code} không tìm được tài xế")
+                        ->body("Đơn từ {$order->pickup_address} đã quá 15 phút không có tài xế nhận. Đơn đã bị huỷ tự động.")
+                        ->danger()
+                        ->sendToDatabase($admin);
+                }
+
+                $this->cancelIfNoDriver($order->fresh());
+                return;
+            }
+        }
+
         $nextKm = null;
         foreach (self::RADIUS_KM_STAGES as $km) {
             if ($km > $currentKm + 0.001) {
@@ -365,8 +385,12 @@ class DispatchService
         }
 
         if ($nextKm === null) {
-            Log::info("╟── [Dispatch] Đơn #{$order->id}: Đã hết tất cả bán kính ({$currentKm}km) → cancel ngay");
-            $this->cancelIfNoDriver($order->fresh());
+            // Hết bán kính → quay lại vòng đầu, delay 30s rồi quét lại
+            $firstKm = self::RADIUS_KM_STAGES[0];
+            Log::info("╟── [Dispatch] Đơn #{$order->id}: Hết bán kính ({$currentKm}km) → quay lại {$firstKm}km sau 15s");
+            Redis::setex($this->radiusKey($order->id), self::QUEUE_TTL_SECS, $firstKm);
+
+            DispatchOrderRetryJob::dispatch($order->id)->delay(now()->addSeconds(15));
             return;
         }
 
@@ -374,6 +398,7 @@ class DispatchService
         $this->notifyCustomer($order, 'expanding');
         $this->buildQueueAndSend($order->fresh(), $nextKm);
     }
+
 
     // =========================================================================
     // PRIVATE — SEND + SCORING
