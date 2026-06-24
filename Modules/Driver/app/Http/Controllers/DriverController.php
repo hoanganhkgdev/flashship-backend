@@ -55,7 +55,7 @@ class DriverController extends Controller
             $sessionStart = $user->online_since->toDateString() === $today
                 ? $user->online_since
                 : now()->startOfDay();
-            $currentSession = max(0, (int) $sessionStart->diffInSeconds(now()));
+            $currentSession = (int) abs($sessionStart->diffInSeconds(now()));
             $accumulated = ($user->daily_online_date === $today)
                 ? (int) ($user->daily_online_seconds ?? 0)
                 : 0;
@@ -105,8 +105,7 @@ class DriverController extends Controller
                 ? $user->online_since
                 : now()->startOfDay();
 
-            // diffInSeconds: sessionStart → now (luôn dương)
-            $sessionSeconds = max(0, (int) $sessionStart->diffInSeconds(now()));
+            $sessionSeconds = (int) abs($sessionStart->diffInSeconds(now()));
 
             $existingSeconds = ($user->daily_online_date === $today)
                 ? (int) ($user->daily_online_seconds ?? 0)
