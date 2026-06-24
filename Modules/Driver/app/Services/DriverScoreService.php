@@ -12,24 +12,15 @@ class DriverScoreService
     const MAX_SCORE            = 150;
 
     const SCORE_DECLINE        = -2;
-    const SCORE_TIMEOUT        = -1;
-    const SCORE_CANCEL         = -3;
-
-    // Tạm ngưng nhận đơn
-    const SUSPEND_3_CONSECUTIVE_MINS = 10;
-    const SUSPEND_5_CONSECUTIVE_MINS = 30;
-    const SUSPEND_CANCEL_2_DAILY_MINS = 60;
+    const SCORE_TIMEOUT        = -2;
 
     const RATING_DELTAS        = [5 => 1, 4 => 0, 3 => -1, 2 => -3, 1 => -5];
 
-    // Streak milestone → bonus khi đạt đúng mốc (3, 6, 10 đơn liên tiếp)
     const STREAK_MILESTONES    = [3 => 1, 6 => 2, 10 => 4];
     const STREAK_RESET_AT      = 10;
 
-    // Tối đa cộng +10 điểm/ngày từ các sự kiện tích cực
     const DAILY_BONUS_CAP      = 10;
 
-    // Yêu cầu online tối thiểu (giây) — 8 tiếng
     const MIN_ONLINE_SECONDS   = 8 * 3600;
 
     const WEEKLY_BONUS_SCORE   = 150;
@@ -49,9 +40,8 @@ class DriverScoreService
                 ->first();
 
             $streak     = (int) ($driver->consecutive_completed ?? 0) + 1;
-            $bonusDelta = 1 + (self::STREAK_MILESTONES[$streak] ?? 0);
+            $bonusDelta = self::STREAK_MILESTONES[$streak] ?? 0;
 
-            // Reset streak sau khi đạt mốc 10
             $newStreak = $streak >= self::STREAK_RESET_AT ? 0 : $streak;
 
             DB::table('users')->where('id', $driverId)->update([
@@ -59,27 +49,20 @@ class DriverScoreService
                 'driver_last_active_date' => now()->toDateString(),
             ]);
 
-            $reason = ($bonusDelta > 1) ? "complete+streak_{$streak}" : 'complete';
-            self::adjust($driverId, $bonusDelta, $reason, $driver->driver_score);
+            if ($bonusDelta > 0) {
+                self::adjust($driverId, $bonusDelta, "streak_{$streak}", $driver->driver_score);
+            }
         });
     }
 
     public static function onDecline(int $driverId): void
     {
         self::adjustWithStreakReset($driverId, self::SCORE_DECLINE, 'decline');
-        self::checkSuspension($driverId, 'decline');
     }
 
     public static function onTimeout(int $driverId): void
     {
         self::adjustWithStreakReset($driverId, self::SCORE_TIMEOUT, 'timeout');
-        self::checkSuspension($driverId, 'timeout');
-    }
-
-    public static function onCancel(int $driverId): void
-    {
-        self::adjustWithStreakReset($driverId, self::SCORE_CANCEL, 'cancel_after_accept');
-        self::checkCancelSuspension($driverId);
     }
 
     public static function onRated(int $driverId, int $stars): void
@@ -101,6 +84,37 @@ class DriverScoreService
         self::adjust($driverId, -5, 'online_time_low');
     }
 
+    // ─── Weekly Reset ────────────────────────────────────────────────────────────
+
+    public static function weeklyReset(): void
+    {
+        $drivers = DB::table('users')
+            ->where('user_type', 'driver')
+            ->where('status', 1)
+            ->get(['id', 'driver_score']);
+
+        foreach ($drivers as $d) {
+            $old = (int) ($d->driver_score ?? self::DEFAULT_SCORE);
+
+            DB::table('users')->where('id', $d->id)->update([
+                'driver_score'          => self::DEFAULT_SCORE,
+                'consecutive_completed' => 0,
+                'daily_bonus_points'    => 0,
+            ]);
+
+            DB::table('driver_score_logs')->insert([
+                'driver_id'    => $d->id,
+                'delta'        => self::DEFAULT_SCORE - $old,
+                'score_before' => $old,
+                'score_after'  => self::DEFAULT_SCORE,
+                'reason'       => 'weekly_reset',
+                'created_at'   => now(),
+            ]);
+        }
+
+        Log::info("[DriverScore] Weekly reset: {$drivers->count()} tài xế reset về " . self::DEFAULT_SCORE);
+    }
+
     // ─── Core ────────────────────────────────────────────────────────────────────
 
     private static function adjustWithStreakReset(int $driverId, int $delta, string $reason): void
@@ -117,7 +131,6 @@ class DriverScoreService
         $today   = now()->toDateString();
         $current = $knownCurrent ?? (int) (DB::table('users')->where('id', $driverId)->value('driver_score') ?? self::DEFAULT_SCORE);
 
-        // Áp dụng daily cap cho điểm dương
         if ($delta > 0) {
             $row = DB::table('users')
                 ->where('id', $driverId)
@@ -162,55 +175,6 @@ class DriverScoreService
         ]);
 
         Log::info("[DriverScore] Driver #{$driverId} {$reason}: {$current} → {$newScore} (Δ{$delta})");
-        RTDBService::pingDriverScore($driverId);
-    }
-
-    // ─── Suspension ─────────────────────────────────────────────────────────────
-
-    private static function checkSuspension(int $driverId, string $type): void
-    {
-        $recent = DB::table('driver_score_logs')
-            ->where('driver_id', $driverId)
-            ->whereIn('reason', ['timeout', 'decline'])
-            ->latest('created_at')
-            ->limit(5)
-            ->pluck('reason')
-            ->toArray();
-
-        $consecutive = 0;
-        foreach ($recent as $r) {
-            if (in_array($r, ['timeout', 'decline'])) $consecutive++;
-            else break;
-        }
-
-        if ($consecutive >= 5) {
-            self::suspendDriver($driverId, self::SUSPEND_5_CONSECUTIVE_MINS, "5 lần bỏ qua/từ chối liên tiếp");
-        } elseif ($consecutive >= 3) {
-            self::suspendDriver($driverId, self::SUSPEND_3_CONSECUTIVE_MINS, "3 lần bỏ qua/từ chối liên tiếp");
-        }
-    }
-
-    private static function checkCancelSuspension(int $driverId): void
-    {
-        $today = now()->toDateString();
-        $cancelCount = DB::table('driver_score_logs')
-            ->where('driver_id', $driverId)
-            ->where('reason', 'cancel_after_accept')
-            ->whereDate('created_at', $today)
-            ->count();
-
-        if ($cancelCount >= 2) {
-            self::suspendDriver($driverId, self::SUSPEND_CANCEL_2_DAILY_MINS, "Huỷ {$cancelCount} đơn sau khi nhận trong ngày");
-        }
-    }
-
-    private static function suspendDriver(int $driverId, int $minutes, string $reason): void
-    {
-        $until = now()->addMinutes($minutes);
-        DB::table('users')->where('id', $driverId)->update([
-            'score_suspended_until' => $until,
-        ]);
-        Log::warning("[DriverScore] Driver #{$driverId} tạm ngưng {$minutes} phút: {$reason} (đến {$until})");
         RTDBService::pingDriverScore($driverId);
     }
 
