@@ -96,8 +96,10 @@ class DispatchService
         Log::info("║  Pickup  : {$order->pickup_address} ({$order->pickup_lat}, {$order->pickup_lng})");
         Log::info("╚══════════════════════════════════════════════════════════════");
 
-        DB::table('orders')->where('id', $order->id)->update(['dispatch_started_at' => $now]);
-        $order->dispatch_started_at = $now;
+        if (!$order->dispatch_started_at) {
+            DB::table('orders')->where('id', $order->id)->update(['dispatch_started_at' => $now]);
+            $order->dispatch_started_at = $now;
+        }
 
         $this->notifyCustomer($order, 'searching');
 
@@ -380,7 +382,7 @@ class DispatchService
         if (!$order || $order->status !== 'pending') return;
 
         if ($order->dispatch_started_at) {
-            $elapsed = now()->diffInMinutes($order->dispatch_started_at);
+            $elapsed = (int) abs(now()->diffInMinutes($order->dispatch_started_at));
             if ($elapsed >= self::DISPATCH_TIMEOUT_MINS) {
                 Log::info("╟── [Dispatch] Đơn #{$order->id}: Quá {$elapsed} phút không có tài xế → dừng quét");
 

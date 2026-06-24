@@ -27,7 +27,7 @@ class DispatchOrderRetryJob implements ShouldQueue
             return;
         }
 
-        if ($order->dispatch_started_at && now()->diffInMinutes($order->dispatch_started_at) >= DispatchService::DISPATCH_TIMEOUT_MINS) {
+        if ($order->dispatch_started_at && (int) abs(now()->diffInMinutes($order->dispatch_started_at)) >= DispatchService::DISPATCH_TIMEOUT_MINS) {
             Log::info("╟── [Dispatch] Đơn #{$order->id}: Quá " . DispatchService::DISPATCH_TIMEOUT_MINS . " phút → dừng quét");
             $dispatch->markNoDriver($order);
             return;
