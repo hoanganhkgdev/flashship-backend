@@ -14,11 +14,20 @@ class MarkOverdueDebtsCommand extends Command
 
     public function handle(): int
     {
+        $today  = Carbon::today()->toDateString();
         $cutoff = Carbon::now()->subHours(24);
 
         $debts = DriverDebt::with('driver')
             ->where('status', 'pending')
-            ->where('created_at', '<=', $cutoff)
+            ->where(function ($q) use ($today, $cutoff) {
+                // Công nợ tuần: quá hạn khi week_end đã qua
+                $q->whereNull('ref_id')->where('week_end', '<=', $today);
+                // Công nợ phạt điểm: quá hạn sau 24 tiếng
+                $q->orWhere(function ($q2) use ($cutoff) {
+                    $q2->where('ref_id', 'like', 'score_penalty_%')
+                        ->where('created_at', '<=', $cutoff);
+                });
+            })
             ->get();
 
         $count = 0;
