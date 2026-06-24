@@ -374,8 +374,9 @@ class CallCenterPage extends Page implements HasForms
         return DB::table('cities')->where('id', $cityId)->value('name');
     }
 
-    private function withCity(string $address, ?string $cityName): string
+    private function withCity(?string $address, ?string $cityName): string
     {
+        if (!$address) return '';
         if (!$cityName || mb_stripos($address, $cityName) !== false) return $address;
         return $address . ', ' . $cityName;
     }
