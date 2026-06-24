@@ -10,11 +10,11 @@ use Modules\Order\Models\OrderHistory;
 class AutoCancelPendingOrders extends Command
 {
     protected $signature   = 'orders:auto-cancel-pending';
-    protected $description = 'Huỷ các đơn pending quá 10 phút không có tài xế nhận';
+    protected $description = 'Huỷ các đơn pending quá 15 phút không có tài xế nhận';
 
     public function handle(): void
     {
-        $cutoff = Carbon::now()->subMinutes(10);
+        $cutoff = Carbon::now()->subMinutes(15);
 
         $orders = Order::where('status', 'pending')
             ->where(function ($q) use ($cutoff) {
@@ -43,7 +43,7 @@ class AutoCancelPendingOrders extends Command
             OrderHistory::create([
                 'order_id'    => $order->id,
                 'type'        => 'auto_cancelled',
-                'description' => 'Hệ thống tự huỷ: không tìm được tài xế sau 10 phút',
+                'description' => 'Hệ thống tự huỷ: không tìm được tài xế sau 15 phút',
             ]);
 
             // Push FCM đến khách hàng
