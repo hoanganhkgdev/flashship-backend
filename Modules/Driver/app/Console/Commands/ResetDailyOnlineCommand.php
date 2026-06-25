@@ -45,8 +45,8 @@ class ResetDailyOnlineCommand extends Command
                     Log::info("[DailyReset] Driver #{$d->id}: tích luỹ {$yesterdaySeconds}s cho {$d->daily_online_date} (tổng: {$oldTotal}s)");
                 }
 
-                // Bắt đầu session mới từ 00:00
-                $update['online_since'] = $midnight;
+                // Bắt đầu session mới từ lúc reset
+                $update['online_since'] = $now;
                 $carried++;
             }
 
