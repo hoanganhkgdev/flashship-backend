@@ -21,8 +21,14 @@ class ResetDailyOnlineCommand extends Command
         $drivers = DB::table('users')
             ->where('user_type', 'driver')
             ->where('status', 1)
-            ->whereNotNull('daily_online_date')
-            ->where('daily_online_date', '<', $today)
+            ->where(function ($q) use ($today) {
+                $q->where('daily_online_date', '<', $today)
+                  ->orWhereNull('daily_online_date')
+                  ->orWhere(function ($q2) {
+                      $q2->where('is_online', true)
+                         ->whereNotNull('online_since');
+                  });
+            })
             ->get(['id', 'is_online', 'online_since', 'daily_online_seconds', 'daily_online_date']);
 
         $reset   = 0;
