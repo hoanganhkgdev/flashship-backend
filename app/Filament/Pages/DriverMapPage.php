@@ -10,7 +10,7 @@ class DriverMapPage extends Page
 {
     public static function canAccess(): bool
     {
-        return !auth()->user()?->isCallCenter();
+        return true;
     }
 
     protected static ?string $navigationIcon  = 'heroicon-o-map-pin';
