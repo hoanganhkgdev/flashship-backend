@@ -10,13 +10,12 @@ use Illuminate\Support\Facades\Log;
 class ResetDailyOnlineCommand extends Command
 {
     protected $signature   = 'driver:reset-daily-online';
-    protected $description = 'Reset thời gian online hàng ngày lúc 00:00, tích luỹ session qua đêm cho ngày cũ';
+    protected $description = 'Reset thời gian online lúc 6:30, bắt đầu tính ngày mới';
 
     public function handle(): int
     {
-        $now       = Carbon::now();
-        $today     = $now->toDateString();
-        $midnight  = $now->copy()->startOfDay();
+        $now   = Carbon::now();
+        $today = $now->toDateString();
 
         $drivers = DB::table('users')
             ->where('user_type', 'driver')
@@ -31,8 +30,7 @@ class ResetDailyOnlineCommand extends Command
             })
             ->get(['id', 'is_online', 'online_since', 'daily_online_seconds', 'daily_online_date']);
 
-        $reset   = 0;
-        $carried = 0;
+        $reset = 0;
 
         foreach ($drivers as $d) {
             $update = [
@@ -40,28 +38,16 @@ class ResetDailyOnlineCommand extends Command
                 'daily_online_date'    => $today,
             ];
 
-            if ($d->is_online && $d->online_since) {
-                $onlineSince = Carbon::parse($d->online_since);
-
-                // Tích luỹ phần trước 00:00 cho ngày cũ
-                if ($onlineSince->lt($midnight)) {
-                    $yesterdaySeconds = (int) abs($onlineSince->diffInSeconds($midnight));
-                    $oldTotal = (int) ($d->daily_online_seconds ?? 0) + $yesterdaySeconds;
-
-                    Log::info("[DailyReset] Driver #{$d->id}: tích luỹ {$yesterdaySeconds}s cho {$d->daily_online_date} (tổng: {$oldTotal}s)");
-                }
-
-                // Bắt đầu session mới từ lúc reset
+            if ($d->is_online) {
                 $update['online_since'] = $now;
-                $carried++;
             }
 
             DB::table('users')->where('id', $d->id)->update($update);
             $reset++;
         }
 
-        $this->info("[DailyReset] Reset {$reset} tài xế, {$carried} đang online qua đêm.");
-        Log::info("[DailyReset] Reset {$reset} tài xế, {$carried} online qua đêm.");
+        $this->info("[DailyReset] 06:30 reset {$reset} tài xế, bắt đầu ngày mới.");
+        Log::info("[DailyReset] Reset {$reset} tài xế lúc 06:30.");
 
         return self::SUCCESS;
     }

@@ -34,15 +34,15 @@ class DriverServiceProvider extends ModuleServiceProvider
     {
         // Mỗi 5 phút — sync vị trí tài xế online từ DB vào Redis GEO (tự phục hồi khi Redis restart)
         $schedule->command('driver:sync-geo')->everyFiveMinutes();
-        // 06:00 hàng ngày — reset thời gian online trước ca mới
-        $schedule->command('driver:reset-daily-online')->dailyAt('06:00');
-        // Hàng ngày 23:45 — trừ điểm tài xế online < 8h và không hoạt động (phải trước weekly-score)
-        $schedule->command('drivers:daily-decay')->dailyAt('23:45');
-        // Chủ nhật 23:50 — chốt điểm tuần (thưởng/phạt 50k vào ví) rồi reset về 100
-        $schedule->command('drivers:weekly-score')->weeklyOn(0, '23:50');
+        // 00:00 hàng ngày — xét online 6:30-00:00 có đủ 8h không, trừ điểm, reset time
+        $schedule->command('drivers:daily-decay')->dailyAt('00:00');
+        // 06:30 hàng ngày — reset time online, bắt đầu tính ngày mới
+        $schedule->command('driver:reset-daily-online')->dailyAt('06:30');
+        // Thứ Hai 00:02 — chốt điểm tuần (sau daily-decay 00:00)
+        $schedule->command('drivers:weekly-score')->weeklyOn(1, '00:02');
         // Mỗi giờ — đánh dấu quá hạn nợ chưa đóng sau 24 tiếng
         $schedule->command('driver:mark-overdue-debts')->hourly();
-        // Thứ Hai 00:00 — tạo phí tuần mới (chạy sau khi reset điểm)
+        // Thứ Hai 00:05 — tạo phí tuần mới (sau weekly-score)
         $schedule->command('driver:generate-weekly-fees')->weeklyOn(1, '00:05');
     }
 }
