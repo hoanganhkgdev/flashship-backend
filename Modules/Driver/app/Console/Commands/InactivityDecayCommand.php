@@ -16,7 +16,7 @@ class InactivityDecayCommand extends Command
     {
         $today     = Carbon::today()->toDateString();
         $yesterday = Carbon::yesterday()->toDateString();
-        $dayStart  = Carbon::today()->setTime(6, 30, 0);
+        $dayStart  = Carbon::yesterday()->setTime(6, 30, 0);
 
         $drivers = DB::table('users')
             ->where('user_type', 'driver')

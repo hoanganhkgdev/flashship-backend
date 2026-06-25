@@ -15,8 +15,8 @@ class WeeklyScoreCommand extends Command
 
     public function handle(): void
     {
-        $weekStart = Carbon::now()->startOfWeek()->toDateString();
-        $weekEnd   = Carbon::now()->endOfWeek()->toDateString();
+        $weekStart = Carbon::now()->subWeek()->startOfWeek()->toDateString();
+        $weekEnd   = Carbon::now()->subWeek()->endOfWeek()->toDateString();
 
         // Guard: chỉ chạy 1 lần/tuần
         $ran = DB::table('driver_score_settlements')
