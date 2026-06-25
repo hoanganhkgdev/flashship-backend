@@ -27,7 +27,7 @@ class OrderResource extends Resource
         $query = parent::getEloquentQuery();
         $user  = auth()->user();
 
-        if ($user?->user_type === 'city_manager' && $user->city_id) {
+        if (in_array($user?->user_type, ['city_manager', 'call_center']) && $user->city_id) {
             $query->where('city_id', $user->city_id);
         }
 

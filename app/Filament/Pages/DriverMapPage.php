@@ -31,7 +31,7 @@ class DriverMapPage extends Page
         $user = auth()->user();
 
         // city_manager chỉ thấy khu vực của mình
-        if ($user->user_type === 'city_manager' && $user->city_id) {
+        if (in_array($user->user_type, ['city_manager', 'call_center']) && $user->city_id) {
             $this->fixedCityId = (int) $user->city_id;
 
             $this->cities = DB::table('cities')

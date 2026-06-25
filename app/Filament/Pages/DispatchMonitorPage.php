@@ -39,14 +39,20 @@ class DispatchMonitorPage extends Page
 
     public function getActiveOrders(): array
     {
-        return Order::query()
+        $query = Order::query()
             ->whereNotNull('dispatch_started_at')
             ->whereNull('delivery_man_id')
             ->whereIn('status', ['pending'])
             ->with('city')
             ->orderByDesc('dispatch_started_at')
-            ->limit(30)
-            ->get()
+            ->limit(30);
+
+        $user = auth()->user();
+        if (in_array($user?->user_type, ['city_manager', 'call_center']) && $user->city_id) {
+            $query->where('city_id', $user->city_id);
+        }
+
+        return $query->get()
             ->map(function (Order $o) {
                 $driverName = $o->dispatching_to_driver_id
                     ? DB::table('users')->where('id', $o->dispatching_to_driver_id)->value('name')
