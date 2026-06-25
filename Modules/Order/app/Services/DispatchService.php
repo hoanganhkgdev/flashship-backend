@@ -649,7 +649,7 @@ class DispatchService
         // ── 4b. Loại tài xế rảnh đang chạy ngược hướng điểm lấy ────────────
         $afterBearing = $afterDetour->filter(function (User $d) use ($order, $hasCoords) {
             if (!$hasCoords) return true;
-            if (!$d->bearing || $d->bearing == 0) return true;
+            if (!$d->bearing || $d->bearing <= 0) return true;
             if (!$d->latitude || !$d->longitude) return true;
 
             $bearingToPickup = $this->bearingDeg(
