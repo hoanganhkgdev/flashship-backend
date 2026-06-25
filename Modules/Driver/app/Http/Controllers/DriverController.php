@@ -83,6 +83,7 @@ class DriverController extends Controller
         }
 
         // Tích lũy thời gian online khi chuyển sang offline
+        \Log::info("[Toggle] #{$user->id} PRE: is_online={$user->is_online} online_since={$user->online_since} daily_online_seconds={$user->daily_online_seconds}");
         if ($user->is_online && $user->online_since) {
             $today           = now()->toDateString();
             $onlineSinceDate = $user->online_since->toDateString();
@@ -116,7 +117,7 @@ class DriverController extends Controller
         RTDBService::setDriverOnlineStatus($user->id, (bool) $user->is_online);
 
         $responseSeconds = (int) ($user->daily_online_seconds ?? 0);
-        \Log::info("[Toggle] #{$user->id} → online={$user->is_online} daily_online_seconds={$responseSeconds}");
+        \Log::info("[Toggle] #{$user->id} → online={$user->is_online} daily_online_seconds={$responseSeconds} online_since={$user->online_since}");
 
         return response()->json([
             'success'              => true,
