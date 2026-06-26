@@ -124,6 +124,10 @@ class OrderService
 
         $activeOrders = Order::where('delivery_man_id', $user->id)->whereIn('status', ['assigned', 'processing', 'on_the_way'])->count();
         if ($activeOrders >= 2) {
+            OrderDispatchLog::where('order_id', $order->id)
+                ->where('driver_id', $user->id)
+                ->where('result', 'pending')
+                ->update(['result' => 'skipped_busy', 'responded_at' => now()]);
             return ['success' => false, 'message' => 'Bạn đang có 2 đơn hàng chưa hoàn thành. Vui lòng hoàn thành bớt trước.', 'status' => 400];
         }
 
