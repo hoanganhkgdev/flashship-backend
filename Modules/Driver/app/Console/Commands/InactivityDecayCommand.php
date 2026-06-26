@@ -32,8 +32,8 @@ class InactivityDecayCommand extends Command
 
         foreach ($drivers as $driver) {
 
-            // ── 1. Tính online time từ 6:30 đến 00:00 ────────────────────────
-            $onlineSeconds = ($driver->daily_online_date === $today)
+            // ── 1. Tính online time từ hôm qua 6:30 đến 00:00 ────────────────
+            $onlineSeconds = (in_array($driver->daily_online_date, [$today, $yesterday]))
                 ? (int) ($driver->daily_online_seconds ?? 0)
                 : 0;
 
@@ -44,8 +44,7 @@ class InactivityDecayCommand extends Command
                 $onlineSeconds += (int) abs($sessionStart->diffInSeconds(now()));
             }
 
-            // Chỉ phạt nếu có dữ liệu tracking
-            $hasData = ($driver->daily_online_date === $today) || $driver->is_online;
+            $hasData = (in_array($driver->daily_online_date, [$today, $yesterday])) || $driver->is_online;
             if ($hasData && $onlineSeconds < DriverScoreService::MIN_ONLINE_SECONDS) {
                 DriverScoreService::onLowOnlineTime($driver->id);
                 $lowOnline++;
@@ -67,9 +66,10 @@ class InactivityDecayCommand extends Command
             // ── 2. Kiểm tra hoạt động giao đơn ──────────────────────────────
             $lastActive = $driver->driver_last_active_date;
             if ($lastActive === null) continue;
-            if ($lastActive === $today) continue;
+            if ($lastActive === $today || $lastActive === $yesterday) continue;
 
-            if ($lastActive === $yesterday) {
+            $twoDaysAgo = Carbon::today()->subDays(2)->toDateString();
+            if ($lastActive === $twoDaysAgo) {
                 DriverScoreService::onInactivity($driver->id, 1);
                 $inactivity1++;
             } else {
