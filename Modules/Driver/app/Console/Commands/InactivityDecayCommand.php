@@ -44,11 +44,8 @@ class InactivityDecayCommand extends Command
                 $onlineSeconds += (int) abs($sessionStart->diffInSeconds(now()));
             }
 
-            $hasData = ($driver->daily_online_date === $today) || $driver->is_online;
-            if ($hasData && $onlineSeconds < DriverScoreService::MIN_ONLINE_SECONDS) {
-                DriverScoreService::onLowOnlineTime($driver->id);
-                $lowOnline++;
-            }
+            $hadOnline = ($driver->daily_online_date === $today) || $driver->is_online;
+            $isLowOnline = $hadOnline && $onlineSeconds > 0 && $onlineSeconds < DriverScoreService::MIN_ONLINE_SECONDS;
 
             // Reset time online — ca đêm 00:01-06:30 sẽ đếm riêng
             DB::table('users')->where('id', $driver->id)->update([
@@ -56,24 +53,28 @@ class InactivityDecayCommand extends Command
                 'daily_online_date'    => null,
             ]);
 
-            // Tài xế đang online → set online_since = now (bắt đầu đếm ca đêm)
             if ($driver->is_online) {
                 DB::table('users')->where('id', $driver->id)->update([
                     'online_since' => now(),
                 ]);
             }
 
-            // ── 2. Kiểm tra hoạt động giao đơn ──────────────────────────────
+            // ── 2. Phạt: chỉ 1 trong 2, không trùng ────────────────────────
             $lastActive = $driver->driver_last_active_date;
-            if ($lastActive === null) continue;
-            if ($lastActive === $today) continue;
 
-            if ($lastActive === $yesterday) {
-                DriverScoreService::onInactivity($driver->id, 1);
-                $inactivity1++;
-            } else {
-                DriverScoreService::onInactivity($driver->id, 2);
-                $inactivity2++;
+            if ($isLowOnline) {
+                // Có online nhưng < 8h → phạt online_time_low
+                DriverScoreService::onLowOnlineTime($driver->id);
+                $lowOnline++;
+            } elseif ($lastActive !== null && $lastActive !== $today) {
+                // Không online, không chạy đơn hôm nay → phạt inactive
+                if ($lastActive === $yesterday) {
+                    DriverScoreService::onInactivity($driver->id, 1);
+                    $inactivity1++;
+                } else {
+                    DriverScoreService::onInactivity($driver->id, 2);
+                    $inactivity2++;
+                }
             }
         }
 
