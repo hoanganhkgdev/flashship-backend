@@ -761,8 +761,9 @@ class DispatchService
 
     private function waitTimeScore(User $driver): float
     {
-        if (!$driver->online_since) return 0;
-        $waitMins = min(self::WAIT_TIME_CAP_MINS, abs(now()->diffInMinutes(Carbon::parse($driver->online_since))));
+        $since = $driver->last_order_accepted_at ?? $driver->online_since;
+        if (!$since) return 0;
+        $waitMins = min(self::WAIT_TIME_CAP_MINS, abs(now()->diffInMinutes(Carbon::parse($since))));
         return ($waitMins / self::WAIT_TIME_CAP_MINS) * self::W_WAIT_TIME;
     }
 
