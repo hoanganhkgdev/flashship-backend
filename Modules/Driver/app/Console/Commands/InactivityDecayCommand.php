@@ -10,13 +10,13 @@ use Modules\Driver\Services\DriverScoreService;
 class InactivityDecayCommand extends Command
 {
     protected $signature   = 'drivers:daily-decay';
-    protected $description = 'Cuối ngày (00:00): xét online 6:30-00:00 có đủ 8h không, trừ điểm, reset time';
+    protected $description = 'Cuối ngày (23:59): xét online 6:30-23:59 có đủ 8h không, trừ điểm, reset time';
 
     public function handle(): void
     {
         $today     = Carbon::today()->toDateString();
         $yesterday = Carbon::yesterday()->toDateString();
-        $dayStart  = Carbon::yesterday()->setTime(6, 30, 0);
+        $dayStart  = Carbon::today()->setTime(6, 30, 0);
 
         $drivers = DB::table('users')
             ->where('user_type', 'driver')
@@ -33,7 +33,7 @@ class InactivityDecayCommand extends Command
         foreach ($drivers as $driver) {
 
             // ── 1. Tính online time từ hôm qua 6:30 đến 00:00 ────────────────
-            $onlineSeconds = (in_array($driver->daily_online_date, [$today, $yesterday]))
+            $onlineSeconds = ($driver->daily_online_date === $today)
                 ? (int) ($driver->daily_online_seconds ?? 0)
                 : 0;
 
@@ -44,7 +44,7 @@ class InactivityDecayCommand extends Command
                 $onlineSeconds += (int) abs($sessionStart->diffInSeconds(now()));
             }
 
-            $hasData = (in_array($driver->daily_online_date, [$today, $yesterday])) || $driver->is_online;
+            $hasData = ($driver->daily_online_date === $today) || $driver->is_online;
             if ($hasData && $onlineSeconds < DriverScoreService::MIN_ONLINE_SECONDS) {
                 DriverScoreService::onLowOnlineTime($driver->id);
                 $lowOnline++;
@@ -66,10 +66,9 @@ class InactivityDecayCommand extends Command
             // ── 2. Kiểm tra hoạt động giao đơn ──────────────────────────────
             $lastActive = $driver->driver_last_active_date;
             if ($lastActive === null) continue;
-            if ($lastActive === $today || $lastActive === $yesterday) continue;
+            if ($lastActive === $today) continue;
 
-            $twoDaysAgo = Carbon::today()->subDays(2)->toDateString();
-            if ($lastActive === $twoDaysAgo) {
+            if ($lastActive === $yesterday) {
                 DriverScoreService::onInactivity($driver->id, 1);
                 $inactivity1++;
             } else {
