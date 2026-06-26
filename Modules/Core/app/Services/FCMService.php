@@ -74,30 +74,27 @@ class FCMService
     /**
      * Wake-up signal để app resume và đọc RTDB offer.
      */
-    public function sendDriverWakeUp(string $fcmToken, int $orderId): void
+    public function sendDriverWakeUp(string $fcmToken, int $orderId, string $orderCode = '', string $pickupAddress = ''): void
     {
         try {
             $message = CloudMessage::withTarget('token', $fcmToken)
-                ->withNotification(Notification::create(
-                    '🚀 Có đơn hàng mới!',
-                    'Nhấn để xem và nhận đơn hàng'
-                ))
                 ->withData([
-                    'type'     => 'order_offer',
-                    'order_id' => (string) $orderId,
+                    'type'           => 'order_offer',
+                    'order_id'       => (string) $orderId,
+                    'order_code'     => (string) $orderCode,
+                    'pickup_address' => $pickupAddress,
                 ])
                 ->withAndroidConfig(AndroidConfig::fromArray([
                     'priority' => 'high',
-                    'ttl'      => '45s',
+                    'ttl'      => '25s',
                 ]))
                 ->withApnsConfig(ApnsConfig::fromArray([
                     'headers' => [
-                        'apns-priority'  => '10',
-                        'apns-push-type' => 'alert',
+                        'apns-priority'    => '10',
+                        'apns-push-type'   => 'background',
+                        'apns-expiration'  => '0',
                     ],
                     'payload' => ['aps' => [
-                        'sound'             => 'default',
-                        'badge'             => 1,
                         'content-available' => 1,
                     ]],
                 ]));

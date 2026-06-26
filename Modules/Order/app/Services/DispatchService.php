@@ -560,7 +560,7 @@ class DispatchService
 
         if ($driver->fcm_token) {
             try {
-                FCMService::getInstance()->sendDriverWakeUp($driver->fcm_token, $order->id);
+                FCMService::getInstance()->sendDriverWakeUp($driver->fcm_token, $order->id, $order->code, $order->pickup_address ?? '');
                 Log::debug("     → FCM wake-up gửi thành công");
             } catch (\Throwable $e) {
                 Log::error("[Dispatch] FCM failed for driver #{$driver->id}: " . $e->getMessage());
