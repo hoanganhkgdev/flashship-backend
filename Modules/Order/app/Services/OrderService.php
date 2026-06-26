@@ -149,7 +149,7 @@ class OrderService
             return ['success' => false, 'message' => 'Đơn đã có người nhận trước bạn.', 'status' => 409];
         }
 
-        // Ghi thời điểm nhận đơn gần nhất — dùng cho wait-time bonus trong dispatch scoring
+        \Illuminate\Support\Facades\Redis::del("dispatch:lock:driver:{$user->id}");
         DB::table('users')->where('id', $user->id)->update(['last_order_accepted_at' => now()]);
 
         $orderId   = $order->id;
@@ -205,13 +205,12 @@ class OrderService
             return ['success' => false, 'message' => 'Đơn này không được phát cho bạn.', 'status' => 403];
         }
 
-        // Chỉ trừ điểm nếu tài xế đã MỞ xem offer (offer_viewed_at != null)
-        // Nếu chưa mở → không trừ điểm (tài xế không thấy thông báo)
+        \Illuminate\Support\Facades\Redis::del("dispatch:lock:driver:{$user->id}");
+
         if ($order->offer_viewed_at !== null) {
             DriverScoreService::onDecline($user->id);
         }
 
-        // Xóa offer RTDB ngay lập tức — app dismiss màn hình offer
         RTDBService::clearDriverOffer($user->id);
 
         // Chuyển ngay sang tài xế tiếp theo, không chờ job 30s

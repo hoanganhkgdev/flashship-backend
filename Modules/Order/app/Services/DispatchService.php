@@ -134,6 +134,7 @@ class DispatchService
             return;
         }
 
+        Redis::del("dispatch:lock:driver:{$driverId}");
         DriverScoreService::onTimeout($driverId);
         if ($order->offer_viewed_at) {
             Log::info("⏱  [Dispatch] Đơn #{$order->id}: Tài xế {$name} xem đơn nhưng hết giờ → -1 điểm, pop tiếp");
@@ -438,6 +439,25 @@ class DispatchService
 
     private function sendToDriver(Order $order, User $driver): void
     {
+        // Lock tài xế — chặn 2 dispatch gán cùng lúc
+        $lockKey = "dispatch:lock:driver:{$driver->id}";
+        if (!Redis::set($lockKey, $order->id, 'NX', 'EX', 60)) {
+            Log::debug("│  Skip #{$driver->id} {$driver->name}: đang nhận offer từ dispatch khác");
+            $this->sendToNextDriver($order);
+            return;
+        }
+
+        // Verify lại lần cuối — tài xế có thể nhận đơn giữa lúc pop và lock
+        $activeCount = Order::where('delivery_man_id', $driver->id)
+            ->whereIn('status', ['assigned', 'processing', 'on_the_way'])
+            ->count();
+        if ($activeCount >= 2) {
+            Redis::del($lockKey);
+            Log::debug("│  Skip #{$driver->id} {$driver->name}: đã có {$activeCount} đơn active");
+            $this->sendToNextDriver($order);
+            return;
+        }
+
         $now  = now();
         $dist = round($this->distanceKm($driver, $order), 2);
 
