@@ -18,6 +18,13 @@ class InactivityDecayCommand extends Command
         $yesterday = Carbon::yesterday()->toDateString();
         $dayStart  = Carbon::today()->setTime(6, 30, 0);
 
+        // Force offline tài xế bị khoá nhưng vẫn online
+        DB::table('users')
+            ->where('user_type', 'driver')
+            ->where('status', '!=', 1)
+            ->where('is_online', true)
+            ->update(['is_online' => false, 'online_since' => null]);
+
         $drivers = DB::table('users')
             ->where('user_type', 'driver')
             ->where('status', 1)
