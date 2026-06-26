@@ -32,8 +32,6 @@ class DriverServiceProvider extends ModuleServiceProvider
 
     protected function configureSchedules(Schedule $schedule): void
     {
-        // Mỗi 5 phút — sync vị trí tài xế online từ DB vào Redis GEO (tự phục hồi khi Redis restart)
-        $schedule->command('driver:sync-geo')->everyFiveMinutes();
         // 23:59 hàng ngày — xét online 6:30-23:59 có đủ 8h không, trừ điểm, reset time
         $schedule->command('drivers:daily-decay')->dailyAt('23:59');
         // 06:30 hàng ngày — reset time online, bắt đầu tính ngày mới
