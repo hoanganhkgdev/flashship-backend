@@ -338,12 +338,35 @@ class DispatchService
                 // Firebase lỗi → bỏ qua check, vẫn phát đơn
             }
 
-            $busy = Order::where('delivery_man_id', $driverId)
+            $activeOrders = Order::where('delivery_man_id', $driverId)
                 ->whereIn('status', ['assigned', 'processing', 'on_the_way'])
-                ->count() >= 2;
-            if ($busy) {
+                ->get(['id', 'delivery_lat', 'delivery_lng']);
+
+            if ($activeOrders->count() >= 2) {
                 $skipped++;
                 continue;
+            }
+
+            // Ghép đơn: tài xế có 1 đơn → chỉ phát nếu pickup mới cùng hướng
+            if ($activeOrders->count() === 1 && $order->pickup_lat && $order->pickup_lng) {
+                $active = $activeOrders->first();
+                if ($active->delivery_lat && $active->delivery_lng && $driver->latitude && $driver->longitude) {
+                    $bearingToDest = $this->bearingDeg(
+                        (float) $driver->latitude, (float) $driver->longitude,
+                        (float) $active->delivery_lat, (float) $active->delivery_lng
+                    );
+                    $bearingToPickup = $this->bearingDeg(
+                        (float) $driver->latitude, (float) $driver->longitude,
+                        (float) $order->pickup_lat, (float) $order->pickup_lng
+                    );
+                    $diff = abs($bearingToDest - $bearingToPickup);
+                    if ($diff > 180) $diff = 360 - $diff;
+                    if ($diff > 90) {
+                        Log::debug("│  Skip #{$driverId} {$driver->name}: đơn mới ngược hướng đơn đang giao ({$diff}°)");
+                        $skipped++;
+                        continue;
+                    }
+                }
             }
 
             $receivingOther = Order::where('status', 'pending')
