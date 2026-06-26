@@ -51,6 +51,15 @@ class DriverScoreService
 
             if ($bonusDelta > 0) {
                 self::adjust($driverId, $bonusDelta, "streak_{$streak}", $driver->driver_score);
+            } else {
+                DB::table('driver_score_logs')->insert([
+                    'driver_id'    => $driverId,
+                    'delta'        => 0,
+                    'score_before' => $driver->driver_score ?? self::DEFAULT_SCORE,
+                    'score_after'  => $driver->driver_score ?? self::DEFAULT_SCORE,
+                    'reason'       => 'complete',
+                    'created_at'   => now(),
+                ]);
             }
         });
     }
