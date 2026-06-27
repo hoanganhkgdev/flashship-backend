@@ -350,21 +350,36 @@ class DispatchService
             // Ghép đơn: tài xế có 1 đơn → chỉ phát nếu pickup mới cùng hướng
             if ($activeOrders->count() === 1 && $order->pickup_lat && $order->pickup_lng) {
                 $active = $activeOrders->first();
-                if ($active->delivery_lat && $active->delivery_lng && $driver->latitude && $driver->longitude) {
-                    $bearingToDest = $this->bearingDeg(
-                        (float) $driver->latitude, (float) $driver->longitude,
-                        (float) $active->delivery_lat, (float) $active->delivery_lng
-                    );
-                    $bearingToPickup = $this->bearingDeg(
-                        (float) $driver->latitude, (float) $driver->longitude,
-                        (float) $order->pickup_lat, (float) $order->pickup_lng
-                    );
-                    $diff = abs($bearingToDest - $bearingToPickup);
-                    if ($diff > 180) $diff = 360 - $diff;
-                    if ($diff > 60) {
-                        Log::debug("│  Skip #{$driverId} {$driver->name}: đơn mới ngược hướng đơn đang giao ({$diff}°)");
-                        $skipped++;
-                        continue;
+                if ($active->delivery_lat && $active->delivery_lng) {
+                    // Lấy vị trí realtime từ Firebase
+                    $driverLat = (float) $driver->latitude;
+                    $driverLng = (float) $driver->longitude;
+                    try {
+                        $fbData = RTDBService::db()
+                            ->getReference("flashship_main/locations/driver_{$driverId}")
+                            ->getValue();
+                        if ($fbData && isset($fbData['lat'], $fbData['lng'])) {
+                            $driverLat = (float) $fbData['lat'];
+                            $driverLng = (float) $fbData['lng'];
+                        }
+                    } catch (\Throwable $e) {}
+
+                    if ($driverLat && $driverLng) {
+                        $bearingToDest = $this->bearingDeg(
+                            $driverLat, $driverLng,
+                            (float) $active->delivery_lat, (float) $active->delivery_lng
+                        );
+                        $bearingToPickup = $this->bearingDeg(
+                            $driverLat, $driverLng,
+                            (float) $order->pickup_lat, (float) $order->pickup_lng
+                        );
+                        $diff = abs($bearingToDest - $bearingToPickup);
+                        if ($diff > 180) $diff = 360 - $diff;
+                        if ($diff > 60) {
+                            Log::debug("│  Skip #{$driverId} {$driver->name}: đơn mới ngược hướng đơn đang giao ({$diff}°)");
+                            $skipped++;
+                            continue;
+                        }
                     }
                 }
             }
