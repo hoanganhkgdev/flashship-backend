@@ -308,10 +308,11 @@ class DispatchService
             }
 
             // Check lại khoảng cách realtime — tài xế có thể đã di chuyển xa
-            if ($order->pickup_lat && $order->pickup_lng && $driver->latitude && $driver->longitude) {
+            if ($order->pickup_lat && $order->pickup_lng) {
+                [$drvLat, $drvLng] = $this->getDriverRealtimePosition($driverId, (float) $driver->latitude, (float) $driver->longitude);
                 $currentDist = $this->haversineKm(
                     (float) $order->pickup_lat, (float) $order->pickup_lng,
-                    (float) $driver->latitude, (float) $driver->longitude
+                    $drvLat, $drvLng
                 );
                 $maxRadius = self::MAX_RADIUS_KM;
                 if ($currentDist > $maxRadius) {
@@ -351,19 +352,7 @@ class DispatchService
             if ($activeOrders->count() === 1 && $order->pickup_lat && $order->pickup_lng) {
                 $active = $activeOrders->first();
                 if ($active->delivery_lat && $active->delivery_lng) {
-                    // Lấy vị trí realtime từ Firebase
-                    $driverLat = (float) $driver->latitude;
-                    $driverLng = (float) $driver->longitude;
-                    try {
-                        $fbData = RTDBService::db()
-                            ->getReference("flashship_main/locations/driver_{$driverId}")
-                            ->getValue();
-                        if ($fbData && isset($fbData['lat'], $fbData['lng'])) {
-                            $driverLat = (float) $fbData['lat'];
-                            $driverLng = (float) $fbData['lng'];
-                        }
-                    } catch (\Throwable $e) {}
-
+                    [$driverLat, $driverLng] = $this->getDriverRealtimePosition($driverId, (float) $driver->latitude, (float) $driver->longitude);
                     if ($driverLat && $driverLng) {
                         $bearingToDest = $this->bearingDeg(
                             $driverLat, $driverLng,
@@ -825,9 +814,23 @@ class DispatchService
         return ($waitMins / self::WAIT_TIME_CAP_MINS) * self::W_WAIT_TIME;
     }
 
+    private function getDriverRealtimePosition(int $driverId, ?float $dbLat = null, ?float $dbLng = null): array
+    {
+        try {
+            $fbData = RTDBService::db()
+                ->getReference("flashship_main/locations/driver_{$driverId}")
+                ->getValue();
+            if ($fbData && isset($fbData['lat'], $fbData['lng'])) {
+                return [(float) $fbData['lat'], (float) $fbData['lng']];
+            }
+        } catch (\Throwable $e) {}
+        return [$dbLat ?? 0.0, $dbLng ?? 0.0];
+    }
+
     private function distanceKm(User $driver, Order $order): float
     {
-        return $this->haversineKm((float) $driver->latitude, (float) $driver->longitude, (float) $order->pickup_lat, (float) $order->pickup_lng);
+        [$lat, $lng] = $this->getDriverRealtimePosition($driver->id, (float) $driver->latitude, (float) $driver->longitude);
+        return $this->haversineKm($lat, $lng, (float) $order->pickup_lat, (float) $order->pickup_lng);
     }
 
     private function hasBlockedDebt(User $driver): bool
