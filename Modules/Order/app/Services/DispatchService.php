@@ -361,7 +361,7 @@ class DispatchService
                     );
                     $diff = abs($bearingToDest - $bearingToPickup);
                     if ($diff > 180) $diff = 360 - $diff;
-                    if ($diff > 90) {
+                    if ($diff > 60) {
                         Log::debug("│  Skip #{$driverId} {$driver->name}: đơn mới ngược hướng đơn đang giao ({$diff}°)");
                         $skipped++;
                         continue;
