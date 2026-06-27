@@ -416,14 +416,9 @@ class CallCenterPage extends Page implements HasForms
 
             $pickupLat = $this->pickupLat;
             $pickupLng = $this->pickupLng;
-            if ($pickupLat === null) {
-                $pickupGeo = GoogleMapService::geocode($this->withCity($pickupAddress, $cityName));
-                $pickupLat = $pickupGeo['lat'] ?? null;
-                $pickupLng = $pickupGeo['lng'] ?? null;
-            }
 
             if (!$pickupLat || !$pickupLng) {
-                $this->resultError = "Không xác định được tọa độ {$pickupLabel}. Vui lòng chọn lại trên bản đồ hoặc nhập chính xác hơn.";
+                $this->resultError = "Vui lòng chọn {$pickupLabel} từ gợi ý hoặc bản đồ để có toạ độ chính xác.";
                 return;
             }
 
