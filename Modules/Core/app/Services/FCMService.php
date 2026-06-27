@@ -78,6 +78,10 @@ class FCMService
     {
         try {
             $message = CloudMessage::withTarget('token', $fcmToken)
+                ->withNotification(Notification::create(
+                    "🚀 Đơn hàng mới #{$orderCode}",
+                    $pickupAddress ?: 'Nhấn để xem và nhận đơn hàng'
+                ))
                 ->withData([
                     'type'           => 'order_offer',
                     'order_id'       => (string) $orderId,
@@ -87,15 +91,21 @@ class FCMService
                 ->withAndroidConfig(AndroidConfig::fromArray([
                     'priority' => 'high',
                     'ttl'      => '25s',
+                    'notification' => [
+                        'channel_id' => 'order_offer_channel',
+                        'sound'      => 'order_offer',
+                    ],
                 ]))
                 ->withApnsConfig(ApnsConfig::fromArray([
                     'headers' => [
-                        'apns-priority'    => '10',
-                        'apns-push-type'   => 'background',
-                        'apns-expiration'  => '0',
+                        'apns-priority'  => '10',
+                        'apns-push-type' => 'alert',
                     ],
                     'payload' => ['aps' => [
+                        'sound'             => 'order_offer.aiff',
+                        'badge'             => 1,
                         'content-available' => 1,
+                        'interruption-level' => 'time-sensitive',
                     ]],
                 ]));
             try {
