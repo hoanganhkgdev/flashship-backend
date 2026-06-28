@@ -76,13 +76,6 @@
 <form wire:submit="placeOrder">
         {{ $this->form }}
 
-        {{-- ── Bản đồ preview ── --}}
-        <div class="mt-4 rounded-2xl overflow-hidden border border-gray-200 dark:border-gray-700"
-             id="cc-preview-wrap"
-             style="height: 200px; {{ $pickupLat ? '' : 'display:none;' }}">
-            <div id="cc-preview-map" style="width:100%; height:100%;"></div>
-        </div>
-
         {{-- ── Action bar ── --}}
         <div class="mt-5 space-y-3">
 
@@ -110,6 +103,14 @@
             </button>
 
         </div>
+
+        {{-- ── Bản đồ preview (4:3) ── --}}
+        <div class="mt-4 rounded-2xl overflow-hidden border border-gray-200 dark:border-gray-700"
+             id="cc-preview-wrap"
+             style="aspect-ratio: 4/3; {{ $pickupLat ? '' : 'display:none;' }}">
+            <div id="cc-preview-map" style="width:100%; height:100%;"></div>
+        </div>
+
     </form>
 
 @else
