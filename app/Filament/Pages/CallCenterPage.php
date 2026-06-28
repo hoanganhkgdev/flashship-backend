@@ -6,17 +6,11 @@ use Filament\Pages\Page;
 use Filament\Forms\Form;
 use Filament\Forms\Contracts\HasForms;
 use Filament\Forms\Concerns\InteractsWithForms;
-use Filament\Forms\Components\Actions\Action;
-use Filament\Forms\Components\Section;
-use Filament\Forms\Components\Select;
-use Filament\Forms\Components\TextInput;
-use Filament\Forms\Components\Textarea;
 use Filament\Notifications\Notification;
 use Illuminate\Support\Facades\DB;
 use Modules\Core\Services\GoogleMapService;
 use Modules\Order\Models\Order;
 use Modules\Order\Services\OrderService;
-use Modules\Pricing\Services\PricingService;
 
 class CallCenterPage extends Page implements HasForms
 {
@@ -74,9 +68,18 @@ class CallCenterPage extends Page implements HasForms
         return in_array($this->serviceType, ['bike', 'motor', 'car']);
     }
 
-    private function hasCargoFields(): bool
+    public function isAdmin(): bool
     {
-        return in_array($this->serviceType, ['delivery', 'shopping']);
+        return auth()->user()?->user_type === 'admin';
+    }
+
+    private function userCityId(): int
+    {
+        $user = auth()->user();
+        if ($user?->user_type === 'admin') {
+            return 2;
+        }
+        return (int) ($user?->city_id ?? 2);
     }
 
     // ─── Mount ───────────────────────────────────────────────────────────────
@@ -97,7 +100,7 @@ class CallCenterPage extends Page implements HasForms
             $this->deliveryLng = $request->filled('delivery_lng') ? (float) $request->get('delivery_lng') : null;
 
             $this->form->fill([
-                'city_id'          => $request->get('city_id', 2),
+                'city_id'          => $request->get('city_id', $this->userCityId()),
                 'pickup_address'   => $request->get('pickup_address', ''),
                 'pickup_phone'     => $request->get('pickup_phone', ''),
                 'delivery_address' => $request->get('delivery_address', ''),
@@ -115,7 +118,7 @@ class CallCenterPage extends Page implements HasForms
     private function defaultFormData(mixed $cityId = null): array
     {
         return [
-            'city_id'          => $cityId ?? 2,
+            'city_id'          => $cityId ?? $this->userCityId(),
             'pickup_address'   => '',
             'pickup_phone'     => '',
             'delivery_address' => '',
@@ -141,6 +144,10 @@ class CallCenterPage extends Page implements HasForms
         $this->previewFee      = null;
         $this->previewDistance = null;
         $this->previewStatus   = null;
+        $this->resultOrderCode = null;
+        $this->resultError     = null;
+        $this->resultFee       = null;
+        $this->resultDistance  = null;
         $this->form->fill($this->defaultFormData($cityId));
     }
 
@@ -164,205 +171,9 @@ class CallCenterPage extends Page implements HasForms
         $this->previewStatus   = null;
     }
 
-    // ─── Form ────────────────────────────────────────────────────────────────
-
     public function form(Form $form): Form
     {
-        $cities = DB::table('cities')->orderBy('name')->get(['id', 'name'])
-            ->mapWithKeys(fn($c) => [$c->id => $c->name])->toArray();
-
-        return $form->schema([
-
-            // Khu vực
-            Select::make('city_id')
-                ->label('Khu vực')
-                ->options($cities)
-                ->placeholder('Chọn khu vực...')
-                ->required()
-                ->searchable()
-                ->live(),
-
-            // ── MUA HỘ: Nội dung đơn / Gọi khách ───────────────────────────
-            Section::make('Đơn hàng cần mua')
-                ->icon('heroicon-o-shopping-bag')
-                ->hidden(fn() => $this->serviceType !== 'shopping')
-                ->schema([
-                    Textarea::make('shopping_note')
-                        ->label('Nội dung / Gọi khách')
-                        ->placeholder('VD: 1 hộp cơm gà xối mỡ lấy đùi chiên nước mắm ở Huỳnh Trân 3/2...')
-                        ->rows(3)
-                        ->required(fn() => $this->serviceType === 'shopping')
-                        ->columnSpanFull(),
-                    TextInput::make('pickup_address')
-                        ->label('Địa chỉ cửa hàng')
-                        ->placeholder('Tên quán hoặc địa chỉ để tính phí...')
-                        ->extraInputAttributes(['id' => 'cc-pickup-addr', 'autocomplete' => 'off'])
-                        ->suffixActions([
-                            Action::make('openMapPicker')
-                                ->label('Bản đồ')->icon('heroicon-o-map-pin')->color('warning')
-                                ->action(fn () => $this->dispatch('openMapPicker')),
-                        ])
-                        ->columnSpanFull(),
-                ]),
-
-            // ── LẤY HỘ: Điểm lấy đơn ───────────────────────────────────────
-            Section::make('Điểm lấy đơn')
-                ->icon('heroicon-o-building-storefront')
-                ->hidden(fn() => $this->serviceType !== 'delivery')
-                ->schema([
-                    TextInput::make('pickup_address')
-                        ->label('Địa chỉ lấy')
-                        ->placeholder('Nhập địa chỉ hoặc chọn trên bản đồ...')
-                        ->required(fn() => $this->serviceType === 'delivery')
-                        ->extraInputAttributes(['id' => 'cc-pickup-addr', 'autocomplete' => 'off'])
-                        ->suffixActions([
-                            Action::make('openMapPicker')
-                                ->label('Bản đồ')->icon('heroicon-o-map-pin')->color('warning')
-                                ->action(fn () => $this->dispatch('openMapPicker')),
-                        ]),
-                    TextInput::make('pickup_phone')
-                        ->label('SĐT lấy hàng')
-                        ->tel()
-                        ->placeholder('0xxx xxx xxx'),
-                ])->columns(2),
-
-            // ── XE ÔM / LÁI XE (bike, motor, car) ──────────────────────────
-            Section::make('Điểm rước')
-                ->icon('heroicon-o-map-pin')
-                ->hidden(fn() => !$this->isRide())
-                ->schema([
-                    TextInput::make('pickup_address')
-                        ->label('Địa chỉ rước')
-                        ->placeholder('Nhập địa chỉ hoặc chọn trên bản đồ...')
-                        ->required(fn() => $this->isRide())
-                        ->extraInputAttributes(['id' => 'cc-pickup-addr', 'autocomplete' => 'off'])
-                        ->suffixActions([
-                            Action::make('openMapPicker')
-                                ->label('Bản đồ')->icon('heroicon-o-map-pin')->color('warning')
-                                ->action(fn () => $this->dispatch('openMapPicker')),
-                        ]),
-                    TextInput::make('pickup_phone')
-                        ->label('SĐT khách')
-                        ->tel()
-                        ->placeholder('0xxx xxx xxx')
-                        ->required(fn() => $this->isRide()),
-                ])->columns(2),
-
-            Section::make('Điểm đến')
-                ->icon('heroicon-o-flag')
-                ->hidden(fn() => !$this->isRide())
-                ->schema([
-                    TextInput::make('delivery_address')
-                        ->label('Địa chỉ đến')
-                        ->placeholder('Nhập địa chỉ hoặc chọn trên bản đồ...')
-                        ->required(fn() => $this->isRide())
-                        ->extraInputAttributes(['id' => 'cc-delivery-addr', 'autocomplete' => 'off'])
-                        ->suffixActions([
-                            Action::make('openDeliveryMapPicker')
-                                ->label('Bản đồ')->icon('heroicon-o-map-pin')->color('warning')
-                                ->action(fn () => $this->dispatch('openDeliveryMapPicker')),
-                        ])
-                        ->columnSpanFull(),
-                ]),
-
-            Section::make('Tiền xe & ghi chú')
-                ->icon('heroicon-o-banknotes')
-                ->hidden(fn() => !$this->isRide())
-                ->schema([
-                    TextInput::make('shipping_fee')
-                        ->label('Tiền xe')
-                        ->numeric()
-                        ->placeholder('Bấm Tính phí hoặc nhập thủ công')
-                        ->suffix('đ'),
-                    Textarea::make('order_note')
-                        ->label('Ghi chú')
-                        ->placeholder('Ghi chú cho tài xế...')
-                        ->rows(2)
-                        ->columnSpanFull(),
-                ])->columns(2),
-
-            // ── NẠP TIỀN ────────────────────────────────────────────────────
-            Section::make('Thông tin nạp tiền')
-                ->icon('heroicon-o-credit-card')
-                ->hidden(fn() => $this->serviceType !== 'topup')
-                ->schema([
-                    TextInput::make('cod_amount')
-                        ->label('Số tiền nạp')
-                        ->numeric()
-                        ->placeholder('VD: 2000000')
-                        ->suffix('đ')
-                        ->required(fn() => $this->serviceType === 'topup'),
-                    TextInput::make('shipping_fee')
-                        ->label('Phí dịch vụ')
-                        ->numeric()
-                        ->placeholder('Nhập thủ công')
-                        ->suffix('đ'),
-                    TextInput::make('pickup_phone')
-                        ->label('SĐT khách')
-                        ->tel()
-                        ->placeholder('0xxx xxx xxx')
-                        ->required(fn() => $this->serviceType === 'topup'),
-                    TextInput::make('pickup_address')
-                        ->label('Điểm nạp')
-                        ->placeholder('Địa chỉ khách hoặc chọn trên bản đồ...')
-                        ->required(fn() => $this->serviceType === 'topup')
-                        ->extraInputAttributes(['id' => 'cc-pickup-addr', 'autocomplete' => 'off'])
-                        ->suffixActions([
-                            Action::make('openMapPicker')
-                                ->label('Bản đồ')->icon('heroicon-o-map-pin')->color('warning')
-                                ->action(fn () => $this->dispatch('openMapPicker')),
-                        ])
-                        ->columnSpanFull(),
-                    Textarea::make('order_note')
-                        ->label('Nội dung nạp')
-                        ->placeholder('VD: Nạp ngân hàng Vietcombank, nạp điện thoại Viettel...')
-                        ->rows(2)
-                        ->columnSpanFull(),
-                ])->columns(2),
-
-            // ── CHUNG: Điểm giao đơn (delivery + shopping) ──────────────────
-            Section::make('Điểm giao đơn')
-                ->icon('heroicon-o-home')
-                ->hidden(fn() => !in_array($this->serviceType, ['delivery', 'shopping']))
-                ->schema([
-                    TextInput::make('delivery_address')
-                        ->label('Địa chỉ giao')
-                        ->placeholder('Số nhà, đường, phường, quận... (có thể để trống)')
-                        ->extraInputAttributes(['id' => 'cc-delivery-addr', 'autocomplete' => 'off'])
-                        ->suffixActions([
-                            Action::make('openDeliveryMapPicker')
-                                ->label('Bản đồ')->icon('heroicon-o-map-pin')->color('warning')
-                                ->action(fn () => $this->dispatch('openDeliveryMapPicker')),
-                        ]),
-                    TextInput::make('delivery_phone')
-                        ->label('SĐT khách')
-                        ->tel()
-                        ->placeholder('0xxx xxx xxx'),
-                ])->columns(2),
-
-            // ── CHUNG: Cước phí ──────────────────────────────────────────────
-            Section::make('Cước phí')
-                ->icon('heroicon-o-banknotes')
-                ->hidden(fn() => $this->serviceType === 'topup' || $this->isRide())
-                ->schema([
-                    TextInput::make('shipping_fee')
-                        ->label('Phí ship')
-                        ->numeric()
-                        ->placeholder('Bấm Tính phí hoặc nhập thủ công')
-                        ->suffix('đ'),
-                    TextInput::make('cod_amount')
-                        ->label(fn() => $this->serviceType === 'shopping' ? 'Tiền hàng thu hộ' : 'Thu hộ COD')
-                        ->numeric()
-                        ->placeholder('0 nếu không có')
-                        ->suffix('đ'),
-                    Textarea::make('order_note')
-                        ->label('Ghi chú thêm')
-                        ->placeholder('Ghi chú cho tài xế...')
-                        ->rows(2)
-                        ->columnSpanFull(),
-                ])->columns(2),
-
-        ])->statePath('data');
+        return $form->schema([])->statePath('data');
     }
 
     // ─── Helpers ─────────────────────────────────────────────────────────────
@@ -385,16 +196,21 @@ class CallCenterPage extends Page implements HasForms
 
     public function placeOrder(): void
     {
-        $values = $this->form->getState();
+        $values = $this->data;
 
         $this->resultOrderCode = null;
         $this->resultError     = null;
         $this->resultFee       = null;
         $this->resultDistance  = null;
 
+        // Enforce city cho non-admin
+        if (!$this->isAdmin()) {
+            $values['city_id'] = $this->userCityId();
+        }
+
         $cityId = $values['city_id'] ?? null;
-        if (!$cityId) {
-            $this->resultError = 'Vui lòng chọn khu vực.';
+        if (!$cityId || !DB::table('cities')->where('id', $cityId)->exists()) {
+            $this->resultError = 'Khu vực không hợp lệ.';
             return;
         }
 
@@ -410,6 +226,10 @@ class CallCenterPage extends Page implements HasForms
             $this->resultError = "Vui lòng nhập {$pickupLabel}.";
             return;
         }
+
+        // Validate shipping_fee & cod_amount
+        $shippingFee = max(0, (int) ($values['shipping_fee'] ?? 0));
+        $codAmount   = !empty($values['cod_amount']) ? max(0, (int) $values['cod_amount']) : null;
 
         try {
             $cityName = $this->cityName();
@@ -434,8 +254,6 @@ class CallCenterPage extends Page implements HasForms
                     $deliveryLng = $deliveryGeo['lng'] ?? null;
                 }
             }
-
-            $shippingFee = (int) ($values['shipping_fee'] ?? 0);
 
             $order = Order::create([
                 'code'               => '',
@@ -467,7 +285,7 @@ class CallCenterPage extends Page implements HasForms
                 'order_note'         => $this->serviceType === 'shopping'
                     ? trim(($values['shopping_note'] ?? '') . "\n" . ($values['order_note'] ?? ''))  ?: null
                     : ($values['order_note'] ?: null),
-                'cod_amount'         => !empty($values['cod_amount']) ? (int) $values['cod_amount'] : null,
+                'cod_amount'         => $codAmount,
                 'distance'           => null,
             ]);
 
@@ -478,6 +296,11 @@ class CallCenterPage extends Page implements HasForms
             $this->resultOrderCode = $order->code;
             $this->resultFee       = $shippingFee;
             $this->resultDistance  = null;
+
+            $this->pickupLat  = null;
+            $this->pickupLng  = null;
+            $this->deliveryLat = null;
+            $this->deliveryLng = null;
 
             $this->form->fill($this->defaultFormData($cityId));
 
