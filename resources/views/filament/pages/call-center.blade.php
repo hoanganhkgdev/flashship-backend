@@ -77,11 +77,11 @@
         {{ $this->form }}
 
         {{-- ── Bản đồ preview ── --}}
-        @if ($pickupLat && $pickupLng)
-        <div class="mt-4 rounded-2xl overflow-hidden border border-gray-200 dark:border-gray-700" style="height: 200px;">
+        <div class="mt-4 rounded-2xl overflow-hidden border border-gray-200 dark:border-gray-700"
+             id="cc-preview-wrap"
+             style="height: 200px; {{ $pickupLat ? '' : 'display:none;' }}">
             <div id="cc-preview-map" style="width:100%; height:100%;"></div>
         </div>
-        @endif
 
         {{-- ── Action bar ── --}}
         <div class="mt-5 space-y-3">
@@ -395,14 +395,16 @@ let _previewMap, _pickupMarker, _deliveryMarker;
 
 function _updatePreviewMap() {
     const el = document.getElementById('cc-preview-map');
+    const wrap = document.getElementById('cc-preview-wrap');
     if (!el || !_ccMapsReady) return;
 
-    const pickupLat = @json($pickupLat);
-    const pickupLng = @json($pickupLng);
-    const deliveryLat = @json($deliveryLat);
-    const deliveryLng = @json($deliveryLng);
+    const pickupLat = @this.pickupLat;
+    const pickupLng = @this.pickupLng;
+    const deliveryLat = @this.deliveryLat;
+    const deliveryLng = @this.deliveryLng;
 
-    if (!pickupLat) return;
+    if (!pickupLat) { if (wrap) wrap.style.display = 'none'; return; }
+    if (wrap) wrap.style.display = '';
 
     const center = { lat: pickupLat, lng: pickupLng };
 
