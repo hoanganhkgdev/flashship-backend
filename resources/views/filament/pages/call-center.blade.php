@@ -360,10 +360,11 @@ window.ccConfirmMapSelection = function () {
 };
 
 // ── Autocomplete ──────────────────────────────────────────────────────────────
+const _acElements = new WeakSet();
 function _initAutocomplete(inputId, livewireMethod) {
     const input = document.getElementById(inputId);
-    if (!input || input._ccAcInit || !_ccMapsReady) return;
-    input._ccAcInit = true;
+    if (!input || _acElements.has(input) || !_ccMapsReady) return;
+    _acElements.add(input);
     const center = _ccCityCenter();
     const bounds = new google.maps.LatLngBounds(
         new google.maps.LatLng(center.lat - 0.15, center.lng - 0.15),
