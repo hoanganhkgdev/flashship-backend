@@ -357,7 +357,16 @@ function _initAutocomplete(inputId, livewireMethod) {
     const input = document.getElementById(inputId);
     if (!input || input._ccAcInit || !_ccMapsReady) return;
     input._ccAcInit = true;
-    const ac = new google.maps.places.Autocomplete(input, { componentRestrictions: { country: 'vn' } });
+    const center = _ccCityCenter();
+    const bounds = new google.maps.LatLngBounds(
+        new google.maps.LatLng(center.lat - 0.15, center.lng - 0.15),
+        new google.maps.LatLng(center.lat + 0.15, center.lng + 0.15)
+    );
+    const ac = new google.maps.places.Autocomplete(input, {
+        componentRestrictions: { country: 'vn' },
+        bounds: bounds,
+        strictBounds: true,
+    });
     ac.addListener('place_changed', () => {
         const p = ac.getPlace();
         if (!p.geometry?.location) return;
