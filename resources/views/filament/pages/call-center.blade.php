@@ -76,6 +76,13 @@
 <form wire:submit="placeOrder">
         {{ $this->form }}
 
+        {{-- ── Bản đồ preview ── --}}
+        @if ($pickupLat && $pickupLng)
+        <div class="mt-4 rounded-2xl overflow-hidden border border-gray-200 dark:border-gray-700" style="height: 200px;">
+            <div id="cc-preview-map" style="width:100%; height:100%;"></div>
+        </div>
+        @endif
+
         {{-- ── Action bar ── --}}
         <div class="mt-5 space-y-3">
 
@@ -383,12 +390,61 @@ function _initAllAutocomplete() {
     _initAutocomplete('cc-delivery-addr', 'setDeliveryLocation');
 }
 
+// ── Preview map ──────────────────────────────────────────────────────────────
+let _previewMap, _pickupMarker, _deliveryMarker;
+
+function _updatePreviewMap() {
+    const el = document.getElementById('cc-preview-map');
+    if (!el || !_ccMapsReady) return;
+
+    const pickupLat = @json($pickupLat);
+    const pickupLng = @json($pickupLng);
+    const deliveryLat = @json($deliveryLat);
+    const deliveryLng = @json($deliveryLng);
+
+    if (!pickupLat) return;
+
+    const center = { lat: pickupLat, lng: pickupLng };
+
+    if (!_previewMap) {
+        _previewMap = new google.maps.Map(el, {
+            center: center, zoom: 14,
+            mapTypeControl: false, fullscreenControl: false,
+            streetViewControl: false, zoomControl: false,
+            gestureHandling: 'cooperative',
+        });
+    } else {
+        _previewMap.setCenter(center);
+    }
+
+    if (_pickupMarker) _pickupMarker.setMap(null);
+    _pickupMarker = new google.maps.Marker({
+        position: center, map: _previewMap,
+        label: { text: 'A', color: '#fff', fontWeight: 'bold' },
+        title: 'Điểm lấy',
+    });
+
+    if (_deliveryMarker) _deliveryMarker.setMap(null);
+    if (deliveryLat && deliveryLng) {
+        _deliveryMarker = new google.maps.Marker({
+            position: { lat: deliveryLat, lng: deliveryLng }, map: _previewMap,
+            label: { text: 'B', color: '#fff', fontWeight: 'bold' },
+            title: 'Điểm giao',
+        });
+        const bounds = new google.maps.LatLngBounds();
+        bounds.extend(center);
+        bounds.extend({ lat: deliveryLat, lng: deliveryLng });
+        _previewMap.fitBounds(bounds, 40);
+    }
+}
+
 // ── Google Maps callback ──────────────────────────────────────────────────────
 window.ccInitGoogleMaps = function () {
     _ccMapsReady = true;
     const modal = document.getElementById('cc-map-modal');
     if (modal && modal.parentElement !== document.body) document.body.appendChild(modal);
     _initAllAutocomplete();
+    _updatePreviewMap();
 };
 
 // ── Filament suffixAction events ──────────────────────────────────────────────
@@ -398,7 +454,7 @@ window.addEventListener('openDeliveryMapPicker', () => ccOpenMapModal('delivery'
 // ── Re-init autocomplete sau Livewire update ───────────────────────────────────
 document.addEventListener('livewire:initialized', () => {
     Livewire.hook('commit', ({ succeed }) => {
-        succeed(() => setTimeout(_initAllAutocomplete, 60));
+        succeed(() => { setTimeout(_initAllAutocomplete, 60); setTimeout(_updatePreviewMap, 100); });
     });
 });
 </script>
