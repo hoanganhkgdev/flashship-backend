@@ -408,7 +408,7 @@ function _updatePreviewMap() {
 
     const center = { lat: pickupLat, lng: pickupLng };
 
-    if (!_previewMap) {
+    if (!_previewMap || !el.hasChildNodes()) {
         _previewMap = new google.maps.Map(el, {
             center: center, zoom: 14,
             mapTypeControl: false, fullscreenControl: false,
@@ -417,6 +417,7 @@ function _updatePreviewMap() {
         });
     } else {
         _previewMap.setCenter(center);
+        google.maps.event.trigger(_previewMap, 'resize');
     }
 
     if (_pickupMarker) _pickupMarker.setMap(null);
@@ -456,7 +457,7 @@ window.addEventListener('openDeliveryMapPicker', () => ccOpenMapModal('delivery'
 // ── Re-init autocomplete sau Livewire update ───────────────────────────────────
 document.addEventListener('livewire:initialized', () => {
     Livewire.hook('commit', ({ succeed }) => {
-        succeed(() => { setTimeout(_initAllAutocomplete, 60); setTimeout(_updatePreviewMap, 100); });
+        succeed(() => { setTimeout(_initAllAutocomplete, 60); setTimeout(_updatePreviewMap, 300); });
     });
 });
 </script>
