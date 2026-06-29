@@ -12,7 +12,7 @@ class DriverScoreService
     const MAX_SCORE            = 150;
 
     const SCORE_DECLINE        = -2;
-    const SCORE_TIMEOUT        = -2;
+    const SCORE_TIMEOUT        = -1;
 
     const RATING_DELTAS        = [5 => 1, 4 => 0, 3 => -1, 2 => -3, 1 => -5];
 
