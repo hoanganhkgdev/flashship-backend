@@ -312,38 +312,6 @@ class DispatchService
                 continue;
             }
 
-            // Check lại khoảng cách realtime — tài xế có thể đã di chuyển xa
-            if ($order->pickup_lat && $order->pickup_lng) {
-                [$drvLat, $drvLng] = $this->getDriverRealtimePosition($driverId, (float) $driver->latitude, (float) $driver->longitude);
-                $currentDist = $this->haversineKm(
-                    (float) $order->pickup_lat, (float) $order->pickup_lng,
-                    $drvLat, $drvLng
-                );
-                $maxRadius = self::MAX_RADIUS_KM;
-                if ($currentDist > $maxRadius) {
-                    Log::debug("│  Skip #{$driverId} {$driver->name}: đã xa {$currentDist}km (max {$maxRadius}km)");
-                    $skipped++;
-                    continue;
-                }
-            }
-
-            // Check heartbeat Firebase — app chết thì skip
-            try {
-                $fbData = RTDBService::db()
-                    ->getReference("flashship_main/locations/driver_{$driverId}")
-                    ->getValue();
-                if ($fbData && isset($fbData['heartbeat_at'])) {
-                    $hbAge = time() - (int)($fbData['heartbeat_at'] / 1000);
-                    if ($hbAge > 120) {
-                        Log::debug("│  Skip #{$driverId} {$driver->name}: heartbeat stale {$hbAge}s");
-                        $skipped++;
-                        continue;
-                    }
-                }
-            } catch (\Throwable $e) {
-                // Firebase lỗi → bỏ qua check, vẫn phát đơn
-            }
-
             $activeOrders = Order::where('delivery_man_id', $driverId)
                 ->whereIn('status', ['assigned', 'processing', 'on_the_way'])
                 ->get(['id', 'delivery_lat', 'delivery_lng']);
