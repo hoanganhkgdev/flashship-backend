@@ -349,28 +349,35 @@ class DispatchService
             }
 
             // Ghép đơn: tài xế có 1 đơn → chỉ phát nếu pickup mới cùng hướng
-            if ($activeOrders->count() === 1 && $order->pickup_lat && $order->pickup_lng) {
+            if ($activeOrders->count() === 1) {
                 $active = $activeOrders->first();
-                if ($active->delivery_lat && $active->delivery_lng) {
-                    [$driverLat, $driverLng] = $this->getDriverRealtimePosition($driverId, (float) $driver->latitude, (float) $driver->longitude);
-                    if ($driverLat && $driverLng) {
-                        $bearingToDest = $this->bearingDeg(
-                            $driverLat, $driverLng,
-                            (float) $active->delivery_lat, (float) $active->delivery_lng
-                        );
-                        $bearingToPickup = $this->bearingDeg(
-                            $driverLat, $driverLng,
-                            (float) $order->pickup_lat, (float) $order->pickup_lng
-                        );
-                        $diff = abs($bearingToDest - $bearingToPickup);
-                        if ($diff > 180) $diff = 360 - $diff;
-                        if ($diff > 60) {
-                            Log::debug("│  Skip #{$driverId} {$driver->name}: đơn mới ngược hướng đơn đang giao ({$diff}°)");
-                            $skipped++;
-                            continue;
-                        }
-                    }
+                if (!$order->pickup_lat || !$order->pickup_lng || !$active->delivery_lat || !$active->delivery_lng) {
+                    Log::debug("│  Skip #{$driverId} {$driver->name}: không ghép đơn — thiếu toạ độ");
+                    $skipped++;
+                    continue;
                 }
+                [$driverLat, $driverLng] = $this->getDriverRealtimePosition($driverId, (float) $driver->latitude, (float) $driver->longitude);
+                if (!$driverLat || !$driverLng) {
+                    Log::debug("│  Skip #{$driverId} {$driver->name}: không ghép đơn — không lấy được vị trí tài xế");
+                    $skipped++;
+                    continue;
+                }
+                $bearingToDest = $this->bearingDeg(
+                    $driverLat, $driverLng,
+                    (float) $active->delivery_lat, (float) $active->delivery_lng
+                );
+                $bearingToPickup = $this->bearingDeg(
+                    $driverLat, $driverLng,
+                    (float) $order->pickup_lat, (float) $order->pickup_lng
+                );
+                $diff = abs($bearingToDest - $bearingToPickup);
+                if ($diff > 180) $diff = 360 - $diff;
+                if ($diff > 60) {
+                    Log::debug("│  Skip #{$driverId} {$driver->name}: đơn mới ngược hướng đơn đang giao ({$diff}°)");
+                    $skipped++;
+                    continue;
+                }
+                Log::debug("│  Ghép đơn #{$driverId} {$driver->name}: cùng hướng ({$diff}°)");
             }
 
             $receivingOther = Order::where('status', 'pending')
