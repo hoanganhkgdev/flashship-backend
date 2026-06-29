@@ -14,6 +14,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Modules\Driver\Models\WithdrawRequest;
 use Modules\Driver\Services\DriverWalletService;
+use App\Services\PayOSPayoutService;
 use App\Filament\Traits\HideFromCityManager;
 
 class WithdrawRequestResource extends Resource
@@ -93,6 +94,14 @@ class WithdrawRequestResource extends Resource
                         default    => 'gray',
                     }),
 
+                Tables\Columns\TextColumn::make('driverBank.bank_name')
+                    ->label('Ngân hàng')
+                    ->default('—'),
+
+                Tables\Columns\TextColumn::make('driverBank.account_number')
+                    ->label('STK')
+                    ->default('—'),
+
                 Tables\Columns\TextColumn::make('admin_note')
                     ->label('Ghi chú')
                     ->limit(40)
@@ -140,14 +149,37 @@ class WithdrawRequestResource extends Resource
                             ->rows(2),
                     ])
                     ->action(function (WithdrawRequest $record, array $data) {
-                        // Balance already deducted on submit — just mark approved
+                        $bank = DB::table('banks')->where('user_id', $record->driver_id)->first();
+                        if (!$bank) {
+                            Notification::make()->danger()->title('Tài xế chưa có thông tin ngân hàng.')->send();
+                            return;
+                        }
+
+                        $refId  = 'WD' . $record->id . '_' . time();
+                        $result = PayOSPayoutService::createPayout(
+                            referenceId:   $refId,
+                            amount:        (int) $record->amount,
+                            description:   'Rut tien TX ' . ($record->driver?->name ?? $record->driver_id),
+                            bankCode:      $bank->bank_code,
+                            accountNumber: $bank->account_number,
+                        );
+
+                        if (!$result['success']) {
+                            Notification::make()->danger()
+                                ->title('Chuyển khoản thất bại')
+                                ->body($result['message'])
+                                ->send();
+                            return;
+                        }
+
                         $record->update([
-                            'status'       => 'approved',
-                            'admin_note'   => $data['admin_note'] ?? null,
-                            'processed_by' => Auth::id(),
-                            'processed_at' => now(),
+                            'status'           => 'approved',
+                            'admin_note'       => $data['admin_note'] ?? null,
+                            'payout_reference' => $refId,
+                            'processed_by'     => Auth::id(),
+                            'processed_at'     => now(),
                         ]);
-                        Notification::make()->success()->title('Đã duyệt yêu cầu rút tiền.')->send();
+                        Notification::make()->success()->title('Đã duyệt và chuyển khoản thành công.')->send();
                     }),
 
                 Tables\Actions\Action::make('reject')

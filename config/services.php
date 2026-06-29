@@ -55,6 +55,12 @@ return [
         'checksum_key' => env('PAYOS_CHECKSUM_KEY'),
     ],
 
+    'payos_payout' => [
+        'client_id'    => env('PAYOS_PAYOUT_CLIENT_ID'),
+        'api_key'      => env('PAYOS_PAYOUT_API_KEY'),
+        'checksum_key' => env('PAYOS_PAYOUT_CHECKSUM_KEY'),
+    ],
+
     'google_maps' => [
         'api_key'       => env('GOOGLE_MAPS_API_KEY'),
         'directions_url' => 'https://maps.googleapis.com/maps/api/directions/json',
