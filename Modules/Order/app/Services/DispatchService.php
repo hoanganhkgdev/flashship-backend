@@ -86,6 +86,11 @@ class DispatchService
     {
         if ($order->status !== 'pending') return;
 
+        if (!$order->pickup_lat || !$order->pickup_lng) {
+            Log::warning("[Dispatch] Đơn #{$order->id} thiếu toạ độ pickup → không dispatch");
+            return;
+        }
+
         $now = now();
 
         Log::info("╔══════════════════════════════════════════════════════════════");

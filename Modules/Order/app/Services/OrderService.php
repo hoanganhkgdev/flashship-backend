@@ -332,6 +332,10 @@ class OrderService
 
     public function createOrder(array $data, User $user): Order
     {
+        if (empty($data['pickup_lat']) || empty($data['pickup_lng'])) {
+            throw new \InvalidArgumentException('Thiếu toạ độ điểm lấy hàng. Vui lòng chọn địa chỉ từ bản đồ.');
+        }
+
         return Order::create([
             'code'             => '',
             'service_type'     => $data['service_type'],
