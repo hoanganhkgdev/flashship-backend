@@ -650,27 +650,25 @@ class DispatchService
         }
 
         $afterLicense = $afterDebt->filter(function (User $d) use ($order) {
-            return match ($order->service_type) {
-                'bike', 'motor' => $d->vehicle_type === 'motorbike',
-                'car'           => $d->has_car_license,
-                default         => true,
-            };
+            if ($order->service_type === 'car') {
+                return $d->has_car_license;
+            }
+            return true;
         });
         if (($removed = $afterDebt->count() - $afterLicense->count()) > 0) {
             Log::debug("     [Candidates] Loại {$removed} tài xế do không phù hợp loại xe ({$order->service_type})");
         }
 
-        // ── 4. Loại tài xế đang bận nếu đi quá vòng ─────────────────────────────
+        // ── 4. Ghép đơn: chỉ giữ tài xế rảnh HOẶC có 1 đơn mà điểm lấy mới ≤ 1.5km từ điểm giao
         $activeOrders = Order::whereIn('status', ['assigned', 'processing', 'on_the_way'])
             ->whereIn('delivery_man_id', $afterLicense->pluck('id'))
-            ->whereNotNull('delivery_lat')
-            ->whereNotNull('delivery_lng')
             ->get(['delivery_man_id', 'delivery_lat', 'delivery_lng'])
             ->keyBy('delivery_man_id');
 
         $afterDetour = $afterLicense->filter(function (User $d) use ($order, $activeOrders) {
             $active = $activeOrders->get($d->id);
             if (!$active) return true;
+            if (!$active->delivery_lat || !$active->delivery_lng) return false;
             $pickupToDelivery = $this->haversineKm(
                 (float) $order->pickup_lat, (float) $order->pickup_lng,
                 (float) $active->delivery_lat, (float) $active->delivery_lng
@@ -681,25 +679,8 @@ class DispatchService
             Log::debug("     [Candidates] Loại {$removed} tài xế — điểm lấy mới xa điểm giao đơn đang chạy (>1.5km)");
         }
 
-        // ── 4b. Loại tài xế rảnh đang chạy ngược hướng điểm lấy ────────────
-        $afterBearing = $afterDetour->filter(function (User $d) use ($order) {
-            if (!$d->bearing || $d->bearing <= 0) return true;
-            if (!$d->latitude || !$d->longitude) return true;
-
-            $bearingToPickup = $this->bearingDeg(
-                (float) $d->latitude, (float) $d->longitude,
-                (float) $order->pickup_lat, (float) $order->pickup_lng
-            );
-            $diff = abs($d->bearing - $bearingToPickup);
-            if ($diff > 180) $diff = 360 - $diff;
-            return $diff <= 120;
-        });
-        if (($removed = $afterDetour->count() - $afterBearing->count()) > 0) {
-            Log::debug("     [Candidates] Loại {$removed} tài xế rảnh đang chạy ngược hướng (bearing)");
-        }
-
         // ── 5. Sort theo composite score ──────────────────────────────────────────
-        $driverIds   = $afterBearing->pluck('id')->toArray();
+        $driverIds   = $afterDetour->pluck('id')->toArray();
         $ratingStats = Order::whereIn('delivery_man_id', $driverIds)
             ->whereNotNull('driver_rating')
             ->where('status', 'completed')
@@ -707,7 +688,7 @@ class DispatchService
             ->groupBy('delivery_man_id')
             ->pluck('rating_count', 'delivery_man_id');
 
-        $sorted = $afterBearing
+        $sorted = $afterDetour
             ->sortByDesc(function (User $d) use ($ratingStats, $nearbyDrivers) {
                 return $this->compositeScore($d, (int) ($ratingStats[$d->id] ?? 0), $nearbyDrivers[$d->id] ?? 0.0);
             })
@@ -834,11 +815,4 @@ class DispatchService
         return $R * 2 * atan2(sqrt($a), sqrt(1 - $a));
     }
 
-    private function bearingDeg(float $lat1, float $lng1, float $lat2, float $lng2): float
-    {
-        $dLng = deg2rad($lng2 - $lng1);
-        $y    = sin($dLng) * cos(deg2rad($lat2));
-        $x    = cos(deg2rad($lat1)) * sin(deg2rad($lat2)) - sin(deg2rad($lat1)) * cos(deg2rad($lat2)) * cos($dLng);
-        return fmod(rad2deg(atan2($y, $x)) + 360, 360);
-    }
 }
