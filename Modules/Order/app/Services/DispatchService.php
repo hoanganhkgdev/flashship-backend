@@ -141,11 +141,7 @@ class DispatchService
 
         Redis::del("dispatch:lock:driver:{$driverId}");
         DriverScoreService::onTimeout($driverId);
-        if ($order->offer_viewed_at) {
-            Log::info("⏱  [Dispatch] Đơn #{$order->id}: Tài xế {$name} xem đơn nhưng hết giờ → -1 điểm, pop tiếp");
-        } else {
-            Log::info("⏱  [Dispatch] Đơn #{$order->id}: Tài xế {$name} timeout → -1 điểm, pop tài xế tiếp theo");
-        }
+        Log::info("⏱  [Dispatch] Đơn #{$order->id}: Tài xế {$name} timeout → -2 điểm, pop tiếp");
 
         RTDBService::clearDriverOffer($driverId);
 

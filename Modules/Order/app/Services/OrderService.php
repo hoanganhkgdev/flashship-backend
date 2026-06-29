@@ -207,9 +207,7 @@ class OrderService
 
         \Illuminate\Support\Facades\Redis::del("dispatch:lock:driver:{$user->id}");
 
-        if ($order->offer_viewed_at !== null) {
-            DriverScoreService::onDecline($user->id);
-        }
+        DriverScoreService::onDecline($user->id);
 
         RTDBService::clearDriverOffer($user->id);
 
