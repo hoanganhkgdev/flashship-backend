@@ -12,7 +12,6 @@ class DriverScoreService
     const MAX_SCORE            = 150;
 
     const SCORE_DECLINE        = -2;
-    const SCORE_TIMEOUT        = -1;
 
     const RATING_DELTAS        = [5 => 1, 4 => 0, 3 => -1, 2 => -3, 1 => -5];
 
@@ -67,11 +66,6 @@ class DriverScoreService
     public static function onDecline(int $driverId): void
     {
         self::adjustWithStreakReset($driverId, self::SCORE_DECLINE, 'decline');
-    }
-
-    public static function onTimeout(int $driverId): void
-    {
-        self::adjustWithStreakReset($driverId, self::SCORE_TIMEOUT, 'timeout');
     }
 
     public static function onRated(int $driverId, int $stars): void
