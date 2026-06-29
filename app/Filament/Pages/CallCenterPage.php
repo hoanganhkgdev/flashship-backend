@@ -105,8 +105,8 @@ class CallCenterPage extends Page implements HasForms
                 'pickup_phone'     => $request->get('pickup_phone', ''),
                 'delivery_address' => $request->get('delivery_address', ''),
                 'delivery_phone'   => $request->get('delivery_phone', ''),
-                'shopping_note'    => '',
-                'order_note'       => $request->get('order_note', ''),
+                'shopping_note'    => $service === 'shopping' ? $request->get('order_note', '') : '',
+                'order_note'       => $service !== 'shopping' ? $request->get('order_note', '') : '',
                 'cod_amount'       => null,
                 'shipping_fee'     => null,
             ]);
@@ -281,10 +281,9 @@ class CallCenterPage extends Page implements HasForms
                     ? (($values['pickup_phone'] ?? null) ?: null)
                     : (($values['delivery_phone'] ?? null) ?: null),
                 'receiver_name'      => null,
-                // Mua hộ: ghép nội dung đơn vào đầu order_note
                 'order_note'         => $this->serviceType === 'shopping'
-                    ? trim(($values['shopping_note'] ?? '') . "\n" . ($values['order_note'] ?? ''))  ?: null
-                    : ($values['order_note'] ?: null),
+                    ? (trim($values['shopping_note'] ?? '') ?: null)
+                    : (trim($values['order_note'] ?? '') ?: null),
                 'cod_amount'         => $codAmount,
                 'distance'           => null,
             ]);
