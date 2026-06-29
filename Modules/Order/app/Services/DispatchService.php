@@ -584,37 +584,25 @@ class DispatchService
             return collect();
         }
 
-        $now       = now();
-        $hasCoords = $order->pickup_lat && $order->pickup_lng;
+        $now = now();
 
-        // ── 1. Tìm tài xế gần điểm lấy hàng (hoặc toàn city nếu không có tọa độ) ──
-        if ($hasCoords) {
-            $nearbyDrivers = DriverGeoService::getNearby(
-                $order->city_id,
-                (float) $order->pickup_lat,
-                (float) $order->pickup_lng,
-                $radiusKm
-            );
+        // ── 1. Tìm tài xế gần điểm lấy hàng ───────────────────────────────────
+        $nearbyDrivers = DriverGeoService::getNearby(
+            $order->city_id,
+            (float) $order->pickup_lat,
+            (float) $order->pickup_lng,
+            $radiusKm
+        );
 
+        if (empty($nearbyDrivers)) {
+            $nearbyDrivers = $this->getNearbyFromDB($order->city_id, (float) $order->pickup_lat, (float) $order->pickup_lng, $radiusKm);
             if (empty($nearbyDrivers)) {
-                // DB fallback — GEO trống có thể do driver vừa online chưa kịp gửi GPS lần đầu
-                $nearbyDrivers = $this->getNearbyFromDB($order->city_id, (float) $order->pickup_lat, (float) $order->pickup_lng, $radiusKm);
-                if (empty($nearbyDrivers)) {
-                    Log::debug("     [Candidates] GEO + DB fallback: không có tài xế nào trong bán kính {$radiusKm}km");
-                    return collect();
-                }
-                Log::debug("     [Candidates] GEO trống → DB fallback: " . count($nearbyDrivers) . " tài xế trong {$radiusKm}km");
-            } else {
-                Log::debug("     [Candidates] Redis GEO: " . count($nearbyDrivers) . " tài xế trong bán kính {$radiusKm}km");
+                Log::debug("     [Candidates] GEO + DB fallback: không có tài xế nào trong bán kính {$radiusKm}km");
+                return collect();
             }
+            Log::debug("     [Candidates] GEO trống → DB fallback: " . count($nearbyDrivers) . " tài xế trong {$radiusKm}km");
         } else {
-            $allDriverIds  = User::where('user_type', 'driver')
-                ->where('is_online', true)
-                ->where('city_id', $order->city_id)
-                ->pluck('id')
-                ->toArray();
-            $nearbyDrivers = array_fill_keys($allDriverIds, 0.0);
-            Log::debug("     [Candidates] Không có tọa độ → lấy toàn city: " . count($nearbyDrivers) . " tài xế");
+            Log::debug("     [Candidates] Redis GEO: " . count($nearbyDrivers) . " tài xế trong bán kính {$radiusKm}km");
         }
 
         // ── 2. Loại tài xế bận / đang nhận offer khác ────────────────────────────
@@ -680,8 +668,7 @@ class DispatchService
             ->get(['delivery_man_id', 'delivery_lat', 'delivery_lng'])
             ->keyBy('delivery_man_id');
 
-        $afterDetour = $afterLicense->filter(function (User $d) use ($order, $activeOrders, $hasCoords) {
-            if (!$hasCoords) return true;
+        $afterDetour = $afterLicense->filter(function (User $d) use ($order, $activeOrders) {
             $active = $activeOrders->get($d->id);
             if (!$active) return true;
             $pickupToDelivery = $this->haversineKm(
@@ -695,8 +682,7 @@ class DispatchService
         }
 
         // ── 4b. Loại tài xế rảnh đang chạy ngược hướng điểm lấy ────────────
-        $afterBearing = $afterDetour->filter(function (User $d) use ($order, $hasCoords) {
-            if (!$hasCoords) return true;
+        $afterBearing = $afterDetour->filter(function (User $d) use ($order) {
             if (!$d->bearing || $d->bearing <= 0) return true;
             if (!$d->latitude || !$d->longitude) return true;
 
