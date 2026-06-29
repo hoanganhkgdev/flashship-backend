@@ -50,6 +50,7 @@
         .cc-wrapper { height:auto; min-height:auto; display:flex; flex-direction:column; border-radius:12px; }
         .cc-map { position:relative; height:45vh; min-height:280px; }
         .cc-panel { position:relative; top:0; left:0; width:100%; padding:12px; max-height:none; overflow-y:visible; }
+        .cc-panel input, .cc-panel textarea, .cc-panel select { font-size:16px !important; }
     }
 </style>
 <div class="cc-wrapper">
