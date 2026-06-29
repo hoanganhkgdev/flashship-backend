@@ -309,6 +309,8 @@ class OrderService
 
         DriverScoreService::onComplete($user->id);
 
+        DB::table('users')->where('id', $user->id)->update(['last_order_completed_at' => now()]);
+
         Cache::forget("driver_stats_{$user->id}");
         Log::info("✅ Order #{$order->id} completed by driver #{$user->id}");
 

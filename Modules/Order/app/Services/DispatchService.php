@@ -32,10 +32,10 @@ class DispatchService
     const QUEUE_TTL_SECS     = 600;
 
     // Trọng số xếp hạng
-    const W_SCORE         = 60;
-    const W_RATING_CNT    = 20;
-    const W_WAIT_TIME     = 10;
-    const W_DISTANCE      = 10;
+    const W_SCORE         = 20;
+    const W_RATING_CNT    = 10;
+    const W_WAIT_TIME     = 40;
+    const W_DISTANCE      = 30;
 
     const WAIT_TIME_CAP_MINS = 60;
     const RATING_COUNT_CAP   = 200;
@@ -776,7 +776,7 @@ class DispatchService
 
     private function waitTimeScore(User $driver): float
     {
-        $since = $driver->last_order_accepted_at ?? $driver->online_since;
+        $since = $driver->last_order_completed_at ?? $driver->online_since;
         if (!$since) return 0;
         $waitMins = min(self::WAIT_TIME_CAP_MINS, abs(now()->diffInMinutes(Carbon::parse($since))));
         return ($waitMins / self::WAIT_TIME_CAP_MINS) * self::W_WAIT_TIME;
