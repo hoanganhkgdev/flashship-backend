@@ -348,7 +348,7 @@ class DispatchService
                 continue;
             }
 
-            // Ghép đơn: tài xế có 1 đơn → chỉ phát nếu pickup mới cùng hướng
+            // Ghép đơn: tài xế có 1 đơn → chỉ ghép nếu điểm lấy mới gần điểm giao đơn đang chạy (≤1.5km)
             if ($activeOrders->count() === 1) {
                 $active = $activeOrders->first();
                 if (!$order->pickup_lat || !$order->pickup_lng || !$active->delivery_lat || !$active->delivery_lng) {
@@ -356,28 +356,16 @@ class DispatchService
                     $skipped++;
                     continue;
                 }
-                [$driverLat, $driverLng] = $this->getDriverRealtimePosition($driverId, (float) $driver->latitude, (float) $driver->longitude);
-                if (!$driverLat || !$driverLng) {
-                    Log::debug("│  Skip #{$driverId} {$driver->name}: không ghép đơn — không lấy được vị trí tài xế");
-                    $skipped++;
-                    continue;
-                }
-                $bearingToDest = $this->bearingDeg(
-                    $driverLat, $driverLng,
+                $pickupToDelivery = $this->haversineKm(
+                    (float) $order->pickup_lat, (float) $order->pickup_lng,
                     (float) $active->delivery_lat, (float) $active->delivery_lng
                 );
-                $bearingToPickup = $this->bearingDeg(
-                    $driverLat, $driverLng,
-                    (float) $order->pickup_lat, (float) $order->pickup_lng
-                );
-                $diff = abs($bearingToDest - $bearingToPickup);
-                if ($diff > 180) $diff = 360 - $diff;
-                if ($diff > 60) {
-                    Log::debug("│  Skip #{$driverId} {$driver->name}: đơn mới ngược hướng đơn đang giao ({$diff}°)");
+                if ($pickupToDelivery > 1.5) {
+                    Log::debug("│  Skip #{$driverId} {$driver->name}: điểm lấy mới xa điểm giao đơn đang chạy ({$pickupToDelivery}km > 1.5km)");
                     $skipped++;
                     continue;
                 }
-                Log::debug("│  Ghép đơn #{$driverId} {$driver->name}: cùng hướng ({$diff}°)");
+                Log::debug("│  Ghép đơn #{$driverId} {$driver->name}: điểm lấy mới gần điểm giao ({$pickupToDelivery}km)");
             }
 
             $receivingOther = Order::where('status', 'pending')
@@ -687,17 +675,18 @@ class DispatchService
             ->get(['delivery_man_id', 'delivery_lat', 'delivery_lng'])
             ->keyBy('delivery_man_id');
 
-        $afterDetour = $afterLicense->filter(function (User $d) use ($order, $nearbyDrivers, $activeOrders, $hasCoords) {
+        $afterDetour = $afterLicense->filter(function (User $d) use ($order, $activeOrders, $hasCoords) {
             if (!$hasCoords) return true;
             $active = $activeOrders->get($d->id);
             if (!$active) return true;
-            $toPickup     = $nearbyDrivers[$d->id];
-            $directToDest = $this->haversineKm((float) $d->latitude, (float) $d->longitude, (float) $active->delivery_lat, (float) $active->delivery_lng);
-            $viaPickup    = $toPickup + $this->haversineKm((float) $order->pickup_lat, (float) $order->pickup_lng, (float) $active->delivery_lat, (float) $active->delivery_lng);
-            return ($viaPickup - $directToDest) <= self::MAX_DETOUR_KM;
+            $pickupToDelivery = $this->haversineKm(
+                (float) $order->pickup_lat, (float) $order->pickup_lng,
+                (float) $active->delivery_lat, (float) $active->delivery_lng
+            );
+            return $pickupToDelivery <= 1.5;
         });
         if (($removed = $afterLicense->count() - $afterDetour->count()) > 0) {
-            Log::debug("     [Candidates] Loại {$removed} tài xế do đi ngược hướng đơn đang giao");
+            Log::debug("     [Candidates] Loại {$removed} tài xế — điểm lấy mới xa điểm giao đơn đang chạy (>1.5km)");
         }
 
         // ── 4b. Loại tài xế rảnh đang chạy ngược hướng điểm lấy ────────────
