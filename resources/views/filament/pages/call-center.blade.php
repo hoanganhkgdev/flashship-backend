@@ -178,13 +178,10 @@
 
 <script>
 let _mainMap, _geocoder, _pickupMarker, _deliveryMarker;
-let _driverMarkers = {};
 let _mapsReady = false;
 let _pickupAc = null, _deliveryAc = null;
 let _activeInput = 'pickup';
 let _directionsRenderer = null;
-let _radiusCircle = null;
-let _allDriverLocations = {};
 
 const _cityCenter = { lat: {{ $defaultCenter['lat'] }}, lng: {{ $defaultCenter['lng'] }} };
 const _cityCoords = {
@@ -202,9 +199,6 @@ function _onCityChange(cityId) {
     _mainMap.setZoom(14);
     if (_pickupMarker) { _pickupMarker.setMap(null); _pickupMarker = null; }
     if (_deliveryMarker) { _deliveryMarker.setMap(null); _deliveryMarker = null; }
-    if (_radiusCircle) { _radiusCircle.setMap(null); _radiusCircle = null; }
-    Object.values(_driverMarkers).forEach(m => m.setMap(null));
-    _driverMarkers = {};
     _clearRoute();
     _activeInput = 'pickup';
     const pi = document.getElementById('cc-pickup-input');
@@ -247,7 +241,6 @@ function _initMainMap() {
     });
 
     _initSearchAutocomplete();
-    _initDriverMarkers();
 }
 
 // ── Autocomplete ─────────────────────────────────────────────────────────────
@@ -321,8 +314,6 @@ function _setPickupPin(lat, lng) {
     });
     _mainMap.panTo({ lat, lng });
     _mainMap.setZoom(15);
-    _drawRadiusCircle(lat, lng);
-    _filterDriversByRadius(lat, lng);
     _fitBounds();
 }
 
@@ -374,69 +365,6 @@ function _clearRoute() {
     }
 }
 
-// ── Radius circle ───────────────────────────────────────────────────────────
-function _drawRadiusCircle(lat, lng) {
-    if (_radiusCircle) _radiusCircle.setMap(null);
-    _radiusCircle = new google.maps.Circle({
-        center: { lat, lng },
-        radius: 2000,
-        map: _mainMap,
-        fillColor: '#4F46E5',
-        fillOpacity: 0.06,
-        strokeColor: '#4F46E5',
-        strokeOpacity: 0.3,
-        strokeWeight: 2,
-        clickable: false,
-    });
-}
-
-function _distanceKm(lat1, lng1, lat2, lng2) {
-    const R = 6371;
-    const dLat = (lat2 - lat1) * Math.PI / 180;
-    const dLng = (lng2 - lng1) * Math.PI / 180;
-    const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-              Math.cos(lat1 * Math.PI/180) * Math.cos(lat2 * Math.PI/180) *
-              Math.sin(dLng/2) * Math.sin(dLng/2);
-    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-}
-
-function _filterDriversByRadius(lat, lng) {
-    Object.values(_driverMarkers).forEach(m => m.setMap(null));
-    _driverMarkers = {};
-
-    const driverIcon = {
-        url: 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32"><circle cx="16" cy="16" r="14" fill="%234F46E5" stroke="white" stroke-width="2"/><text x="16" y="21" text-anchor="middle" fill="white" font-size="14">🏍</text></svg>'),
-        scaledSize: new google.maps.Size(32, 32),
-    };
-
-    Object.entries(_allDriverLocations).forEach(([key, loc]) => {
-        if (!loc.lat || !loc.lng) return;
-        const dist = _distanceKm(lat, lng, loc.lat, loc.lng);
-        if (dist > 2) return;
-        const id = key.replace('driver_', '');
-        _driverMarkers[id] = new google.maps.Marker({
-            position: { lat: loc.lat, lng: loc.lng },
-            map: _mainMap,
-            icon: driverIcon,
-            title: (loc.name || `Tài xế #${id}`) + ` (${dist.toFixed(1)}km)`,
-        });
-    });
-}
-
-// ── Driver markers (Firebase RTDB) ───────────────────────────────────────────
-function _initDriverMarkers() {
-    if (typeof firebase === 'undefined') return;
-
-    const db = firebase.database();
-    db.ref('flashship_main/locations').on('value', (snap) => {
-        _allDriverLocations = snap.val() || {};
-
-        if (_pickupMarker) {
-            const pos = _pickupMarker.getPosition();
-            _filterDriversByRadius(pos.lat(), pos.lng());
-        }
-    });
-}
 
 // ── Livewire events ──────────────────────────────────────────────────────────
 window.addEventListener('openMapPicker', () => {});
@@ -454,9 +382,6 @@ document.addEventListener('livewire:initialized', () => {
                     _setPickupPin(pLat, pLng);
                 } else {
                     if (_pickupMarker) { _pickupMarker.setMap(null); _pickupMarker = null; }
-                    if (_radiusCircle) { _radiusCircle.setMap(null); _radiusCircle = null; }
-                    Object.values(_driverMarkers).forEach(m => m.setMap(null));
-                    _driverMarkers = {};
                     const pi = document.getElementById('cc-pickup-input');
                     if (pi) pi.value = '';
                     _activeInput = 'pickup';
@@ -486,19 +411,6 @@ window.ccInitGoogleMaps = function () {
     if (pLat && pLng) _setPickupPin(pLat, pLng);
     if (dLat && dLng) _setDeliveryPin(dLat, dLng);
 };
-</script>
-
-{{-- Firebase SDK --}}
-<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
-<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
-<script>
-if (!firebase.apps.length) {
-    firebase.initializeApp({
-        apiKey: 'AIzaSyDSYWeYYO9oPK5I2HAkJ145eRp36WwnYaI',
-        projectId: 'flashship-app',
-        databaseURL: '{{ config("services.firebase.database_url") }}',
-    });
-}
 </script>
 
 {{-- Google Maps API --}}
