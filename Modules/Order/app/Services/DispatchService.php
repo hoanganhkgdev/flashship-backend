@@ -571,7 +571,15 @@ class DispatchService
             }
             Log::debug("     [Candidates] GEO trống → DB fallback: " . count($nearbyDrivers) . " tài xế trong {$radiusKm}km");
         } else {
-            Log::debug("     [Candidates] Redis GEO: " . count($nearbyDrivers) . " tài xế trong bán kính {$radiusKm}km");
+            $dbDrivers = $this->getNearbyFromDB($order->city_id, (float) $order->pickup_lat, (float) $order->pickup_lng, $radiusKm);
+            $merged = 0;
+            foreach ($dbDrivers as $id => $dist) {
+                if (!isset($nearbyDrivers[$id])) {
+                    $nearbyDrivers[$id] = $dist;
+                    $merged++;
+                }
+            }
+            Log::debug("     [Candidates] Redis GEO: " . (count($nearbyDrivers) - $merged) . " + DB bổ sung: {$merged} = " . count($nearbyDrivers) . " tài xế trong {$radiusKm}km");
         }
 
         // ── 2. Loại tài xế bận / đang nhận offer khác ────────────────────────────
