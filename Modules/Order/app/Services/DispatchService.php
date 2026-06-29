@@ -564,23 +564,11 @@ class DispatchService
         );
 
         if (empty($nearbyDrivers)) {
-            $nearbyDrivers = $this->getNearbyFromDB($order->city_id, (float) $order->pickup_lat, (float) $order->pickup_lng, $radiusKm);
-            if (empty($nearbyDrivers)) {
-                Log::debug("     [Candidates] GEO + DB fallback: không có tài xế nào trong bán kính {$radiusKm}km");
-                return collect();
-            }
-            Log::debug("     [Candidates] GEO trống → DB fallback: " . count($nearbyDrivers) . " tài xế trong {$radiusKm}km");
-        } else {
-            $dbDrivers = $this->getNearbyFromDB($order->city_id, (float) $order->pickup_lat, (float) $order->pickup_lng, $radiusKm);
-            $merged = 0;
-            foreach ($dbDrivers as $id => $dist) {
-                if (!isset($nearbyDrivers[$id])) {
-                    $nearbyDrivers[$id] = $dist;
-                    $merged++;
-                }
-            }
-            Log::debug("     [Candidates] Redis GEO: " . (count($nearbyDrivers) - $merged) . " + DB bổ sung: {$merged} = " . count($nearbyDrivers) . " tài xế trong {$radiusKm}km");
+            Log::debug("     [Candidates] Không có tài xế nào trong bán kính {$radiusKm}km");
+            return collect();
         }
+
+        Log::debug("     [Candidates] " . count($nearbyDrivers) . " tài xế trong bán kính {$radiusKm}km");
 
         // ── 2. Loại tài xế bận / đang nhận offer khác ────────────────────────────
         $busyDriverIds = Order::selectRaw('delivery_man_id, COUNT(*) as cnt')

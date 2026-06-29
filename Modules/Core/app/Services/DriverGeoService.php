@@ -80,19 +80,8 @@ class DriverGeoService
             if (empty($results)) return [];
 
             $drivers = [];
-            $gpsKeys = array_map(fn($item) => self::gpsKey((int) $item[0]), $results);
-
-            // Pipeline check TTL một lần thay vì N lần round-trip
-            $pipeline = Redis::pipeline();
-            foreach ($gpsKeys as $key) {
-                $pipeline->exists($key);
-            }
-            $exists = $pipeline->execute();
-
-            foreach ($results as $i => $item) {
-                if ($exists[$i]) {
-                    $drivers[(int) $item[0]] = (float) $item[1];
-                }
+            foreach ($results as $item) {
+                $drivers[(int) $item[0]] = (float) $item[1];
             }
 
             return $drivers;
