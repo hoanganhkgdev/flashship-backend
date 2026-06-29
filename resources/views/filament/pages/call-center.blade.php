@@ -41,13 +41,24 @@
 @endif
 
 {{-- ══ FULLSCREEN MAP LAYOUT ═══════════════════════════════════════════════ --}}
-<div style="position:relative; height:calc(100vh - 80px); min-height:600px; border-radius:16px; overflow:hidden; border:1px solid #e5e7eb;">
+<style>
+    .cc-wrapper { position:relative; height:calc(100vh - 80px); min-height:600px; border-radius:16px; overflow:hidden; border:1px solid #e5e7eb; }
+    .cc-map { position:absolute; inset:0; width:100%; height:100%; }
+    .cc-panel { position:absolute; top:16px; left:16px; z-index:10; width:380px; display:flex; flex-direction:column; gap:10px; max-height:calc(100vh - 120px); overflow-y:auto; }
+    .cc-panel::-webkit-scrollbar { width:0; }
+    @media (max-width: 768px) {
+        .cc-wrapper { height:auto; min-height:auto; display:flex; flex-direction:column; border-radius:12px; }
+        .cc-map { position:relative; height:45vh; min-height:280px; }
+        .cc-panel { position:relative; top:0; left:0; width:100%; padding:12px; max-height:none; overflow-y:visible; }
+    }
+</style>
+<div class="cc-wrapper">
 
     {{-- Map --}}
-    <div id="cc-main-map" wire:ignore style="position:absolute; inset:0; width:100%; height:100%;"></div>
+    <div id="cc-main-map" wire:ignore class="cc-map"></div>
 
-    {{-- Panel trái --}}
-    <div style="position:absolute; top:16px; left:16px; z-index:10; width:380px; display:flex; flex-direction:column; gap:10px;">
+    {{-- Panel --}}
+    <div class="cc-panel">
 
         {{-- Khu vực --}}
         @if ($isAdmin)
