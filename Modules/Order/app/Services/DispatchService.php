@@ -416,7 +416,7 @@ class DispatchService
         if ($nextKm === null) {
             // Hết bán kính → quay lại vòng đầu, delay 30s rồi quét lại
             $firstKm = self::RADIUS_KM_STAGES[0];
-            Log::info("╟── [Dispatch] Đơn #{$order->id}: Hết bán kính ({$currentKm}km) → quay lại {$firstKm}km sau 15s");
+            Log::info("╟── [Dispatch] Đơn #{$order->id}: Hết bán kính ({$currentKm}km) → quét lại {$firstKm}km sau 15s");
             Redis::setex($this->radiusKey($order->id), self::QUEUE_TTL_SECS, $firstKm);
 
             DispatchOrderRetryJob::dispatch($order->id)->delay(now()->addSeconds(15));
