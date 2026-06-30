@@ -87,6 +87,11 @@ class DriverScoreService
         self::adjust($driverId, -5, 'online_time_low');
     }
 
+    public static function onShiftViolation(int $driverId): void
+    {
+        self::adjust($driverId, -15, 'shift_violation');
+    }
+
     // ─── Weekly Reset ────────────────────────────────────────────────────────────
 
     public static function weeklyReset(): void

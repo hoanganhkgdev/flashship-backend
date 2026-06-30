@@ -82,6 +82,15 @@ class DriverController extends Controller
             }
         }
 
+        // Vi phạm ca: tắt online giữa ca đã đăng ký → phạt nặng
+        if ($user->is_online && $user->shift_id) {
+            $shift = \Modules\Core\Models\Shift::find($user->shift_id);
+            if ($shift && $shift->is_active && $shift->isNowInShift()) {
+                DriverScoreService::onShiftViolation($user->id);
+                \Log::warning("[Shift] #{$user->id} tắt online giữa {$shift->name} → -15 điểm");
+            }
+        }
+
         // Tích lũy thời gian online khi chuyển sang offline
         \Log::info("[Toggle] #{$user->id} PRE: is_online={$user->is_online} online_since={$user->online_since} daily_online_seconds={$user->daily_online_seconds}");
         if ($user->is_online && $user->online_since) {
@@ -383,6 +392,37 @@ class DriverController extends Controller
             'success'   => true,
             'message'   => 'Tải lên thành công, đang chờ xét duyệt',
             'image_url' => url('storage/' . $path),
+        ]);
+    }
+
+    public function shifts(Request $request): JsonResponse
+    {
+        $user = $request->user();
+
+        $shifts = \Modules\Core\Models\Shift::active()
+            ->forCity($user->city_id)
+            ->orderBy('start_time')
+            ->get(['id', 'code', 'name', 'start_time', 'end_time']);
+
+        return response()->json([
+            'success'        => true,
+            'data'           => $shifts,
+            'current_shift_id' => $user->shift_id,
+        ]);
+    }
+
+    public function selectShift(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'shift_id' => 'nullable|exists:shifts,id',
+        ]);
+
+        $user = $request->user();
+        $user->update(['shift_id' => $data['shift_id'] ?? null]);
+
+        return response()->json([
+            'success' => true,
+            'message' => $data['shift_id'] ? 'Đã đăng ký ca làm việc' : 'Đã huỷ đăng ký ca',
         ]);
     }
 

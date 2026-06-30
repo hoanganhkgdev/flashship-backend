@@ -30,6 +30,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/profile/license',              [DriverController::class, 'uploadLicense']);
         Route::post('/profile/cccd-image',           [DriverController::class, 'uploadCccdImage']);
         Route::get('/bank-lists',                   [DriverController::class, 'bankLists']);
+        Route::get('/shifts',                        [DriverController::class, 'shifts']);
+        Route::post('/shifts/select',                 [DriverController::class, 'selectShift']);
         Route::get('/cities',                        [DriverController::class, 'cities']);
         Route::post('/delete-account/request',       [DriverController::class, 'requestDeleteAccount']);
         Route::post('/delete-account/cancel',        [DriverController::class, 'cancelDeleteAccount']);
