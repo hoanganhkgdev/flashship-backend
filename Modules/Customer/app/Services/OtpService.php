@@ -2,6 +2,7 @@
 namespace Modules\Customer\Services;
 
 use App\Services\ZaloTokenService;
+use App\Services\EsmsService;
 use Illuminate\Support\Facades\Log;
 use Modules\Customer\Models\PhoneOtp;
 
@@ -42,21 +43,29 @@ class OtpService
         if (self::isTestPhone($phone)) return;
 
         $templateId = config('services.zalo_zns.otp_template_id');
+        $zaloSent   = false;
 
-        if (!$templateId) {
+        if ($templateId) {
+            $zaloSent = ZaloTokenService::sendTemplate($phone, $templateId, [
+                'otp'    => $code,
+                'expiry' => '10 phút',
+            ]);
+        } else {
             Log::warning("[OTP] Chưa cấu hình Zalo ZNS template → $phone");
+        }
+
+        if ($zaloSent) {
+            Log::info("[OTP] Zalo ZNS → $phone OK");
             return;
         }
 
-        $sent = ZaloTokenService::sendTemplate($phone, $templateId, [
-            'otp'    => $code,
-            'expiry' => '10 phút',
-        ]);
+        Log::warning("[OTP] Zalo ZNS thất bại → $phone, fallback sang SMS");
 
-        if ($sent) {
-            Log::info("[OTP] Zalo ZNS → $phone OK");
+        $smsSent = EsmsService::sendOtp($phone, $code);
+        if ($smsSent) {
+            Log::info("[OTP] SMS fallback → $phone OK");
         } else {
-            Log::warning("[OTP] Zalo ZNS thất bại → $phone");
+            Log::error("[OTP] Cả Zalo và SMS đều thất bại → $phone");
         }
     }
 

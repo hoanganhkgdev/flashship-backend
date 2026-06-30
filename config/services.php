@@ -61,6 +61,11 @@ return [
         'checksum_key' => env('PAYOS_PAYOUT_CHECKSUM_KEY'),
     ],
 
+    'esms' => [
+        'api_key'    => env('ESMS_API_KEY'),
+        'secret_key' => env('ESMS_SECRET_KEY'),
+    ],
+
     'google_maps' => [
         'api_key'       => env('GOOGLE_MAPS_API_KEY'),
         'directions_url' => 'https://maps.googleapis.com/maps/api/directions/json',
