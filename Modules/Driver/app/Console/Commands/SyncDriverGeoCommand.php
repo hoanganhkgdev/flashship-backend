@@ -19,24 +19,27 @@ class SyncDriverGeoCommand extends Command
             ->where('user_type', 'driver')
             ->where('is_online', true)
             ->whereNotNull('city_id')
+            ->whereNotNull('latitude')
+            ->whereNotNull('longitude')
             ->get(['id', 'city_id', 'latitude', 'longitude']);
 
+        // Dọn dẹp GEO: xóa tài xế trong Redis GEO nhưng đã offline trong DB
+        $this->removeOfflineFromGeo($onlineDrivers->pluck('id')->all());
+
         if ($onlineDrivers->isEmpty()) {
-            $this->info('No online drivers.');
             return self::SUCCESS;
         }
-
-        $synced = 0;
-        $stale  = 0;
-        $now    = time();
 
         try {
             $locations = RTDBService::db()->getReference('flashship_main/locations')->getValue();
         } catch (\Throwable $e) {
             Log::error('[SyncGeo] Firebase read failed: ' . $e->getMessage());
-            $this->fallbackFromDB($onlineDrivers);
+            $this->syncFromDB($onlineDrivers);
             return self::SUCCESS;
         }
+
+        $synced = 0;
+        $now    = time();
 
         foreach ($onlineDrivers as $d) {
             $key  = "driver_{$d->id}";
@@ -44,45 +47,69 @@ class SyncDriverGeoCommand extends Command
 
             if ($data && isset($data['lat'], $data['lng'])) {
                 $updatedAt = $data['updated_at'] ?? 0;
-                $age = is_numeric($updatedAt) ? $now - (int)($updatedAt / 1000) : 9999;
+                $age       = is_numeric($updatedAt) ? $now - (int) ($updatedAt / 1000) : PHP_INT_MAX;
 
-                if ($age > DriverGeoService::GPS_TTL_SECS) {
-                    DriverGeoService::removeDriver($d->id, $d->city_id);
-                    $stale++;
-                    continue;
+                if ($age <= DriverGeoService::GPS_FRESH_SECS) {
+                    // GPS mới từ Firebase → dùng luôn và cập nhật DB
+                    DriverGeoService::updateLocation($d->id, $d->city_id, (float) $data['lat'], (float) $data['lng']);
+
+                    $dbUpdate = ['latitude' => $data['lat'], 'longitude' => $data['lng']];
+                    if (isset($data['bearing'])) {
+                        $dbUpdate['bearing'] = $data['bearing'];
+                    }
+                    DB::table('users')->where('id', $d->id)->update($dbUpdate);
+                } else {
+                    // GPS cũ trên Firebase nhưng tài xế vẫn online
+                    // → dùng vị trí DB (mới nhất đã biết) để giữ trong GEO
+                    DriverGeoService::updateLocation($d->id, $d->city_id, (float) $d->latitude, (float) $d->longitude);
                 }
-
-                DriverGeoService::updateLocation($d->id, $d->city_id, (float) $data['lat'], (float) $data['lng']);
-
-                $dbUpdate = [
-                    'latitude'  => $data['lat'],
-                    'longitude' => $data['lng'],
-                ];
-                if (isset($data['bearing']) && $data['bearing'] !== null) {
-                    $dbUpdate['bearing'] = $data['bearing'];
-                }
-                DB::table('users')->where('id', $d->id)->update($dbUpdate);
-
-                $synced++;
-            } elseif ($d->latitude && $d->longitude) {
+            } else {
+                // Không có GPS trên Firebase → dùng vị trí DB
                 DriverGeoService::updateLocation($d->id, $d->city_id, (float) $d->latitude, (float) $d->longitude);
-                $synced++;
             }
+
+            $synced++;
         }
 
-        $this->info("Synced {$synced} drivers from Firebase, removed {$stale} stale.");
+        Log::debug("[SyncGeo] Synced {$synced} online drivers to GEO.");
         return self::SUCCESS;
     }
 
-    private function fallbackFromDB($drivers): void
+    /**
+     * Xóa khỏi GEO những tài xế đã offline (không còn trong danh sách online).
+     */
+    private function removeOfflineFromGeo(array $onlineIds): void
     {
-        $count = 0;
-        foreach ($drivers as $d) {
-            if ($d->latitude && $d->longitude) {
-                DriverGeoService::updateLocation($d->id, $d->city_id, (float) $d->latitude, (float) $d->longitude);
-                $count++;
-            }
+        // Lấy tất cả city có tài xế online
+        $cities = DB::table('users')
+            ->where('user_type', 'driver')
+            ->where('is_online', true)
+            ->whereNotNull('city_id')
+            ->distinct()
+            ->pluck('city_id')
+            ->all();
+
+        // Thêm các city đã biết có GEO data (từ offline cũng cần dọn)
+        $knownCities = DB::table('users')
+            ->where('user_type', 'driver')
+            ->whereNotNull('city_id')
+            ->distinct()
+            ->pluck('city_id')
+            ->all();
+
+        foreach (array_unique(array_merge($cities, $knownCities)) as $cityId) {
+            DriverGeoService::removeOfflineDrivers($cityId, $onlineIds);
         }
-        $this->warn("Firebase failed, fallback DB sync: {$count} drivers.");
+    }
+
+    /**
+     * Fallback khi Firebase không đọc được.
+     */
+    private function syncFromDB($drivers): void
+    {
+        foreach ($drivers as $d) {
+            DriverGeoService::updateLocation($d->id, $d->city_id, (float) $d->latitude, (float) $d->longitude);
+        }
+        Log::warning('[SyncGeo] Firebase failed — fallback to DB coords for ' . count($drivers) . ' drivers.');
     }
 }

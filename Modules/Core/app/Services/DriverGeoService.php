@@ -7,14 +7,18 @@ use Illuminate\Support\Facades\Redis;
 
 class DriverGeoService
 {
-    const GPS_TTL_SECS = 600; // 10 phút — loại driver mất GPS sớm hơn
+    // GPS mới hơn 10 phút → dùng từ Firebase trực tiếp; cũ hơn → fallback DB
+    const GPS_FRESH_SECS = 600;
+
+    // TTL cho flag key driver:gps:{id} — chỉ là ping marker, không dùng để filter dispatch
+    const GPS_TTL_SECS = 600;
 
     private static function geoKey(int $cityId): string
     {
         return "drivers:geo:{$cityId}";
     }
 
-    // Key format cũ — dọn dẹp khi driver update/offline
+    // Key format cũ — dọn dẹp khi gặp
     private static function geoKeyLegacy(int $cityId): string
     {
         return "drivers:geo:city:{$cityId}";
@@ -26,8 +30,8 @@ class DriverGeoService
     }
 
     /**
-     * Đăng ký tài xế vào Redis GEO ngay khi bật online bằng tọa độ DB cuối cùng.
-     * Đảm bảo dispatch tìm thấy driver ngay, không cần chờ GPS update đầu tiên.
+     * Đăng ký tài xế vào Redis GEO khi bật online.
+     * Dùng tọa độ DB cuối biết — dispatch tìm thấy ngay, không cần chờ GPS ping đầu tiên.
      */
     public static function registerOnline(int $driverId, int $cityId, float $lat, float $lng): void
     {
@@ -41,8 +45,8 @@ class DriverGeoService
     }
 
     /**
-     * Ghi vị trí tài xế vào Redis GEO.
-     * Gọi mỗi khi app driver gửi GPS update.
+     * Cập nhật vị trí tài xế vào Redis GEO.
+     * Gọi mỗi khi app driver gửi GPS update, hoặc từ SyncDriverGeoCommand mỗi 30s.
      */
     public static function updateLocation(int $driverId, int $cityId, float $lat, float $lng): void
     {
@@ -70,8 +74,35 @@ class DriverGeoService
     }
 
     /**
-     * Trả về danh sách driver ID trong bán kính, kèm khoảng cách thực (km).
-     * Chỉ bao gồm driver có GPS còn fresh (TTL chưa hết).
+     * Xóa khỏi GEO những driver ID không có trong danh sách online.
+     * Gọi từ SyncDriverGeoCommand mỗi 30s để dọn stale entries.
+     */
+    public static function removeOfflineDrivers(int $cityId, array $onlineIds): void
+    {
+        try {
+            $inGeo = Redis::zrange(self::geoKey($cityId), 0, -1);
+            foreach ($inGeo as $idStr) {
+                $id = (int) $idStr;
+                if (!in_array($id, $onlineIds, true)) {
+                    Redis::zrem(self::geoKey($cityId), $idStr);
+                }
+            }
+
+            $inGeoLegacy = Redis::zrange(self::geoKeyLegacy($cityId), 0, -1);
+            foreach ($inGeoLegacy as $idStr) {
+                $id = (int) $idStr;
+                if (!in_array($id, $onlineIds, true)) {
+                    Redis::zrem(self::geoKeyLegacy($cityId), $idStr);
+                }
+            }
+        } catch (\Throwable $e) {
+            Log::error("[DriverGeo] removeOfflineDrivers city={$cityId} failed: " . $e->getMessage());
+        }
+    }
+
+    /**
+     * Trả về danh sách driver ID trong bán kính, kèm khoảng cách (km).
+     * Không filter theo GPS TTL — tài xế online luôn được phát đơn kể cả khi GPS hơi cũ.
      *
      * @return array<int, float>  [driverId => distanceKm]
      */
