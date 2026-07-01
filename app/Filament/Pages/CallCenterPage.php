@@ -227,6 +227,31 @@ class CallCenterPage extends Page implements HasForms
             return;
         }
 
+        // Validate delivery address cho delivery / shopping
+        if (!$this->isRide() && $this->serviceType !== 'topup') {
+            $deliveryAddress = trim($values['delivery_address'] ?? '');
+            if (!$deliveryAddress) {
+                $this->resultError = 'Vui lòng nhập địa chỉ giao hàng.';
+                return;
+            }
+        }
+
+        // Validate SĐT cho topup (dùng làm SĐT liên hệ khách)
+        if ($this->serviceType === 'topup') {
+            if (empty(trim($values['pickup_phone'] ?? ''))) {
+                $this->resultError = 'Vui lòng nhập số điện thoại khách nạp tiền.';
+                return;
+            }
+        }
+
+        // Validate SĐT hành khách cho xe ôm / lái xe
+        if ($this->isRide()) {
+            if (empty(trim($values['pickup_phone'] ?? ''))) {
+                $this->resultError = 'Vui lòng nhập số điện thoại hành khách.';
+                return;
+            }
+        }
+
         // Validate shipping_fee & cod_amount
         $shippingFee = max(0, (int) ($values['shipping_fee'] ?? 0));
         $codAmount   = !empty($values['cod_amount']) ? max(0, (int) $values['cod_amount']) : null;
@@ -252,6 +277,10 @@ class CallCenterPage extends Page implements HasForms
                     $deliveryGeo = GoogleMapService::geocode($this->withCity($values['delivery_address'], $cityName));
                     $deliveryLat = $deliveryGeo['lat'] ?? null;
                     $deliveryLng = $deliveryGeo['lng'] ?? null;
+                }
+                if (!$this->isRide() && ($deliveryLat === null || $deliveryLng === null)) {
+                    $this->resultError = 'Không tìm được toạ độ địa chỉ giao. Vui lòng chọn từ gợi ý hoặc bản đồ.';
+                    return;
                 }
             }
 
