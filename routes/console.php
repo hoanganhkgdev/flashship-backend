@@ -11,5 +11,3 @@ Artisan::command('inspire', function () {
 // Kiểm tra Zalo token mỗi giờ, tự refresh khi còn dưới 30 phút
 Schedule::command('zalo:refresh-token')->hourly();
 
-// Sync vị trí tài xế từ Firebase RTDB → Redis GEO mỗi 30 giây
-Schedule::command('driver:sync-geo')->everyThirtySeconds();

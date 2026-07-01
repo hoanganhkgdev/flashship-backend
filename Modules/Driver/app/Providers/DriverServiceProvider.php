@@ -7,7 +7,6 @@ use Illuminate\Console\Scheduling\Schedule;
 use Modules\Driver\Console\Commands\GenerateWeeklyFeesCommand;
 use Modules\Driver\Console\Commands\InactivityDecayCommand;
 use Modules\Driver\Console\Commands\MarkOverdueDebtsCommand;
-use Modules\Driver\Console\Commands\SyncDriverGeoCommand;
 use Modules\Driver\Console\Commands\WeeklyScoreCommand;
 use Modules\Driver\Console\Commands\ResetDailyOnlineCommand;
 
@@ -20,7 +19,6 @@ class DriverServiceProvider extends ModuleServiceProvider
         GenerateWeeklyFeesCommand::class,
         InactivityDecayCommand::class,
         MarkOverdueDebtsCommand::class,
-        SyncDriverGeoCommand::class,
         WeeklyScoreCommand::class,
         ResetDailyOnlineCommand::class,
     ];

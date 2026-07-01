@@ -17,7 +17,6 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Redis;
 use Modules\Core\Models\Voucher;
 use Modules\Core\Models\VoucherUsage;
-use Modules\Core\Services\DriverGeoService;
 
 class DispatchService
 {
@@ -233,23 +232,46 @@ class DispatchService
      */
     public function markNoDriver(Order $order): void
     {
-        DB::table('orders')->where('id', $order->id)->update([
-            'cancel_reason'            => 'no_driver',
-            'dispatching_to_driver_id' => null,
-            'updated_at'               => now(),
-        ]);
+        $this->cancelNoDriver($order);
+    }
+
+    private function cancelNoDriver(Order $order): void
+    {
+        $cancelled = DB::table('orders')
+            ->where('id', $order->id)
+            ->where('status', 'pending')
+            ->update([
+                'status'                   => 'cancelled',
+                'cancel_reason'            => 'no_driver',
+                'dispatching_to_driver_id' => null,
+                'updated_at'               => now(),
+            ]);
+
+        if (!$cancelled) return;
 
         $this->clearDispatchCache($order->id);
         broadcast(new DispatchStateChanged());
+
+        if ($order->voucher_code) {
+            Voucher::where('code', $order->voucher_code)->decrement('used_count');
+            VoucherUsage::where('order_id', $order->id)->delete();
+        }
+
+        $customer = User::find($order->sender_platform_id);
+        if ($customer?->fcm_token) {
+            FCMService::getInstance()->sendNoDriverCancellation($customer->fcm_token, $order->code);
+        }
 
         $admins = User::whereIn('user_type', ['admin', 'call_center', 'city_manager'])->get();
         foreach ($admins as $admin) {
             \Filament\Notifications\Notification::make()
                 ->title("Đơn #{$order->code} không tìm được tài xế")
-                ->body("Đơn từ {$order->pickup_address} đã quá " . self::DISPATCH_TIMEOUT_MINS . " phút không có tài xế nhận. Vui lòng xử lý.")
+                ->body("Đơn từ {$order->pickup_address} đã quá " . self::DISPATCH_TIMEOUT_MINS . " phút không có tài xế nhận.")
                 ->danger()
                 ->sendToDatabase($admin);
         }
+
+        Log::info("╟── [Dispatch] Đơn #{$order->id}: Đã hủy tự động (no_driver)");
     }
 
     public function buildQueueAndSend(Order $order, float $radiusKm): void
@@ -381,26 +403,8 @@ class DispatchService
         if ($order->dispatch_started_at) {
             $elapsed = (int) abs(now()->diffInMinutes($order->dispatch_started_at));
             if ($elapsed >= self::DISPATCH_TIMEOUT_MINS) {
-                Log::info("╟── [Dispatch] Đơn #{$order->id}: Quá {$elapsed} phút không có tài xế → dừng quét");
-
-                DB::table('orders')->where('id', $order->id)->update([
-                    'cancel_reason'            => 'no_driver',
-                    'dispatching_to_driver_id' => null,
-                    'updated_at'               => now(),
-                ]);
-
-                $this->clearDispatchCache($order->id);
-                broadcast(new DispatchStateChanged());
-
-                $admins = User::whereIn('user_type', ['admin', 'call_center', 'city_manager'])->get();
-                foreach ($admins as $admin) {
-                    \Filament\Notifications\Notification::make()
-                        ->title("Đơn #{$order->code} không tìm được tài xế")
-                        ->body("Đơn từ {$order->pickup_address} đã quá 15 phút không có tài xế nhận. Vui lòng xử lý.")
-                        ->danger()
-                        ->sendToDatabase($admin);
-                }
-
+                Log::info("╟── [Dispatch] Đơn #{$order->id}: Quá {$elapsed} phút không có tài xế → hủy đơn");
+                $this->cancelNoDriver($order);
                 return;
             }
         }
@@ -455,7 +459,10 @@ class DispatchService
         }
 
         $now  = now();
-        $dist = round($this->distanceKm($driver, $order), 2);
+        $dist = round($this->haversineKm(
+            (float) ($driver->latitude ?? 0), (float) ($driver->longitude ?? 0),
+            (float) $order->pickup_lat, (float) $order->pickup_lng
+        ), 2);
 
         $ratingCount    = Order::where('delivery_man_id', $driver->id)
             ->whereNotNull('driver_rating')
@@ -556,7 +563,7 @@ class DispatchService
         $now = now();
 
         // ── 1. Tìm tài xế gần điểm lấy hàng ───────────────────────────────────
-        $nearbyDrivers = DriverGeoService::getNearby(
+        $nearbyDrivers = $this->getNearbyFromDB(
             $order->city_id,
             (float) $order->pickup_lat,
             (float) $order->pickup_lng,
@@ -713,7 +720,6 @@ class DispatchService
                 ->where('city_id', $cityId)
                 ->whereNotNull('latitude')
                 ->whereNotNull('longitude')
-                ->where('updated_at', '>=', now()->subHours(2))
                 ->having('distance_km', '<=', $radiusKm)
                 ->orderBy('distance_km')
                 ->limit(100)
@@ -745,25 +751,6 @@ class DispatchService
         if (!$since) return 0;
         $waitMins = min(self::WAIT_TIME_CAP_MINS, abs(now()->diffInMinutes(Carbon::parse($since))));
         return ($waitMins / self::WAIT_TIME_CAP_MINS) * self::W_WAIT_TIME;
-    }
-
-    private function getDriverRealtimePosition(int $driverId, ?float $dbLat = null, ?float $dbLng = null): array
-    {
-        try {
-            $fbData = RTDBService::db()
-                ->getReference("flashship_main/locations/driver_{$driverId}")
-                ->getValue();
-            if ($fbData && isset($fbData['lat'], $fbData['lng'])) {
-                return [(float) $fbData['lat'], (float) $fbData['lng']];
-            }
-        } catch (\Throwable $e) {}
-        return [$dbLat ?? 0.0, $dbLng ?? 0.0];
-    }
-
-    private function distanceKm(User $driver, Order $order): float
-    {
-        [$lat, $lng] = $this->getDriverRealtimePosition($driver->id, (float) $driver->latitude, (float) $driver->longitude);
-        return $this->haversineKm($lat, $lng, (float) $order->pickup_lat, (float) $order->pickup_lng);
     }
 
     private function hasBlockedDebt(User $driver): bool
