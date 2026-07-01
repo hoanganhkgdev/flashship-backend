@@ -14,6 +14,12 @@ class DriverGeoService
         return "drivers:geo:{$cityId}";
     }
 
+    // Key format cũ — dọn dẹp khi driver update/offline
+    private static function geoKeyLegacy(int $cityId): string
+    {
+        return "drivers:geo:city:{$cityId}";
+    }
+
     private static function gpsKey(int $driverId): string
     {
         return "driver:gps:{$driverId}";
@@ -27,7 +33,7 @@ class DriverGeoService
     {
         try {
             Redis::geoadd(self::geoKey($cityId), $lng, $lat, $driverId);
-            // TTL dài hơn updateLocation vì đây là vị trí "cuối biết" — chờ GPS thực thay thế
+            Redis::zrem(self::geoKeyLegacy($cityId), $driverId);
             Redis::setex(self::gpsKey($driverId), self::GPS_TTL_SECS, 1);
         } catch (\Throwable $e) {
             Log::error("[DriverGeo] registerOnline #{$driverId} failed: " . $e->getMessage());
@@ -42,6 +48,7 @@ class DriverGeoService
     {
         try {
             Redis::geoadd(self::geoKey($cityId), $lng, $lat, $driverId);
+            Redis::zrem(self::geoKeyLegacy($cityId), $driverId);
             Redis::setex(self::gpsKey($driverId), self::GPS_TTL_SECS, 1);
         } catch (\Throwable $e) {
             Log::error("[DriverGeo] updateLocation #{$driverId} failed: " . $e->getMessage());
@@ -55,6 +62,7 @@ class DriverGeoService
     {
         try {
             Redis::zrem(self::geoKey($cityId), $driverId);
+            Redis::zrem(self::geoKeyLegacy($cityId), $driverId);
             Redis::del(self::gpsKey($driverId));
         } catch (\Throwable $e) {
             Log::error("[DriverGeo] removeDriver #{$driverId} failed: " . $e->getMessage());
