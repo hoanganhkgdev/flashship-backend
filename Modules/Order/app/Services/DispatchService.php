@@ -84,10 +84,12 @@ class DispatchService
         Log::info("║  Pickup  : {$order->pickup_address} ({$order->pickup_lat}, {$order->pickup_lng})");
         Log::info("╚══════════════════════════════════════════════════════════════");
 
-        if (!$order->dispatch_started_at) {
-            DB::table('orders')->where('id', $order->id)->update(['dispatch_started_at' => $now]);
-            $order->dispatch_started_at = $now;
-        }
+        DB::table('orders')->where('id', $order->id)->update([
+            'dispatch_started_at' => $order->dispatch_started_at ?? $now,
+            'cancel_reason'       => null,
+        ]);
+        $order->dispatch_started_at = $order->dispatch_started_at ?? $now;
+        $order->cancel_reason       = null;
 
         $this->notifyCustomer($order, 'searching');
 
@@ -222,6 +224,7 @@ class DispatchService
             ->where('status', 'pending')
             ->update([
                 'dispatching_to_driver_id' => null,
+                'cancel_reason'            => 'no_driver',
                 'updated_at'               => now(),
             ]);
 
