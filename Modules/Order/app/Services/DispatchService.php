@@ -215,41 +215,34 @@ class DispatchService
 
     private function cancelNoDriver(Order $order): void
     {
-        $cancelled = DB::table('orders')
+        // Giữ đơn ở trạng thái pending, không hủy
+        // Chỉ dừng dispatch và thông báo cho admin xử lý thủ công
+        $updated = DB::table('orders')
             ->where('id', $order->id)
             ->where('status', 'pending')
             ->update([
-                'status'                   => 'cancelled',
-                'cancel_reason'            => 'no_driver',
                 'dispatching_to_driver_id' => null,
                 'updated_at'               => now(),
             ]);
 
-        if (!$cancelled) return;
+        if (!$updated) return;
 
         $this->clearDispatchCache($order->id);
         broadcast(new DispatchStateChanged());
 
-        if ($order->voucher_code) {
-            Voucher::where('code', $order->voucher_code)->decrement('used_count');
-            VoucherUsage::where('order_id', $order->id)->delete();
-        }
+        $admins = User::whereIn('user_type', ['admin', 'call_center', 'city_manager'])
+            ->where('city_id', $order->city_id)
+            ->get();
 
-        $customer = User::find($order->sender_platform_id);
-        if ($customer?->fcm_token) {
-            FCMService::getInstance()->sendNoDriverCancellation($customer->fcm_token, $order->code);
-        }
-
-        $admins = User::whereIn('user_type', ['admin', 'call_center', 'city_manager'])->get();
         foreach ($admins as $admin) {
             \Filament\Notifications\Notification::make()
-                ->title("Đơn #{$order->code} không tìm được tài xế")
-                ->body("Đơn từ {$order->pickup_address} đã quá " . self::DISPATCH_TIMEOUT_MINS . " phút không có tài xế nhận.")
+                ->title("Đơn #{$order->code} — Không tìm được tài xế")
+                ->body("Đơn từ {$order->pickup_address} đã quá " . self::DISPATCH_TIMEOUT_MINS . " phút không có tài xế nhận. Vui lòng xử lý thủ công.")
                 ->danger()
                 ->sendToDatabase($admin);
         }
 
-        Log::info("╟── [Dispatch] Đơn #{$order->id}: Đã hủy tự động (no_driver)");
+        Log::info("╟── [Dispatch] Đơn #{$order->id}: Không tìm được tài xế sau " . self::DISPATCH_TIMEOUT_MINS . " phút → giữ pending, dừng dispatch");
     }
 
     public function offerToNext(Order $order, float $radiusKm): void
@@ -288,7 +281,7 @@ class DispatchService
         if ($order->dispatch_started_at) {
             $elapsed = (int) abs(now()->diffInMinutes($order->dispatch_started_at));
             if ($elapsed >= self::DISPATCH_TIMEOUT_MINS) {
-                Log::info("╟── [Dispatch] Đơn #{$order->id}: Quá {$elapsed} phút không có tài xế → hủy đơn");
+                Log::info("╟── [Dispatch] Đơn #{$order->id}: Quá {$elapsed} phút không có tài xế → dừng dispatch, giữ pending");
                 $this->cancelNoDriver($order);
                 return;
             }
