@@ -5,6 +5,7 @@ namespace Modules\Driver\Console\Commands;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Modules\Core\Services\DriverGeoService;
 use Modules\Core\Services\RTDBService;
 
 class SyncDriverLocationCommand extends Command
@@ -61,6 +62,7 @@ class SyncDriverLocationCommand extends Command
             }
 
             DB::table('users')->where('id', $d->id)->update($update);
+            DriverGeoService::add($d->id, $d->city_id, (float) $data['lat'], (float) $data['lng']);
             $synced++;
         }
 

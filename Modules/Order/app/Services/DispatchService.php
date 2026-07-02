@@ -15,6 +15,7 @@ use App\Events\DispatchStateChanged;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Redis;
+use Modules\Core\Services\DriverGeoService;
 use Modules\Core\Models\Voucher;
 use Modules\Core\Models\VoucherUsage;
 
@@ -112,7 +113,7 @@ class DispatchService
 
     /**
      * Gọi sau khi tài xế từ chối hoặc timeout — pop người tiếp theo từ queue.
-     * Không rescan Redis GEO, không delay.
+     * Không rescan DB, không delay.
      */
     public function sendToNextDriver(Order $order): void
     {
@@ -563,12 +564,23 @@ class DispatchService
         $now = now();
 
         // ── 1. Tìm tài xế gần điểm lấy hàng ───────────────────────────────────
-        $nearbyDrivers = $this->getNearbyFromDB(
+        $nearbyDrivers = DriverGeoService::nearby(
             $order->city_id,
             (float) $order->pickup_lat,
             (float) $order->pickup_lng,
             $radiusKm
         );
+
+        // Fallback Haversine khi Redis GEO trống (cold start / Redis restart)
+        if (empty($nearbyDrivers)) {
+            Log::debug("     [Candidates] Redis GEO trống → fallback Haversine");
+            $nearbyDrivers = $this->getNearbyFromDB(
+                $order->city_id,
+                (float) $order->pickup_lat,
+                (float) $order->pickup_lng,
+                $radiusKm
+            );
+        }
 
         if (empty($nearbyDrivers)) {
             Log::debug("     [Candidates] Không có tài xế nào trong bán kính {$radiusKm}km");
@@ -699,8 +711,7 @@ class DispatchService
     }
 
     /**
-     * Fallback khi Redis GEO trống — truy vấn DB dùng Haversine.
-     * Dành cho tài xế vừa online chưa kịp gửi GPS lần đầu.
+     * Truy vấn MySQL dùng Haversine — nguồn dữ liệu chính cho dispatch.
      *
      * @return array<int, float> [driverId => distanceKm]
      */
