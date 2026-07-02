@@ -32,12 +32,12 @@ class DispatchService
     const QUEUE_TTL_SECS     = 600;
 
     // Trọng số xếp hạng
-    const W_SCORE         = 20;
+    const W_SCORE         = 15;
     const W_RATING_CNT    = 10;
-    const W_WAIT_TIME     = 40;
-    const W_DISTANCE      = 30;
+    const W_WAIT_TIME     = 50;
+    const W_DISTANCE      = 25;
 
-    const WAIT_TIME_CAP_MINS = 60;
+    const WAIT_TIME_CAP_MINS = 480; // 8 tiếng — tài xế chờ lâu được ưu tiên rõ hơn
     const RATING_COUNT_CAP   = 200;
     const MAX_RADIUS_KM      = 4.0;
     const MAX_DETOUR_KM      = 2.0;
