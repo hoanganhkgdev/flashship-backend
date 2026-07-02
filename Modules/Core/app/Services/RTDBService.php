@@ -107,7 +107,7 @@ class RTDBService
     public static function updateDriverLocation(int $driverId, array $data): void
     {
         try {
-            self::db()->getReference("drivers/{$driverId}")->update(array_filter([
+            self::db()->getReference("flashship_main/locations/driver_{$driverId}")->update(array_filter([
                 'lat'          => $data['lat'],
                 'lng'          => $data['lng'],
                 'bearing'      => $data['bearing'] ?? null,
@@ -116,7 +116,7 @@ class RTDBService
                 'name'         => $data['name'] ?? null,
                 'phone'        => $data['phone'] ?? null,
                 'driver_score' => $data['driver_score'] ?? null,
-                'updated_at'   => time(),
+                'updated_at'   => time() * 1000,
             ], fn($v) => $v !== null));
         } catch (\Throwable $e) {
             Log::error('[RTDB] updateDriverLocation failed: ' . $e->getMessage());
@@ -156,9 +156,9 @@ class RTDBService
     public static function setDriverOnlineStatus(int $driverId, bool $isOnline): void
     {
         try {
-            self::db()->getReference("drivers/{$driverId}")->update([
+            self::db()->getReference("flashship_main/locations/driver_{$driverId}")->update([
                 'is_online'  => $isOnline,
-                'updated_at' => time(),
+                'updated_at' => time() * 1000,
             ]);
         } catch (\Throwable $e) {
             Log::error('[RTDB] setDriverOnlineStatus failed: ' . $e->getMessage());

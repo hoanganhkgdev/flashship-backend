@@ -146,15 +146,16 @@ if (!window._mapReady) {
         });
         infoWindow = new google.maps.InfoWindow();
 
-        // Firebase real-time GPS — path: drivers/{id}
-        rtdb.ref('drivers').on('value', function(snapshot) {
+        // Firebase real-time GPS — path: flashship_main/locations/driver_{id}
+        rtdb.ref('flashship_main/locations').on('value', function(snapshot) {
             var raw = snapshot.val() || {};
             var newGps = {};
             Object.entries(raw).forEach(function(entry) {
-                var id = parseInt(entry[0], 10);
+                var key = entry[0]; // "driver_123"
                 var val = entry[1];
+                var id  = parseInt(key.replace('driver_', ''), 10);
                 if (!isNaN(id) && val && val.lat && val.lng) {
-                    newGps[id] = { lat: val.lat, lng: val.lng, updated_at: val.updated_at };
+                    newGps[id] = { lat: val.lat, lng: val.lng, updated_at: val.updated_at, is_online: val.is_online };
                 }
             });
             rtdbGps = newGps;
@@ -245,7 +246,8 @@ if (!window._mapReady) {
                 var lng  = gps.lng  != null ? gps.lng  : meta.lng;
                 if (!lat || !lng) return;
 
-                var isOnline = meta.is_online || false;
+                // Firebase is_online ưu tiên hơn DB (real-time hơn)
+                var isOnline = gps.is_online !== undefined ? (gps.is_online === true) : (meta.is_online === true);
                 var passCity   = !cityFilter || String(meta.city_id) === cityFilter;
                 var passOnline = showOffline || isOnline;
                 var visible    = passCity && passOnline;
