@@ -34,6 +34,6 @@ class DispatchOrderRetryJob implements ShouldQueue
         }
 
         Log::info("╟── [Dispatch] Đơn #{$order->id}: Retry quét lại từ đầu");
-        $dispatch->buildQueueAndSend($order, DispatchService::RADIUS_KM_STAGES[0]);
+        $dispatch->offerToNext($order, DispatchService::RADIUS_KM_STAGES[0]);
     }
 }

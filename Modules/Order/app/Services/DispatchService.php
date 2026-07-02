@@ -43,28 +43,12 @@ class DispatchService
     const MAX_DETOUR_KM      = 2.0;
 
     // =========================================================================
-    // REDIS QUEUE HELPERS
+    // REDIS HELPERS
     // =========================================================================
-
-    private function queueKey(int $orderId): string
-    {
-        return "dispatch:queue:{$orderId}";
-    }
 
     private function radiusKey(int $orderId): string
     {
         return "dispatch:radius:{$orderId}";
-    }
-
-    private function getQueue(int $orderId): array
-    {
-        $data = Redis::get($this->queueKey($orderId));
-        return $data ? json_decode($data, true) : [];
-    }
-
-    private function putQueue(int $orderId, array $driverIds): void
-    {
-        Redis::setex($this->queueKey($orderId), self::QUEUE_TTL_SECS, json_encode($driverIds));
     }
 
     private function getCurrentRadius(int $orderId): float
@@ -74,7 +58,6 @@ class DispatchService
 
     private function clearDispatchCache(int $orderId): void
     {
-        Redis::del($this->queueKey($orderId));
         Redis::del($this->radiusKey($orderId));
     }
 
@@ -108,17 +91,14 @@ class DispatchService
 
         $this->notifyCustomer($order, 'searching');
 
-        $this->buildQueueAndSend($order, self::RADIUS_KM_STAGES[0]);
+        $this->offerToNext($order, self::RADIUS_KM_STAGES[0]);
     }
 
-    /**
-     * Gọi sau khi tài xế từ chối hoặc timeout — pop người tiếp theo từ queue.
-     * Không rescan DB, không delay.
-     */
     public function sendToNextDriver(Order $order): void
     {
         if ($order->status !== 'pending') return;
-        $this->popAndSend($order);
+        $radiusKm = $this->getCurrentRadius($order->id);
+        $this->offerToNext($order, $radiusKm);
     }
 
     public function handleTimeout(Order $order, int $driverId): void
@@ -225,12 +205,9 @@ class DispatchService
     }
 
     // =========================================================================
-    // PRIVATE — QUEUE CONTROL FLOW
+    // PRIVATE — DISPATCH CONTROL FLOW
     // =========================================================================
 
-    /**
-     * Scan tài xế tại bán kính cho trước → xây queue → phát đơn đầu tiên.
-     */
     public function markNoDriver(Order $order): void
     {
         $this->cancelNoDriver($order);
@@ -275,8 +252,13 @@ class DispatchService
         Log::info("╟── [Dispatch] Đơn #{$order->id}: Đã hủy tự động (no_driver)");
     }
 
-    public function buildQueueAndSend(Order $order, float $radiusKm): void
+    public function offerToNext(Order $order, float $radiusKm): void
     {
+        $order = $order->fresh();
+        if (!$order || $order->status !== 'pending') return;
+
+        Redis::setex($this->radiusKey($order->id), self::QUEUE_TTL_SECS, $radiusKm);
+
         $alreadyOffered = OrderDispatchLog::where('order_id', $order->id)
             ->pluck('driver_id')
             ->toArray();
@@ -286,112 +268,14 @@ class DispatchService
         $candidates = $this->getCandidates($order, $radiusKm, $alreadyOffered);
 
         if ($candidates->isEmpty()) {
-            Redis::setex($this->radiusKey($order->id), self::QUEUE_TTL_SECS, $radiusKm);
-            Log::info("└─ [Dispatch] Đơn #{$order->id}: không có ứng viên trong {$radiusKm}km → mở rộng ngay");
+            Log::info("└─ [Dispatch] Đơn #{$order->id}: không có ứng viên trong {$radiusKm}km → mở rộng");
             $this->tryExpandRadius($order, $radiusKm);
             return;
         }
 
-        $driverIds = $candidates->pluck('id')->toArray();
-        $this->putQueue($order->id, $driverIds);
-        Redis::setex($this->radiusKey($order->id), self::QUEUE_TTL_SECS, $radiusKm);
-
-        $preview = implode(', ', array_map(fn($id) => "#{$id}", array_slice($driverIds, 0, 5)));
-        Log::info("│  Queue {$radiusKm}km: " . count($driverIds) . " tài xế → [{$preview}" . (count($driverIds) > 5 ? '...' : '') . "]");
-
-        $this->popAndSend($order);
-    }
-
-    /**
-     * Pop tài xế đầu queue → kiểm tra còn khả dụng không → gửi offer.
-     * Bỏ qua tài xế offline/bận → pop tiếp (không cần rescan).
-     * Queue cạn → mở rộng bán kính.
-     */
-    private function popAndSend(Order $order): void
-    {
-        if ($order->status !== 'pending') return;
-
-        $queue   = $this->getQueue($order->id);
-        $skipped = 0;
-
-        while (!empty($queue)) {
-            $driverId = array_shift($queue);
-
-            // Kiểm tra nhanh: còn online & active không?
-            $driver = User::where('id', $driverId)
-                ->where('is_online', true)
-                ->where('status', 1)
-                ->where(fn($q) => $q->whereNull('score_suspended_until')->orWhere('score_suspended_until', '<=', now()))
-                ->first();
-
-            if (!$driver) {
-                $skipped++;
-                continue;
-            }
-
-            // Driver không có FCM token → không thể đánh thức, skip ngay
-            if (!$driver->fcm_token) {
-                Log::debug("│  Skip #{$driverId}: không có FCM token");
-                $skipped++;
-                continue;
-            }
-
-            $activeOrders = Order::where('delivery_man_id', $driverId)
-                ->whereIn('status', ['assigned', 'processing', 'on_the_way'])
-                ->get(['id', 'delivery_lat', 'delivery_lng']);
-
-            if ($activeOrders->count() >= 2) {
-                $skipped++;
-                continue;
-            }
-
-            // Ghép đơn: tài xế có 1 đơn → chỉ ghép nếu điểm lấy mới gần điểm giao đơn đang chạy (≤1.5km)
-            if ($activeOrders->count() === 1) {
-                $active = $activeOrders->first();
-                if (!$order->pickup_lat || !$order->pickup_lng || !$active->delivery_lat || !$active->delivery_lng) {
-                    Log::debug("│  Skip #{$driverId} {$driver->name}: không ghép đơn — thiếu toạ độ");
-                    $skipped++;
-                    continue;
-                }
-                $pickupToDelivery = $this->haversineKm(
-                    (float) $order->pickup_lat, (float) $order->pickup_lng,
-                    (float) $active->delivery_lat, (float) $active->delivery_lng
-                );
-                if ($pickupToDelivery > 1.5) {
-                    Log::debug("│  Skip #{$driverId} {$driver->name}: điểm lấy mới xa điểm giao đơn đang chạy ({$pickupToDelivery}km > 1.5km)");
-                    $skipped++;
-                    continue;
-                }
-                Log::debug("│  Ghép đơn #{$driverId} {$driver->name}: điểm lấy mới gần điểm giao ({$pickupToDelivery}km)");
-            }
-
-            $receivingOther = Order::where('status', 'pending')
-                ->where('dispatching_to_driver_id', $driverId)
-                ->where('id', '!=', $order->id)
-                ->exists();
-            if ($receivingOther) {
-                $skipped++;
-                continue;
-            }
-
-            if ($skipped > 0) {
-                Log::debug("│  Bỏ qua {$skipped} tài xế không còn khả dụng");
-            }
-
-            $this->putQueue($order->id, $queue);
-            $this->sendToDriver($order, $driver);
-            return;
-        }
-
-        // Queue cạn hoàn toàn
-        if ($skipped > 0) {
-            Log::debug("│  Bỏ qua {$skipped} tài xế, queue rỗng");
-        }
-        $this->putQueue($order->id, []);
-
-        $currentKm = $this->getCurrentRadius($order->id);
-        Log::info("│  Queue {$currentKm}km đã cạn → mở rộng bán kính");
-        $this->tryExpandRadius($order, $currentKm);
+        $driver = $candidates->first();
+        Log::info("│  Chọn: #{$driver->id} {$driver->name} | " . count($alreadyOffered) . " đã hỏi trước");
+        $this->sendToDriver($order, $driver);
     }
 
     const DISPATCH_TIMEOUT_MINS = 15;
@@ -430,7 +314,7 @@ class DispatchService
 
         Log::info("╟── [Dispatch] Đơn #{$order->id}: [{$currentKm}km] → mở sang {$nextKm}km");
         $this->notifyCustomer($order, 'expanding');
-        $this->buildQueueAndSend($order->fresh(), $nextKm);
+        $this->offerToNext($order->fresh(), $nextKm);
     }
 
 

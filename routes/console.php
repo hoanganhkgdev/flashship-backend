@@ -12,5 +12,5 @@ Artisan::command('inspire', function () {
 Schedule::command('zalo:refresh-token')->hourly();
 
 // Sync GPS tài xế từ Firebase RTDB → MySQL mỗi 30 giây (cho dispatch Haversine)
-Schedule::command('driver:sync-location')->everyThirtySeconds();
+Schedule::command('driver:sync-location')->everyFiveSeconds();
 
