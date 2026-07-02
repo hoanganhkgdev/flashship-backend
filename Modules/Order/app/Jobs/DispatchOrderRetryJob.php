@@ -9,6 +9,7 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Redis;
 
 class DispatchOrderRetryJob implements ShouldQueue
 {
@@ -20,6 +21,9 @@ class DispatchOrderRetryJob implements ShouldQueue
 
     public function handle(DispatchService $dispatch): void
     {
+        // Xóa flag để cycle tiếp theo có thể schedule retry mới
+        Redis::del("dispatch:retry_pending:{$this->orderId}");
+
         $order = Order::find($this->orderId);
 
         if (!$order || $order->status !== 'pending') {

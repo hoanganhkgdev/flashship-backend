@@ -70,6 +70,18 @@ class SyncDriverLocationCommand extends Command
             Log::debug("[SyncLocation] Synced {$synced} driver GPS từ Firebase → MySQL.");
         }
 
+        // Xóa khỏi GEO những tài xế vừa offline (xử lý trường hợp app crash không gọi toggleOnline)
+        $recentlyOffline = DB::table('users')
+            ->where('user_type', 'driver')
+            ->where('is_online', false)
+            ->whereNotNull('city_id')
+            ->where('updated_at', '>=', now()->subMinutes(5))
+            ->get(['id', 'city_id']);
+
+        foreach ($recentlyOffline as $d) {
+            DriverGeoService::remove($d->id, $d->city_id);
+        }
+
         return self::SUCCESS;
     }
 }

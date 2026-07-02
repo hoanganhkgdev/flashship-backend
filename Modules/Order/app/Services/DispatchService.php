@@ -16,8 +16,6 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Redis;
 use Modules\Core\Services\DriverGeoService;
-use Modules\Core\Models\Voucher;
-use Modules\Core\Models\VoucherUsage;
 
 class DispatchService
 {
@@ -29,7 +27,7 @@ class DispatchService
     const APP_DECISION_SECS  = 30;   // giây để đọc & quyết định SAU KHI mở app (như ShopeeFood)
     const FCM_TTL_SECS       = 25;
     const MAX_DRIVERS        = 50;
-    const QUEUE_TTL_SECS     = 600;
+    const QUEUE_TTL_SECS     = 1200; // 20 phút — phải lớn hơn DISPATCH_TIMEOUT_MINS (15 phút)
 
     // Trọng số xếp hạng
     const W_SCORE         = 15;
@@ -51,6 +49,11 @@ class DispatchService
         return "dispatch:radius:{$orderId}";
     }
 
+    private function retryKey(int $orderId): string
+    {
+        return "dispatch:retry_pending:{$orderId}";
+    }
+
     private function getCurrentRadius(int $orderId): float
     {
         return (float) (Redis::get($this->radiusKey($orderId)) ?? self::RADIUS_KM_STAGES[0]);
@@ -59,6 +62,7 @@ class DispatchService
     private function clearDispatchCache(int $orderId): void
     {
         Redis::del($this->radiusKey($orderId));
+        Redis::del($this->retryKey($orderId));
     }
 
     // =========================================================================
@@ -71,6 +75,11 @@ class DispatchService
 
         if (!$order->pickup_lat || !$order->pickup_lng) {
             Log::warning("[Dispatch] Đơn #{$order->id} thiếu toạ độ pickup → không dispatch");
+            return;
+        }
+
+        if ($order->dispatching_to_driver_id !== null) {
+            Log::info("[Dispatch] Đơn #{$order->id} đang chờ tài xế #{$order->dispatching_to_driver_id} → bỏ qua restart");
             return;
         }
 
@@ -133,49 +142,6 @@ class DispatchService
         RTDBService::clearDriverOffer($driverId);
 
         $this->sendToNextDriver($order->fresh());
-    }
-
-    public function cancelIfNoDriver(Order $order): void
-    {
-        if ($order->status !== 'pending') return;
-
-        $logs      = OrderDispatchLog::where('order_id', $order->id)->get();
-        $driverIds = $logs->pluck('driver_id')->unique()->toArray();
-        $names     = User::whereIn('id', $driverIds)->pluck('name', 'id');
-
-        OrderDispatchLog::where('order_id', $order->id)
-            ->where('result', 'pending')
-            ->update(['result' => 'expired', 'responded_at' => now()]);
-
-        $cancelled = DB::table('orders')
-            ->where('id', $order->id)
-            ->where('status', 'pending')
-            ->update(['status' => 'cancelled', 'cancel_reason' => 'no_driver', 'dispatching_to_driver_id' => null, 'updated_at' => now()]);
-
-        if (!$cancelled) return;
-
-        $this->clearDispatchCache($order->id);
-        broadcast(new DispatchStateChanged());
-
-        if ($order->voucher_code) {
-            Voucher::where('code', $order->voucher_code)->decrement('used_count');
-            VoucherUsage::where('order_id', $order->id)->delete();
-            Log::info("║  Hoàn voucher: {$order->voucher_code}");
-        }
-
-        $customer = User::find($order->sender_platform_id);
-        if ($customer?->fcm_token) {
-            FCMService::getInstance()->sendNoDriverCancellation($customer->fcm_token, $order->code);
-        }
-
-        Log::info("╔══════════════════════════════════════════════════════════════");
-        Log::info("║ [Dispatch] KẾT QUẢ: ĐƠN #{$order->id} BỊ HỦY - Không có tài xế nhận");
-        Log::info("║  Tổng số lần thử: {$logs->count()}");
-        foreach ($logs as $l) {
-            $n = $names[$l->driver_id] ?? '?';
-            Log::info("║    - #{$l->driver_id} {$n} → {$l->result}");
-        }
-        Log::info("╚══════════════════════════════════════════════════════════════");
     }
 
     public function handleAccepted(Order $order, User $driver): void
@@ -299,7 +265,12 @@ class DispatchService
         }
 
         if ($nextKm === null) {
-            // Hết bán kính → quay lại vòng đầu, delay 30s rồi quét lại
+            // Chống tích lũy RetryJob: chỉ schedule 1 retry tại 1 thời điểm
+            if (!Redis::set($this->retryKey($order->id), 1, 'NX', 'EX', 20)) {
+                Log::debug("╟── [Dispatch] Đơn #{$order->id}: Retry đã được lên lịch, bỏ qua");
+                return;
+            }
+
             $firstKm = self::RADIUS_KM_STAGES[0];
             Log::info("╟── [Dispatch] Đơn #{$order->id}: Hết bán kính ({$currentKm}km) → quét lại {$firstKm}km sau 15s");
             Redis::setex($this->radiusKey($order->id), self::QUEUE_TTL_SECS, $firstKm);
