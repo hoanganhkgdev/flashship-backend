@@ -11,3 +11,6 @@ Artisan::command('inspire', function () {
 // Kiểm tra Zalo token mỗi giờ, tự refresh khi còn dưới 30 phút
 Schedule::command('zalo:refresh-token')->hourly();
 
+// Sync GPS tài xế từ Firebase RTDB → MySQL mỗi 30 giây (cho dispatch Haversine)
+Schedule::command('driver:sync-location')->everyThirtySeconds();
+
