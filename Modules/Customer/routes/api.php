@@ -10,8 +10,9 @@ use Modules\Customer\Http\Controllers\LegalController;
 use Modules\Customer\Http\Controllers\SupportController;
 use Modules\Customer\Http\Controllers\VoucherController;
 use Modules\Pricing\Http\Controllers\PricingController;
+use Modules\Customer\Http\Middleware\TrackCustomerEvent;
 
-Route::prefix('customer')->group(function () {
+Route::prefix('customer')->middleware(TrackCustomerEvent::class)->group(function () {
 
     Route::prefix('auth')->group(function () {
         Route::post('/send-otp',             [AuthController::class, 'sendOtp']);
