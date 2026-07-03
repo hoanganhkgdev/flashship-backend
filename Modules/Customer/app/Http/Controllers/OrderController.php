@@ -13,6 +13,7 @@ use Modules\Core\Services\RTDBService;
 use Modules\Customer\Models\CustomerAddress;
 use Modules\Order\Services\OrderService;
 use Modules\Pricing\Services\PricingService;
+use Modules\Core\Models\City;
 
 class OrderController extends Controller
 {
@@ -63,6 +64,27 @@ class OrderController extends Controller
                 'success' => false,
                 'message' => 'Tài khoản chưa được gán thành phố. Vui lòng liên hệ hỗ trợ.',
             ], 422);
+        }
+
+        // Kiểm tra pickup có nằm trong vùng phục vụ của thành phố không
+        if (!empty($data['pickup_lat']) && !empty($data['pickup_lng'])) {
+            $city = City::find($user->city_id);
+            if ($city && $city->lat && $city->lng) {
+                $dlat = deg2rad((float) $data['pickup_lat'] - (float) $city->lat);
+                $dlng = deg2rad((float) $data['pickup_lng'] - (float) $city->lng);
+                $a    = sin($dlat / 2) ** 2
+                    + cos(deg2rad((float) $data['pickup_lat']))
+                    * cos(deg2rad((float) $city->lat))
+                    * sin($dlng / 2) ** 2;
+                $distKm = 6371 * 2 * atan2(sqrt($a), sqrt(1 - $a));
+
+                if ($distKm > 15) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Địa chỉ lấy hàng nằm ngoài vùng phục vụ. Vui lòng kiểm tra lại địa chỉ.',
+                    ], 422);
+                }
+            }
         }
 
         try {
