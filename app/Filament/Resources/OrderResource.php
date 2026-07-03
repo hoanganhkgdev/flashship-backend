@@ -325,6 +325,9 @@ class OrderResource extends Resource
                             . ($record->status === 'pending' && $record->cancel_reason === 'no_driver'
                                 ? '<br><span style="color:#ef4444;font-size:11px;font-weight:600">⚠ Không tìm được tài xế — cần xử lý</span>'
                                 : '')
+                            . ($record->status === 'on_the_way' && $record->updated_at?->lt(now()->subMinutes(30))
+                                ? '<br><span style="color:#ef4444;font-size:11px;font-weight:600">⚠ Đang giao ' . $record->updated_at->diffInMinutes(now()) . ' phút — chưa hoàn thành</span>'
+                                : '')
                         )
                         ->html()
                         ->grow(true),

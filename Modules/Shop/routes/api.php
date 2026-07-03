@@ -7,8 +7,9 @@ use Modules\Shop\Http\Controllers\PricingController;
 use Modules\Shop\Http\Controllers\ShopAddressController;
 use Modules\Shop\Http\Controllers\ShopNotificationController;
 use Modules\Shop\Http\Controllers\VoucherController;
+use Modules\Shop\Http\Middleware\TrackShopEvent;
 
-Route::prefix('shop')->group(function () {
+Route::prefix('shop')->middleware(TrackShopEvent::class)->group(function () {
 
     Route::prefix('auth')->group(function () {
         Route::post('/send-otp',            [AuthController::class, 'sendOtp']);

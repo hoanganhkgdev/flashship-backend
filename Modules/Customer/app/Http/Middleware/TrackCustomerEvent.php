@@ -42,6 +42,7 @@ class TrackCustomerEvent
 
         DB::table('customer_events')->insert([
             'user_id'    => $user->id,
+            'platform'   => 'customer',
             'event'      => $event,
             'created_at' => now(),
         ]);

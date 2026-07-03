@@ -76,36 +76,26 @@ class FCMService
      */
     public function sendDriverWakeUp(string $fcmToken, int $orderId, string $orderCode = '', string $pickupAddress = ''): void
     {
+        // Data-only message: Flutter background handler tạo notification
+        // → chỉ 1 notification duy nhất, không bị duplicate từ FCM system
         try {
             $message = CloudMessage::withTarget('token', $fcmToken)
-                ->withNotification(Notification::create(
-                    "🚀 Đơn hàng mới #{$orderCode}",
-                    $pickupAddress ?: 'Nhấn để xem và nhận đơn hàng'
-                ))
                 ->withData([
-                    'type'           => 'order_offer',
-                    'order_id'       => (string) $orderId,
-                    'order_code'     => (string) $orderCode,
-                    'pickup_address' => $pickupAddress,
+                    'type'       => 'order_offer',
+                    'order_id'   => (string) $orderId,
+                    'order_code' => (string) $orderCode,
                 ])
                 ->withAndroidConfig(AndroidConfig::fromArray([
                     'priority' => 'high',
                     'ttl'      => '25s',
-                    'notification' => [
-                        'channel_id' => 'order_offer_channel',
-                        'sound'      => 'order_offer',
-                    ],
                 ]))
                 ->withApnsConfig(ApnsConfig::fromArray([
                     'headers' => [
                         'apns-priority'  => '10',
-                        'apns-push-type' => 'alert',
+                        'apns-push-type' => 'background',
                     ],
                     'payload' => ['aps' => [
-                        'sound'             => 'order_offer.aiff',
-                        'badge'             => 1,
                         'content-available' => 1,
-                        'interruption-level' => 'time-sensitive',
                     ]],
                 ]));
             try {
@@ -292,6 +282,19 @@ class FCMService
             }
         }
         return ['sent' => $sent, 'failed' => $failed];
+    }
+
+    public function sendDeliveryReminder(string $fcmToken, string $orderCode): void
+    {
+        $this->send($fcmToken, [
+            'title' => "Đơn #{$orderCode} — Nhắc nhở",
+            'body'  => 'Bạn đã giao hàng xong chưa? Nhớ bấm Hoàn thành nhé!',
+            'data'  => [
+                'type'       => 'delivery_reminder',
+                'order_code' => $orderCode,
+            ],
+            'ttl' => 300,
+        ]);
     }
 
     public function sendOverdueDebt(string $fcmToken, string $amount): void
