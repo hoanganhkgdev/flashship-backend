@@ -25,7 +25,7 @@ class DriverController extends Controller
         $user = $request->user();
         $user->loadMissing(['city', 'bank', 'driverLicenses', 'driverCccdImages', 'wallet']);
 
-        $data = $user->toArray();
+        $data = $user->applyTodayOnline($user->toArray());
         $data['city_name']    = $user->city?->name ?? '';
         $data['balance']      = $user->wallet?->balance ?? 0;
         $data['bank_code']     = $user->bank?->bank_code;
@@ -94,15 +94,20 @@ class DriverController extends Controller
         // Tích lũy thời gian online khi chuyển sang offline
         \Log::info("[Toggle] #{$user->id} PRE: is_online={$user->is_online} online_since={$user->online_since} daily_online_seconds={$user->daily_online_seconds}");
         if ($user->is_online && $user->online_since) {
-            $today           = now()->toDateString();
-            $onlineSinceDate = $user->online_since->toDateString();
+            $now         = now();
+            $today       = $now->toDateString();
+            $windowStart = User::onlineWindowStart($now);
 
-            // Nếu session bắt đầu trước hôm nay, chỉ tính từ 00:00 hôm nay
-            $sessionStart   = $onlineSinceDate === $today
-                ? $user->online_since
-                : now()->startOfDay();
-
-            $sessionSeconds = (int) abs($sessionStart->diffInSeconds(now()));
+            // Chỉ tính phần phiên nằm trong [6:30 sáng nay, now].
+            // now < 6:30 (vùng chết 00:00–6:30) → session này không tính giây nào.
+            if ($now->greaterThan($windowStart)) {
+                $sessionStart   = $user->online_since->greaterThan($windowStart)
+                    ? $user->online_since
+                    : $windowStart;
+                $sessionSeconds = (int) max(0, $sessionStart->diffInSeconds($now, false));
+            } else {
+                $sessionSeconds = 0;
+            }
 
             $existingSeconds = ($user->daily_online_date === $today)
                 ? (int) ($user->daily_online_seconds ?? 0)
@@ -114,6 +119,14 @@ class DriverController extends Controller
 
         $user->is_online   = !$user->is_online;
         $user->online_since = $user->is_online ? now() : null;
+
+        // Bật online sang ngày mới → reset bộ đếm giờ online tích luỹ của hôm trước
+        // (khối tích luỹ ở trên chỉ chạy khi TẮT online nên không reset được ở đây).
+        if ($user->is_online && $user->daily_online_date !== now()->toDateString()) {
+            $user->daily_online_seconds = 0;
+            $user->daily_online_date    = now()->toDateString();
+        }
+
         $user->save();
 
         RTDBService::setDriverOnlineStatus($user->id, (bool) $user->is_online);
@@ -148,9 +161,10 @@ class DriverController extends Controller
 
         $driver = $request->user();
         $driver->update([
-            'latitude'  => $data['latitude'],
-            'longitude' => $data['longitude'],
-            'bearing'   => $data['bearing'] ?? $driver->bearing,
+            'latitude'         => $data['latitude'],
+            'longitude'        => $data['longitude'],
+            'bearing'          => $data['bearing'] ?? $driver->bearing,
+            'last_location_at' => now(),
         ]);
 
         if ($driver->city_id) {

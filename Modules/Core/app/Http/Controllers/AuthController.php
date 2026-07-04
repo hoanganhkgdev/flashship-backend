@@ -10,6 +10,7 @@ use Illuminate\Validation\ValidationException;
 use Modules\Core\Models\User;
 use Modules\Core\Services\OtpService;
 use Modules\Core\Services\RTDBService;
+use Modules\Driver\Services\DriverScoreService;
 
 class AuthController extends Controller
 {
@@ -60,6 +61,7 @@ class AuthController extends Controller
                 'city_id'            => $data['city_id'],
                 'profile_photo_path' => $path,
                 'fcm_token'          => $data['fcm_token'] ?? null,
+                'driver_score'       => DriverScoreService::DEFAULT_SCORE,
             ]);
             $token = $user->createToken('api_token')->plainTextToken;
             return [$user, $token];
@@ -101,6 +103,7 @@ class AuthController extends Controller
                 'city_id'            => $data['city_id'],
                 'profile_photo_path' => $path,
                 'fcm_token'          => $data['fcm_token'] ?? null,
+                'driver_score'       => DriverScoreService::DEFAULT_SCORE,
             ]);
 
             $token = $user->createToken('api_token')->plainTextToken;
@@ -225,7 +228,7 @@ class AuthController extends Controller
     private function formatUser(User $user): array
     {
         $user->loadMissing(['city', 'bank', 'driverLicenses']);
-        $data = $user->toArray();
+        $data = $user->applyTodayOnline($user->toArray());
         $data['city_name'] = $user->city?->name ?? '';
         $data['bank_name'] = $user->bank?->bank_name;
         $data['bank_account'] = $user->bank?->account_number;
