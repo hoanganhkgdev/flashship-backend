@@ -57,8 +57,8 @@ class SyncDriverLocationCommand extends Command
                 'latitude'         => $data['lat'],
                 'longitude'        => $data['lng'],
                 // Nguồn GPS bền vững hơn timer 30s phía app (bị OS throttle khi app
-                // xuống nền) — nếu không set, ghost-cleanup sẽ bắt nhầm tài xế đang
-                // hoạt động thật là ghost driver.
+                // xuống nền) — dùng để lọc ghost driver khỏi ứng viên dispatch
+                // (getCandidates), không set thì tài xế mất kết nối vẫn bị phát đơn.
                 'last_location_at' => now(),
             ];
             if (isset($data['bearing'])) {

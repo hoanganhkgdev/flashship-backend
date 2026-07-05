@@ -10,7 +10,6 @@ use Modules\Driver\Console\Commands\MarkOverdueDebtsCommand;
 use Modules\Driver\Console\Commands\SyncDriverLocationCommand;
 use Modules\Driver\Console\Commands\WeeklyScoreCommand;
 use Modules\Driver\Console\Commands\ResetDailyOnlineCommand;
-use Modules\Driver\Console\Commands\GhostDriverCleanupCommand;
 
 class DriverServiceProvider extends ModuleServiceProvider
 {
@@ -19,7 +18,6 @@ class DriverServiceProvider extends ModuleServiceProvider
 
     protected array $commands = [
         GenerateWeeklyFeesCommand::class,
-        GhostDriverCleanupCommand::class,
         InactivityDecayCommand::class,
         MarkOverdueDebtsCommand::class,
         SyncDriverLocationCommand::class,
@@ -44,7 +42,5 @@ class DriverServiceProvider extends ModuleServiceProvider
         $schedule->command('driver:mark-overdue-debts')->hourly();
         // Thứ Hai 00:05 — tạo phí tuần mới (sau weekly-score)
         $schedule->command('driver:generate-weekly-fees')->weeklyOn(1, '00:05');
-        // Mỗi phút — set offline tài xế ma (app crash, mất mạng > 2 phút)
-        $schedule->command('driver:ghost-cleanup')->everyMinute();
     }
 }
