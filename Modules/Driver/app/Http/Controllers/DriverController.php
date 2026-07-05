@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
 use Modules\Core\Services\OtpService;
 use Modules\Core\Models\City;
+use Modules\Core\Models\User;
 use Modules\Core\Services\DriverGeoService;
 use Modules\Core\Services\RTDBService;
 use Modules\Driver\Models\Bank;
