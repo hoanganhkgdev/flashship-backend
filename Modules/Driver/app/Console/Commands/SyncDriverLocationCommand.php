@@ -54,8 +54,12 @@ class SyncDriverLocationCommand extends Command
             }
 
             $update = [
-                'latitude'  => $data['lat'],
-                'longitude' => $data['lng'],
+                'latitude'         => $data['lat'],
+                'longitude'        => $data['lng'],
+                // Nguồn GPS bền vững hơn timer 30s phía app (bị OS throttle khi app
+                // xuống nền) — nếu không set, ghost-cleanup sẽ bắt nhầm tài xế đang
+                // hoạt động thật là ghost driver.
+                'last_location_at' => now(),
             ];
             if (isset($data['bearing'])) {
                 $update['bearing'] = $data['bearing'];
