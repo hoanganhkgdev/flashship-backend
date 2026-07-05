@@ -35,15 +35,17 @@ class DriverController extends Controller
         $data['bank_holder']   = $user->bank?->account_name;
         $license = $user->driverLicenses->sortByDesc('id')->first();
         if ($license) {
-            $data['license_status']    = $license->status;
-            $data['license_image_url'] = $license->image_path ? url('storage/' . $license->image_path) : null;
+            $data['license_status']            = $license->status;
+            $data['license_image_url']         = $license->image_path ? url('storage/' . $license->image_path) : null;
+            $data['license_rejection_reason']  = $license->status === 'rejected' ? $license->rejection_reason : null;
         }
         if ($user->profile_photo_path) {
             $data['profile_photo_url'] = url('storage/' . $user->profile_photo_path);
         }
         $cccd = $user->driverCccdImages->sortByDesc('id')->first();
-        $data['cccd_image_status'] = $cccd?->status;
-        $data['cccd_image_url']    = $cccd?->image_path ? url('storage/' . $cccd->image_path) : null;
+        $data['cccd_image_status']            = $cccd?->status;
+        $data['cccd_image_url']               = $cccd?->image_path ? url('storage/' . $cccd->image_path) : null;
+        $data['cccd_image_rejection_reason']  = $cccd?->status === 'rejected' ? $cccd->rejection_reason : null;
         $data['name_locked']          = (bool) $user->name_updated_at;
         $avatarCooldown               = $user->avatar_updated_at && $user->avatar_updated_at->diffInDays(now()) < 30;
         $data['avatar_locked']        = $avatarCooldown;

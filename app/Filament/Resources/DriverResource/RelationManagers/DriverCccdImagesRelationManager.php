@@ -80,12 +80,28 @@ class DriverCccdImagesRelationManager extends RelationManager
                                 'rejected' => '✗  Từ chối — CCCD không hợp lệ',
                             ])
                             ->required()
-                            ->native(false),
+                            ->native(false)
+                            ->live(),
+                        Forms\Components\Textarea::make('rejection_reason')
+                            ->label('Lý do từ chối')
+                            ->placeholder('VD: Ảnh mờ, thiếu góc, không đúng người...')
+                            ->required()
+                            ->visible(fn ($get) => $get('status') === 'rejected')
+                            ->rows(2),
                     ])
-                    ->fillForm(fn (DriverCccdImage $record) => ['status' => $record->status])
+                    ->fillForm(fn (DriverCccdImage $record) => [
+                        'status'           => $record->status,
+                        'rejection_reason' => $record->rejection_reason,
+                    ])
                     ->modalSubmitActionLabel('Lưu quyết định')
                     ->action(function (DriverCccdImage $record, array $data) {
-                        $record->update(['status' => $data['status']]);
+                        $record->update([
+                            'status'           => $data['status'],
+                            // Duyệt lại thì xoá lý do từ chối cũ đi
+                            'rejection_reason' => $data['status'] === 'rejected'
+                                ? ($data['rejection_reason'] ?? null)
+                                : null,
+                        ]);
                         Notification::make()
                             ->title($data['status'] === 'approved' ? 'Đã duyệt CCCD' : 'Đã từ chối CCCD')
                             ->color($data['status'] === 'approved' ? 'success' : 'warning')

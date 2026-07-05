@@ -80,12 +80,27 @@ class DriverLicensesRelationManager extends RelationManager
                                 'rejected' => '✗  Từ chối — Bằng lái không hợp lệ',
                             ])
                             ->required()
-                            ->native(false),
+                            ->native(false)
+                            ->live(),
+                        Forms\Components\Textarea::make('rejection_reason')
+                            ->label('Lý do từ chối')
+                            ->placeholder('VD: Ảnh mờ, hết hạn, không đúng người...')
+                            ->required()
+                            ->visible(fn ($get) => $get('status') === 'rejected')
+                            ->rows(2),
                     ])
-                    ->fillForm(fn (DriverLicense $record) => ['status' => $record->status])
+                    ->fillForm(fn (DriverLicense $record) => [
+                        'status'           => $record->status,
+                        'rejection_reason' => $record->rejection_reason,
+                    ])
                     ->modalSubmitActionLabel('Lưu quyết định')
                     ->action(function (DriverLicense $record, array $data) {
-                        $record->update(['status' => $data['status']]);
+                        $record->update([
+                            'status'           => $data['status'],
+                            'rejection_reason' => $data['status'] === 'rejected'
+                                ? ($data['rejection_reason'] ?? null)
+                                : null,
+                        ]);
                         Notification::make()
                             ->title($data['status'] === 'approved' ? 'Đã duyệt bằng lái' : 'Đã từ chối bằng lái')
                             ->color($data['status'] === 'approved' ? 'success' : 'warning')

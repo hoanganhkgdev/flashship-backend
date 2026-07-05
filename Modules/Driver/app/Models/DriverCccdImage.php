@@ -10,7 +10,7 @@ class DriverCccdImage extends Model
     const STATUS_PENDING  = 'pending';
     const STATUS_REJECTED = 'rejected';
 
-    protected $fillable = ['user_id', 'image_path', 'status'];
+    protected $fillable = ['user_id', 'image_path', 'status', 'rejection_reason'];
 
     public function user() { return $this->belongsTo(\Modules\Core\Models\User::class); }
 }

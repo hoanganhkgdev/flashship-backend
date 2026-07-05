@@ -278,6 +278,17 @@ class OrderService
             return ['success' => true, 'message' => 'Đơn này đã hoàn thành trước đó.', 'data' => $order, 'status' => 200];
         }
 
+        // Đơn batch phải giao hết từng điểm qua deliverStop() (tự động complete
+        // khi đủ) — chặn hoàn thành thẳng để không bỏ sót điểm chưa giao.
+        if ($order->is_batch) {
+            $stops = $order->stops ?? [];
+            $allDelivered = count($stops) > 0
+                && collect($stops)->every(fn ($s) => ($s['delivered_at'] ?? null) !== null);
+            if (!$allDelivered) {
+                return ['success' => false, 'message' => 'Đơn gộp cần giao hết các điểm trước khi hoàn thành.', 'status' => 400];
+            }
+        }
+
         // Atomic update — chỉ tiếp tục nếu row thực sự được update (tránh race condition)
         $affected = \DB::table('orders')
             ->where('id', $order->id)
