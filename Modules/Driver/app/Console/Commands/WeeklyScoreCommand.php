@@ -42,74 +42,85 @@ class WeeklyScoreCommand extends Command
             $score = (int) ($driver->driver_score ?? DriverScoreService::DEFAULT_SCORE);
 
             if ($score >= DriverScoreService::WEEKLY_BONUS_SCORE) {
-                $ref = "score_bonus_{$driver->id}_{$weekStart}";
-
+                // Unique (driver_id, week_start, type) chặn xử lý trùng nếu lệnh
+                // vô tình chạy 2 lần cho cùng tuần — bắt riêng từng tài xế để 1
+                // lỗi trùng không làm crash cả vòng lặp (và mất luôn bước reset
+                // điểm cuối hàm).
                 try {
-                    DriverWalletService::adjust(
-                        driverId:      $driver->id,
-                        amount:        DriverScoreService::WEEKLY_BONUS_AMOUNT,
-                        type:          'credit',
-                        desc:          "Thưởng điểm tuần {$weekStart} — {$weekEnd} (điểm: {$score})",
-                        ref:           $ref,
-                    );
-                    $status = 'processed';
+                    DB::transaction(function () use ($driver, $score, $weekStart, $weekEnd, $now) {
+                        $ref = "score_bonus_{$driver->id}_{$weekStart}";
+
+                        // Tạo settlement TRƯỚC — nếu trùng (đã chốt tuần này rồi),
+                        // unique constraint chặn ngay, không kịp cộng ví.
+                        DB::table('driver_score_settlements')->insert([
+                            'driver_id'           => $driver->id,
+                            'type'                => 'bonus',
+                            'amount'              => DriverScoreService::WEEKLY_BONUS_AMOUNT,
+                            'score_at_settlement' => $score,
+                            'week_start'          => $weekStart,
+                            'week_end'            => $weekEnd,
+                            'status'              => 'processed',
+                            'created_at'          => $now,
+                            'updated_at'          => $now,
+                        ]);
+
+                        DriverWalletService::adjust(
+                            driverId: $driver->id,
+                            amount:   DriverScoreService::WEEKLY_BONUS_AMOUNT,
+                            type:     'credit',
+                            desc:     "Thưởng điểm tuần {$weekStart} — {$weekEnd} (điểm: {$score})",
+                            ref:      $ref,
+                        );
+                    });
+                    $bonusCount++;
                 } catch (\Throwable $e) {
-                    Log::warning("[WeeklyScore] Lỗi thưởng driver #{$driver->id}: " . $e->getMessage());
-                    $status = 'pending';
+                    Log::warning("[WeeklyScore] Bỏ qua thưởng driver #{$driver->id} (có thể đã xử lý): " . $e->getMessage());
                 }
 
-                DB::table('driver_score_settlements')->insert([
-                    'driver_id'           => $driver->id,
-                    'type'                => 'bonus',
-                    'amount'              => DriverScoreService::WEEKLY_BONUS_AMOUNT,
-                    'score_at_settlement' => $score,
-                    'week_start'          => $weekStart,
-                    'week_end'            => $weekEnd,
-                    'status'              => $status,
-                    'created_at'          => $now,
-                    'updated_at'          => $now,
-                ]);
-                $bonusCount++;
-
             } elseif ($score <= DriverScoreService::WEEKLY_PENALTY_SCORE) {
-                $ref = "score_penalty_{$driver->id}_{$weekStart}";
+                try {
+                    DB::transaction(function () use ($driver, $score, $weekStart, $weekEnd, $now) {
+                        $ref = "score_penalty_{$driver->id}_{$weekStart}";
 
-                DB::table('driver_debts')->insert([
-                    'driver_id'  => $driver->id,
-                    'status'     => 'pending',
-                    'amount_due' => DriverScoreService::WEEKLY_PENALTY_AMOUNT,
-                    'amount_paid'=> 0,
-                    'week_start' => $weekStart,
-                    'week_end'   => $weekEnd,
-                    'ref_id'     => $ref,
-                    'note'       => "Phạt điểm tuần {$weekStart} — {$weekEnd} (điểm: {$score})",
-                    'created_at' => $now,
-                    'updated_at' => $now,
-                ]);
+                        // Cũng tạo settlement TRƯỚC cùng lý do — nếu trùng thì
+                        // rollback cả transaction, không để sót nợ mồ côi.
+                        DB::table('driver_score_settlements')->insert([
+                            'driver_id'           => $driver->id,
+                            'type'                => 'penalty',
+                            'amount'              => DriverScoreService::WEEKLY_PENALTY_AMOUNT,
+                            'score_at_settlement' => $score,
+                            'week_start'          => $weekStart,
+                            'week_end'            => $weekEnd,
+                            'status'              => 'processed',
+                            'created_at'          => $now,
+                            'updated_at'          => $now,
+                        ]);
 
-                DB::table('driver_score_settlements')->insert([
-                    'driver_id'           => $driver->id,
-                    'type'                => 'penalty',
-                    'amount'              => DriverScoreService::WEEKLY_PENALTY_AMOUNT,
-                    'score_at_settlement' => $score,
-                    'week_start'          => $weekStart,
-                    'week_end'            => $weekEnd,
-                    'status'              => 'processed',
-                    'created_at'          => $now,
-                    'updated_at'          => $now,
-                ]);
-                $penaltyCount++;
+                        DB::table('driver_debts')->insert([
+                            'driver_id'  => $driver->id,
+                            'status'     => 'pending',
+                            'amount_due' => DriverScoreService::WEEKLY_PENALTY_AMOUNT,
+                            'amount_paid'=> 0,
+                            'week_start' => $weekStart,
+                            'week_end'   => $weekEnd,
+                            'ref_id'     => $ref,
+                            'note'       => "Phạt điểm tuần {$weekStart} — {$weekEnd} (điểm: {$score})",
+                            'created_at' => $now,
+                            'updated_at' => $now,
+                        ]);
+                    });
+                    $penaltyCount++;
+                } catch (\Throwable $e) {
+                    Log::warning("[WeeklyScore] Bỏ qua phạt driver #{$driver->id} (có thể đã xử lý): " . $e->getMessage());
+                }
             }
         }
 
-        // Reset toàn bộ điểm và streak về mặc định cho tuần mới
-        DB::table('users')
-            ->where('user_type', 'driver')
-            ->where('status', 1)
-            ->update([
-                'driver_score'          => DriverScoreService::DEFAULT_SCORE,
-                'consecutive_completed' => 0,
-            ]);
+        // Reset toàn bộ điểm/streak về mặc định + ghi log lý do "weekly_reset"
+        // (dùng chung DriverScoreService::weeklyReset() thay vì tự update thô
+        // — trước đây update thẳng không ghi log, khiến lịch sử điểm tài xế
+        // nhảy vọt về 100 mỗi sáng thứ Hai mà không có dòng log giải thích).
+        DriverScoreService::weeklyReset();
 
         $total = $drivers->count();
         $this->info("[WeeklyScore] Tuần {$weekStart}→{$weekEnd}: {$bonusCount} thưởng, {$penaltyCount} phạt / {$total} tài xế → reset về 100.");
