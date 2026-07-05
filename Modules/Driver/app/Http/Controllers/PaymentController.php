@@ -45,6 +45,21 @@ class PaymentController extends Controller
             $refId       = null;
         }
 
+        // Huỷ các QR cũ còn "pending" cho cùng loại/khoản — không thì QR cũ
+        // (ảnh chụp màn hình, tab cũ...) vẫn quét trả tiền được nhưng tiền
+        // không được cộng vào đâu vì hệ thống chỉ áp dụng cho QR mới nhất.
+        $oldPending = DB::table('payment_orders')
+            ->where('driver_id', $driver->id)
+            ->where('type', $data['type'])
+            ->where('status', 'pending')
+            ->when($refId !== null, fn ($q) => $q->where('ref_id', $refId))
+            ->get(['id', 'order_code']);
+        foreach ($oldPending as $old) {
+            PayOSService::cancelPayment((int) $old->order_code);
+            DB::table('payment_orders')->where('id', $old->id)
+                ->update(['status' => 'cancelled', 'updated_at' => now()]);
+        }
+
         // Tạo order code duy nhất (9 chữ số đầu timestamp + 3 chữ số random)
         $orderCode = (int) (substr((string) time(), -7) . str_pad(random_int(0, 999), 3, '0', STR_PAD_LEFT));
 
