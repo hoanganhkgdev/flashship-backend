@@ -63,6 +63,15 @@ class DriverDebtResource extends Resource
                         ->numeric()
                         ->minValue(1000)
                         ->required()
+                        ->live()
+                        ->suffix('₫'),
+
+                    Forms\Components\TextInput::make('amount_paid')
+                        ->label('Đã thanh toán')
+                        ->numeric()
+                        ->minValue(0)
+                        ->default(0)
+                        ->required()
                         ->suffix('₫'),
 
                     Forms\Components\DatePicker::make('week_start')
@@ -88,7 +97,16 @@ class DriverDebtResource extends Resource
                             'overdue' => 'Quá hạn',
                         ])
                         ->default('pending')
-                        ->required(),
+                        ->required()
+                        ->live()
+                        ->afterStateUpdated(function (string $state, callable $set, callable $get) {
+                            // Chọn "Đã thanh toán" thủ công → tự đồng bộ amount_paid
+                            // = amount_due, tránh tình trạng status=paid nhưng
+                            // "Còn lại" vẫn hiện nợ (giống hành vi nút Trừ ví).
+                            if ($state === 'paid') {
+                                $set('amount_paid', $get('amount_due'));
+                            }
+                        }),
 
                     Forms\Components\Textarea::make('note')
                         ->label('Ghi chú')
