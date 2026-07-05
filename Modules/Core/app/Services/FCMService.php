@@ -36,42 +36,6 @@ class FCMService
     }
 
     /**
-     * Gửi offer đơn hàng đến tài xế.
-     */
-    public function sendOrderOffer(string $fcmToken, array $order, int $ttl = 45, string $offeredAt = ''): void
-    {
-        $this->send($fcmToken, [
-            'title'   => 'Có đơn hàng mới!',
-            'body'    => "Từ: {$order['pickup_address']}",
-            'data'    => [
-                'type'             => 'order_offer',
-                'order_id'         => (string) $order['id'],
-                'order_code'       => $order['code'] ?? '',
-                'service_type'     => $order['service_type'] ?? 'delivery',
-                'pickup_address'   => $order['pickup_address'] ?? '',
-                'pickup_name'      => $order['sender_name'] ?? '',
-                'pickup_phone'     => $order['pickup_phone'] ?? '',
-                'customer_phone'   => $order['customer_phone'] ?? '',
-                'pickup_lat'       => (string) ($order['pickup_lat'] ?? ''),
-                'pickup_lng'       => (string) ($order['pickup_lng'] ?? ''),
-                'delivery_address' => $order['delivery_address'] ?? '',
-                'delivery_phone'   => $order['delivery_phone'] ?? '',
-                'delivery_lat'     => (string) ($order['delivery_lat'] ?? ''),
-                'delivery_lng'     => (string) ($order['delivery_lng'] ?? ''),
-                'order_note'       => $order['order_note'] ?? '',
-                'shipping_fee'     => (string) ($order['shipping_fee'] ?? 0),
-                'discount_amount'  => (string) ($order['discount_amount'] ?? 0),
-                'bonus_fee'        => (string) ($order['bonus_fee'] ?? 0),
-                'payment_method'   => $order['payment_method'] ?? 'prepaid',
-                'cod_amount'       => (string) ($order['cod_amount'] ?? 0),
-                'ttl'              => (string) $ttl,
-                'offered_at'       => $offeredAt ?: now()->toIso8601String(),
-            ],
-            'ttl' => $ttl,
-        ]);
-    }
-
-    /**
      * Wake-up signal để app resume và đọc RTDB offer.
      */
     public function sendDriverWakeUp(string $fcmToken, int $orderId, string $orderCode = '', string $pickupAddress = ''): void
@@ -105,61 +69,6 @@ class FCMService
             }
         } catch (\Throwable $e) {
             Log::error('[FCM] sendDriverWakeUp failed: ' . $e->getMessage());
-        }
-    }
-
-    /**
-     * Gửi offer đơn hàng đến nhiều tài xế cùng lúc (broadcast).
-     */
-    public function sendMulticastOrderOffer(array $tokens, array $order, int $ttl = 30, string $offeredAt = ''): void
-    {
-        if (empty($tokens)) return;
-
-        $data = [
-            'type'             => 'order_offer',
-            'order_id'         => (string) $order['id'],
-            'order_code'       => $order['code'] ?? '',
-            'service_type'     => $order['service_type'] ?? 'delivery',
-            'pickup_address'   => $order['pickup_address'] ?? '',
-            'pickup_name'      => $order['sender_name'] ?? '',
-            'pickup_phone'     => $order['pickup_phone'] ?? '',
-            'customer_phone'   => $order['customer_phone'] ?? '',
-            'pickup_lat'       => (string) ($order['pickup_lat'] ?? ''),
-            'pickup_lng'       => (string) ($order['pickup_lng'] ?? ''),
-            'delivery_address' => $order['delivery_address'] ?? '',
-            'delivery_phone'   => $order['delivery_phone'] ?? '',
-            'delivery_lat'     => (string) ($order['delivery_lat'] ?? ''),
-            'delivery_lng'     => (string) ($order['delivery_lng'] ?? ''),
-            'order_note'       => $order['order_note'] ?? '',
-            'shipping_fee'     => (string) ($order['shipping_fee'] ?? 0),
-            'discount_amount'  => (string) ($order['discount_amount'] ?? 0),
-            'bonus_fee'        => (string) ($order['bonus_fee'] ?? 0),
-            'payment_method'   => $order['payment_method'] ?? 'prepaid',
-            'cod_amount'       => (string) ($order['cod_amount'] ?? 0),
-            'ttl'              => (string) $ttl,
-            'offered_at'       => $offeredAt ?: now()->toIso8601String(),
-        ];
-
-        $notif   = Notification::create('Có đơn hàng mới!', "Từ: {$order['pickup_address']}");
-        $android = AndroidConfig::fromArray(['priority' => 'high', 'ttl' => "{$ttl}s"]);
-
-        foreach (array_chunk($tokens, 500) as $batch) {
-            try {
-                $messages = array_map(
-                    fn (string $token) => CloudMessage::withTarget('token', $token)
-                        ->withNotification($notif)
-                        ->withData($data)
-                        ->withAndroidConfig($android),
-                    $batch
-                );
-                try {
-                    $this->messaging->sendAll($messages);
-                } catch (AuthenticationError $e) {
-                    self::resetInstance(); self::$instance->messaging->sendAll($messages);
-                }
-            } catch (\Throwable $e) {
-                Log::error('[FCM] Multicast failed: ' . $e->getMessage());
-            }
         }
     }
 
