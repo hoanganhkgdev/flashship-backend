@@ -467,18 +467,14 @@ class DispatchService
         }
 
         // ── 3. Query DB: profile, score, debt, license ───────────────────────────
-        $locationCutoff = $now->copy()->subSeconds(90);
+        // Không lọc theo last_location_at — app chỉ gửi GPS khi di chuyển ≥10m,
+        // tài xế ngồi yên chờ đơn sẽ bị loại oan nếu lọc theo độ tươi GPS.
         $candidates = User::whereIn('id', $eligibleIds)
             ->where('status', 1)
             ->where('is_online', true)
             ->where(function ($q) use ($now) {
                 $q->whereNull('score_suspended_until')
                   ->orWhere('score_suspended_until', '<=', $now);
-            })
-            ->where(function ($q) use ($locationCutoff) {
-                // Loại ghost driver — không gửi vị trí > 90s (có thể app crash)
-                $q->whereNull('last_location_at')
-                  ->orWhere('last_location_at', '>=', $locationCutoff);
             })
             ->with(['debts', 'driverLicenses'])
             ->get();
@@ -575,7 +571,6 @@ class DispatchService
     private function getNearbyFromDB(int $cityId, float $lat, float $lng, float $radiusKm): array
     {
         try {
-            $locationCutoff = now()->subSeconds(90);
             $results = DB::table('users')
                 ->select('id', DB::raw(
                     "(6371 * acos(
@@ -589,10 +584,6 @@ class DispatchService
                 ->where('city_id', $cityId)
                 ->whereNotNull('latitude')
                 ->whereNotNull('longitude')
-                ->where(function ($q) use ($locationCutoff) {
-                    $q->whereNull('last_location_at')
-                      ->orWhere('last_location_at', '>=', $locationCutoff);
-                })
                 ->having('distance_km', '<=', $radiusKm)
                 ->orderBy('distance_km')
                 ->limit(100)
