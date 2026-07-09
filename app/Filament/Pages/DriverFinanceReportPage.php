@@ -68,74 +68,51 @@ class DriverFinanceReportPage extends Page
         $driverIds = $drivers->pluck('id')->toArray();
         if (empty($driverIds)) return [];
 
-        // ── THU: đơn hoàn thành trong kỳ ─────────────────────────────────────
-        $orderStats = DB::table('orders')
-            ->whereIn('delivery_man_id', $driverIds)
-            ->where('status', 'completed')
-            ->whereBetween('completed_at', [$fromStr, $toStr])
-            ->groupBy('delivery_man_id')
-            ->selectRaw('delivery_man_id, COUNT(*) as cnt, COALESCE(SUM(shipping_fee + bonus_fee + COALESCE(night_surcharge,0)), 0) as earnings')
-            ->get()->keyBy('delivery_man_id');
-
-        // ── THU: thưởng điểm tuần cộng vào ví trong kỳ ───────────────────────
-        $bonuses = DB::table('driver_wallet_transactions as t')
-            ->join('driver_wallets as w', 'w.id', '=', 't.wallet_id')
-            ->whereIn('w.driver_id', $driverIds)
-            ->where('t.type', 'credit')
-            ->where('t.reference', 'like', 'score_bonus_%')
-            ->whereBetween('t.created_at', [$fromStr, $toStr])
-            ->groupBy('w.driver_id')
-            ->selectRaw('w.driver_id, COALESCE(SUM(t.amount), 0) as total')
-            ->pluck('total', 'driver_id');
-
-        // ── CHI: công nợ phát sinh trong kỳ (phí tuần + phạt điểm) ───────────
-        $debts = DB::table('driver_debts')
+        // Phí tuần phát sinh trong kỳ (không tính phạt điểm)
+        $fees = DB::table('driver_debts')
             ->whereIn('driver_id', $driverIds)
+            ->where(function ($q) {
+                $q->whereNull('ref_id')->orWhere('ref_id', 'not like', 'score_penalty%');
+            })
             ->whereBetween('week_start', [$from->toDateString(), $to->toDateString()])
             ->groupBy('driver_id')
-            ->selectRaw("driver_id,
-                COALESCE(SUM(CASE WHEN ref_id LIKE 'score_penalty%' THEN amount_due ELSE 0 END), 0) as penalty,
-                COALESCE(SUM(CASE WHEN ref_id LIKE 'score_penalty%' THEN 0 ELSE amount_due END), 0) as weekly_fee,
-                COALESCE(SUM(amount_paid), 0) as paid,
-                COALESCE(SUM(amount_due - amount_paid), 0) as remaining")
+            ->selectRaw('driver_id,
+                COALESCE(SUM(amount_due), 0)  as due,
+                COALESCE(SUM(amount_paid), 0) as paid')
             ->get()->keyBy('driver_id');
+
+        // Tiền đã rút (duyệt trong kỳ)
+        $withdrawals = DB::table('withdraw_requests')
+            ->whereIn('driver_id', $driverIds)
+            ->where('status', 'approved')
+            ->whereBetween(DB::raw('COALESCE(processed_at, updated_at)'), [$fromStr, $toStr])
+            ->groupBy('driver_id')
+            ->selectRaw('driver_id, COALESCE(SUM(amount), 0) as total')
+            ->pluck('total', 'driver_id');
 
         $rows = [];
         foreach ($drivers as $d) {
-            $o    = $orderStats->get($d->id);
-            $debt = $debts->get($d->id);
+            $fee       = $fees->get($d->id);
+            $due       = (int) ($fee->due ?? 0);
+            $paid      = (int) ($fee->paid ?? 0);
+            $withdrawn = (int) ($withdrawals[$d->id] ?? 0);
 
-            $orders    = (int) ($o->cnt ?? 0);
-            $earnings  = (int) ($o->earnings ?? 0);
-            $bonus     = (int) ($bonuses[$d->id] ?? 0);
-            $weeklyFee = (int) ($debt->weekly_fee ?? 0);
-            $penalty   = (int) ($debt->penalty ?? 0);
-            $paid      = (int) ($debt->paid ?? 0);
-            $remaining = (int) ($debt->remaining ?? 0);
-
-            // Bỏ dòng trắng hoàn toàn cho gọn báo cáo
-            if ($orders === 0 && $earnings === 0 && $bonus === 0 && $weeklyFee === 0 && $penalty === 0) {
+            if ($due === 0 && $paid === 0 && $withdrawn === 0) {
                 continue;
             }
 
             $rows[] = [
-                'id'         => $d->id,
-                'name'       => $d->name,
-                'phone'      => $d->phone,
-                'orders'     => $orders,
-                'earnings'   => $earnings,
-                'bonus'      => $bonus,
-                'total_in'   => $earnings + $bonus,
-                'weekly_fee' => $weeklyFee,
-                'penalty'    => $penalty,
-                'total_out'  => $weeklyFee + $penalty,
-                'paid'       => $paid,
-                'remaining'  => $remaining,
-                'net'        => $earnings + $bonus - $weeklyFee - $penalty,
+                'id'        => $d->id,
+                'name'      => $d->name,
+                'phone'     => $d->phone,
+                'due'       => $due,
+                'paid'      => $paid,
+                'remaining' => max(0, $due - $paid),
+                'withdrawn' => $withdrawn,
             ];
         }
 
-        usort($rows, fn ($a, $b) => $b['net'] <=> $a['net']);
+        usort($rows, fn ($a, $b) => $b['paid'] <=> $a['paid']);
 
         return $rows;
     }
@@ -147,12 +124,10 @@ class DriverFinanceReportPage extends Page
 
         return [
             'drivers'   => count($rows),
-            'orders'    => $sum('orders'),
-            'total_in'  => $sum('total_in'),
-            'total_out' => $sum('total_out'),
+            'due'       => $sum('due'),
             'paid'      => $sum('paid'),
             'remaining' => $sum('remaining'),
-            'net'       => $sum('net'),
+            'withdrawn' => $sum('withdrawn'),
         ];
     }
 
@@ -167,26 +142,20 @@ class DriverFinanceReportPage extends Page
         $totals = $this->totals;
 
         $data = [[
-            'Mã TX', 'Tài xế', 'SĐT', 'Số đơn',
-            'Thu phí ship (đ)', 'Thưởng điểm (đ)', 'Tổng thu (đ)',
-            'Phí tuần (đ)', 'Phạt điểm (đ)', 'Tổng chi (đ)',
-            'Đã trả (đ)', 'Còn nợ (đ)', 'Thực nhận (đ)',
+            'Mã TX', 'Tài xế', 'SĐT',
+            'Phí tuần phải đóng (đ)', 'Đã đóng (đ)', 'Còn nợ (đ)', 'Tiền đã rút (đ)',
         ]];
 
         foreach ($rows as $r) {
             $data[] = [
-                $r['id'], $r['name'], $r['phone'], $r['orders'],
-                $r['earnings'], $r['bonus'], $r['total_in'],
-                $r['weekly_fee'], $r['penalty'], $r['total_out'],
-                $r['paid'], $r['remaining'], $r['net'],
+                $r['id'], $r['name'], $r['phone'],
+                $r['due'], $r['paid'], $r['remaining'], $r['withdrawn'],
             ];
         }
 
         $data[] = [
-            '', 'TỔNG CỘNG', '', $totals['orders'],
-            '', '', $totals['total_in'],
-            '', '', $totals['total_out'],
-            $totals['paid'], $totals['remaining'], $totals['net'],
+            '', 'TỔNG CỘNG', '',
+            $totals['due'], $totals['paid'], $totals['remaining'], $totals['withdrawn'],
         ];
 
         [$from, $to] = $this->range;

@@ -41,30 +41,26 @@
 <p class="text-sm text-gray-500 mb-3">{{ $this->rangeLabel }}</p>
 
 {{-- Summary cards --}}
-<div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-4">
+<div class="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
     <div class="rounded-xl bg-white p-4 shadow-sm border">
         <p class="text-xs text-gray-500">Tài xế có phát sinh</p>
         <p class="text-2xl font-bold text-gray-900">{{ $totals['drivers'] }}</p>
     </div>
     <div class="rounded-xl bg-white p-4 shadow-sm border">
-        <p class="text-xs text-gray-500">Tổng đơn</p>
-        <p class="text-2xl font-bold text-gray-900">{{ number_format($totals['orders']) }}</p>
+        <p class="text-xs text-gray-500">Phí tuần phải đóng</p>
+        <p class="text-2xl font-bold text-gray-900">{{ number_format($totals['due']) }}đ</p>
     </div>
     <div class="rounded-xl bg-white p-4 shadow-sm border">
-        <p class="text-xs text-gray-500">Tổng thu tài xế</p>
-        <p class="text-2xl font-bold text-green-600">{{ number_format($totals['total_in']) }}đ</p>
-    </div>
-    <div class="rounded-xl bg-white p-4 shadow-sm border">
-        <p class="text-xs text-gray-500">Tổng chi (phí + phạt)</p>
-        <p class="text-2xl font-bold text-red-600">{{ number_format($totals['total_out']) }}đ</p>
+        <p class="text-xs text-gray-500">Đã đóng</p>
+        <p class="text-2xl font-bold text-green-600">{{ number_format($totals['paid']) }}đ</p>
     </div>
     <div class="rounded-xl bg-white p-4 shadow-sm border">
         <p class="text-xs text-gray-500">Còn nợ</p>
         <p class="text-2xl font-bold text-orange-600">{{ number_format($totals['remaining']) }}đ</p>
     </div>
     <div class="rounded-xl bg-white p-4 shadow-sm border">
-        <p class="text-xs text-gray-500">Thực nhận</p>
-        <p class="text-2xl font-bold text-indigo-600">{{ number_format($totals['net']) }}đ</p>
+        <p class="text-xs text-gray-500">Tiền đã rút</p>
+        <p class="text-2xl font-bold text-indigo-600">{{ number_format($totals['withdrawn']) }}đ</p>
     </div>
 </div>
 
@@ -73,57 +69,41 @@
     <table class="w-full text-sm whitespace-nowrap">
         <thead>
             <tr class="bg-gray-50 border-b">
-                <th class="text-left px-3 py-3 font-semibold text-gray-600">#</th>
-                <th class="text-left px-3 py-3 font-semibold text-gray-600">Tài xế</th>
-                <th class="text-right px-3 py-3 font-semibold text-gray-600">Đơn</th>
-                <th class="text-right px-3 py-3 font-semibold text-gray-600">Phí ship</th>
-                <th class="text-right px-3 py-3 font-semibold text-gray-600">Thưởng</th>
-                <th class="text-right px-3 py-3 font-semibold text-green-700">Tổng thu</th>
-                <th class="text-right px-3 py-3 font-semibold text-gray-600">Phí tuần</th>
-                <th class="text-right px-3 py-3 font-semibold text-gray-600">Phạt</th>
-                <th class="text-right px-3 py-3 font-semibold text-red-700">Tổng chi</th>
-                <th class="text-right px-3 py-3 font-semibold text-gray-600">Đã trả</th>
-                <th class="text-right px-3 py-3 font-semibold text-orange-700">Còn nợ</th>
-                <th class="text-right px-3 py-3 font-semibold text-indigo-700">Thực nhận</th>
+                <th class="text-left px-4 py-3 font-semibold text-gray-600">#</th>
+                <th class="text-left px-4 py-3 font-semibold text-gray-600">Tài xế</th>
+                <th class="text-right px-4 py-3 font-semibold text-gray-600">Phí tuần phải đóng</th>
+                <th class="text-right px-4 py-3 font-semibold text-green-700">Đã đóng</th>
+                <th class="text-right px-4 py-3 font-semibold text-orange-700">Còn nợ</th>
+                <th class="text-right px-4 py-3 font-semibold text-indigo-700">Tiền đã rút</th>
             </tr>
         </thead>
         <tbody>
             @forelse ($rows as $i => $r)
             <tr class="border-b last:border-0 hover:bg-gray-50">
-                <td class="px-3 py-2.5 text-gray-400">{{ $i + 1 }}</td>
-                <td class="px-3 py-2.5">
+                <td class="px-4 py-2.5 text-gray-400">{{ $i + 1 }}</td>
+                <td class="px-4 py-2.5">
                     <p class="font-medium text-gray-900">{{ $r['name'] }}</p>
                     <p class="text-xs text-gray-400">{{ $r['phone'] }}</p>
                 </td>
-                <td class="px-3 py-2.5 text-right">{{ number_format($r['orders']) }}</td>
-                <td class="px-3 py-2.5 text-right">{{ number_format($r['earnings']) }}</td>
-                <td class="px-3 py-2.5 text-right">{{ $r['bonus'] ? number_format($r['bonus']) : '—' }}</td>
-                <td class="px-3 py-2.5 text-right font-semibold text-green-700">{{ number_format($r['total_in']) }}</td>
-                <td class="px-3 py-2.5 text-right">{{ $r['weekly_fee'] ? number_format($r['weekly_fee']) : '—' }}</td>
-                <td class="px-3 py-2.5 text-right">{{ $r['penalty'] ? number_format($r['penalty']) : '—' }}</td>
-                <td class="px-3 py-2.5 text-right font-semibold text-red-700">{{ $r['total_out'] ? number_format($r['total_out']) : '—' }}</td>
-                <td class="px-3 py-2.5 text-right">{{ $r['paid'] ? number_format($r['paid']) : '—' }}</td>
-                <td class="px-3 py-2.5 text-right {{ $r['remaining'] > 0 ? 'font-semibold text-orange-600' : 'text-gray-400' }}">
+                <td class="px-4 py-2.5 text-right">{{ $r['due'] ? number_format($r['due']) : '—' }}</td>
+                <td class="px-4 py-2.5 text-right font-semibold text-green-700">{{ $r['paid'] ? number_format($r['paid']) : '—' }}</td>
+                <td class="px-4 py-2.5 text-right {{ $r['remaining'] > 0 ? 'font-semibold text-orange-600' : 'text-gray-400' }}">
                     {{ $r['remaining'] ? number_format($r['remaining']) : '—' }}
                 </td>
-                <td class="px-3 py-2.5 text-right font-bold text-indigo-700">{{ number_format($r['net']) }}</td>
+                <td class="px-4 py-2.5 text-right font-semibold text-indigo-700">{{ $r['withdrawn'] ? number_format($r['withdrawn']) : '—' }}</td>
             </tr>
             @empty
-            <tr><td colspan="12" class="px-4 py-8 text-center text-gray-400">Không có dữ liệu trong kỳ này.</td></tr>
+            <tr><td colspan="6" class="px-4 py-8 text-center text-gray-400">Không có dữ liệu trong kỳ này.</td></tr>
             @endforelse
         </tbody>
         @if (count($rows))
         <tfoot>
             <tr class="bg-gray-50 border-t font-semibold">
-                <td class="px-3 py-3" colspan="2">TỔNG CỘNG</td>
-                <td class="px-3 py-3 text-right">{{ number_format($totals['orders']) }}</td>
-                <td class="px-3 py-3 text-right" colspan="2"></td>
-                <td class="px-3 py-3 text-right text-green-700">{{ number_format($totals['total_in']) }}</td>
-                <td class="px-3 py-3 text-right" colspan="2"></td>
-                <td class="px-3 py-3 text-right text-red-700">{{ number_format($totals['total_out']) }}</td>
-                <td class="px-3 py-3 text-right">{{ number_format($totals['paid']) }}</td>
-                <td class="px-3 py-3 text-right text-orange-700">{{ number_format($totals['remaining']) }}</td>
-                <td class="px-3 py-3 text-right text-indigo-700">{{ number_format($totals['net']) }}</td>
+                <td class="px-4 py-3" colspan="2">TỔNG CỘNG</td>
+                <td class="px-4 py-3 text-right">{{ number_format($totals['due']) }}</td>
+                <td class="px-4 py-3 text-right text-green-700">{{ number_format($totals['paid']) }}</td>
+                <td class="px-4 py-3 text-right text-orange-700">{{ number_format($totals['remaining']) }}</td>
+                <td class="px-4 py-3 text-right text-indigo-700">{{ number_format($totals['withdrawn']) }}</td>
             </tr>
         </tfoot>
         @endif
