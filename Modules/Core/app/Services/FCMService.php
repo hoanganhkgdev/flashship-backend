@@ -206,6 +206,18 @@ class FCMService
         ]);
     }
 
+    /**
+     * Thông báo chung cho tài xế (cảnh báo bỏ lỡ đơn, tự tắt online...).
+     */
+    public function sendDriverNotice(string $fcmToken, string $title, string $body, array $data = []): void
+    {
+        $this->send($fcmToken, [
+            'title' => $title,
+            'body'  => $body,
+            'data'  => $data,
+        ]);
+    }
+
     public function sendOverdueDebt(string $fcmToken, string $amount): void
     {
         $this->send($fcmToken, [

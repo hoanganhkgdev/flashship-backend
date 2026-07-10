@@ -41,32 +41,44 @@ class SyncDriverLocationCommand extends Command
             $key  = "driver_{$d->id}";
             $data = $locations[$key] ?? null;
 
-            if (!$data || !isset($data['lat'], $data['lng'])) {
+            if (!$data) {
                 continue;
             }
 
             $updatedAt = $data['updated_at'] ?? 0;
-            $age       = is_numeric($updatedAt) ? $now - (int) ($updatedAt / 1000) : PHP_INT_MAX;
+            $posAge    = is_numeric($updatedAt) ? $now - (int) ($updatedAt / 1000) : PHP_INT_MAX;
 
-            // Chỉ cập nhật nếu GPS từ Firebase mới hơn 10 phút
-            if ($age > 600) {
+            $update = [];
+
+            // Vị trí: chỉ cập nhật nếu GPS mới hơn 10 phút (app chỉ gửi khi
+            // di chuyển ≥10m nên tài xế ngồi yên sẽ stale — bình thường).
+            if ($posAge <= 600 && isset($data['lat'], $data['lng'])) {
+                $update['latitude']         = $data['lat'];
+                $update['longitude']        = $data['lng'];
+                $update['last_location_at'] = now();
+                if (isset($data['bearing'])) {
+                    $update['bearing'] = $data['bearing'];
+                }
+            }
+
+            // Nhịp tim: app ghi heartbeat_at mỗi 30s kể cả đứng yên; app đời cũ
+            // không có heartbeat thì mốc ghi vị trí gần nhất cũng tính là còn sống.
+            $hbMs = max((int) ($data['heartbeat_at'] ?? 0), (int) $updatedAt);
+            if ($hbMs > 0) {
+                $hbTs = (int) ($hbMs / 1000);
+                if ($now - $hbTs <= 900) {
+                    $update['last_heartbeat_at'] = date('Y-m-d H:i:s', $hbTs);
+                }
+            }
+
+            if (empty($update)) {
                 continue;
             }
 
-            $update = [
-                'latitude'         => $data['lat'],
-                'longitude'        => $data['lng'],
-                // Mốc theo dõi độ tươi GPS (hiển thị/giám sát). Lưu ý: app chỉ gửi
-                // vị trí khi di chuyển ≥10m nên tài xế ngồi yên sẽ stale — dispatch
-                // KHÔNG lọc theo mốc này nữa.
-                'last_location_at' => now(),
-            ];
-            if (isset($data['bearing'])) {
-                $update['bearing'] = $data['bearing'];
-            }
-
             DB::table('users')->where('id', $d->id)->update($update);
-            DriverGeoService::add($d->id, $d->city_id, (float) $data['lat'], (float) $data['lng']);
+            if (isset($update['latitude'])) {
+                DriverGeoService::add($d->id, $d->city_id, (float) $data['lat'], (float) $data['lng']);
+            }
             $synced++;
         }
 

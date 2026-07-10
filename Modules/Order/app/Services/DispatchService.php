@@ -134,14 +134,96 @@ class DispatchService
 
         if ($order->offer_viewed_at) {
             DriverScoreService::onDecline($driverId);
+            // Có tương tác (đã xem) → reset chuỗi bỏ lỡ
+            DB::table('users')->where('id', $driverId)
+                ->where('consecutive_missed_offers', '>', 0)
+                ->update(['consecutive_missed_offers' => 0]);
             Log::info("⏱  [Dispatch] Đơn #{$order->id}: Tài xế {$name} xem đơn nhưng không nhận → -2 điểm, pop tiếp");
         } else {
             Log::info("⏱  [Dispatch] Đơn #{$order->id}: Tài xế {$name} không xem đơn → 0 điểm, pop tiếp");
+            if ($driver) {
+                $this->trackMissedOffer($driver);
+            }
         }
 
         RTDBService::clearDriverOffer($driverId);
 
         $this->sendToNextDriver($order->fresh());
+    }
+
+    /**
+     * Đếm offer bỏ lỡ liên tiếp (không xem) — đủ 3 lần tự tắt online.
+     * Chặn chiêu treo app tích giờ online mà né đơn: không xem thì không bị
+     * trừ điểm, nhưng bỏ lỡ 3 đơn liên tiếp là mất quyền nhận đơn cho tới khi
+     * tự bật lại. Không đếm khi đang có đơn active (đang chạy giao ngoài
+     * đường không thể bấm điện thoại — lỡ đơn ghép là chính đáng).
+     */
+    private function trackMissedOffer(User $driver): void
+    {
+        $hasActive = Order::where('delivery_man_id', $driver->id)
+            ->whereIn('status', ['assigned', 'processing', 'on_the_way'])
+            ->exists();
+        if ($hasActive) {
+            return;
+        }
+
+        $missed = (int) DB::table('users')->where('id', $driver->id)->value('consecutive_missed_offers') + 1;
+        DB::table('users')->where('id', $driver->id)->update(['consecutive_missed_offers' => $missed]);
+
+        if ($missed < 3) {
+            if ($missed === 2 && $driver->fcm_token) {
+                FCMService::getInstance()->sendDriverNotice(
+                    $driver->fcm_token,
+                    '⚠️ Bạn vừa bỏ lỡ 2 đơn liên tiếp',
+                    'Bỏ lỡ thêm 1 đơn nữa sẽ bị tạm tắt nhận đơn. Mở app để sẵn sàng nhận đơn nhé!',
+                    ['type' => 'missed_offers_warning'],
+                );
+            }
+            return;
+        }
+
+        // ── Đủ 3 lần: tự tắt online ──────────────────────────────────────────
+        // Tích lũy giờ online của phiên hiện tại (cùng logic với toggleOnline,
+        // chỉ tính phần nằm trong cửa sổ [6:30, now]).
+        $now    = now();
+        $update = [
+            'is_online'                 => false,
+            'online_since'              => null,
+            'consecutive_missed_offers' => 0,
+        ];
+
+        if ($driver->online_since) {
+            $windowStart = User::onlineWindowStart($now);
+            $onlineSince = Carbon::parse($driver->online_since);
+            $sessionSeconds = 0;
+            if ($now->greaterThan($windowStart)) {
+                $sessionStart   = $onlineSince->greaterThan($windowStart) ? $onlineSince : $windowStart;
+                $sessionSeconds = (int) max(0, $sessionStart->diffInSeconds($now, false));
+            }
+            $existing = ($driver->daily_online_date === $now->toDateString())
+                ? (int) ($driver->daily_online_seconds ?? 0)
+                : 0;
+            $update['daily_online_seconds'] = $existing + $sessionSeconds;
+            $update['daily_online_date']    = $now->toDateString();
+        }
+
+        DB::table('users')->where('id', $driver->id)->update($update);
+
+        RTDBService::setDriverOnlineStatus($driver->id, false);
+        if ($driver->city_id) {
+            DriverGeoService::remove($driver->id, $driver->city_id);
+        }
+
+        if ($driver->fcm_token) {
+            FCMService::getInstance()->sendDriverNotice(
+                $driver->fcm_token,
+                'Bạn đã bị tạm tắt nhận đơn',
+                'Bạn bỏ lỡ 3 đơn liên tiếp nên hệ thống tạm tắt online. Mở app và bật lại khi sẵn sàng chạy.',
+                ['type' => 'auto_offline_missed'],
+            );
+        }
+
+        Log::warning("[Dispatch] Tài xế #{$driver->id} {$driver->name} bỏ lỡ 3 offer liên tiếp → tự tắt online");
     }
 
     public function handleAccepted(Order $order, User $driver): void
@@ -467,14 +549,20 @@ class DispatchService
         }
 
         // ── 3. Query DB: profile, score, debt, license ───────────────────────────
-        // Không lọc theo last_location_at — app chỉ gửi GPS khi di chuyển ≥10m,
-        // tài xế ngồi yên chờ đơn sẽ bị loại oan nếu lọc theo độ tươi GPS.
+        // Không lọc theo last_location_at (app chỉ gửi GPS khi di chuyển ≥10m,
+        // tài xế ngồi yên sẽ stale) — lọc theo HEARTBEAT: app sống thì đập 30s/lần
+        // kể cả đứng yên, mất nhịp quá 10 phút nghĩa là app bị kill/máy tắt nguồn.
+        $hbCutoff = $now->copy()->subMinutes(10);
         $candidates = User::whereIn('id', $eligibleIds)
             ->where('status', 1)
             ->where('is_online', true)
             ->where(function ($q) use ($now) {
                 $q->whereNull('score_suspended_until')
                   ->orWhere('score_suspended_until', '<=', $now);
+            })
+            ->where(function ($q) use ($hbCutoff) {
+                $q->whereNull('last_heartbeat_at')
+                  ->orWhere('last_heartbeat_at', '>=', $hbCutoff);
             })
             ->with(['debts', 'driverLicenses'])
             ->get();
@@ -584,6 +672,10 @@ class DispatchService
                 ->where('city_id', $cityId)
                 ->whereNotNull('latitude')
                 ->whereNotNull('longitude')
+                ->where(function ($q) {
+                    $q->whereNull('last_heartbeat_at')
+                      ->orWhere('last_heartbeat_at', '>=', now()->subMinutes(10));
+                })
                 ->having('distance_km', '<=', $radiusKm)
                 ->orderBy('distance_km')
                 ->limit(100)

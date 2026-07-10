@@ -123,6 +123,13 @@ class DriverController extends Controller
         $user->is_online   = !$user->is_online;
         $user->online_since = $user->is_online ? now() : null;
 
+        if ($user->is_online) {
+            // Heartbeat khởi điểm để được phát đơn ngay (cron sync 30s sẽ cập nhật
+            // tiếp từ Firebase) + reset chuỗi offer bỏ lỡ của phiên trước.
+            $user->last_heartbeat_at         = now();
+            $user->consecutive_missed_offers = 0;
+        }
+
         // Bật online sang ngày mới → reset bộ đếm giờ online tích luỹ của hôm trước
         // (khối tích luỹ ở trên chỉ chạy khi TẮT online nên không reset được ở đây).
         if ($user->is_online && $user->daily_online_date !== now()->toDateString()) {
