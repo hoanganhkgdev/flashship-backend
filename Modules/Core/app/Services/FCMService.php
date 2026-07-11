@@ -38,7 +38,7 @@ class FCMService
     /**
      * Wake-up signal để app resume và đọc RTDB offer.
      */
-    public function sendDriverWakeUp(string $fcmToken, int $orderId, string $orderCode = '', string $pickupAddress = ''): void
+    public function sendDriverWakeUp(string $fcmToken, int $orderId, string $orderCode = '', string $pickupAddress = '', ?int $expiresAt = null): void
     {
         // Data-only message: Flutter background handler tạo notification
         // → chỉ 1 notification duy nhất, không bị duplicate từ FCM system
@@ -48,6 +48,8 @@ class FCMService
                     'type'       => 'order_offer',
                     'order_id'   => (string) $orderId,
                     'order_code' => (string) $orderCode,
+                    // App dùng để tự tắt banner đúng lúc offer hết hạn
+                    'expires_at' => (string) ($expiresAt ?? (time() + 25)),
                 ])
                 ->withAndroidConfig(AndroidConfig::fromArray([
                     'priority' => 'high',
