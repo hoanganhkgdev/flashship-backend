@@ -24,8 +24,12 @@
         </select>
     </div>
     <div>
-        <label class="block text-xs font-medium text-gray-500 mb-1">Chọn ngày trong kỳ</label>
-        <input type="date" wire:model.live="date" class="rounded-lg border-gray-300 text-sm shadow-sm" />
+        <label class="block text-xs font-medium text-gray-500 mb-1">{{ $this->mode === 'month' ? 'Chọn tháng' : 'Chọn tuần' }}</label>
+        <select wire:model.live="date" class="rounded-lg border-gray-300 text-sm shadow-sm" style="min-width:220px">
+            @foreach ($this->periods as $value => $label)
+            <option value="{{ $value }}">{{ $label }}</option>
+            @endforeach
+        </select>
     </div>
     <div class="ml-auto">
         <button wire:click="export"

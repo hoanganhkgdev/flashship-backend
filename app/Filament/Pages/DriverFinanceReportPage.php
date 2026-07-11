@@ -29,7 +29,7 @@ class DriverFinanceReportPage extends Page
 
     public function mount(): void
     {
-        $this->date = now()->toDateString();
+        $this->date = now()->startOfWeek()->toDateString();
     }
 
     /** @return array{0: Carbon, 1: Carbon} */
@@ -162,6 +162,41 @@ class DriverFinanceReportPage extends Page
     public function getCitiesProperty(): array
     {
         return DB::table('cities')->orderBy('name')->pluck('name', 'id')->toArray();
+    }
+
+    /**
+     * Danh sách kỳ cho dropdown: 16 tuần hoặc 12 tháng gần nhất,
+     * value = ngày đầu kỳ, label ghi rõ từ ngày đến ngày.
+     */
+    public function getPeriodsProperty(): array
+    {
+        $periods = [];
+
+        if ($this->mode === 'month') {
+            $m = now()->startOfMonth();
+            for ($i = 0; $i < 12; $i++) {
+                $periods[$m->toDateString()] = 'Tháng ' . $m->format('m/Y');
+                $m = $m->subMonth();
+            }
+        } else {
+            $w = now()->startOfWeek();
+            for ($i = 0; $i < 16; $i++) {
+                $label = ($i === 0 ? 'Tuần này: ' : '')
+                    . $w->format('d/m') . ' – ' . $w->copy()->endOfWeek()->format('d/m/Y');
+                $periods[$w->toDateString()] = $label;
+                $w = $w->subWeek();
+            }
+        }
+
+        return $periods;
+    }
+
+    /** Đổi chế độ tuần/tháng → đưa kỳ đang chọn về đầu kỳ hiện tại cho khớp dropdown. */
+    public function updatedMode(): void
+    {
+        $this->date = $this->mode === 'month'
+            ? now()->startOfMonth()->toDateString()
+            : now()->startOfWeek()->toDateString();
     }
 
     public function export(): StreamedResponse
