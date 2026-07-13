@@ -18,6 +18,12 @@ class AuthController extends Controller
     {
         $data = $request->validate(['phone' => 'required|string']);
 
+        // Chặn ngay từ bước gửi mã — không thì tốn tiền SMS/ZNS vô ích và
+        // người dùng điền hết form mới biết số đã có tài khoản.
+        if (User::where('phone', $data['phone'])->where('user_type', 'driver')->exists()) {
+            return response()->json(['success' => false, 'message' => 'Số điện thoại đã được đăng ký. Vui lòng đăng nhập hoặc dùng Quên mật khẩu.'], 422);
+        }
+
         if (OtpService::recentlySent($data['phone'])) {
             return response()->json(['success' => false, 'message' => 'Vui lòng chờ 60 giây trước khi gửi lại'], 429);
         }
@@ -72,49 +78,6 @@ class AuthController extends Controller
             'message' => 'Đăng ký thành công. Tài khoản đang chờ admin duyệt.',
             'data'    => ['user' => $user->load('city'), 'token' => $token],
         ], 201);
-    }
-
-    public function register(Request $request): JsonResponse
-    {
-        $data = $request->validate([
-            'name'      => 'required|string|max:255',
-            'phone'     => 'required|string',
-            'password'  => 'required|string|min:6',
-            'city_id'   => 'required|integer|exists:cities,id',
-            'fcm_token' => 'nullable|string',
-        ]);
-
-        if (User::where('phone', $data['phone'])->where('user_type', 'driver')->exists()) {
-            return response()->json(['success' => false, 'message' => 'Số điện thoại đã được đăng ký làm tài xế'], 422);
-        }
-
-        $path = null;
-        if ($request->hasFile('profile_photo')) {
-            $path = $request->file('profile_photo')->store('profiles', 'public');
-        }
-
-        [$user, $token] = DB::transaction(function () use ($data, $path) {
-            $user = User::create([
-                'name'               => $data['name'],
-                'phone'              => $data['phone'],
-                'password'           => bcrypt($data['password']),
-                'status'             => 0,
-                'user_type'          => 'driver',
-                'city_id'            => $data['city_id'],
-                'profile_photo_path' => $path,
-                'fcm_token'          => $data['fcm_token'] ?? null,
-                'driver_score'       => DriverScoreService::DEFAULT_SCORE,
-            ]);
-
-            $token = $user->createToken('api_token')->plainTextToken;
-            return [$user, $token];
-        });
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Đăng ký thành công. Tài khoản đang chờ admin duyệt.',
-            'data'    => ['user' => $user->load('city'), 'token' => $token],
-        ]);
     }
 
     public function forgotPassword(Request $request): JsonResponse
