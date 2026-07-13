@@ -210,6 +210,13 @@ class OrderService
 
         \Illuminate\Support\Facades\Redis::del("dispatch:lock:driver:{$user->id}");
 
+        // Offer kết thúc vì từ chối — xoá con trỏ "đang hỏi ai" ngay (guard theo
+        // driver để không đè nếu đã trỏ sang người mới), tránh con trỏ ôi khoá
+        // tài xế này khỏi các đơn khác khi đơn hiện tại không tìm được ai kế.
+        DB::table('orders')->where('id', $order->id)
+            ->where('dispatching_to_driver_id', $user->id)
+            ->update(['dispatching_to_driver_id' => null, 'updated_at' => now()]);
+
         DriverScoreService::onDecline($user->id);
 
         // Từ chối chủ động = có tương tác → reset chuỗi offer bỏ lỡ

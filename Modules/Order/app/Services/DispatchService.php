@@ -132,6 +132,15 @@ class DispatchService
 
         Redis::del("dispatch:lock:driver:{$driverId}");
 
+        // Offer đã kết thúc — xoá con trỏ "đang hỏi ai" NGAY, đừng đợi tìm được
+        // người kế. Nếu không còn ứng viên, con trỏ ôi sẽ (1) hiển thị sai
+        // "Đang chờ X" trên monitor và (2) khoá X khỏi mọi đơn khác vì bộ quét
+        // coi X là "đang cầm offer" (tối đa 15 phút). Guard theo driverId để
+        // không đè con trỏ nếu luồng khác đã kịp trỏ sang tài xế mới.
+        DB::table('orders')->where('id', $order->id)
+            ->where('dispatching_to_driver_id', $driverId)
+            ->update(['dispatching_to_driver_id' => null, 'updated_at' => now()]);
+
         if ($order->offer_viewed_at) {
             DriverScoreService::onDecline($driverId);
             // Có tương tác (đã xem) → reset chuỗi bỏ lỡ
