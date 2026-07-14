@@ -23,9 +23,6 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/toggle-status',                [DriverController::class, 'toggleOnline']);
         Route::post('/update-location',              [DriverController::class, 'updateLocation']);
         Route::get('/stats',                         [DriverController::class, 'stats']);
-        Route::get('/hotspots',                      [DriverController::class, 'hotspots']);
-        Route::get('/notifications',                 [DriverController::class, 'notifications']);
-        Route::post('/notifications/mark-read/{id}', [DriverController::class, 'markNotificationAsRead']);
         Route::post('/profile/bank',                 [DriverController::class, 'updateBank']);
         Route::post('/profile/license',              [DriverController::class, 'uploadLicense']);
         Route::post('/profile/cccd-image',           [DriverController::class, 'uploadCccdImage']);

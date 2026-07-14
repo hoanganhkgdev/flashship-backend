@@ -468,27 +468,6 @@ class DriverController extends Controller
         return response()->json(['success' => true, 'data' => $cities]);
     }
 
-    public function notifications(Request $request): JsonResponse
-    {
-        $notifications = $request->user()->notifications()->latest()->paginate(20);
-        return response()->json([
-            'success' => true,
-            'data'    => $notifications->items(),
-            'meta'    => ['has_more' => $notifications->hasMorePages()],
-        ]);
-    }
-
-    public function markNotificationAsRead(Request $request, string $id): JsonResponse
-    {
-        $user = $request->user();
-        if ($id === 'all') {
-            $user->unreadNotifications->markAsRead();
-        } else {
-            $user->notifications()->where('id', $id)->first()?->markAsRead();
-        }
-        return response()->json(['success' => true]);
-    }
-
     public function requestDeleteAccount(Request $request): JsonResponse
     {
         $user = $request->user();
@@ -509,20 +488,4 @@ class DriverController extends Controller
         return response()->json(['success' => true, 'message' => 'Đã hủy yêu cầu xóa tài khoản']);
     }
 
-    public function hotspots(Request $request): JsonResponse
-    {
-        $user = $request->user();
-
-        $spots = Order::where('city_id', $user->city_id)
-            ->whereNotNull('pickup_lat')
-            ->whereNotNull('pickup_lng')
-            ->where('created_at', '>=', now()->subDays(30))
-            ->selectRaw('ROUND(pickup_lat, 2) as lat, ROUND(pickup_lng, 2) as lng, COUNT(*) as count')
-            ->groupBy('lat', 'lng')
-            ->orderByDesc('count')
-            ->limit(20)
-            ->get();
-
-        return response()->json(['success' => true, 'data' => $spots]);
-    }
 }
