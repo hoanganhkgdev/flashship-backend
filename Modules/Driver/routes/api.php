@@ -12,7 +12,7 @@ use Modules\Driver\Http\Controllers\SupportController;
 // Webhook PayOS — public, không cần auth
 Route::post('/payment/webhook/payos', [PaymentController::class, 'webhook']);
 
-Route::middleware('auth:sanctum')->group(function () {
+Route::middleware(['auth:sanctum', 'driver.active'])->group(function () {
 
     Route::prefix('driver')->group(function () {
         Route::get('/profile',                       [DriverController::class, 'profile']);
