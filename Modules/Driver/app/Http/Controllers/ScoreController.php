@@ -101,21 +101,45 @@ class ScoreController extends Controller
         ]);
     }
 
+    /**
+     * Map reason → nhãn tiếng Việt hiển thị cho tài xế. Tính từ reason lưu
+     * trong DB mỗi lần gọi (không lưu label) nên sửa hàm này là fix ngay cả
+     * lịch sử cũ, không cần migrate dữ liệu.
+     *
+     * Bao gồm cả các reason cũ từ trước khi đổi tên (online_below_8h,
+     * inactivity_1d/2d/14d...) — soát production xác nhận ~48% tổng số dòng
+     * driver_score_logs rơi vào nhánh default (hiện chuỗi thô "complete",
+     * "online_below_8h"...) trước khi có map này, riêng 'complete' một mình
+     * đã chiếm hơn 1/3 tổng số dòng vì mọi đơn hoàn thành không trúng mốc
+     * streak đều ghi log reason='complete'.
+     */
     private static function reasonLabel(string $reason): string
     {
         return match (true) {
             $reason === 'decline'          => 'Từ chối đơn',
             $reason === 'timeout'          => 'Để đơn trôi qua',
+            $reason === 'complete'         => 'Hoàn thành đơn',
             $reason === 'weekly_reset'     => 'Reset điểm đầu tuần',
-            $reason === 'inactive_1_day'   => 'Không giao đơn 1 ngày',
-            $reason === 'inactive_2_day'   => 'Không giao đơn 2+ ngày',
-            $reason === 'online_time_low'  => 'Online dưới 8 giờ',
+            $reason === 'shift_violation'  => 'Vi phạm ca làm việc',
+            $reason === 'streak_bonus'     => 'Thưởng chuỗi đơn liên tiếp',
+            $reason === 'inactive_1_day' || $reason === 'inactivity_1d'
+                => 'Không giao đơn 1 ngày',
+            $reason === 'inactive_2_day' || $reason === 'inactivity_2d'
+                => 'Không giao đơn 2+ ngày',
+            $reason === 'inactivity_14d'
+                => 'Không giao đơn 14+ ngày',
+            $reason === 'online_time_low' || $reason === 'online_below_8h'
+                => 'Online dưới 8 giờ',
+            str_starts_with($reason, 'complete+streak_')
+                => 'Hoàn thành đơn — đạt mốc ' . str_replace('complete+streak_', '', $reason) . ' đơn liên tiếp',
             str_starts_with($reason, 'streak_')
                 => 'Streak ' . str_replace('streak_', '', $reason) . ' đơn liên tiếp',
             str_starts_with($reason, 'rated_') && str_ends_with($reason, '_stars')
                 => 'Khách đánh giá ' . str_replace(['rated_', '_stars'], '', $reason) . ' sao',
             str_starts_with($reason, 'cap_blocked:')
                 => 'Đã đạt giới hạn +10đ/ngày (' . self::reasonLabel(str_replace('cap_blocked:', '', $reason)) . ')',
+            $reason === 'refund_wrong_penalty' => 'Hoàn lại điểm bị trừ nhầm',
+            str_starts_with($reason, 'refund_') => 'Hoàn lại điểm',
             default => $reason,
         };
     }
