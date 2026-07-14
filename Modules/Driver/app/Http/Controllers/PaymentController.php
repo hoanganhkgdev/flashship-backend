@@ -14,36 +14,31 @@ use Modules\Driver\Services\DriverWalletService;
 class PaymentController extends Controller
 {
     /**
-     * Tạo payment QR — dùng cho nạp ví hoặc thanh toán công nợ.
+     * Tạo payment QR trả công nợ qua PayOS.
      * POST /driver/payment/create
      */
     public function create(Request $request): JsonResponse
     {
+        // Chỉ còn trả công nợ qua QR — tài xế không nạp tiền vào ví, ví chỉ
+        // tăng từ thu nhập/thưởng và giảm khi rút/trừ nợ.
         $data = $request->validate([
-            'type'    => 'required|in:topup,debt_payment',
-            'amount'  => 'required_if:type,topup|nullable|integer|min:10000|max:50000000',
-            'debt_id' => 'required_if:type,debt_payment|nullable|integer',
+            'type'    => 'required|in:debt_payment',
+            'debt_id' => 'required|integer',
         ]);
 
         $driver = $request->user();
 
-        if ($data['type'] === 'debt_payment') {
-            $debt = DriverDebt::where('driver_id', $driver->id)
-                ->whereIn('status', ['pending', 'overdue'])
-                ->find($data['debt_id']);
+        $debt = DriverDebt::where('driver_id', $driver->id)
+            ->whereIn('status', ['pending', 'overdue'])
+            ->find($data['debt_id']);
 
-            if (!$debt) {
-                return response()->json(['success' => false, 'message' => 'Không tìm thấy công nợ'], 404);
-            }
-
-            $amount      = (int) ($debt->amount_due - $debt->amount_paid);
-            $description = 'Phi tuan ' . date('dmy', strtotime($debt->week_start));
-            $refId       = $debt->id;
-        } else {
-            $amount      = (int) $data['amount'];
-            $description = 'Nap vi FlashShip';
-            $refId       = null;
+        if (!$debt) {
+            return response()->json(['success' => false, 'message' => 'Không tìm thấy công nợ'], 404);
         }
+
+        $amount      = (int) ($debt->amount_due - $debt->amount_paid);
+        $description = 'Phi tuan ' . date('dmy', strtotime($debt->week_start));
+        $refId       = $debt->id;
 
         // Huỷ các QR cũ còn "pending" cho cùng loại/khoản — không thì QR cũ
         // (ảnh chụp màn hình, tab cũ...) vẫn quét trả tiền được nhưng tiền
@@ -169,6 +164,8 @@ class PaymentController extends Controller
                 'updated_at' => now(),
             ]);
 
+            // Giữ nhánh này cho các payment_orders type=topup còn "pending" từ
+            // trước khi bỏ tính năng nạp ví — webhook PayOS có thể đến trễ.
             if ($order->type === 'topup') {
                 DriverWalletService::adjust(
                     $order->driver_id,
