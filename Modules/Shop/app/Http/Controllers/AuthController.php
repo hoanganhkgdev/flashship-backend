@@ -19,6 +19,12 @@ class AuthController extends Controller
         $data = $request->validate(['phone' => 'required|string']);
         $phone = $this->normalizePhone($data['phone']);
 
+        // Chặn ngay từ bước gửi mã — không thì tốn tiền OTP vô ích và người
+        // dùng điền hết form mới biết số đã có tài khoản.
+        if (User::where('phone', $phone)->where('user_type', 'shop')->exists()) {
+            return response()->json(['success' => false, 'message' => 'Số điện thoại đã được đăng ký shop. Vui lòng đăng nhập hoặc dùng Quên mật khẩu.'], 422);
+        }
+
         if (OtpService::recentlySent($phone, 'register')) {
             return response()->json(['success' => false, 'message' => 'Vui lòng chờ 60 giây trước khi gửi lại'], 429);
         }
