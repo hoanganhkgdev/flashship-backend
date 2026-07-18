@@ -9,6 +9,7 @@ use Modules\Order\Models\Order;
 use Modules\Order\Models\OrderDispatchLog;
 use Modules\Core\Models\User;
 use Modules\Core\Services\FCMService;
+use Modules\Core\Services\GoogleMapService;
 use Modules\Core\Services\RTDBService;
 use Illuminate\Support\Collection;
 use App\Events\DispatchStateChanged;
@@ -28,6 +29,11 @@ class DispatchService
     const FCM_TTL_SECS       = 25;
     const MAX_DRIVERS        = 50;
     const QUEUE_TTL_SECS     = 1200; // 20 phút — phải lớn hơn DISPATCH_TIMEOUT_MINS (15 phút)
+
+    // Số ứng viên gần nhất (theo đường chim bay) được tính lại bằng khoảng cách
+    // đường đi thực tế (Google Directions) — giới hạn để không gọi API cho cả
+    // danh sách, chỉ nhóm có khả năng được chọn mới cần chính xác tuyệt đối.
+    const ROAD_DISTANCE_RERANK_TOP_N = 5;
 
     // Trọng số xếp hạng
     const W_SCORE         = 15;
@@ -629,6 +635,13 @@ class DispatchService
             ->take(self::MAX_DRIVERS)
             ->values();
 
+        // Đường chim bay không phản ánh đúng thực tế ở khu vực nhiều kênh rạch
+        // (Rạch Giá) — tài xế hay thắc mắc "sao xa vậy" dù trong bán kính cho phép,
+        // vì đường xe chạy thật vòng qua cầu/né kênh dài hơn hẳn. Tính lại khoảng
+        // cách đường đi thật (Google Directions, có cache) cho top ứng viên gần
+        // nhất để chọn đúng người thật sự gần, không chỉ gần theo đường thẳng.
+        $sorted = $this->reRankTopByRoadDistance($sorted, $order, $ratingStats);
+
         if ($sorted->isNotEmpty()) {
             Log::debug("     [Candidates] Top " . min(5, $sorted->count()) . " tài xế:");
             foreach ($sorted->take(5) as $i => $d) {
@@ -641,6 +654,48 @@ class DispatchService
         }
 
         return $sorted;
+    }
+
+    /**
+     * Tính lại khoảng cách đường đi thật (Google Directions) cho top N ứng
+     * viên gần nhất theo đường chim bay, rồi xếp hạng lại đúng composite score
+     * với khoảng cách thật. Phần còn lại giữ nguyên thứ tự Haversine phía sau
+     * — không đáng tốn thêm request vì gần như không có cơ hội được chọn.
+     */
+    private function reRankTopByRoadDistance(Collection $sorted, Order $order, Collection $ratingStats): Collection
+    {
+        if ($sorted->count() < 2 || !$order->pickup_lat || !$order->pickup_lng) {
+            return $sorted;
+        }
+
+        $top  = $sorted->take(self::ROAD_DISTANCE_RERANK_TOP_N);
+        $rest = $sorted->slice(self::ROAD_DISTANCE_RERANK_TOP_N)->values();
+
+        $rescored = $top->map(function (User $d) use ($order, $ratingStats) {
+            $roadKm = null;
+            if ($d->latitude && $d->longitude) {
+                try {
+                    $roadKm = GoogleMapService::roadDistanceKm(
+                        (float) $d->latitude, (float) $d->longitude,
+                        (float) $order->pickup_lat, (float) $order->pickup_lng
+                    );
+                } catch (\Throwable $e) {
+                    Log::warning("[Dispatch] roadDistanceKm lỗi cho tài xế #{$d->id}: " . $e->getMessage());
+                }
+            }
+            $score = $this->compositeScore($d, (int) ($ratingStats[$d->id] ?? 0), $roadKm ?? self::MAX_RADIUS_KM);
+            return ['driver' => $d, 'score' => $score, 'road_km' => $roadKm];
+        })
+            ->sortByDesc('score')
+            ->values();
+
+        Log::debug('     [Candidates] Đã tính lại đường đi thật cho top ' . $rescored->count() . ':');
+        foreach ($rescored as $r) {
+            $km = $r['road_km'] !== null ? round($r['road_km'], 2) . 'km' : 'lỗi API';
+            Log::debug("       #{$r['driver']->id} {$r['driver']->name} | đường thật: {$km} | điểm={$r['score']}");
+        }
+
+        return $rescored->pluck('driver')->concat($rest)->values();
     }
 
     private function notifyCustomer(Order $order, string $type): void
