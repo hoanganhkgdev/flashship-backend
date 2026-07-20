@@ -431,6 +431,23 @@ class DispatchService
             if ($roadKmFinal > self::MAX_ROAD_DISTANCE_KM) {
                 Redis::del($lockKey);
                 Log::warning("│  Skip #{$driver->id} {$driver->name}: đường thật {$roadKmFinal}km vượt trần " . self::MAX_ROAD_DISTANCE_KM . "km");
+                // QUAN TRỌNG: phải ghi nhận đã "hỏi" driver này trước khi đệ quy
+                // sang ứng viên kế — nếu không, getCandidates() ở lượt sau vẫn coi
+                // driver này là ứng viên hợp lệ (không nằm trong $alreadyOffered)
+                // và có thể chọn lại chính họ, gây đệ quy vô hạn khi họ là ứng viên
+                // duy nhất. ENUM result chỉ nhận 4 giá trị cố định (không có sẵn
+                // "skipped_far") nên tái dùng 'expired' — không gọi handleTimeout()
+                // nên không kéo theo phạt điểm/track missed-offer của driver.
+                $now2 = now();
+                OrderDispatchLog::create([
+                    'order_id'     => $order->id,
+                    'driver_id'    => $driver->id,
+                    'offered_at'   => $now2,
+                    'responded_at' => $now2,
+                    'result'       => 'expired',
+                    'created_at'   => $now2,
+                    'updated_at'   => $now2,
+                ]);
                 $this->sendToNextDriver($order);
                 return;
             }
