@@ -46,6 +46,18 @@ class DispatchService
     const MAX_RADIUS_KM      = 4.0;
     const MAX_DETOUR_KM      = 2.0;
 
+    // Chặn A — chỉ coi vị trí tài xế là đáng tin nếu đã được xác nhận mới
+    // KỂ TỪ KHI bật online phiên này. App gửi /update-location mỗi 30s vô
+    // điều kiện (không phụ thuộc di chuyển) nên tài xế đứng yên lâu vẫn được
+    // làm mới liên tục — không bị chặn oan. Van an toàn: sau vài phút không
+    // có vị trí mới (GPS lỗi) vẫn cho vào lại, tránh khoá tài xế vĩnh viễn.
+    const LOCATION_FRESHNESS_GRACE_SECS    = 5;
+    const LOCATION_FRESHNESS_MAX_WAIT_MINS = 3;
+
+    // Chặn B — trần cứng khoảng cách đường đi thật, lưới an toàn cuối cùng
+    // độc lập với Chặn A (phòng trường hợp toạ độ đúng nhưng thật sự ở xa).
+    const MAX_ROAD_DISTANCE_KM = 8.0;
+
     // =========================================================================
     // REDIS HELPERS
     // =========================================================================
@@ -407,6 +419,23 @@ class DispatchService
             return;
         }
 
+        // Chặn B lớp 2 — lưới an toàn cuối cùng trước khi thật sự gửi offer.
+        // Ứng viên đã qua reRankTopByRoadDistance() (top 5) sẽ luôn cache-hit
+        // ở đây (không tốn thêm API) — chỉ tốn 1 lần gọi thật khi ứng viên
+        // được chọn nằm ngoài top 5 (hạng 6+, chưa từng được kiểm đường thật).
+        if ($driver->latitude && $driver->longitude && $order->pickup_lat && $order->pickup_lng) {
+            $roadKmFinal = GoogleMapService::roadDistanceKm(
+                (float) $driver->latitude, (float) $driver->longitude,
+                (float) $order->pickup_lat, (float) $order->pickup_lng
+            );
+            if ($roadKmFinal > self::MAX_ROAD_DISTANCE_KM) {
+                Redis::del($lockKey);
+                Log::warning("│  Skip #{$driver->id} {$driver->name}: đường thật {$roadKmFinal}km vượt trần " . self::MAX_ROAD_DISTANCE_KM . "km");
+                $this->sendToNextDriver($order);
+                return;
+            }
+        }
+
         $now  = now();
         $dist = round($this->haversineKm(
             (float) ($driver->latitude ?? 0), (float) ($driver->longitude ?? 0),
@@ -564,9 +593,10 @@ class DispatchService
         }
 
         // ── 3. Query DB: profile, score, debt, license ───────────────────────────
-        // Không lọc theo last_location_at (app chỉ gửi GPS khi di chuyển ≥10m,
-        // tài xế ngồi yên sẽ stale) — lọc theo HEARTBEAT: app sống thì đập 30s/lần
-        // kể cả đứng yên, mất nhịp quá 10 phút nghĩa là app bị kill/máy tắt nguồn.
+        // Không lọc theo last_location_at có "còn mới nói chung" hay không (app
+        // chỉ gửi GPS khi di chuyển ≥10m qua kênh RTDB, tài xế ngồi yên sẽ stale
+        // theo kiểu đó) — lọc theo HEARTBEAT: app sống thì đập 30s/lần kể cả đứng
+        // yên, mất nhịp quá 10 phút nghĩa là app bị kill/máy tắt nguồn.
         $hbCutoff = $now->copy()->subMinutes(10);
         $candidates = User::whereIn('id', $eligibleIds)
             ->where('status', 1)
@@ -579,10 +609,51 @@ class DispatchService
                 $q->whereNull('last_heartbeat_at')
                   ->orWhere('last_heartbeat_at', '>=', $hbCutoff);
             })
+            // Chặn A — toạ độ chỉ đáng tin nếu đã được xác nhận mới KỂ TỪ KHI
+            // bật online phiên này (khác với check heartbeat ở trên — heartbeat
+            // chỉ chứng minh "app còn sống", không chứng minh "toạ độ đang lưu
+            // đúng vị trí hiện tại"). App gửi /update-location mỗi 30s vô điều
+            // kiện (bất kể có di chuyển) nên chỉ cần 1 lần cập nhật sau khi bật
+            // online là đủ tin mãi cho phiên đó — không phạt oan tài xế đứng yên
+            // lâu. Van an toàn: quá 3 phút chưa có vị trí mới (GPS lỗi) thì vẫn
+            // cho vào lại, tránh khoá tài xế vĩnh viễn vì lý do họ không biết.
+            ->where(function ($q) use ($now) {
+                $q->whereNull('online_since')
+                  ->orWhereRaw(
+                      'last_location_at >= DATE_SUB(online_since, INTERVAL ? SECOND)',
+                      [self::LOCATION_FRESHNESS_GRACE_SECS]
+                  )
+                  ->orWhere('online_since', '<=', $now->copy()->subMinutes(self::LOCATION_FRESHNESS_MAX_WAIT_MINS));
+            })
             ->with(['debts', 'driverLicenses'])
             ->get();
 
         Log::debug("     [Candidates] Online/active: {$candidates->count()} | Bận: {$busyDriverIds->count()} | Đang nhận offer: {$receivingOfferIds->count()} | Đã hỏi: " . count($excludeIds));
+
+        // Chỉ để log chẩn đoán — đếm riêng bao nhiêu bị Chặn A loại (vừa bật
+        // online, chưa có vị trí mới xác nhận), tách biệt khỏi các lý do khác.
+        $staleLocationCount = User::whereIn('id', $eligibleIds)
+            ->whereNotNull('online_since')
+            ->where('online_since', '>', $now->copy()->subMinutes(self::LOCATION_FRESHNESS_MAX_WAIT_MINS))
+            ->where(function ($q) {
+                $q->whereNull('last_location_at')
+                  ->orWhereRaw(
+                      'last_location_at < DATE_SUB(online_since, INTERVAL ? SECOND)',
+                      [self::LOCATION_FRESHNESS_GRACE_SECS]
+                  );
+            })
+            ->count();
+        if ($staleLocationCount > 0) {
+            Log::debug("     [Candidates] Loại {$staleLocationCount} tài xế — vừa bật online, chưa có vị trí mới xác nhận (đang dùng toạ độ cũ)");
+        }
+
+        // online_since lẽ ra không bao giờ NULL khi is_online=true (toggleOnline
+        // luôn set cùng lúc) — nếu xảy ra là anomaly dữ liệu, không phải lỗi của
+        // tài xế nên KHÔNG loại (fail-open ở where clause phía trên), chỉ cảnh báo.
+        $nullOnlineSinceCount = User::whereIn('id', $eligibleIds)->whereNull('online_since')->count();
+        if ($nullOnlineSinceCount > 0) {
+            Log::warning("     [Candidates] {$nullOnlineSinceCount} tài xế online nhưng online_since NULL — anomaly dữ liệu, đã fail-open không loại");
+        }
 
         $afterDebt = $candidates->filter(fn(User $d) => !$this->hasBlockedDebt($d));
         if (($removed = $candidates->count() - $afterDebt->count()) > 0) {
@@ -686,6 +757,17 @@ class DispatchService
             $score = $this->compositeScore($d, (int) ($ratingStats[$d->id] ?? 0), $roadKm ?? self::MAX_RADIUS_KM);
             return ['driver' => $d, 'score' => $score, 'road_km' => $roadKm];
         })
+            // Chặn B lớp 1 — loại thẳng ứng viên có khoảng cách đường thật vượt
+            // trần, dù điểm tổng hợp có cao (vd chờ lâu) cũng không gán. Không
+            // loại khi $roadKm null (lỗi API) — không đo được thì không thể
+            // khẳng định vượt trần, để composite score (dùng fallback) tự xử lý.
+            ->filter(function (array $r) {
+                if ($r['road_km'] !== null && $r['road_km'] > self::MAX_ROAD_DISTANCE_KM) {
+                    Log::warning("     [Candidates] Loại #{$r['driver']->id} {$r['driver']->name} khỏi top — đường thật {$r['road_km']}km vượt trần " . self::MAX_ROAD_DISTANCE_KM . "km");
+                    return false;
+                }
+                return true;
+            })
             ->sortByDesc('score')
             ->values();
 
