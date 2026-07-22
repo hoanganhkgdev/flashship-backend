@@ -58,9 +58,13 @@ class GoogleMapService
 
     /**
      * Khoảng cách đường đi thật cho NHIỀU điểm xuất phát cùng lúc tới 1 điểm
-     * đến, dùng Google Distance Matrix API (1 request xử lý cả lô, tối đa 25
-     * điểm xuất phát/lần — đúng bài toán "N tài xế → 1 điểm lấy hàng", hiệu quả
-     * hơn hẳn gọi Directions API riêng lẻ từng người).
+     * đến. Distance Matrix API (xử lý cả lô trong 1 request) chưa được bật
+     * cho project này ("legacy API not enabled") — dùng tạm Directions API
+     * (đã bật sẵn, dùng ổn định từ trước) gọi SONG SONG qua Http::pool thay
+     * vì tuần tự, để không cộng dồn độ trễ theo số lượng tài xế. Ở quy mô
+     * hiện tại (~20 tài xế/thành phố lúc cao điểm) vẫn đủ nhanh, không cần
+     * chờ bật thêm API nào. Chuyển sang Distance Matrix thật (1 request thay
+     * vì N) khi API đó được bật, không cần đổi chỗ gọi hàm này.
      *
      * @param  array<int, array{lat: float, lng: float}>  $origins  [driverId => ['lat'=>, 'lng'=>]]
      * @return array<int, float>  [driverId => distanceKm] — luôn trả đủ key cho mọi $origins
@@ -91,50 +95,42 @@ class GoogleMapService
             return $result;
         }
 
-        // Distance Matrix giới hạn 25 điểm xuất phát/request — quy mô hiện tại
-        // (vài chục tài xế/thành phố) chia tối đa 1-2 lô là đủ.
-        foreach (array_chunk($uncached, 25, true) as $chunk) {
-            $ids = array_keys($chunk);
-            try {
-                $res = Http::timeout(8)->get(
-                    'https://maps.googleapis.com/maps/api/distancematrix/json',
+        try {
+            $responses = Http::pool(fn ($pool) => collect($uncached)->map(
+                fn ($coord, $id) => $pool->as((string) $id)->timeout(8)->get(
+                    config('services.google_maps.directions_url'),
                     [
-                        'origins'      => collect($chunk)->map(fn ($c) => "{$c['lat']},{$c['lng']}")->implode('|'),
-                        'destinations' => "{$destLat},{$destLng}",
-                        'mode'         => 'driving',
-                        'key'          => config('services.google_maps.api_key'),
+                        'origin'      => "{$coord['lat']},{$coord['lng']}",
+                        'destination' => "{$destLat},{$destLng}",
+                        'mode'        => 'driving',
+                        'key'         => config('services.google_maps.api_key'),
                     ]
-                );
+                )
+            )->all());
+        } catch (\Throwable $e) {
+            Log::warning('Google Directions pool exception', ['error' => $e->getMessage()]);
+            $responses = [];
+        }
 
-                if ($res->successful() && $res->json('status') === 'OK') {
-                    $rows = $res->json('rows') ?? [];
-                    foreach ($rows as $i => $row) {
-                        $id = $ids[$i] ?? null;
-                        if ($id === null) continue;
-                        $element = $row['elements'][0] ?? null;
-                        $coord   = $chunk[$id];
-                        if (($element['status'] ?? '') === 'OK') {
-                            $km = (float) $element['distance']['value'] / 1000;
-                            $result[$id] = $km;
-                            Cache::put($cacheKeyFor($coord['lat'], $coord['lng']), $km, 1800);
-                        } else {
-                            $result[$id] = self::haversineKm($coord['lat'], $coord['lng'], $destLat, $destLng) * 2.0;
-                        }
-                    }
+        foreach ($uncached as $id => $coord) {
+            $res = $responses[(string) $id] ?? null;
+
+            if ($res instanceof \Illuminate\Http\Client\Response
+                && $res->successful() && $res->json('status') === 'OK') {
+                $legs   = $res->json('routes.0.legs') ?? [];
+                $meters = array_sum(array_map(fn ($leg) => $leg['distance']['value'] ?? 0, $legs));
+                if ($meters > 0) {
+                    $km = (float) $meters / 1000;
+                    $result[$id] = $km;
+                    Cache::put($cacheKeyFor($coord['lat'], $coord['lng']), $km, 1800);
                     continue;
                 }
-
-                Log::warning('Google Distance Matrix failed', ['status' => $res->json('status')]);
-            } catch (\Throwable $e) {
-                Log::warning('Google Distance Matrix exception', ['error' => $e->getMessage()]);
             }
 
-            // Cả lô lỗi (request thất bại/exception) — fallback haversine×2 cho từng điểm còn thiếu.
-            foreach ($chunk as $id => $coord) {
-                if (!isset($result[$id])) {
-                    $result[$id] = self::haversineKm($coord['lat'], $coord['lng'], $destLat, $destLng) * 2.0;
-                }
-            }
+            Log::warning("Google Directions lỗi cho origin id={$id}", [
+                'status' => $res instanceof \Illuminate\Http\Client\Response ? $res->json('status') : 'exception',
+            ]);
+            $result[$id] = self::haversineKm($coord['lat'], $coord['lng'], $destLat, $destLng) * 2.0;
         }
 
         return $result;
