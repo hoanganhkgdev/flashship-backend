@@ -33,7 +33,7 @@ class DispatchService
 
     const WAIT_TIME_CAP_MINS = 480; // 8 tiếng — tài xế chờ lâu được ưu tiên rõ hơn
     const RATING_COUNT_CAP   = 200;
-    const MAX_DETOUR_KM      = 2.0;
+    const MAX_DETOUR_KM      = 1.5;
 
     // Chặn A — chỉ coi vị trí tài xế là đáng tin nếu đã được xác nhận mới
     // KỂ TỪ KHI bật online phiên này. App gửi /update-location mỗi 30s vô
@@ -556,43 +556,6 @@ class DispatchService
 
         Log::debug("     [Candidates] Online/active: {$candidates->count()} | Bận: {$busyDriverIds->count()} | Đang nhận offer: {$receivingOfferIds->count()} | Đã hỏi: " . count($excludeIds));
 
-        // Chỉ để log chẩn đoán — đếm riêng bao nhiêu bị Chặn A loại (vừa bật
-        // online, chưa có vị trí mới xác nhận), tách biệt khỏi các lý do khác.
-        $staleLocationCount = User::where('user_type', 'driver')
-            ->where('city_id', $order->city_id)
-            ->whereNotIn('id', $excludeIds)
-            ->whereNotIn('id', $unavailableIds)
-            ->where('status', 1)
-            ->where('is_online', true)
-            ->whereNotNull('online_since')
-            ->where('online_since', '>', $now->copy()->subMinutes(self::LOCATION_FRESHNESS_MAX_WAIT_MINS))
-            ->where(function ($q) {
-                $q->whereNull('last_location_at')
-                  ->orWhereRaw(
-                      'last_location_at < DATE_SUB(online_since, INTERVAL ? SECOND)',
-                      [self::LOCATION_FRESHNESS_GRACE_SECS]
-                  );
-            })
-            ->count();
-        if ($staleLocationCount > 0) {
-            Log::debug("     [Candidates] Loại {$staleLocationCount} tài xế — vừa bật online, chưa có vị trí mới xác nhận (đang dùng toạ độ cũ)");
-        }
-
-        // online_since lẽ ra không bao giờ NULL khi is_online=true (toggleOnline
-        // luôn set cùng lúc) — nếu xảy ra là anomaly dữ liệu, không phải lỗi của
-        // tài xế nên KHÔNG loại (fail-open ở where clause phía trên), chỉ cảnh báo.
-        $nullOnlineSinceCount = User::where('user_type', 'driver')
-            ->where('city_id', $order->city_id)
-            ->whereNotIn('id', $excludeIds)
-            ->whereNotIn('id', $unavailableIds)
-            ->where('status', 1)
-            ->where('is_online', true)
-            ->whereNull('online_since')
-            ->count();
-        if ($nullOnlineSinceCount > 0) {
-            Log::warning("     [Candidates] {$nullOnlineSinceCount} tài xế online nhưng online_since NULL — anomaly dữ liệu, đã fail-open không loại");
-        }
-
         $afterDebt = $candidates->filter(fn(User $d) => !$this->hasBlockedDebt($d));
         if (($removed = $candidates->count() - $afterDebt->count()) > 0) {
             Log::debug("     [Candidates] Loại {$removed} tài xế do nợ quá hạn");
@@ -622,7 +585,7 @@ class DispatchService
                 (float) $order->pickup_lat, (float) $order->pickup_lng,
                 (float) $active->delivery_lat, (float) $active->delivery_lng
             );
-            return $pickupToDelivery <= 1.5;
+            return $pickupToDelivery <= self::MAX_DETOUR_KM;
         });
         if (($removed = $afterLicense->count() - $afterDetour->count()) > 0) {
             Log::debug("     [Candidates] Loại {$removed} tài xế — điểm lấy mới xa điểm giao đơn đang chạy (>1.5km)");
