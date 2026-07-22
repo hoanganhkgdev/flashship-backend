@@ -128,8 +128,6 @@
                     <div class="flex items-center gap-1.5 px-3 py-3 text-xs flex-wrap">
                         <span>Lần hỏi <span class="font-semibold text-gray-700 dark:text-gray-200">{{ $o['attempts'] }}</span></span>
                         <span class="text-gray-300 dark:text-gray-600">·</span>
-                        <span>Bán kính <span class="font-semibold text-gray-700 dark:text-gray-200">{{ $o['radius'] }}</span></span>
-                        <span class="text-gray-300 dark:text-gray-600">·</span>
                         <span class="italic text-gray-500 dark:text-gray-400">{{ $o['status'] }}</span>
                     </div>
                 </div>

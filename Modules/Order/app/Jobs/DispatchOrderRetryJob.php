@@ -37,7 +37,7 @@ class DispatchOrderRetryJob implements ShouldQueue
             return;
         }
 
-        Log::info("╟── [Dispatch] Đơn #{$order->id}: Retry quét lại từ đầu");
-        $dispatch->offerToNext($order, DispatchService::RADIUS_KM_STAGES[0]);
+        Log::info("╟── [Dispatch] Đơn #{$order->id}: Retry quét lại toàn thành phố");
+        $dispatch->offerToNext($order);
     }
 }

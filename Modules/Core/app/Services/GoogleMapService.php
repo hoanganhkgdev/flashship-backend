@@ -57,6 +57,90 @@ class GoogleMapService
     }
 
     /**
+     * Khoảng cách đường đi thật cho NHIỀU điểm xuất phát cùng lúc tới 1 điểm
+     * đến, dùng Google Distance Matrix API (1 request xử lý cả lô, tối đa 25
+     * điểm xuất phát/lần — đúng bài toán "N tài xế → 1 điểm lấy hàng", hiệu quả
+     * hơn hẳn gọi Directions API riêng lẻ từng người).
+     *
+     * @param  array<int, array{lat: float, lng: float}>  $origins  [driverId => ['lat'=>, 'lng'=>]]
+     * @return array<int, float>  [driverId => distanceKm] — luôn trả đủ key cho mọi $origins
+     *                            (fallback haversine×2 nếu API lỗi/phần tử đó lỗi riêng lẻ).
+     */
+    public static function roadDistanceBatchKm(array $origins, float $destLat, float $destLng): array
+    {
+        if (empty($origins)) {
+            return [];
+        }
+
+        $cacheKeyFor = fn (float $lat, float $lng) => sprintf('road_dist_%s_%s_%s_%s',
+            round($lat, 5), round($lng, 5), round($destLat, 5), round($destLng, 5)
+        );
+
+        $result   = [];
+        $uncached = [];
+        foreach ($origins as $id => $coord) {
+            $cached = Cache::get($cacheKeyFor($coord['lat'], $coord['lng']));
+            if ($cached !== null) {
+                $result[$id] = (float) $cached;
+            } else {
+                $uncached[$id] = $coord;
+            }
+        }
+
+        if (empty($uncached)) {
+            return $result;
+        }
+
+        // Distance Matrix giới hạn 25 điểm xuất phát/request — quy mô hiện tại
+        // (vài chục tài xế/thành phố) chia tối đa 1-2 lô là đủ.
+        foreach (array_chunk($uncached, 25, true) as $chunk) {
+            $ids = array_keys($chunk);
+            try {
+                $res = Http::timeout(8)->get(
+                    'https://maps.googleapis.com/maps/api/distancematrix/json',
+                    [
+                        'origins'      => collect($chunk)->map(fn ($c) => "{$c['lat']},{$c['lng']}")->implode('|'),
+                        'destinations' => "{$destLat},{$destLng}",
+                        'mode'         => 'driving',
+                        'key'          => config('services.google_maps.api_key'),
+                    ]
+                );
+
+                if ($res->successful() && $res->json('status') === 'OK') {
+                    $rows = $res->json('rows') ?? [];
+                    foreach ($rows as $i => $row) {
+                        $id = $ids[$i] ?? null;
+                        if ($id === null) continue;
+                        $element = $row['elements'][0] ?? null;
+                        $coord   = $chunk[$id];
+                        if (($element['status'] ?? '') === 'OK') {
+                            $km = (float) $element['distance']['value'] / 1000;
+                            $result[$id] = $km;
+                            Cache::put($cacheKeyFor($coord['lat'], $coord['lng']), $km, 1800);
+                        } else {
+                            $result[$id] = self::haversineKm($coord['lat'], $coord['lng'], $destLat, $destLng) * 2.0;
+                        }
+                    }
+                    continue;
+                }
+
+                Log::warning('Google Distance Matrix failed', ['status' => $res->json('status')]);
+            } catch (\Throwable $e) {
+                Log::warning('Google Distance Matrix exception', ['error' => $e->getMessage()]);
+            }
+
+            // Cả lô lỗi (request thất bại/exception) — fallback haversine×2 cho từng điểm còn thiếu.
+            foreach ($chunk as $id => $coord) {
+                if (!isset($result[$id])) {
+                    $result[$id] = self::haversineKm($coord['lat'], $coord['lng'], $destLat, $destLng) * 2.0;
+                }
+            }
+        }
+
+        return $result;
+    }
+
+    /**
      * Geocode một địa chỉ → trả về ['lat', 'lng'] hoặc null nếu thất bại.
      * Cache 24 giờ vì địa chỉ thường không đổi.
      */

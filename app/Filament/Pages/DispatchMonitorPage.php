@@ -9,7 +9,6 @@ use Livewire\Attributes\On;
 use Modules\Core\Models\ServiceType;
 use Modules\Order\Models\Order;
 use Modules\Order\Models\OrderDispatchLog;
-use Modules\Order\Services\DispatchService;
 
 class DispatchMonitorPage extends Page
 {
@@ -86,11 +85,10 @@ class DispatchMonitorPage extends Page
         return $orders->map(function (Order $o) use ($driverNames) {
             $driverName  = $driverNames[$o->dispatching_to_driver_id] ?? null;
             $elapsedSecs = max(0, now()->getTimestamp() - Carbon::parse($o->dispatch_started_at)->getTimestamp());
-            $radius      = $this->radiusForOrder($o->id);
 
             $status = $driverName
                 ? "Đang chờ {$driverName}"
-                : "Đang quét {$radius}km...";
+                : "Đang quét toàn thành phố...";
 
             return [
                 'id'           => $o->id,
@@ -98,7 +96,6 @@ class DispatchMonitorPage extends Page
                 'city'         => $o->city?->name,
                 'elapsed'      => $elapsedSecs,
                 'attempts'     => $o->dispatch_attempts,
-                'radius'       => "{$radius}km",
                 'offering_to'  => $driverName,
                 'status'       => $status,
                 'started_at'   => $o->dispatch_started_at,
@@ -244,17 +241,6 @@ class DispatchMonitorPage extends Page
             'avg_attempts'   => round((float) ($agg->avg_attempts ?? 0), 1),
             'avg_wait_secs'  => (int) round((float) ($avgWait ?? 0)),
         ];
-    }
-
-    /** Bán kính đang quét thực tế của đơn (Redis) — fallback nấc đầu. */
-    private function radiusForOrder(int $orderId): float
-    {
-        try {
-            $cached = \Illuminate\Support\Facades\Redis::get("dispatch:radius:{$orderId}");
-            return $cached ? (float) $cached : DispatchService::RADIUS_KM_STAGES[0];
-        } catch (\Throwable) {
-            return DispatchService::RADIUS_KM_STAGES[0];
-        }
     }
 
     protected function getFormActions(): array { return []; }

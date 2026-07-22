@@ -20,20 +20,10 @@ use Modules\Core\Services\DriverGeoService;
 
 class DispatchService
 {
-    // Bán kính mở rộng theo thứ tự — chuyển sang bán kính tiếp theo khi queue cạn,
-    // không phụ thuộc thời gian nữa (queue-based thay vì time-based).
-    const RADIUS_KM_STAGES = [2.0, 4.0];
-
     const DRIVER_OFFER_SECS  = 25;   // giây để mở app (trước khi offer_viewed_at set)
     const APP_DECISION_SECS  = 30;   // giây để đọc & quyết định SAU KHI mở app (như ShopeeFood)
     const FCM_TTL_SECS       = 25;
     const MAX_DRIVERS        = 50;
-    const QUEUE_TTL_SECS     = 1200; // 20 phút — phải lớn hơn DISPATCH_TIMEOUT_MINS (15 phút)
-
-    // Số ứng viên gần nhất (theo đường chim bay) được tính lại bằng khoảng cách
-    // đường đi thực tế (Google Directions) — giới hạn để không gọi API cho cả
-    // danh sách, chỉ nhóm có khả năng được chọn mới cần chính xác tuyệt đối.
-    const ROAD_DISTANCE_RERANK_TOP_N = 5;
 
     // Trọng số xếp hạng
     const W_SCORE         = 15;
@@ -43,7 +33,6 @@ class DispatchService
 
     const WAIT_TIME_CAP_MINS = 480; // 8 tiếng — tài xế chờ lâu được ưu tiên rõ hơn
     const RATING_COUNT_CAP   = 200;
-    const MAX_RADIUS_KM      = 4.0;
     const MAX_DETOUR_KM      = 2.0;
 
     // Chặn A — chỉ coi vị trí tài xế là đáng tin nếu đã được xác nhận mới
@@ -54,32 +43,25 @@ class DispatchService
     const LOCATION_FRESHNESS_GRACE_SECS    = 5;
     const LOCATION_FRESHNESS_MAX_WAIT_MINS = 3;
 
-    // Chặn B — trần cứng khoảng cách đường đi thật, lưới an toàn cuối cùng
-    // độc lập với Chặn A (phòng trường hợp toạ độ đúng nhưng thật sự ở xa).
-    const MAX_ROAD_DISTANCE_KM = 8.0;
+    // Không còn khái niệm "bán kính tìm kiếm" (2km/4km đường chim bay) — quét
+    // TOÀN BỘ tài xế online đủ điều kiện trong thành phố ngay từ đầu, tính
+    // khoảng cách đường đi thật (Google Distance Matrix, 1 lần cho cả lô) cho
+    // tất cả, rồi lọc thẳng ai vượt trần này. Không ai trong trần thì coi như
+    // không có tài xế, KHÔNG gán đại người xa — gán xa chỉ dời vấn đề sang lúc
+    // tài xế huỷ/không chạy, không giải quyết được gì thêm.
+    const MAX_ROAD_DISTANCE_KM = 4.0;
 
     // =========================================================================
     // REDIS HELPERS
     // =========================================================================
-
-    private function radiusKey(int $orderId): string
-    {
-        return "dispatch:radius:{$orderId}";
-    }
 
     private function retryKey(int $orderId): string
     {
         return "dispatch:retry_pending:{$orderId}";
     }
 
-    private function getCurrentRadius(int $orderId): float
-    {
-        return (float) (Redis::get($this->radiusKey($orderId)) ?? self::RADIUS_KM_STAGES[0]);
-    }
-
     private function clearDispatchCache(int $orderId): void
     {
-        Redis::del($this->radiusKey($orderId));
         Redis::del($this->retryKey($orderId));
     }
 
@@ -120,14 +102,13 @@ class DispatchService
 
         $this->notifyCustomer($order, 'searching');
 
-        $this->offerToNext($order, self::RADIUS_KM_STAGES[0]);
+        $this->offerToNext($order);
     }
 
     public function sendToNextDriver(Order $order): void
     {
         if ($order->status !== 'pending') return;
-        $radiusKm = $this->getCurrentRadius($order->id);
-        $this->offerToNext($order, $radiusKm);
+        $this->offerToNext($order);
     }
 
     public function handleTimeout(Order $order, int $driverId): void
@@ -323,24 +304,22 @@ class DispatchService
         Log::info("╟── [Dispatch] Đơn #{$order->id}: Không tìm được tài xế sau " . self::DISPATCH_TIMEOUT_MINS . " phút → giữ pending, dừng dispatch");
     }
 
-    public function offerToNext(Order $order, float $radiusKm): void
+    public function offerToNext(Order $order): void
     {
         $order = $order->fresh();
         if (!$order || $order->status !== 'pending') return;
-
-        Redis::setex($this->radiusKey($order->id), self::QUEUE_TTL_SECS, $radiusKm);
 
         $alreadyOffered = OrderDispatchLog::where('order_id', $order->id)
             ->pluck('driver_id')
             ->toArray();
 
-        Log::info("┌─ [Dispatch] Đơn #{$order->id} | Scan {$radiusKm}km | Đã hỏi: " . count($alreadyOffered));
+        Log::info("┌─ [Dispatch] Đơn #{$order->id} | Quét toàn thành phố (≤" . self::MAX_ROAD_DISTANCE_KM . "km đường thật) | Đã hỏi: " . count($alreadyOffered));
 
-        $candidates = $this->getCandidates($order, $radiusKm, $alreadyOffered);
+        $candidates = $this->getCandidates($order, $alreadyOffered);
 
         if ($candidates->isEmpty()) {
-            Log::info("└─ [Dispatch] Đơn #{$order->id}: không có ứng viên trong {$radiusKm}km → mở rộng");
-            $this->tryExpandRadius($order, $radiusKm);
+            Log::info("└─ [Dispatch] Đơn #{$order->id}: không có ứng viên nào trong " . self::MAX_ROAD_DISTANCE_KM . "km đường thật → chờ quét lại");
+            $this->scheduleRetryOrGiveUp($order);
             return;
         }
 
@@ -351,7 +330,13 @@ class DispatchService
 
     const DISPATCH_TIMEOUT_MINS = 15;
 
-    private function tryExpandRadius(Order $order, float $currentKm): void
+    /**
+     * Không tìm được ai vòng này — hẹn quét lại toàn thành phố sau 15 giây
+     * (có thể lúc đó đã có tài xế di chuyển vào phạm vi, vừa bật online, hoặc
+     * vừa giao xong đơn cũ rảnh trở lại). Quá 15 phút kể từ lúc bắt đầu tìm
+     * thì mới thật sự bỏ cuộc, báo admin xử lý tay.
+     */
+    private function scheduleRetryOrGiveUp(Order $order): void
     {
         $order = $order->fresh();
         if (!$order || $order->status !== 'pending') return;
@@ -365,32 +350,14 @@ class DispatchService
             }
         }
 
-        $nextKm = null;
-        foreach (self::RADIUS_KM_STAGES as $km) {
-            if ($km > $currentKm + 0.001) {
-                $nextKm = $km;
-                break;
-            }
-        }
-
-        if ($nextKm === null) {
-            // Chống tích lũy RetryJob: chỉ schedule 1 retry tại 1 thời điểm
-            if (!Redis::set($this->retryKey($order->id), 1, 'NX', 'EX', 20)) {
-                Log::debug("╟── [Dispatch] Đơn #{$order->id}: Retry đã được lên lịch, bỏ qua");
-                return;
-            }
-
-            $firstKm = self::RADIUS_KM_STAGES[0];
-            Log::info("╟── [Dispatch] Đơn #{$order->id}: Hết bán kính ({$currentKm}km) → quét lại {$firstKm}km sau 15s");
-            Redis::setex($this->radiusKey($order->id), self::QUEUE_TTL_SECS, $firstKm);
-
-            DispatchOrderRetryJob::dispatch($order->id)->delay(now()->addSeconds(15));
+        // Chống tích lũy RetryJob: chỉ schedule 1 retry tại 1 thời điểm
+        if (!Redis::set($this->retryKey($order->id), 1, 'NX', 'EX', 20)) {
+            Log::debug("╟── [Dispatch] Đơn #{$order->id}: Retry đã được lên lịch, bỏ qua");
             return;
         }
 
-        Log::info("╟── [Dispatch] Đơn #{$order->id}: [{$currentKm}km] → mở sang {$nextKm}km");
-        $this->notifyCustomer($order, 'expanding');
-        $this->offerToNext($order->fresh(), $nextKm);
+        Log::info("╟── [Dispatch] Đơn #{$order->id}: Chưa có ai → quét lại sau 15s");
+        DispatchOrderRetryJob::dispatch($order->id)->delay(now()->addSeconds(15));
     }
 
 
@@ -419,45 +386,16 @@ class DispatchService
             return;
         }
 
-        // Chặn B lớp 2 — lưới an toàn cuối cùng trước khi thật sự gửi offer.
-        // Ứng viên đã qua reRankTopByRoadDistance() (top 5) sẽ luôn cache-hit
-        // ở đây (không tốn thêm API) — chỉ tốn 1 lần gọi thật khi ứng viên
-        // được chọn nằm ngoài top 5 (hạng 6+, chưa từng được kiểm đường thật).
-        if ($driver->latitude && $driver->longitude && $order->pickup_lat && $order->pickup_lng) {
-            $roadKmFinal = GoogleMapService::roadDistanceKm(
-                (float) $driver->latitude, (float) $driver->longitude,
-                (float) $order->pickup_lat, (float) $order->pickup_lng
-            );
-            if ($roadKmFinal > self::MAX_ROAD_DISTANCE_KM) {
-                Redis::del($lockKey);
-                Log::warning("│  Skip #{$driver->id} {$driver->name}: đường thật {$roadKmFinal}km vượt trần " . self::MAX_ROAD_DISTANCE_KM . "km");
-                // QUAN TRỌNG: phải ghi nhận đã "hỏi" driver này trước khi đệ quy
-                // sang ứng viên kế — nếu không, getCandidates() ở lượt sau vẫn coi
-                // driver này là ứng viên hợp lệ (không nằm trong $alreadyOffered)
-                // và có thể chọn lại chính họ, gây đệ quy vô hạn khi họ là ứng viên
-                // duy nhất. ENUM result chỉ nhận 4 giá trị cố định (không có sẵn
-                // "skipped_far") nên tái dùng 'expired' — không gọi handleTimeout()
-                // nên không kéo theo phạt điểm/track missed-offer của driver.
-                $now2 = now();
-                OrderDispatchLog::create([
-                    'order_id'     => $order->id,
-                    'driver_id'    => $driver->id,
-                    'offered_at'   => $now2,
-                    'responded_at' => $now2,
-                    'result'       => 'expired',
-                    'created_at'   => $now2,
-                    'updated_at'   => $now2,
-                ]);
-                $this->sendToNextDriver($order);
-                return;
-            }
-        }
-
+        // Không cần kiểm tra lại trần khoảng cách ở đây — getCandidates() đã
+        // tính khoảng cách đường thật và lọc ≤ MAX_ROAD_DISTANCE_KM cho MỌI ứng
+        // viên trước khi trả về, không chỉ một nhóm nhỏ như cách cũ.
         $now  = now();
-        $dist = round($this->haversineKm(
-            (float) ($driver->latitude ?? 0), (float) ($driver->longitude ?? 0),
-            (float) $order->pickup_lat, (float) $order->pickup_lng
-        ), 2);
+        $dist = $driver->_road_km !== null
+            ? round($driver->_road_km, 2)
+            : round($this->haversineKm(
+                (float) ($driver->latitude ?? 0), (float) ($driver->longitude ?? 0),
+                (float) $order->pickup_lat, (float) $order->pickup_lng
+            ), 2);
 
         $ratingCount    = Order::where('delivery_man_id', $driver->id)
             ->whereNotNull('driver_rating')
@@ -472,7 +410,7 @@ class DispatchService
         Log::info("│");
         Log::info("└→ [Dispatch] GỬI ĐƠN #{$order->id}");
         Log::info("     Tài xế     : #{$driver->id} {$driver->name} | SĐT: {$driver->phone}");
-        Log::info("     Khoảng cách: {$dist} km");
+        Log::info("     Khoảng cách (đường thật): {$dist} km");
         Log::info("     Điểm tổng  : {$total} = score({$scoreScore}) + so_dg({$ratingCntScore}) + wait({$waitScore})");
         Log::info("     driver_score: " . ($driver->driver_score ?? DriverScoreService::DEFAULT_SCORE) . " | so_danh_gia: {$ratingCount}");
         Log::info("     FCM token  : " . ($driver->fcm_token ? 'có' : 'KHÔNG CÓ'));
@@ -548,7 +486,7 @@ class DispatchService
         broadcast(new DispatchStateChanged());
     }
 
-    public function getCandidates(Order $order, float $radiusKm, array $excludeIds = []): Collection
+    public function getCandidates(Order $order, array $excludeIds = []): Collection
     {
         if (!$order->city_id) {
             Log::warning("[Dispatch] Đơn #{$order->id} không có city_id → không thể tìm tài xế");
@@ -557,33 +495,7 @@ class DispatchService
 
         $now = now();
 
-        // ── 1. Tìm tài xế gần điểm lấy hàng ───────────────────────────────────
-        $nearbyDrivers = DriverGeoService::nearby(
-            $order->city_id,
-            (float) $order->pickup_lat,
-            (float) $order->pickup_lng,
-            $radiusKm
-        );
-
-        // Fallback Haversine khi Redis GEO trống (cold start / Redis restart)
-        if (empty($nearbyDrivers)) {
-            Log::debug("     [Candidates] Redis GEO trống → fallback Haversine");
-            $nearbyDrivers = $this->getNearbyFromDB(
-                $order->city_id,
-                (float) $order->pickup_lat,
-                (float) $order->pickup_lng,
-                $radiusKm
-            );
-        }
-
-        if (empty($nearbyDrivers)) {
-            Log::debug("     [Candidates] Không có tài xế nào trong bán kính {$radiusKm}km");
-            return collect();
-        }
-
-        Log::debug("     [Candidates] " . count($nearbyDrivers) . " tài xế trong bán kính {$radiusKm}km");
-
-        // ── 2. Loại tài xế bận / đang nhận offer khác ────────────────────────────
+        // ── 1. Loại tài xế bận / đang nhận offer khác ────────────────────────────
         $busyDriverIds = Order::selectRaw('delivery_man_id, COUNT(*) as cnt')
             ->whereIn('status', ['assigned', 'processing', 'on_the_way'])
             ->whereNotNull('delivery_man_id')
@@ -598,24 +510,21 @@ class DispatchService
 
         $unavailableIds = $busyDriverIds->merge($receivingOfferIds)->unique();
 
-        $eligibleIds = array_diff(
-            array_keys($nearbyDrivers),
-            $excludeIds,
-            $unavailableIds->toArray()
-        );
-
-        if (empty($eligibleIds)) {
-            Log::debug("     [Candidates] Bận: {$busyDriverIds->count()} | Đang nhận offer: {$receivingOfferIds->count()} | Đã hỏi: " . count($excludeIds) . " → không còn ai");
-            return collect();
-        }
-
-        // ── 3. Query DB: profile, score, debt, license ───────────────────────────
+        // ── 2. Toàn bộ tài xế online trong thành phố — không giới hạn khoảng
+        // cách nào ở bước này. Với quy mô vài chục tài xế/thành phố, tính khoảng
+        // cách đường thật cho tất cả (bước 5) rẻ hơn hẳn chi phí duy trì Redis
+        // GEO + 2 lớp lọc thô/lọc lại như trước, và không bỏ sót ai.
         // Không lọc theo last_location_at có "còn mới nói chung" hay không (app
         // chỉ gửi GPS khi di chuyển ≥10m qua kênh RTDB, tài xế ngồi yên sẽ stale
         // theo kiểu đó) — lọc theo HEARTBEAT: app sống thì đập 30s/lần kể cả đứng
         // yên, mất nhịp quá 10 phút nghĩa là app bị kill/máy tắt nguồn.
         $hbCutoff = $now->copy()->subMinutes(10);
-        $candidates = User::whereIn('id', $eligibleIds)
+        $candidates = User::where('user_type', 'driver')
+            ->where('city_id', $order->city_id)
+            ->whereNotIn('id', $excludeIds)
+            ->whereNotIn('id', $unavailableIds)
+            ->whereNotNull('latitude')
+            ->whereNotNull('longitude')
             ->where('status', 1)
             ->where('is_online', true)
             ->where(function ($q) use ($now) {
@@ -649,7 +558,12 @@ class DispatchService
 
         // Chỉ để log chẩn đoán — đếm riêng bao nhiêu bị Chặn A loại (vừa bật
         // online, chưa có vị trí mới xác nhận), tách biệt khỏi các lý do khác.
-        $staleLocationCount = User::whereIn('id', $eligibleIds)
+        $staleLocationCount = User::where('user_type', 'driver')
+            ->where('city_id', $order->city_id)
+            ->whereNotIn('id', $excludeIds)
+            ->whereNotIn('id', $unavailableIds)
+            ->where('status', 1)
+            ->where('is_online', true)
             ->whereNotNull('online_since')
             ->where('online_since', '>', $now->copy()->subMinutes(self::LOCATION_FRESHNESS_MAX_WAIT_MINS))
             ->where(function ($q) {
@@ -667,7 +581,14 @@ class DispatchService
         // online_since lẽ ra không bao giờ NULL khi is_online=true (toggleOnline
         // luôn set cùng lúc) — nếu xảy ra là anomaly dữ liệu, không phải lỗi của
         // tài xế nên KHÔNG loại (fail-open ở where clause phía trên), chỉ cảnh báo.
-        $nullOnlineSinceCount = User::whereIn('id', $eligibleIds)->whereNull('online_since')->count();
+        $nullOnlineSinceCount = User::where('user_type', 'driver')
+            ->where('city_id', $order->city_id)
+            ->whereNotIn('id', $excludeIds)
+            ->whereNotIn('id', $unavailableIds)
+            ->where('status', 1)
+            ->where('is_online', true)
+            ->whereNull('online_since')
+            ->count();
         if ($nullOnlineSinceCount > 0) {
             Log::warning("     [Candidates] {$nullOnlineSinceCount} tài xế online nhưng online_since NULL — anomaly dữ liệu, đã fail-open không loại");
         }
@@ -707,7 +628,11 @@ class DispatchService
             Log::debug("     [Candidates] Loại {$removed} tài xế — điểm lấy mới xa điểm giao đơn đang chạy (>1.5km)");
         }
 
-        // ── 5. Sort theo composite score ──────────────────────────────────────────
+        // ── 5. Tính khoảng cách đường thật cho TOÀN BỘ ứng viên còn lại — 1 lần
+        // gọi Google Distance Matrix duy nhất (không phải 1 lần/tài xế) — rồi
+        // lọc thẳng ai vượt trần self::MAX_ROAD_DISTANCE_KM. Không còn khái
+        // niệm "bán kính chim bay lọc thô rồi lọc lại" — quét city-wide ngay
+        // từ bước 2 ở trên rồi.
         $driverIds   = $afterDetour->pluck('id')->toArray();
         $ratingStats = Order::whereIn('delivery_man_id', $driverIds)
             ->whereNotNull('driver_rating')
@@ -716,85 +641,47 @@ class DispatchService
             ->groupBy('delivery_man_id')
             ->pluck('rating_count', 'delivery_man_id');
 
-        $sorted = $afterDetour
-            ->sortByDesc(function (User $d) use ($ratingStats, $nearbyDrivers) {
-                return $this->compositeScore($d, (int) ($ratingStats[$d->id] ?? 0), $nearbyDrivers[$d->id] ?? 0.0);
+        $origins = $afterDetour
+            ->filter(fn (User $d) => $d->latitude && $d->longitude)
+            ->mapWithKeys(fn (User $d) => [$d->id => ['lat' => (float) $d->latitude, 'lng' => (float) $d->longitude]])
+            ->all();
+
+        $roadDistances = GoogleMapService::roadDistanceBatchKm(
+            $origins, (float) $order->pickup_lat, (float) $order->pickup_lng
+        );
+
+        foreach ($afterDetour as $d) {
+            $d->setAttribute('_road_km', $roadDistances[$d->id] ?? null);
+        }
+
+        // Không đo được (lỗi API/thiếu toạ độ) thì tạm cho qua, không loại oan
+        // vì sự cố hạ tầng tạm thời — composite score sẽ dùng trần làm fallback.
+        $withinRange = $afterDetour->filter(
+            fn (User $d) => $d->_road_km === null || $d->_road_km <= self::MAX_ROAD_DISTANCE_KM
+        );
+        if (($removed = $afterDetour->count() - $withinRange->count()) > 0) {
+            Log::debug("     [Candidates] Loại {$removed} tài xế — đường thật vượt trần " . self::MAX_ROAD_DISTANCE_KM . "km");
+        }
+
+        $sorted = $withinRange
+            ->sortByDesc(function (User $d) use ($ratingStats) {
+                return $this->compositeScore($d, (int) ($ratingStats[$d->id] ?? 0), $d->_road_km ?? self::MAX_ROAD_DISTANCE_KM);
             })
             ->take(self::MAX_DRIVERS)
             ->values();
 
-        // Đường chim bay không phản ánh đúng thực tế ở khu vực nhiều kênh rạch
-        // (Rạch Giá) — tài xế hay thắc mắc "sao xa vậy" dù trong bán kính cho phép,
-        // vì đường xe chạy thật vòng qua cầu/né kênh dài hơn hẳn. Tính lại khoảng
-        // cách đường đi thật (Google Directions, có cache) cho top ứng viên gần
-        // nhất để chọn đúng người thật sự gần, không chỉ gần theo đường thẳng.
-        $sorted = $this->reRankTopByRoadDistance($sorted, $order, $ratingStats);
-
         if ($sorted->isNotEmpty()) {
             Log::debug("     [Candidates] Top " . min(5, $sorted->count()) . " tài xế:");
             foreach ($sorted->take(5) as $i => $d) {
-                $dist  = round($nearbyDrivers[$d->id] ?? 0.0, 2);
+                $km    = $d->_road_km !== null ? round($d->_road_km, 2) . 'km' : 'lỗi API';
                 $cnt   = (int) ($ratingStats[$d->id] ?? 0);
-                $score = round($this->compositeScore($d, $cnt, $dist), 1);
+                $score = round($this->compositeScore($d, $cnt, $d->_road_km ?? self::MAX_ROAD_DISTANCE_KM), 1);
                 $wait  = round($this->waitTimeScore($d), 1);
-                Log::debug("       " . ($i + 1) . ". #{$d->id} {$d->name} | {$dist}km | điểm={$score} | driver_score=" . ($d->driver_score ?? DriverScoreService::DEFAULT_SCORE) . " | so_dg={$cnt} | wait={$wait}");
+                Log::debug("       " . ($i + 1) . ". #{$d->id} {$d->name} | đường thật: {$km} | điểm={$score} | driver_score=" . ($d->driver_score ?? DriverScoreService::DEFAULT_SCORE) . " | so_dg={$cnt} | wait={$wait}");
             }
         }
 
         return $sorted;
-    }
-
-    /**
-     * Tính lại khoảng cách đường đi thật (Google Directions) cho top N ứng
-     * viên gần nhất theo đường chim bay, rồi xếp hạng lại đúng composite score
-     * với khoảng cách thật. Phần còn lại giữ nguyên thứ tự Haversine phía sau
-     * — không đáng tốn thêm request vì gần như không có cơ hội được chọn.
-     */
-    private function reRankTopByRoadDistance(Collection $sorted, Order $order, Collection $ratingStats): Collection
-    {
-        if ($sorted->count() < 2 || !$order->pickup_lat || !$order->pickup_lng) {
-            return $sorted;
-        }
-
-        $top  = $sorted->take(self::ROAD_DISTANCE_RERANK_TOP_N);
-        $rest = $sorted->slice(self::ROAD_DISTANCE_RERANK_TOP_N)->values();
-
-        $rescored = $top->map(function (User $d) use ($order, $ratingStats) {
-            $roadKm = null;
-            if ($d->latitude && $d->longitude) {
-                try {
-                    $roadKm = GoogleMapService::roadDistanceKm(
-                        (float) $d->latitude, (float) $d->longitude,
-                        (float) $order->pickup_lat, (float) $order->pickup_lng
-                    );
-                } catch (\Throwable $e) {
-                    Log::warning("[Dispatch] roadDistanceKm lỗi cho tài xế #{$d->id}: " . $e->getMessage());
-                }
-            }
-            $score = $this->compositeScore($d, (int) ($ratingStats[$d->id] ?? 0), $roadKm ?? self::MAX_RADIUS_KM);
-            return ['driver' => $d, 'score' => $score, 'road_km' => $roadKm];
-        })
-            // Chặn B lớp 1 — loại thẳng ứng viên có khoảng cách đường thật vượt
-            // trần, dù điểm tổng hợp có cao (vd chờ lâu) cũng không gán. Không
-            // loại khi $roadKm null (lỗi API) — không đo được thì không thể
-            // khẳng định vượt trần, để composite score (dùng fallback) tự xử lý.
-            ->filter(function (array $r) {
-                if ($r['road_km'] !== null && $r['road_km'] > self::MAX_ROAD_DISTANCE_KM) {
-                    Log::warning("     [Candidates] Loại #{$r['driver']->id} {$r['driver']->name} khỏi top — đường thật {$r['road_km']}km vượt trần " . self::MAX_ROAD_DISTANCE_KM . "km");
-                    return false;
-                }
-                return true;
-            })
-            ->sortByDesc('score')
-            ->values();
-
-        Log::debug('     [Candidates] Đã tính lại đường đi thật cho top ' . $rescored->count() . ':');
-        foreach ($rescored as $r) {
-            $km = $r['road_km'] !== null ? round($r['road_km'], 2) . 'km' : 'lỗi API';
-            Log::debug("       #{$r['driver']->id} {$r['driver']->name} | đường thật: {$km} | điểm={$r['score']}");
-        }
-
-        return $rescored->pluck('driver')->concat($rest)->values();
     }
 
     private function notifyCustomer(Order $order, string $type): void
@@ -814,53 +701,12 @@ class DispatchService
         }
     }
 
-    /**
-     * Truy vấn MySQL dùng Haversine — nguồn dữ liệu chính cho dispatch.
-     *
-     * @return array<int, float> [driverId => distanceKm]
-     */
-    private function getNearbyFromDB(int $cityId, float $lat, float $lng, float $radiusKm): array
-    {
-        try {
-            $results = DB::table('users')
-                ->select('id', DB::raw(
-                    "(6371 * acos(
-                        cos(radians({$lat})) * cos(radians(latitude)) *
-                        cos(radians(longitude) - radians({$lng})) +
-                        sin(radians({$lat})) * sin(radians(latitude))
-                    )) AS distance_km"
-                ))
-                ->where('user_type', 'driver')
-                ->where('is_online', true)
-                ->where('city_id', $cityId)
-                ->whereNotNull('latitude')
-                ->whereNotNull('longitude')
-                ->where(function ($q) {
-                    $q->whereNull('last_heartbeat_at')
-                      ->orWhere('last_heartbeat_at', '>=', now()->subMinutes(10));
-                })
-                ->having('distance_km', '<=', $radiusKm)
-                ->orderBy('distance_km')
-                ->limit(100)
-                ->get();
-
-            $map = [];
-            foreach ($results as $row) {
-                $map[(int) $row->id] = (float) $row->distance_km;
-            }
-            return $map;
-        } catch (\Throwable $e) {
-            Log::error("[Dispatch] getNearbyFromDB failed: " . $e->getMessage());
-            return [];
-        }
-    }
-
     private function compositeScore(User $driver, int $ratingCount, float $distanceKm = 0.0): float
     {
         $scoreScore     = ($driver->driver_score ?? DriverScoreService::DEFAULT_SCORE) / DriverScoreService::MAX_SCORE * self::W_SCORE;
         $ratingCntScore = min($ratingCount, self::RATING_COUNT_CAP) / self::RATING_COUNT_CAP * self::W_RATING_CNT;
         $waitScore      = $this->waitTimeScore($driver);
-        $distScore      = (1 - min($distanceKm, self::MAX_RADIUS_KM) / self::MAX_RADIUS_KM) * self::W_DISTANCE;
+        $distScore      = (1 - min($distanceKm, self::MAX_ROAD_DISTANCE_KM) / self::MAX_ROAD_DISTANCE_KM) * self::W_DISTANCE;
         return $scoreScore + $ratingCntScore + $waitScore + $distScore;
     }
 
