@@ -13,6 +13,7 @@ use Modules\Core\Services\GoogleMapService;
 use Modules\Core\Services\RTDBService;
 use Illuminate\Support\Collection;
 use App\Events\DispatchStateChanged;
+use App\Services\ZaloTokenService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Redis;
@@ -293,12 +294,22 @@ class DispatchService
             ->where('city_id', $order->city_id)
             ->get();
 
+        $znsTemplateId = config('services.zalo_zns.no_driver_template_id');
+
         foreach ($admins as $admin) {
             \Filament\Notifications\Notification::make()
                 ->title("Đơn #{$order->code} — Không tìm được tài xế")
                 ->body("Đơn từ {$order->pickup_address} đã quá " . self::DISPATCH_TIMEOUT_MINS . " phút không có tài xế nhận. Vui lòng xử lý thủ công.")
                 ->danger()
                 ->sendToDatabase($admin);
+
+            if ($znsTemplateId && $admin->phone) {
+                ZaloTokenService::sendTemplate($admin->phone, $znsTemplateId, [
+                    'customer_name' => $admin->name,
+                    'customer_id'   => $order->code,
+                    'address'       => $order->pickup_address,
+                ]);
+            }
         }
 
         Log::info("╟── [Dispatch] Đơn #{$order->id}: Không tìm được tài xế sau " . self::DISPATCH_TIMEOUT_MINS . " phút → giữ pending, dừng dispatch");

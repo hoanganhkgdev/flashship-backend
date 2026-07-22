@@ -45,6 +45,7 @@ return [
         'access_token'    => env('ZALO_ZNS_ACCESS_TOKEN'),
         'refresh_token'   => env('ZALO_ZNS_REFRESH_TOKEN'),
         'otp_template_id' => env('ZALO_ZNS_OTP_TEMPLATE_ID'),
+        'no_driver_template_id' => env('ZALO_ZNS_NO_DRIVER_TEMPLATE_ID'),
         'admin_email'     => env('ZALO_ZNS_ADMIN_EMAIL'),
     ],
 
