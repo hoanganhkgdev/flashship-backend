@@ -10,7 +10,6 @@ use Illuminate\Support\Facades\Storage;
 use Modules\Core\Services\OtpService;
 use Modules\Core\Models\City;
 use Modules\Core\Models\User;
-use Modules\Core\Services\DriverGeoService;
 use Modules\Core\Services\RTDBService;
 use Modules\Driver\Models\Bank;
 use Modules\Driver\Models\DriverCccdImage;
@@ -141,14 +140,6 @@ class DriverController extends Controller
 
         RTDBService::setDriverOnlineStatus($user->id, (bool) $user->is_online);
 
-        if ($user->city_id) {
-            if ($user->is_online && $user->latitude && $user->longitude) {
-                DriverGeoService::add($user->id, $user->city_id, (float) $user->latitude, (float) $user->longitude);
-            } else {
-                DriverGeoService::remove($user->id, $user->city_id);
-            }
-        }
-
         $responseSeconds = (int) ($user->daily_online_seconds ?? 0);
         \Log::info("[Toggle] #{$user->id} → online={$user->is_online} daily_online_seconds={$responseSeconds} online_since={$user->online_since}");
 
@@ -176,10 +167,6 @@ class DriverController extends Controller
             'bearing'          => $data['bearing'] ?? $driver->bearing,
             'last_location_at' => now(),
         ]);
-
-        if ($driver->city_id) {
-            DriverGeoService::add($driver->id, $driver->city_id, (float) $data['latitude'], (float) $data['longitude']);
-        }
 
         RTDBService::updateDriverLocation($driver->id, [
             'lat'          => (float) $data['latitude'],

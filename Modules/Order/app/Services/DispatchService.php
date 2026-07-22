@@ -17,7 +17,6 @@ use App\Services\ZaloTokenService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Redis;
-use Modules\Core\Services\DriverGeoService;
 
 class DispatchService
 {
@@ -219,9 +218,6 @@ class DispatchService
         DB::table('users')->where('id', $driver->id)->update($update);
 
         RTDBService::setDriverOnlineStatus($driver->id, false);
-        if ($driver->city_id) {
-            DriverGeoService::remove($driver->id, $driver->city_id);
-        }
 
         if ($driver->fcm_token) {
             FCMService::getInstance()->sendDriverNotice(
