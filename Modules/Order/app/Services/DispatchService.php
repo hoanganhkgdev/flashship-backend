@@ -415,26 +415,16 @@ class DispatchService
         Log::info("     driver_score: " . ($driver->driver_score ?? DriverScoreService::DEFAULT_SCORE) . " | so_danh_gia: {$ratingCount}");
         Log::info("     FCM token  : " . ($driver->fcm_token ? 'có' : 'KHÔNG CÓ'));
 
-        OrderDispatchLog::create([
-            'order_id'   => $order->id,
-            'driver_id'  => $driver->id,
-            'offered_at' => $now,
-            'result'     => 'pending',
-            'created_at' => $now,
-            'updated_at' => $now,
-        ]);
-
-        DB::table('orders')->where('id', $order->id)->update([
-            'dispatching_to_driver_id' => $driver->id,
-            'dispatch_attempts'        => DB::raw('dispatch_attempts + 1'),
-            'offer_viewed_at'          => null,
-            'updated_at'               => $now,
-        ]);
-        $order->offer_viewed_at = null;
-
+        // Ghi RTDB TRƯỚC khi cam kết gán offer cho tài xế này (tạo log/cập
+        // nhật đơn) — RTDB là kênh CHÍNH để app đọc offer, ghi thất bại thì
+        // tài xế không hề nhận được gì dù hệ thống tưởng đã gửi. Kiểm tra kết
+        // quả thật (không nuốt lỗi âm thầm như trước) để có thể chuyển ngay
+        // sang ứng viên kế — không bắt tài xế "ôm" offer ma rồi đợi hết 25s
+        // hệ thống mới nhận ra, vừa oan cho họ (tính vào chuỗi bỏ lỡ) vừa
+        // làm khách chờ lâu hơn cần thiết.
         $offeredAt = $now->timestamp;
         $expiresAt = $offeredAt + self::DRIVER_OFFER_SECS;
-        RTDBService::writeDriverOffer($driver->id, [
+        $rtdbOk = RTDBService::writeDriverOffer($driver->id, [
             'order_id'          => $order->id,
             'order_code'        => $order->code,
             'offered_at'        => $offeredAt,
@@ -469,7 +459,49 @@ class DispatchService
             'cod_amount'        => (int) ($order->cod_amount ?? 0),
             'customer_phone'    => $order->sender?->phone    ?? '',
         ]);
+
+        if (!$rtdbOk) {
+            Redis::del($lockKey);
+            Log::warning("│  Skip #{$driver->id} {$driver->name}: ghi RTDB thất bại — chuyển ứng viên kế ngay, không đợi hết hạn oan");
+            // QUAN TRỌNG: phải ghi nhận đã "hỏi" driver này trước khi đệ quy
+            // sang ứng viên kế — nếu không, getCandidates() ở lượt sau vẫn coi
+            // driver này là ứng viên hợp lệ và có thể chọn lại chính họ, gây
+            // đệ quy vô hạn nếu Firebase sập hẳn và họ là ứng viên duy nhất
+            // (đúng lỗi đã gặp và sửa ở Chặn B trước đây). Tái dùng 'expired'
+            // vì ENUM chỉ có 4 giá trị cố định — không gọi handleTimeout() nên
+            // không phạt điểm/tính bỏ lỡ cho tài xế, đúng tinh thần sửa lỗi này.
+            $failedAt = now();
+            OrderDispatchLog::create([
+                'order_id'     => $order->id,
+                'driver_id'    => $driver->id,
+                'offered_at'   => $failedAt,
+                'responded_at' => $failedAt,
+                'result'       => 'expired',
+                'created_at'   => $failedAt,
+                'updated_at'   => $failedAt,
+            ]);
+            $this->sendToNextDriver($order);
+            return;
+        }
+
         Log::debug("     → RTDB offer ghi thành công (expires_at: {$expiresAt})");
+
+        OrderDispatchLog::create([
+            'order_id'   => $order->id,
+            'driver_id'  => $driver->id,
+            'offered_at' => $now,
+            'result'     => 'pending',
+            'created_at' => $now,
+            'updated_at' => $now,
+        ]);
+
+        DB::table('orders')->where('id', $order->id)->update([
+            'dispatching_to_driver_id' => $driver->id,
+            'dispatch_attempts'        => DB::raw('dispatch_attempts + 1'),
+            'offer_viewed_at'          => null,
+            'updated_at'               => $now,
+        ]);
+        $order->offer_viewed_at = null;
 
         if ($driver->fcm_token) {
             try {

@@ -66,12 +66,19 @@ class RTDBService
      * Ghi offer đơn hàng vào RTDB để driver app nhận qua stream (thay FCM).
      * Path: dispatch/driver_{id}/offer
      */
-    public static function writeDriverOffer(int $driverId, array $data): void
+    /**
+     * Trả về true/false thay vì nuốt lỗi âm thầm — đây là kênh CHÍNH để tài
+     * xế nhận offer, gọi cần biết chính xác có ghi được không để quyết định
+     * có nên "cam kết" gán offer này cho tài xế hay chuyển ngay sang người kế.
+     */
+    public static function writeDriverOffer(int $driverId, array $data): bool
     {
         try {
             self::db()->getReference("dispatch/driver_{$driverId}/offer")->set($data);
+            return true;
         } catch (\Throwable $e) {
             Log::error('[RTDB] writeDriverOffer failed: ' . $e->getMessage());
+            return false;
         }
     }
 
