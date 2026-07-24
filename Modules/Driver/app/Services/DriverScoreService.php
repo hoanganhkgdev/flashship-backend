@@ -24,8 +24,8 @@ class DriverScoreService
 
     const WEEKLY_BONUS_SCORE   = 150;
     const WEEKLY_PENALTY_SCORE = 70;
-    const WEEKLY_BONUS_AMOUNT  = 50_000;
-    const WEEKLY_PENALTY_AMOUNT= 50_000;
+    const WEEKLY_BONUS_AMOUNT  = 100_000;
+    const WEEKLY_PENALTY_AMOUNT= 100_000;
 
     // ─── Triggers ────────────────────────────────────────────────────────────────
 
@@ -85,6 +85,16 @@ class DriverScoreService
     public static function onLowOnlineTime(int $driverId): void
     {
         self::adjust($driverId, -5, 'online_time_low');
+    }
+
+    /**
+     * Trừ điểm khi tài xế bị hệ thống tự tắt online (bỏ lỡ offer) từ lần
+     * THỨ 2 trong ngày trở đi — lần đầu trong ngày chỉ tự tắt, không phạt,
+     * tránh phạt oan ai chỉ lỡ 1 lần ngẫu nhiên.
+     */
+    public static function onMissedOfferStreak(int $driverId): void
+    {
+        self::adjust($driverId, -3, 'missed_offer_streak');
     }
 
     public static function onShiftViolation(int $driverId): void
@@ -212,11 +222,11 @@ class DriverScoreService
     public static function tips(int $score): array
     {
         if ($score >= self::WEEKLY_BONUS_SCORE) {
-            return ['Bạn đã đạt 150 điểm — tiếp tục duy trì để nhận thưởng 50.000₫ cuối tuần!'];
+            return ['Bạn đã đạt 150 điểm — tiếp tục duy trì để nhận thưởng 100.000₫ cuối tuần!'];
         }
         if ($score <= self::WEEKLY_PENALTY_SCORE) {
-            return ['Điểm dưới 70 — cố gắng cải thiện để tránh bị phạt 50.000₫ cuối tuần.'];
+            return ['Điểm dưới 70 — cố gắng cải thiện để tránh bị phạt 100.000₫ cuối tuần.'];
         }
-        return ['Cần thêm ' . (self::WEEKLY_BONUS_SCORE - $score) . ' điểm để đạt thưởng 50.000₫ cuối tuần.'];
+        return ['Cần thêm ' . (self::WEEKLY_BONUS_SCORE - $score) . ' điểm để đạt thưởng 100.000₫ cuối tuần.'];
     }
 }

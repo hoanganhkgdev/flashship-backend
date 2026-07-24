@@ -35,6 +35,13 @@ class DispatchService
     const RATING_COUNT_CAP   = 200;
     const MAX_DETOUR_KM      = 1.5;
 
+    // Bỏ lỡ (không xem) đủ 2 offer liên tiếp → tự tắt online. Lần đầu trong
+    // ngày chỉ tự tắt (không phạt điểm — có thể là lỡ ngẫu nhiên 1 lần), từ
+    // lần thứ 2 trong ngày trở đi mới trừ điểm — nhắm đúng nhóm lặp lại
+    // nhiều lần/ngày (treo app farm giờ online mà né đơn), không phạt oan
+    // người chỉ gặp 1 cụm lỡ đơn hiếm hoi.
+    const MISSED_OFFERS_AUTO_OFFLINE_THRESHOLD = 2;
+
     // Chặn A — chỉ coi vị trí tài xế là đáng tin nếu đã được xác nhận mới
     // KỂ TỪ KHI bật online phiên này. App gửi /update-location mỗi 30s vô
     // điều kiện (không phụ thuộc di chuyển) nên tài xế đứng yên lâu vẫn được
@@ -160,11 +167,12 @@ class DispatchService
     }
 
     /**
-     * Đếm offer bỏ lỡ liên tiếp (không xem) — đủ 3 lần tự tắt online.
-     * Chặn chiêu treo app tích giờ online mà né đơn: không xem thì không bị
-     * trừ điểm, nhưng bỏ lỡ 3 đơn liên tiếp là mất quyền nhận đơn cho tới khi
-     * tự bật lại. Không đếm khi đang có đơn active (đang chạy giao ngoài
-     * đường không thể bấm điện thoại — lỡ đơn ghép là chính đáng).
+     * Đếm offer bỏ lỡ liên tiếp (không xem) — đủ ngưỡng tự tắt online.
+     * Chặn chiêu treo app tích giờ online mà né đơn: lần đầu trong ngày chỉ
+     * tự tắt (không phạt — có thể lỡ ngẫu nhiên), từ lần thứ 2 trong ngày trở
+     * đi mới trừ điểm — nhắm đúng người lặp lại nhiều lần/ngày. Không đếm khi
+     * đang có đơn active (đang chạy giao ngoài đường không thể bấm điện thoại
+     * — lỡ đơn ghép là chính đáng).
      */
     private function trackMissedOffer(User $driver): void
     {
@@ -178,11 +186,11 @@ class DispatchService
         $missed = (int) DB::table('users')->where('id', $driver->id)->value('consecutive_missed_offers') + 1;
         DB::table('users')->where('id', $driver->id)->update(['consecutive_missed_offers' => $missed]);
 
-        if ($missed < 3) {
-            if ($missed === 2 && $driver->fcm_token) {
+        if ($missed < self::MISSED_OFFERS_AUTO_OFFLINE_THRESHOLD) {
+            if ($missed === 1 && $driver->fcm_token) {
                 FCMService::getInstance()->sendDriverNotice(
                     $driver->fcm_token,
-                    '⚠️ Bạn vừa bỏ lỡ 2 đơn liên tiếp',
+                    '⚠️ Bạn vừa bỏ lỡ 1 đơn',
                     'Bỏ lỡ thêm 1 đơn nữa sẽ bị tạm tắt nhận đơn. Mở app để sẵn sàng nhận đơn nhé!',
                     ['type' => 'missed_offers_warning'],
                 );
@@ -190,7 +198,25 @@ class DispatchService
             return;
         }
 
-        // ── Đủ 3 lần: tự tắt online ──────────────────────────────────────────
+        // ── Đủ ngưỡng: tự tắt online ──────────────────────────────────────────
+        // Từ lần thứ 2 trong ngày trở đi mới trừ điểm (-3/lần) — lazy-reset bộ
+        // đếm theo ngày giống pattern daily_online_seconds/daily_online_date.
+        $today             = now()->toDateString();
+        $offlineCountToday = ($driver->missed_offer_offline_date === $today)
+            ? (int) ($driver->missed_offer_offline_count ?? 0)
+            : 0;
+        $offlineCountToday++;
+
+        DB::table('users')->where('id', $driver->id)->update([
+            'missed_offer_offline_count' => $offlineCountToday,
+            'missed_offer_offline_date'  => $today,
+        ]);
+
+        if ($offlineCountToday >= 2) {
+            DriverScoreService::onMissedOfferStreak($driver->id);
+            Log::warning("[Dispatch] Tài xế #{$driver->id} {$driver->name} bị tự tắt online lần {$offlineCountToday} trong ngày → -3 điểm");
+        }
+
         // Tích lũy giờ online của phiên hiện tại (cùng logic với toggleOnline,
         // chỉ tính phần nằm trong cửa sổ [6:30, now]).
         $now    = now();
@@ -223,12 +249,12 @@ class DispatchService
             FCMService::getInstance()->sendDriverNotice(
                 $driver->fcm_token,
                 'Bạn đã bị tạm tắt nhận đơn',
-                'Bạn bỏ lỡ 3 đơn liên tiếp nên hệ thống tạm tắt online. Mở app và bật lại khi sẵn sàng chạy.',
+                'Bạn bỏ lỡ 2 đơn liên tiếp nên hệ thống tạm tắt online. Mở app và bật lại khi sẵn sàng chạy.',
                 ['type' => 'auto_offline_missed'],
             );
         }
 
-        Log::warning("[Dispatch] Tài xế #{$driver->id} {$driver->name} bỏ lỡ 3 offer liên tiếp → tự tắt online");
+        Log::warning("[Dispatch] Tài xế #{$driver->id} {$driver->name} bỏ lỡ " . self::MISSED_OFFERS_AUTO_OFFLINE_THRESHOLD . " offer liên tiếp → tự tắt online");
     }
 
     public function handleAccepted(Order $order, User $driver): void
