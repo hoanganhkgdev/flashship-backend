@@ -448,13 +448,33 @@ class DispatchService
         Log::info("     driver_score: " . ($driver->driver_score ?? DriverScoreService::DEFAULT_SCORE) . " | so_danh_gia: {$ratingCount}");
         Log::info("     FCM token  : " . ($driver->fcm_token ? 'có' : 'KHÔNG CÓ'));
 
+        $ok = $this->commitOffer($order, $driver, $now);
+
+        if (!$ok) {
+            Redis::del($lockKey);
+            Log::warning("│  Skip #{$driver->id} {$driver->name}: ghi RTDB thất bại — chuyển ứng viên kế ngay, không đợi hết hạn oan");
+            $this->sendToNextDriver($order);
+        }
+    }
+
+    /**
+     * Thực hiện gửi offer thật cho 1 tài xế đã qua hết mọi bước kiểm tra
+     * (ghi RTDB + OrderDispatchLog + cập nhật đơn + FCM + lên lịch timeout
+     * job) — dùng chung cho cả 2 luồng:
+     *  - sendToDriver(): auto dispatch, lỗi thì cascade sang ứng viên kế.
+     *  - offerToSpecificDriver(): tổng đài gán tay 1 người cụ thể, lỗi thì
+     *    KHÔNG cascade (không tự ý đổi sang người khác tổng đài chưa chọn),
+     *    chỉ báo lỗi để tổng đài tự quyết định lại.
+     *
+     * @return bool true nếu ghi RTDB thành công (offer đã thật sự tới tay tài xế)
+     */
+    private function commitOffer(Order $order, User $driver, Carbon $now): bool
+    {
         // Ghi RTDB TRƯỚC khi cam kết gán offer cho tài xế này (tạo log/cập
         // nhật đơn) — RTDB là kênh CHÍNH để app đọc offer, ghi thất bại thì
         // tài xế không hề nhận được gì dù hệ thống tưởng đã gửi. Kiểm tra kết
-        // quả thật (không nuốt lỗi âm thầm như trước) để có thể chuyển ngay
-        // sang ứng viên kế — không bắt tài xế "ôm" offer ma rồi đợi hết 25s
-        // hệ thống mới nhận ra, vừa oan cho họ (tính vào chuỗi bỏ lỡ) vừa
-        // làm khách chờ lâu hơn cần thiết.
+        // quả thật (không nuốt lỗi âm thầm như trước) để có thể xử lý ngay,
+        // không bắt tài xế "ôm" offer ma rồi đợi hết 25s hệ thống mới nhận ra.
         $offeredAt = $now->timestamp;
         $expiresAt = $offeredAt + self::DRIVER_OFFER_SECS;
         $rtdbOk = RTDBService::writeDriverOffer($driver->id, [
@@ -494,15 +514,13 @@ class DispatchService
         ]);
 
         if (!$rtdbOk) {
-            Redis::del($lockKey);
-            Log::warning("│  Skip #{$driver->id} {$driver->name}: ghi RTDB thất bại — chuyển ứng viên kế ngay, không đợi hết hạn oan");
-            // QUAN TRỌNG: phải ghi nhận đã "hỏi" driver này trước khi đệ quy
-            // sang ứng viên kế — nếu không, getCandidates() ở lượt sau vẫn coi
-            // driver này là ứng viên hợp lệ và có thể chọn lại chính họ, gây
-            // đệ quy vô hạn nếu Firebase sập hẳn và họ là ứng viên duy nhất
-            // (đúng lỗi đã gặp và sửa ở Chặn B trước đây). Tái dùng 'expired'
-            // vì ENUM chỉ có 4 giá trị cố định — không gọi handleTimeout() nên
-            // không phạt điểm/tính bỏ lỡ cho tài xế, đúng tinh thần sửa lỗi này.
+            // QUAN TRỌNG: phải ghi nhận đã "hỏi" driver này trước khi trả về
+            // — nếu không, getCandidates() ở lượt sau vẫn coi driver này là
+            // ứng viên hợp lệ và có thể chọn lại chính họ, gây đệ quy vô hạn
+            // nếu Firebase sập hẳn và họ là ứng viên duy nhất (đúng lỗi đã
+            // gặp và sửa ở Chặn B trước đây). Tái dùng 'expired' vì ENUM chỉ
+            // có 4 giá trị cố định — không gọi handleTimeout() nên không phạt
+            // điểm/tính bỏ lỡ cho tài xế, đúng tinh thần sửa lỗi này.
             $failedAt = now();
             OrderDispatchLog::create([
                 'order_id'     => $order->id,
@@ -513,8 +531,7 @@ class DispatchService
                 'created_at'   => $failedAt,
                 'updated_at'   => $failedAt,
             ]);
-            $this->sendToNextDriver($order);
-            return;
+            return false;
         }
 
         Log::debug("     → RTDB offer ghi thành công (expires_at: {$expiresAt})");
@@ -549,6 +566,58 @@ class DispatchService
             ->delay(now()->addSeconds(self::DRIVER_OFFER_SECS));
 
         broadcast(new DispatchStateChanged());
+
+        return true;
+    }
+
+    /**
+     * Tổng đài gán tay 1 tài xế cụ thể cho đơn (thay vì để hệ thống tự chọn)
+     * — vẫn gửi offer thật qua đúng kênh RTDB+FCM, tài xế vẫn phải bấm nhận
+     * trong app như bình thường, không gán cứng. Không cascade sang người
+     * khác nếu thất bại — trả lỗi rõ ràng để tổng đài tự quyết định lại.
+     *
+     * @return array{success: bool, message: string}
+     */
+    public function offerToSpecificDriver(Order $order, int $driverId): array
+    {
+        $driver = User::with('debts')->find($driverId);
+
+        if (!$driver || $driver->user_type !== 'driver') {
+            return ['success' => false, 'message' => 'Không tìm thấy tài xế.'];
+        }
+        if ($driver->city_id !== $order->city_id) {
+            return ['success' => false, 'message' => 'Tài xế không thuộc thành phố của đơn này.'];
+        }
+        if (!$driver->is_online) {
+            return ['success' => false, 'message' => "Tài xế {$driver->name} hiện không online."];
+        }
+        if ($this->hasBlockedDebt($driver)) {
+            return ['success' => false, 'message' => "Tài xế {$driver->name} đang nợ quá hạn, không thể nhận đơn."];
+        }
+        if ($order->service_type === 'car' && !$driver->has_car_license) {
+            return ['success' => false, 'message' => "Tài xế {$driver->name} chưa có bằng lái ô tô."];
+        }
+
+        $activeCount = Order::where('delivery_man_id', $driver->id)
+            ->whereIn('status', ['assigned', 'processing', 'on_the_way'])
+            ->count();
+        if ($activeCount >= 2) {
+            return ['success' => false, 'message' => "Tài xế {$driver->name} đang chạy {$activeCount} đơn, không nhận thêm được."];
+        }
+
+        $lockKey = "dispatch:lock:driver:{$driver->id}";
+        if (!Redis::set($lockKey, $order->id, 'NX', 'EX', 60)) {
+            return ['success' => false, 'message' => "Tài xế {$driver->name} đang nhận offer khác, thử lại sau."];
+        }
+
+        $ok = $this->commitOffer($order, $driver, now());
+
+        if (!$ok) {
+            Redis::del($lockKey);
+            return ['success' => false, 'message' => "Gửi thông báo tới {$driver->name} thất bại (lỗi hệ thống), thử lại."];
+        }
+
+        return ['success' => true, 'message' => "Đã gửi offer cho {$driver->name} — đang chờ tài xế xác nhận."];
     }
 
     public function getCandidates(Order $order, array $excludeIds = []): Collection

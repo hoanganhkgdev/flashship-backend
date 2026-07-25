@@ -40,134 +40,259 @@
 </div>
 @endif
 
-{{-- ══ FULLSCREEN MAP LAYOUT ═══════════════════════════════════════════════ --}}
+{{-- ══ LAYOUT 2 PANEL: FORM (trái) + BẢN ĐỒ QUAN SÁT (phải) ═══════════════ --}}
 <style>
-    .cc-wrapper { position:relative; height:calc(100vh - 80px); min-height:600px; border-radius:16px; overflow:hidden; border:1px solid #e5e7eb; }
+    .cc-wrapper { position:relative; height:calc(100vh - 80px); min-height:600px; border-radius:16px; overflow:hidden; border:1px solid #e5e7eb; display:flex; background:#fff; }
+
+    .cc-form-panel { width:min(420px, 40%); flex-shrink:0; display:flex; flex-direction:column; gap:12px; padding:16px; overflow-y:auto; background:#f8fafc; border-right:1px solid #e5e7eb; }
+    .cc-form-panel::-webkit-scrollbar { width:0; }
+
+    .cc-card { background:#fff; border:1px solid #eef0f2; border-radius:16px; padding:14px; }
+
+    .cc-city-row { display:flex; align-items:center; gap:10px; }
+    .cc-city-row select { flex:1; border:none; outline:none; font-size:15px; font-weight:700; color:#111827; background:transparent; cursor:pointer; }
+    .cc-city-row span.cc-city-static { font-size:15px; font-weight:700; color:#111827; }
+
+    .cc-service-tabs { display:grid; grid-template-columns:repeat(3, 1fr); gap:6px; margin-top:12px; padding-top:12px; border-top:1px solid #f1f2f4; }
+    .cc-service-tab { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:5px; border-radius:12px; padding:10px 4px; text-align:center; color:#6b7280; background:#f8fafc; border:1px solid transparent; transition:all .15s ease; }
+    .cc-service-tab:hover { background:#f1f5f9; }
+    .cc-service-tab.active { color:#fff; }
+    .cc-service-tab svg { width:18px; height:18px; }
+    .cc-service-tab span { font-size:12px; font-weight:600; line-height:1.2; }
+
+    .cc-address-row { display:flex; align-items:flex-start; gap:10px; padding:9px 2px; }
+    .cc-address-row + .cc-address-row { border-top:1px dashed #eef0f2; }
+    .cc-address-dot { width:9px; height:9px; border-radius:50%; flex-shrink:0; margin-top:8px; }
+    .cc-address-col { flex:1; min-width:0; }
+    .cc-address-col label { display:block; font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:#9ca3af; margin-bottom:2px; }
+    .cc-address-col input { width:100%; border:none; outline:none; font-size:14px; color:#111827; background:transparent; padding:0; box-shadow:none; }
+    .cc-address-col input:focus { border:none; outline:none; box-shadow:none; }
+    .cc-address-col input::placeholder { color:#c1c5cb; }
+
+    .cc-field { margin-bottom:12px; }
+    .cc-field:last-child { margin-bottom:0; }
+    .cc-field label { display:block; font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:#9ca3af; margin-bottom:5px; }
+    .cc-field-row { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:12px; }
+    .cc-field-row .cc-field { margin-bottom:0; }
+    .cc-input, .cc-textarea {
+        width:100%; border:1px solid #e5e7eb; border-radius:10px; padding:9px 12px;
+        font-size:14px; color:#111827; background:#f8fafc; outline:none;
+        transition:border-color .15s ease, background .15s ease, box-shadow .15s ease;
+    }
+    .cc-input::placeholder, .cc-textarea::placeholder { color:#c1c5cb; }
+    .cc-input[type="number"] { -moz-appearance:textfield; }
+    .cc-input[type="number"]::-webkit-outer-spin-button,
+    .cc-input[type="number"]::-webkit-inner-spin-button { -webkit-appearance:none; margin:0; }
+    .cc-input:focus, .cc-textarea:focus, .cc-form-panel select:focus {
+        border-color:var(--cc-accent, #4F46E5); background:#fff;
+        box-shadow:0 0 0 3px var(--cc-accent-20, rgba(79,70,229,.15));
+    }
+    .cc-textarea { resize:none; }
+    .cc-fee-wrap { position:relative; }
+    .cc-fee-wrap input { padding-right:30px; }
+    .cc-fee-suffix { position:absolute; right:12px; top:50%; transform:translateY(-50%); font-size:13px; font-weight:600; color:#9ca3af; pointer-events:none; }
+
+    .cc-select-wrap { position:relative; }
+    .cc-select {
+        appearance:none; -webkit-appearance:none; -moz-appearance:none;
+        background-image:none !important; background-repeat:no-repeat;
+        padding-right:34px; cursor:pointer;
+    }
+    .cc-select::-ms-expand { display:none; }
+    .cc-select-chevron { position:absolute; right:12px; top:50%; width:16px; height:16px; transform:translateY(-50%); pointer-events:none; }
+
+    .cc-checkbox-row { display:flex; align-items:center; gap:10px; padding-top:12px; margin-top:12px; border-top:1px dashed #eef0f2; cursor:pointer; }
+    .cc-checkbox-row input[type="checkbox"] { width:18px; height:18px; accent-color:var(--cc-accent, #4F46E5); cursor:pointer; flex-shrink:0; }
+    .cc-checkbox-row span { font-size:13px; color:#111827; line-height:1.4; }
+    .cc-checkbox-row strong { font-weight:600; }
+    .cc-checkbox-row small { font-size:11.5px; color:#9ca3af; }
+
+    .cc-submit-btn { width:100%; border-radius:14px; padding:14px; font-size:15px; font-weight:700; color:#fff; transition:all .15s ease; border:none; cursor:pointer; }
+    .cc-submit-btn:active { transform:scale(.98); }
+    .cc-submit-btn:disabled { opacity:.7; cursor:default; }
+
+    .cc-map-wrap { position:relative; flex:1; min-width:0; }
     .cc-map { position:absolute; inset:0; width:100%; height:100%; }
-    .cc-panel { position:absolute; top:16px; left:16px; z-index:10; width:380px; display:flex; flex-direction:column; gap:10px; max-height:calc(100vh - 120px); overflow-y:auto; }
-    .cc-panel::-webkit-scrollbar { width:0; }
-    @media (max-width: 768px) {
-        .cc-wrapper { height:auto; min-height:auto; display:flex; flex-direction:column; border-radius:12px; }
-        .cc-map { position:relative; height:45vh; min-height:280px; }
-        .cc-panel { position:relative; top:0; left:0; width:100%; padding:12px; max-height:none; overflow-y:visible; }
-        .cc-panel input, .cc-panel textarea, .cc-panel select { font-size:16px !important; }
+    .cc-map-info { position:absolute; top:16px; left:16px; z-index:10; background:rgba(255,255,255,0.97); border-radius:14px; padding:10px 16px; box-shadow:0 4px 20px rgba(0,0,0,0.12); font-size:13px; min-width:160px; }
+    .cc-map-info-city { font-weight:700; color:#111; margin-bottom:4px; }
+    .cc-map-info-route { color:#4F46E5; font-weight:600; min-height:18px; }
+    .cc-map-info-fee { color:#16a34a; font-weight:700; margin-top:2px; }
+    .cc-map-info-drivers { display:flex; align-items:center; gap:6px; color:#374151; font-weight:600; margin-top:6px; padding-top:6px; border-top:1px solid #f1f2f4; }
+    .cc-map-info-drivers .dot { width:8px; height:8px; border-radius:50%; background:#22c55e; box-shadow:0 0 0 3px #22c55e20; flex-shrink:0; }
+
+    @media (max-width: 900px) {
+        .cc-wrapper { height:auto; min-height:auto; flex-direction:column; border-radius:12px; }
+        .cc-form-panel { width:100%; max-height:none; overflow-y:visible; border-right:none; border-bottom:1px solid #e5e7eb; }
+        .cc-map-wrap { height:40vh; min-height:260px; }
+        .cc-form-panel input, .cc-form-panel textarea, .cc-form-panel select { font-size:16px !important; }
     }
 </style>
 <div class="cc-wrapper">
 
-    {{-- Map --}}
-    <div id="cc-main-map" wire:ignore class="cc-map"></div>
+    {{-- ═══ PANEL FORM ═══ --}}
+    <div class="cc-form-panel" style="--cc-accent: {{ $activeSvc['color'] }}; --cc-accent-20: {{ $activeSvc['color'] }}26;">
 
-    {{-- Panel --}}
-    <div class="cc-panel">
+        {{-- Khu vực + dịch vụ ── gộp 1 card cho gọn --}}
+        <div class="cc-card">
+            <div class="cc-city-row">
+                <svg style="width:18px; height:18px; color:#9ca3af; flex-shrink:0;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z"/></svg>
+                @if ($isAdmin)
+                <select wire:model.live="data.city_id" onchange="_onCityChange(this.value)">
+                    @foreach ($cities as $city)
+                    <option value="{{ $city->id }}" {{ ($data['city_id'] ?? '') == $city->id ? 'selected' : '' }}>{{ $city->name }}</option>
+                    @endforeach
+                </select>
+                @else
+                <span class="cc-city-static">{{ $currentCityName }}</span>
+                @endif
+            </div>
 
-        {{-- Khu vực --}}
-        @if ($isAdmin)
-        <div style="background:rgba(255,255,255,0.97); border-radius:14px; padding:10px 16px; box-shadow:0 4px 20px rgba(0,0,0,0.12); display:flex; align-items:center; gap:10px;">
-            <svg style="width:18px; height:18px; color:#6b7280; flex-shrink:0;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z"/></svg>
-            <select wire:model.live="data.city_id" onchange="_onCityChange(this.value)"
-                style="flex:1; border:none; outline:none; font-size:15px; font-weight:700; color:#111; background:transparent; cursor:pointer;">
-                @foreach ($cities as $city)
-                <option value="{{ $city->id }}" {{ ($data['city_id'] ?? '') == $city->id ? 'selected' : '' }}>{{ $city->name }}</option>
+            <div class="cc-service-tabs">
+                @foreach ($this::services() as $key => $svc)
+                @php $active = $serviceType === $key; @endphp
+                <button type="button" wire:click="selectService('{{ $key }}')" onclick="_onServiceChange()" wire:key="svc-{{ $key }}"
+                    class="cc-service-tab {{ $active ? 'active' : '' }}"
+                    style="{{ $active ? 'background:'.$svc['color'].'; box-shadow:0 3px 10px '.$svc['color'].'4d;' : '' }}">
+                    <x-dynamic-component :component="$svc['icon']" />
+                    <span>{{ $svc['label'] }}</span>
+                </button>
                 @endforeach
-            </select>
-        </div>
-        @else
-        <div style="background:rgba(255,255,255,0.97); border-radius:14px; padding:10px 16px; box-shadow:0 4px 20px rgba(0,0,0,0.12); display:flex; align-items:center; gap:10px;">
-            <svg style="width:18px; height:18px; color:#6b7280; flex-shrink:0;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z"/></svg>
-            <span style="font-size:15px; font-weight:700; color:#111;">{{ $currentCityName }}</span>
-        </div>
-        @endif
-
-        {{-- Service tabs --}}
-        <div style="background:rgba(255,255,255,0.97); border-radius:14px; padding:6px; box-shadow:0 4px 20px rgba(0,0,0,0.12); display:grid; grid-template-columns:1fr 1fr 1fr; gap:4px;">
-            @foreach ($this::services() as $key => $svc)
-            @php $active = $serviceType === $key; @endphp
-            <button wire:click="selectService('{{ $key }}')" wire:key="svc-{{ $key }}"
-                style="{{ $active ? 'background:'.$svc['color'].'; box-shadow:0 2px 8px '.$svc['color'].'50;' : '' }}"
-                class="rounded-lg py-2 text-[14px] font-semibold text-center transition-all {{ $active ? 'text-white' : 'text-gray-500 hover:bg-gray-100' }}">
-                {{ $svc['label'] }}
-            </button>
-            @endforeach
+            </div>
         </div>
 
-        {{-- Địa chỉ --}}
+        {{-- Địa chỉ (chỉ nhập qua Autocomplete — bản đồ bên phải không nhận click gim nữa) --}}
         @php
-            $pickupPlaceholder = match($serviceType) {
-                'shopping' => 'Điểm mua hàng...',
-                'topup'    => 'Địa chỉ nạp...',
-                'bike', 'motor', 'car' => 'Điểm đón...',
-                default    => 'Điểm lấy hàng...',
+            $pickupLabel = match($serviceType) {
+                'shopping' => 'Điểm mua hàng',
+                'topup'    => 'Địa chỉ nạp',
+                'bike', 'motor', 'car' => 'Điểm đón',
+                default    => 'Điểm lấy hàng',
             };
-            $deliveryPlaceholder = match($serviceType) {
-                'bike', 'motor', 'car' => 'Điểm đến...',
-                default => 'Điểm giao hàng...',
+            $deliveryLabel = match($serviceType) {
+                'bike', 'motor', 'car' => 'Điểm đến',
+                default => 'Điểm giao hàng',
             };
             $needDelivery = $serviceType !== 'topup';
         @endphp
-        <div style="background:rgba(255,255,255,0.97); border-radius:14px; padding:6px 0; box-shadow:0 4px 20px rgba(0,0,0,0.12);">
-            <div style="display:flex; align-items:center; gap:10px; padding:8px 16px; {{ $needDelivery ? 'border-bottom:1px solid #f0f0f0;' : '' }}">
-                <div style="width:10px; height:10px; border-radius:50%; background:#FF6B35; flex-shrink:0; box-shadow:0 0 0 3px #FF6B3520;"></div>
-                <input id="cc-pickup-input" type="text" placeholder="{{ $pickupPlaceholder }}"
-                    autocomplete="off" onfocus="_activeInput='pickup'"
-                    style="flex:1; border:none; outline:none; font-size:14px; color:#111; background:transparent; height:32px;"
-                    value="{{ $data['pickup_address'] ?? '' }}" />
+        <div class="cc-card" style="padding:4px 14px;">
+            <div class="cc-address-row">
+                <div class="cc-address-dot" style="background:#FF6B35; box-shadow:0 0 0 3px #FF6B3520;"></div>
+                <div class="cc-address-col">
+                    <label>{{ $pickupLabel }}</label>
+                    <input id="cc-pickup-input" type="text" placeholder="Nhập địa chỉ..."
+                        autocomplete="off"
+                        value="{{ $data['pickup_address'] ?? '' }}" />
+                </div>
             </div>
             @if ($needDelivery)
-            <div style="display:flex; align-items:center; gap:10px; padding:8px 16px;">
-                <div style="width:10px; height:10px; border-radius:50%; background:#22c55e; flex-shrink:0; box-shadow:0 0 0 3px #22c55e20;"></div>
-                <input id="cc-delivery-input" type="text" placeholder="{{ $deliveryPlaceholder }}"
-                    autocomplete="off" onfocus="_activeInput='delivery'"
-                    style="flex:1; border:none; outline:none; font-size:14px; color:#111; background:transparent; height:32px;"
-                    value="{{ $data['delivery_address'] ?? '' }}" />
+            <div class="cc-address-row">
+                <div class="cc-address-dot" style="background:#22c55e; box-shadow:0 0 0 3px #22c55e20;"></div>
+                <div class="cc-address-col">
+                    <label>{{ $deliveryLabel }}</label>
+                    <input id="cc-delivery-input" type="text" placeholder="Nhập địa chỉ..."
+                        autocomplete="off"
+                        value="{{ $data['delivery_address'] ?? '' }}" />
+                </div>
             </div>
             @endif
         </div>
 
         {{-- Form --}}
         <form wire:submit="placeOrder">
-        @php
-            $inputStyle = 'width:100%; border:none; border-bottom:1px solid #f0f0f0; padding:10px 16px; font-size:14px; outline:none; background:transparent;';
-            $textareaStyle = 'width:100%; border:none; border-bottom:1px solid #f0f0f0; padding:10px 16px; font-size:14px; outline:none; resize:none; background:transparent;';
-        @endphp
-
-        <div style="background:rgba(255,255,255,0.97); border-radius:14px; box-shadow:0 4px 20px rgba(0,0,0,0.12); overflow:hidden;">
+        <div class="cc-card">
 
             @if ($serviceType === 'delivery')
-            <input type="text" placeholder="SĐT điểm lấy" wire:model="data.pickup_phone" style="{{ $inputStyle }}" />
-            <input type="text" placeholder="SĐT điểm giao" wire:model="data.delivery_phone" style="{{ $inputStyle }}" />
-            <input type="number" placeholder="Phí ship (đ)" wire:model="data.shipping_fee" style="{{ $inputStyle }}" />
-            <textarea placeholder="Ghi chú..." wire:model="data.order_note" rows="2" style="{{ $textareaStyle }}"></textarea>
+            <div class="cc-field-row">
+                <div class="cc-field"><label>SĐT điểm lấy</label><input type="text" class="cc-input" wire:model="data.pickup_phone" placeholder="09xx xxx xxx" /></div>
+                <div class="cc-field"><label>SĐT điểm giao</label><input type="text" class="cc-input" wire:model="data.delivery_phone" placeholder="09xx xxx xxx" /></div>
+            </div>
+            <div class="cc-field">
+                <label>Phí ship</label>
+                <div class="cc-fee-wrap"><input type="number" class="cc-input" wire:model="data.shipping_fee" placeholder="0" /><span class="cc-fee-suffix">đ</span></div>
+            </div>
+            <div class="cc-field"><label>Ghi chú</label><textarea class="cc-textarea" wire:model="data.order_note" rows="2" placeholder="Ghi chú cho tài xế..."></textarea></div>
             @endif
 
             @if ($serviceType === 'shopping')
-            <textarea placeholder="Mô tả hàng cần mua..." wire:model="data.shopping_note" rows="2" style="{{ $textareaStyle }}"></textarea>
-            <input type="text" placeholder="SĐT khách" wire:model="data.delivery_phone" style="{{ $inputStyle }}" />
-            <input type="number" placeholder="Phí ship (đ)" wire:model="data.shipping_fee" style="{{ $inputStyle }}" />
+            <div class="cc-field"><label>Mô tả hàng cần mua</label><textarea class="cc-textarea" wire:model="data.shopping_note" rows="2" placeholder="Ví dụ: 1 ly trà sữa size L, ít đá..."></textarea></div>
+            <div class="cc-field"><label>SĐT khách</label><input type="text" class="cc-input" wire:model="data.delivery_phone" placeholder="09xx xxx xxx" /></div>
+            <div class="cc-field">
+                <label>Phí ship</label>
+                <div class="cc-fee-wrap"><input type="number" class="cc-input" wire:model="data.shipping_fee" placeholder="0" /><span class="cc-fee-suffix">đ</span></div>
+            </div>
             @endif
 
             @if ($serviceType === 'topup')
-            <input type="number" placeholder="Số tiền nạp (đ)" wire:model="data.cod_amount" style="{{ $inputStyle }}" />
-            <input type="text" placeholder="SĐT khách" wire:model="data.pickup_phone" style="{{ $inputStyle }}" />
-            <input type="number" placeholder="Phí ship (đ)" wire:model="data.shipping_fee" style="{{ $inputStyle }}" />
-            <textarea placeholder="Ghi chú (tuỳ chọn)..." wire:model="data.order_note" rows="2" style="{{ $textareaStyle }}"></textarea>
+            <div class="cc-field">
+                <label>Số tiền nạp</label>
+                <div class="cc-fee-wrap"><input type="number" class="cc-input" wire:model="data.cod_amount" placeholder="0" /><span class="cc-fee-suffix">đ</span></div>
+            </div>
+            <div class="cc-field"><label>SĐT khách</label><input type="text" class="cc-input" wire:model="data.pickup_phone" placeholder="09xx xxx xxx" /></div>
+            <div class="cc-field">
+                <label>Phí ship</label>
+                <div class="cc-fee-wrap"><input type="number" class="cc-input" wire:model="data.shipping_fee" placeholder="0" /><span class="cc-fee-suffix">đ</span></div>
+            </div>
+            <div class="cc-field"><label>Ghi chú <span style="text-transform:none; font-weight:400;">(tuỳ chọn)</span></label><textarea class="cc-textarea" wire:model="data.order_note" rows="2" placeholder="Ghi chú..."></textarea></div>
             @endif
 
             @if (in_array($serviceType, ['bike', 'motor', 'car']))
-            <input type="text" placeholder="SĐT khách" wire:model="data.pickup_phone" style="{{ $inputStyle }}" />
-            <input type="number" placeholder="Phí ship (đ)" wire:model="data.shipping_fee" style="{{ $inputStyle }}" />
-            <textarea placeholder="Ghi chú cho tài xế..." wire:model="data.order_note" rows="2" style="{{ $textareaStyle }}"></textarea>
+            <div class="cc-field"><label>SĐT khách</label><input type="text" class="cc-input" wire:model="data.pickup_phone" placeholder="09xx xxx xxx" /></div>
+            <div class="cc-field">
+                <label>Phí ship</label>
+                <div class="cc-fee-wrap"><input type="number" class="cc-input" wire:model="data.shipping_fee" placeholder="0" /><span class="cc-fee-suffix">đ</span></div>
+            </div>
+            <div class="cc-field"><label>Ghi chú cho tài xế</label><textarea class="cc-textarea" wire:model="data.order_note" rows="2" placeholder="Ghi chú..."></textarea></div>
             @endif
+
+            <label class="cc-checkbox-row">
+                <input type="checkbox" wire:model="isFreeship" class="cc-checkbox" />
+                <span><strong>Freeship</strong> — <small>Khách không trả phí ship - admin trả.</small></span>
+            </label>
 
         </div>
 
-        <button type="submit" wire:loading.attr="disabled"
-            class="w-full rounded-xl py-3.5 text-[15px] font-bold text-white transition-all active:scale-[.98] mt-3"
-            style="background:{{ $activeSvc['color'] }}; box-shadow:0 4px 16px {{ $activeSvc['color'] }}50;">
+        <div class="cc-card" style="margin-top:12px;">
+            <label style="display:block; font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:#9ca3af; margin-bottom:6px;">Gán tài xế (tuỳ chọn)</label>
+            <div class="cc-select-wrap">
+                <select wire:model="assignedDriverId" class="cc-input cc-select">
+                    <option value="">Để hệ thống tự chọn</option>
+                    @foreach ($onlineDrivers as $d)
+                    <option value="{{ $d['id'] }}">{{ $d['name'] }} — {{ $d['phone'] }}</option>
+                    @endforeach
+                </select>
+                <svg class="cc-select-chevron" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M5 7.5L10 12.5L15 7.5" stroke="#9ca3af" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </div>
+            @if (empty($onlineDrivers))
+            <p style="font-size:12px; color:#9ca3af; margin-top:6px;">Chưa có tài xế online trong thành phố này.</p>
+            @endif
+        </div>
+
+        <button type="submit" wire:loading.attr="disabled" class="cc-submit-btn" style="margin-top:12px; background:{{ $activeSvc['color'] }}; box-shadow:0 4px 16px {{ $activeSvc['color'] }}4d;">
             <span wire:loading.remove wire:target="placeOrder">Đặt đơn ngay</span>
             <span wire:loading wire:target="placeOrder">Đang xử lý...</span>
         </button>
         </form>
+    </div>
+
+    {{-- ═══ PANEL BẢN ĐỒ — CHỈ QUAN SÁT (khoảng cách + tài xế online), không nhận click gim địa chỉ ═══ --}}
+    {{-- wire:ignore bọc CẢ map lẫn 2 script bên dưới — Livewire re-render (đổi
+    thành phố, chọn dịch vụ...) không được đụng vào, nếu không trình duyệt sẽ
+    load lại toàn bộ Google Maps API mỗi lần commit → bản đồ chớp liên tục,
+    Autocomplete bị vỡ giữa chừng, xoá mất địa chỉ vừa chọn. --}}
+    <div class="cc-map-wrap">
+        <div wire:ignore style="display:contents;">
+            <div id="cc-main-map" class="cc-map"></div>
+
+            <div class="cc-map-info">
+                <div id="cc-map-info-city" class="cc-map-info-city">{{ $currentCityName }}</div>
+                <div id="cc-map-info-route" class="cc-map-info-route"></div>
+                <div id="cc-map-info-fee" class="cc-map-info-fee"></div>
+                <div id="cc-map-info-drivers" class="cc-map-info-drivers" style="display:none;">
+                    <span class="dot"></span>
+                    <span id="cc-driver-label"></span>
+                </div>
+            </div>
+        </div>
     </div>
 
     @if (!$isAdmin)
@@ -177,20 +302,23 @@
 
 <x-filament-actions::modals />
 
+<div wire:ignore>
 <script>
 let _mainMap, _geocoder, _pickupMarker, _deliveryMarker;
 let _mapsReady = false;
 let _pickupAc = null, _deliveryAc = null;
-let _activeInput = 'pickup';
 let _directionsRenderer = null;
+let _driverMarkers = [];
 
 const _cityCenter = { lat: {{ $defaultCenter['lat'] }}, lng: {{ $defaultCenter['lng'] }} };
 const _cityCoords = {
     @foreach ($cities as $city)
-    {{ $city->id }}: { lat: {{ (float)$city->lat }}, lng: {{ (float)$city->lng }} },
+    {{ $city->id }}: { lat: {{ (float)$city->lat }}, lng: {{ (float)$city->lng }}, name: @js($city->name) },
     @endforeach
 };
 
+// wire:ignore bọc cả card thông tin nên tên thành phố không còn tự cập nhật
+// qua Blade re-render nữa — cập nhật thẳng DOM ở đây mỗi khi đổi thành phố.
 function _onCityChange(cityId) {
     const c = _cityCoords[cityId];
     if (!_mainMap || !c) return;
@@ -201,50 +329,47 @@ function _onCityChange(cityId) {
     if (_pickupMarker) { _pickupMarker.setMap(null); _pickupMarker = null; }
     if (_deliveryMarker) { _deliveryMarker.setMap(null); _deliveryMarker = null; }
     _clearRoute();
-    _activeInput = 'pickup';
+    _clearDriverMarkers();
     const pi = document.getElementById('cc-pickup-input');
     const di = document.getElementById('cc-delivery-input');
     if (pi) pi.value = '';
     if (di) di.value = '';
     _updateAutocompleteBounds();
+    const cityLabel = document.getElementById('cc-map-info-city');
+    if (cityLabel) cityLabel.textContent = c.name;
 }
 
-// ── Init map ─────────────────────────────────────────────────────────────────
+// Đổi loại dịch vụ → xoá sạch pin/route/ô địa chỉ ngay lập tức (không đợi
+// Livewire round-trip xong mới dọn — tránh cảm giác dữ liệu cũ còn sót lại).
+function _onServiceChange() {
+    if (_pickupMarker) { _pickupMarker.setMap(null); _pickupMarker = null; }
+    if (_deliveryMarker) { _deliveryMarker.setMap(null); _deliveryMarker = null; }
+    _clearRoute();
+    _clearDriverMarkers();
+    const pi = document.getElementById('cc-pickup-input');
+    const di = document.getElementById('cc-delivery-input');
+    if (pi) pi.value = '';
+    if (di) di.value = '';
+}
+
+// ── Init map (chỉ để xem — không có listener click gim địa chỉ) ──────────────
 function _initMainMap() {
     _mainMap = new google.maps.Map(document.getElementById('cc-main-map'), {
         center: _cityCenter, zoom: 14,
         mapTypeControl: false, fullscreenControl: false,
         streetViewControl: false,
-        zoomControl: true,
-        zoomControlOptions: { position: google.maps.ControlPosition.RIGHT_CENTER },
+        zoomControl: false,
+        scrollwheel: false,
+        disableDoubleClickZoom: true,
         gestureHandling: 'greedy',
         styles: [{ featureType: 'poi', stylers: [{ visibility: 'off' }] }],
     });
     _geocoder = new google.maps.Geocoder();
 
-    // Click map → set based on which input is focused
-    _mainMap.addListener('click', (e) => {
-        const lat = e.latLng.lat(), lng = e.latLng.lng();
-        _geocoder.geocode({ location: { lat, lng } }, (res, st) => {
-            const addr = (st === 'OK' && res[0]) ? res[0].formatted_address : `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
-            const pickupInput = document.getElementById('cc-pickup-input');
-            const deliveryInput = document.getElementById('cc-delivery-input');
-            if (_activeInput === 'delivery' && deliveryInput) {
-                @this.call('setDeliveryLocation', addr, lat, lng);
-                deliveryInput.value = addr;
-                _setDeliveryPin(lat, lng);
-            } else if (pickupInput) {
-                @this.call('setPickupLocation', addr, lat, lng);
-                pickupInput.value = addr;
-                _setPickupPin(lat, lng);
-            }
-        });
-    });
-
     _initSearchAutocomplete();
 }
 
-// ── Autocomplete ─────────────────────────────────────────────────────────────
+// ── Autocomplete — nguồn nhập toạ độ DUY NHẤT ─────────────────────────────────
 function _makeBounds() {
     return new google.maps.LatLngBounds(
         new google.maps.LatLng(_cityCenter.lat - 0.15, _cityCenter.lng - 0.15),
@@ -272,7 +397,10 @@ function _initSearchAutocomplete() {
             const p = _pickupAc.getPlace();
             if (!p.geometry?.location) return;
             const lat = p.geometry.location.lat(), lng = p.geometry.location.lng();
-            @this.call('setPickupLocation', p.formatted_address || pickupInput.value, lat, lng);
+            @this.call('setPickupLocation', p.formatted_address || pickupInput.value, lat, lng).then(() => {
+                _updateFeeInfo();
+                _refreshDriverMarkers();
+            });
             _setPickupPin(lat, lng);
         });
     }
@@ -286,13 +414,13 @@ function _initSearchAutocomplete() {
             const p = _deliveryAc.getPlace();
             if (!p.geometry?.location) return;
             const lat = p.geometry.location.lat(), lng = p.geometry.location.lng();
-            @this.call('setDeliveryLocation', p.formatted_address || deliveryInput.value, lat, lng);
+            @this.call('setDeliveryLocation', p.formatted_address || deliveryInput.value, lat, lng).then(_updateFeeInfo);
             _setDeliveryPin(lat, lng);
         });
     }
 }
 
-// ── Markers ──────────────────────────────────────────────────────────────────
+// ── Markers điểm lấy/giao ──────────────────────────────────────────────────────
 function _pinIcon(color, label) {
     return {
         url: 'data:image/svg+xml,' + encodeURIComponent(`
@@ -312,6 +440,7 @@ function _setPickupPin(lat, lng) {
         position: { lat, lng }, map: _mainMap,
         icon: _pinIcon('#FF6B35', 'A'),
         title: 'Điểm lấy',
+        zIndex: 20,
     });
     _mainMap.panTo({ lat, lng });
     _mainMap.setZoom(15);
@@ -324,6 +453,7 @@ function _setDeliveryPin(lat, lng) {
         position: { lat, lng }, map: _mainMap,
         icon: _pinIcon('#22c55e', 'B'),
         title: 'Điểm giao',
+        zIndex: 20,
     });
     _fitBounds();
 }
@@ -338,6 +468,7 @@ function _fitBounds() {
     }
 }
 
+// ── Route + khoảng cách hiển thị cho tổng đài ─────────────────────────────────
 function _drawRoute(origin, destination) {
     if (!_directionsRenderer) {
         _directionsRenderer = new google.maps.DirectionsRenderer({
@@ -356,6 +487,8 @@ function _drawRoute(origin, destination) {
     }, (result, status) => {
         if (status === 'OK') {
             _directionsRenderer.setDirections(result);
+            const leg = result.routes[0]?.legs?.[0];
+            _updateRouteInfo(leg ? `≈ ${leg.distance.text} · ~${leg.duration.text}` : '');
         }
     });
 }
@@ -364,15 +497,60 @@ function _clearRoute() {
     if (_directionsRenderer) {
         _directionsRenderer.setDirections({ routes: [] });
     }
+    _updateRouteInfo('');
+    const feeEl = document.getElementById('cc-map-info-fee');
+    if (feeEl) feeEl.textContent = '';
 }
 
+function _updateRouteInfo(text) {
+    const el = document.getElementById('cc-map-info-route');
+    if (el) el.textContent = text;
+}
 
-// ── Livewire events ──────────────────────────────────────────────────────────
-window.addEventListener('openMapPicker', () => {});
-window.addEventListener('openDeliveryMapPicker', () => {});
+// Đọc phí ship vừa được server tự tính (suggestShippingFee()) sau khi đủ 2
+// điểm, hiện ngay dưới dòng khoảng cách để tổng đài thấy luôn không cần nhìn
+// xuống form.
+function _updateFeeInfo() {
+    const el = document.getElementById('cc-map-info-fee');
+    if (!el) return;
+    const fee = @this.previewFee;
+    el.textContent = fee ? `Phí gợi ý: ${Number(fee).toLocaleString('vi-VN')}đ` : '';
+}
 
+// Tài xế trong 4km quanh điểm lấy — đọc thẳng @this.nearbyDrivers (đã được
+// backend tính xong ngay trong request setPickupLocation(), không cần gọi
+// thêm request nào khác). CHỈ gọi hàm này SAU KHI @this.call('setPickupLocation'
+// | reorder khôi phục) đã resolve — TUYỆT ĐỐI không gọi từ trong
+// Livewire.hook('commit') (xem chú thích ở refreshNearbyDrivers() phía
+// backend, đã từng gây bản đồ chớp vô hạn).
+function _refreshDriverMarkers() {
+    if (!_mainMap) return;
+    const drivers = @this.nearbyDrivers || [];
+    _driverMarkers.forEach((m) => m.setMap(null));
+    _driverMarkers = drivers.map((d) => new google.maps.Marker({
+        position: { lat: d.lat, lng: d.lng }, map: _mainMap,
+        icon: {
+            path: google.maps.SymbolPath.CIRCLE,
+            scale: 6,
+            fillColor: '#22c55e', fillOpacity: 1,
+            strokeColor: '#fff', strokeWeight: 2,
+        },
+        zIndex: 5,
+    }));
+    const wrap = document.getElementById('cc-map-info-drivers');
+    const label = document.getElementById('cc-driver-label');
+    if (label) label.textContent = `${drivers.length} tài xế trong 4km`;
+    if (wrap) wrap.style.display = 'flex';
+}
 
-// Update markers khi Livewire state thay đổi
+function _clearDriverMarkers() {
+    _driverMarkers.forEach((m) => m.setMap(null));
+    _driverMarkers = [];
+    const wrap = document.getElementById('cc-map-info-drivers');
+    if (wrap) wrap.style.display = 'none';
+}
+
+// ── Livewire: đồng bộ pin khi state đổi ───────────────────────────────────────
 document.addEventListener('livewire:initialized', () => {
     Livewire.hook('commit', ({ succeed }) => {
         succeed(() => {
@@ -385,7 +563,6 @@ document.addEventListener('livewire:initialized', () => {
                     if (_pickupMarker) { _pickupMarker.setMap(null); _pickupMarker = null; }
                     const pi = document.getElementById('cc-pickup-input');
                     if (pi) pi.value = '';
-                    _activeInput = 'pickup';
                 }
                 if (dLat && dLng) {
                     _setDeliveryPin(dLat, dLng);
@@ -409,7 +586,7 @@ window.ccInitGoogleMaps = function () {
     // Restore pins if reorder
     const pLat = @this.pickupLat, pLng = @this.pickupLng;
     const dLat = @this.deliveryLat, dLng = @this.deliveryLng;
-    if (pLat && pLng) _setPickupPin(pLat, pLng);
+    if (pLat && pLng) { _setPickupPin(pLat, pLng); _refreshDriverMarkers(); }
     if (dLat && dLng) _setDeliveryPin(dLat, dLng);
 };
 </script>
@@ -419,5 +596,6 @@ window.ccInitGoogleMaps = function () {
     src="https://maps.googleapis.com/maps/api/js?key={{ config('services.google_maps.api_key') }}&libraries=places&callback=ccInitGoogleMaps&loading=async"
     async defer
 ></script>
+</div>
 
 </x-filament-panels::page>

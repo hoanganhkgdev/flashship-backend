@@ -8,9 +8,12 @@ use Filament\Forms\Contracts\HasForms;
 use Filament\Forms\Concerns\InteractsWithForms;
 use Filament\Notifications\Notification;
 use Illuminate\Support\Facades\DB;
+use Modules\Core\Models\User;
 use Modules\Core\Services\GoogleMapService;
 use Modules\Order\Models\Order;
+use Modules\Order\Services\DispatchService;
 use Modules\Order\Services\OrderService;
+use Modules\Pricing\Services\PricingService;
 
 class CallCenterPage extends Page implements HasForms
 {
@@ -43,6 +46,20 @@ class CallCenterPage extends Page implements HasForms
     public ?int    $previewFee      = null;
     public ?string $previewDistance = null;
     public ?string $previewStatus   = null;
+
+    // Gán tay tài xế — $onlineDrivers đổ vào dropdown gán tay (TẤT CẢ tài xế
+    // đang online trong thành phố, không giới hạn khoảng cách — tổng đài chủ
+    // động chọn ai cũng được). $nearbyDrivers riêng cho chấm xanh trên bản đồ
+    // (lọc đúng 4km đường thật). $assignedDriverId = tài xế tổng đài đang
+    // chọn (null = để hệ thống tự chọn như trước).
+    public array $onlineDrivers    = [];
+    public array $nearbyDrivers    = [];
+    public ?int  $assignedDriverId = null;
+
+    // Freeship — khách không trả phí ship, nền tảng trả thay cho tài xế lúc
+    // hoàn thành đơn (xem OrderService::completeOrder(), đã có sẵn cơ chế
+    // này, chỉ là trang tổng đài trước giờ luôn hardcode false).
+    public bool $isFreeship = false;
 
     public ?string $resultOrderCode = null;
     public ?string $resultError     = null;
@@ -110,6 +127,8 @@ class CallCenterPage extends Page implements HasForms
                 'cod_amount'       => null,
                 'shipping_fee'     => null,
             ]);
+
+            $this->refreshNearbyDrivers();
         } else {
             $this->form->fill($this->defaultFormData());
         }
@@ -148,6 +167,10 @@ class CallCenterPage extends Page implements HasForms
         $this->resultError     = null;
         $this->resultFee       = null;
         $this->resultDistance  = null;
+        $this->onlineDrivers    = [];
+        $this->nearbyDrivers    = [];
+        $this->assignedDriverId = null;
+        $this->isFreeship       = false;
         $this->form->fill($this->defaultFormData($cityId));
     }
 
@@ -159,6 +182,9 @@ class CallCenterPage extends Page implements HasForms
         $this->previewFee      = null;
         $this->previewDistance = null;
         $this->previewStatus   = null;
+        $this->assignedDriverId = null;
+        $this->suggestShippingFee();
+        $this->refreshNearbyDrivers();
     }
 
     public function setDeliveryLocation(string $address, float $lat, float $lng): void
@@ -169,6 +195,93 @@ class CallCenterPage extends Page implements HasForms
         $this->previewFee      = null;
         $this->previewDistance = null;
         $this->previewStatus   = null;
+        $this->suggestShippingFee();
+    }
+
+    /**
+     * Đủ 2 điểm (lấy + giao) → tự tính phí ship theo đúng bảng giá đang dùng
+     * cho khách hàng (PricingService, theo dịch vụ + thành phố) — chỉ để
+     * THAM KHẢO (hiện bên bản đồ qua $previewFee), KHÔNG tự điền vào ô "Phí
+     * ship" của form. Tổng đài tự gõ số thật muốn thu, tránh submit nhầm số
+     * gợi ý mà chưa đối chiếu/đàm phán với khách.
+     * Không áp dụng cho "topup" (phí không tính theo khoảng cách, mà theo số
+     * tiền nạp — xem PricingService::topupFee()).
+     */
+    private function suggestShippingFee(): void
+    {
+        if ($this->serviceType === 'topup') return;
+        if (!$this->pickupLat || !$this->pickupLng || !$this->deliveryLat || !$this->deliveryLng) return;
+
+        $cityId  = $this->data['city_id'] ?? null;
+        $pricing = PricingService::estimateFromCoords(
+            $this->serviceType,
+            $this->pickupLat, $this->pickupLng,
+            $this->deliveryLat, $this->deliveryLng,
+            $cityId
+        );
+
+        $this->previewFee = $pricing['fee'];
+    }
+
+    /**
+     * Tính lại 2 danh sách tài xế cùng lúc, từ chung 1 query online-driver:
+     *  - $onlineDrivers: TẤT CẢ tài xế đang online trong thành phố, không lọc
+     *    khoảng cách — đổ vào dropdown gán tay (tổng đài chủ động chọn ai
+     *    cũng được, kể cả người đã liên hệ qua điện thoại dù hơi xa).
+     *  - $nearbyDrivers: lọc còn trong bán kính 4km đường thật tính từ điểm
+     *    lấy hàng (khớp DispatchService::MAX_ROAD_DISTANCE_KM) — chỉ để hiện
+     *    chấm xanh + đếm số trên bản đồ, không dùng cho dropdown gán tay nữa.
+     *
+     * Gọi trực tiếp trong setPickupLocation() (cùng 1 request với lúc set
+     * toạ độ) — KHÔNG được gọi từ trong Livewire.hook('commit') phía JS, hook
+     * đó chạy lại trên MỌI commit kể cả commit do chính việc gọi @this.call()
+     * tạo ra, gây vòng lặp vô hạn (đã gặp bug này 1 lần — bản đồ chớp liên
+     * tục do load lại Google Maps API hàng chục lần/giây).
+     */
+    private function refreshNearbyDrivers(): void
+    {
+        $cityId = $this->data['city_id'] ?? null;
+        if (!$cityId) {
+            $this->onlineDrivers = [];
+            $this->nearbyDrivers = [];
+            return;
+        }
+
+        $drivers = User::where('user_type', 'driver')
+            ->where('city_id', $cityId)
+            ->where('is_online', true)
+            ->whereNotNull('latitude')
+            ->whereNotNull('longitude')
+            ->get(['id', 'name', 'phone', 'latitude', 'longitude']);
+
+        $this->onlineDrivers = $drivers
+            ->map(fn (User $d) => ['id' => $d->id, 'name' => $d->name, 'phone' => $d->phone])
+            ->values()
+            ->all();
+
+        if ($drivers->isEmpty() || !$this->pickupLat || !$this->pickupLng) {
+            $this->nearbyDrivers = [];
+            return;
+        }
+
+        $origins = $drivers->mapWithKeys(fn (User $d) => [
+            $d->id => ['lat' => (float) $d->latitude, 'lng' => (float) $d->longitude],
+        ])->all();
+
+        $roadDistances = GoogleMapService::roadDistanceBatchKm($origins, $this->pickupLat, $this->pickupLng);
+
+        $this->nearbyDrivers = $drivers
+            ->filter(fn (User $d) => ($roadDistances[$d->id] ?? null) !== null
+                && $roadDistances[$d->id] <= DispatchService::MAX_ROAD_DISTANCE_KM)
+            ->map(fn (User $d) => [
+                'id'      => $d->id,
+                'lat'     => (float) $d->latitude,
+                'lng'     => (float) $d->longitude,
+                'road_km' => round($roadDistances[$d->id], 2),
+            ])
+            ->sortBy('road_km')
+            ->values()
+            ->all();
     }
 
     public function form(Form $form): Form
@@ -279,7 +392,7 @@ class CallCenterPage extends Page implements HasForms
                 'created_by'         => auth()->id(),
                 'shipping_fee'       => $shippingFee,
                 'bonus_fee'          => 0,
-                'is_freeship'        => false,
+                'is_freeship'        => $this->isFreeship,
                 'status'             => 'pending',
                 'payment_method'     => 'cod',
                 'sender_platform_id' => null,
@@ -306,7 +419,29 @@ class CallCenterPage extends Page implements HasForms
 
             $order->refresh();
 
-            app(OrderService::class)->dispatchNewOrder($order->id);
+            if ($this->assignedDriverId) {
+                // Gán tay — gửi offer thật cho đúng người tổng đài chọn, tài
+                // xế vẫn phải bấm nhận trong app như bình thường. Không tự
+                // ép gán cứng. Nếu thất bại (tài xế vừa offline/bận/hết hạn
+                // nợ...) thì KHÔNG để đơn mồ côi — rơi về tự động dispatch
+                // như cũ, chỉ báo cho tổng đài biết lý do.
+                $assignResult = app(DispatchService::class)->offerToSpecificDriver($order, $this->assignedDriverId);
+                if ($assignResult['success']) {
+                    Notification::make()
+                        ->title($assignResult['message'])
+                        ->success()
+                        ->send();
+                } else {
+                    app(OrderService::class)->dispatchNewOrder($order->id);
+                    Notification::make()
+                        ->title('Gán tay thất bại — chuyển sang tự động tìm tài xế')
+                        ->body($assignResult['message'])
+                        ->warning()
+                        ->send();
+                }
+            } else {
+                app(OrderService::class)->dispatchNewOrder($order->id);
+            }
 
             $this->resultOrderCode = $order->code;
             $this->resultFee       = $shippingFee;
@@ -316,6 +451,10 @@ class CallCenterPage extends Page implements HasForms
             $this->pickupLng  = null;
             $this->deliveryLat = null;
             $this->deliveryLng = null;
+            $this->onlineDrivers    = [];
+            $this->nearbyDrivers    = [];
+            $this->assignedDriverId = null;
+            $this->isFreeship       = false;
 
             $this->form->fill($this->defaultFormData($cityId));
 
@@ -347,5 +486,9 @@ class CallCenterPage extends Page implements HasForms
         $this->pickupLng       = null;
         $this->deliveryLat     = null;
         $this->deliveryLng     = null;
+        $this->onlineDrivers    = [];
+        $this->nearbyDrivers    = [];
+        $this->assignedDriverId = null;
+        $this->isFreeship       = false;
     }
 }
