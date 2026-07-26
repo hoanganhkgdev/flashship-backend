@@ -11,6 +11,7 @@ use Modules\Core\Models\User;
 use Modules\Core\Services\FCMService;
 use Modules\Core\Services\GoogleMapService;
 use Modules\Core\Services\RTDBService;
+use Modules\Customer\Http\Controllers\CustomerNotificationController;
 use Illuminate\Support\Collection;
 use App\Events\DispatchStateChanged;
 use App\Services\ZaloTokenService;
@@ -460,11 +461,9 @@ class DispatchService
     /**
      * Thực hiện gửi offer thật cho 1 tài xế đã qua hết mọi bước kiểm tra
      * (ghi RTDB + OrderDispatchLog + cập nhật đơn + FCM + lên lịch timeout
-     * job) — dùng chung cho cả 2 luồng:
-     *  - sendToDriver(): auto dispatch, lỗi thì cascade sang ứng viên kế.
-     *  - offerToSpecificDriver(): tổng đài gán tay 1 người cụ thể, lỗi thì
-     *    KHÔNG cascade (không tự ý đổi sang người khác tổng đài chưa chọn),
-     *    chỉ báo lỗi để tổng đài tự quyết định lại.
+     * job) — dùng cho luồng auto dispatch (sendToDriver()), lỗi thì cascade
+     * sang ứng viên kế. Gán tay giờ dùng assignDriverDirectly() riêng, KHÔNG
+     * qua bước offer nên không gọi hàm này.
      *
      * @return bool true nếu ghi RTDB thành công (offer đã thật sự tới tay tài xế)
      */
@@ -571,14 +570,18 @@ class DispatchService
     }
 
     /**
-     * Tổng đài gán tay 1 tài xế cụ thể cho đơn (thay vì để hệ thống tự chọn)
-     * — vẫn gửi offer thật qua đúng kênh RTDB+FCM, tài xế vẫn phải bấm nhận
-     * trong app như bình thường, không gán cứng. Không cascade sang người
-     * khác nếu thất bại — trả lỗi rõ ràng để tổng đài tự quyết định lại.
+     * Tổng đài gán CỨNG 1 tài xế cụ thể cho đơn — KHÔNG qua bước offer/chờ
+     * xác nhận trong app, đơn chuyển thẳng sang "assigned" (vào mục "Đã
+     * nhận" của tài xế ngay). Dùng khi tổng đài đã xác nhận trực tiếp với
+     * tài xế qua điện thoại, không cần hỏi lại lần nữa qua app.
+     *
+     * Vẫn kiểm tra các điều kiện an toàn cơ bản (đúng thành phố, không nợ
+     * quá hạn, đủ bằng lái, không bận ≥2 đơn) trước khi gán — chỉ bỏ qua
+     * bước "chờ tài xế bấm nhận", không bỏ qua kiểm tra hợp lệ.
      *
      * @return array{success: bool, message: string}
      */
-    public function offerToSpecificDriver(Order $order, int $driverId): array
+    public function assignDriverDirectly(Order $order, int $driverId): array
     {
         $driver = User::with('debts')->find($driverId);
 
@@ -587,9 +590,6 @@ class DispatchService
         }
         if ($driver->city_id !== $order->city_id) {
             return ['success' => false, 'message' => 'Tài xế không thuộc thành phố của đơn này.'];
-        }
-        if (!$driver->is_online) {
-            return ['success' => false, 'message' => "Tài xế {$driver->name} hiện không online."];
         }
         if ($this->hasBlockedDebt($driver)) {
             return ['success' => false, 'message' => "Tài xế {$driver->name} đang nợ quá hạn, không thể nhận đơn."];
@@ -605,19 +605,76 @@ class DispatchService
             return ['success' => false, 'message' => "Tài xế {$driver->name} đang chạy {$activeCount} đơn, không nhận thêm được."];
         }
 
-        $lockKey = "dispatch:lock:driver:{$driver->id}";
-        if (!Redis::set($lockKey, $order->id, 'NX', 'EX', 60)) {
-            return ['success' => false, 'message' => "Tài xế {$driver->name} đang nhận offer khác, thử lại sau."];
+        $now      = now();
+        $affected = DB::table('orders')
+            ->where('id', $order->id)
+            ->where('status', 'pending')
+            ->update([
+                'status'                   => 'assigned',
+                'delivery_man_id'          => $driver->id,
+                'dispatching_to_driver_id' => null,
+                'updated_at'               => $now,
+            ]);
+
+        if (!$affected) {
+            return ['success' => false, 'message' => 'Đơn không còn ở trạng thái chờ (có thể vừa được xử lý).'];
         }
 
-        $ok = $this->commitOffer($order, $driver, now());
+        // Ghi lại như 1 dòng "accepted" bình thường — để lên báo cáo/lịch sử
+        // dispatch không bị thiếu, dù đây là gán tay bỏ qua bước offer.
+        OrderDispatchLog::create([
+            'order_id'     => $order->id,
+            'driver_id'    => $driver->id,
+            'offered_at'   => $now,
+            'responded_at' => $now,
+            'result'       => 'accepted',
+            'created_at'   => $now,
+            'updated_at'   => $now,
+        ]);
 
-        if (!$ok) {
-            Redis::del($lockKey);
-            return ['success' => false, 'message' => "Gửi thông báo tới {$driver->name} thất bại (lỗi hệ thống), thử lại."];
+        Redis::del("dispatch:lock:driver:{$driver->id}");
+        DB::table('users')->where('id', $driver->id)->update([
+            'last_order_accepted_at'    => $now,
+            'consecutive_missed_offers' => 0,
+        ]);
+
+        // RTDB + FCM đồng bộ khách hàng — giống hệt luồng accept bình thường
+        // (đơn call-center thường không có tài khoản khách nên các bước này
+        // tự no-op nếu sender_platform_id null).
+        RTDBService::updateOrderStatus($order->code, 'assigned');
+        $customer = User::find($order->sender_platform_id);
+        if ($customer?->fcm_token) {
+            FCMService::getInstance()->sendOrderStatusUpdate($customer->fcm_token, $order->code, 'assigned');
+        }
+        if ($customer) {
+            CustomerNotificationController::create(
+                $customer->id,
+                "Đơn #{$order->code}",
+                'Tài xế đã nhận đơn và đang trên đường đến',
+                'order_status',
+                $order->code
+            );
         }
 
-        return ['success' => true, 'message' => "Đã gửi offer cho {$driver->name} — đang chờ tài xế xác nhận."];
+        // Báo cho tài xế biết họ vừa được gán đơn — không phải offer chờ
+        // bấm nhận, chỉ là thông báo để họ mở app thấy đơn trong mục "Đã
+        // nhận" ngay.
+        if ($driver->fcm_token) {
+            try {
+                FCMService::getInstance()->sendDriverNotice(
+                    $driver->fcm_token,
+                    "Bạn được gán đơn mới #{$order->code}",
+                    $order->pickup_address ?? '',
+                    ['type' => 'order_assigned_direct', 'order_id' => (string) $order->id]
+                );
+            } catch (\Throwable $e) {
+                Log::error("[Dispatch] FCM assign-notice failed for driver #{$driver->id}: " . $e->getMessage());
+            }
+        }
+
+        broadcast(new DispatchStateChanged());
+
+        return ['success' => true, 'message' => "Đã gán đơn cho {$driver->name} — vào mục \"Đã nhận\" ngay, không cần chờ xác nhận."];
     }
 
     public function getCandidates(Order $order, array $excludeIds = []): Collection

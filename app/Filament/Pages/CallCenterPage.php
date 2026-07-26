@@ -420,12 +420,12 @@ class CallCenterPage extends Page implements HasForms
             $order->refresh();
 
             if ($this->assignedDriverId) {
-                // Gán tay — gửi offer thật cho đúng người tổng đài chọn, tài
-                // xế vẫn phải bấm nhận trong app như bình thường. Không tự
-                // ép gán cứng. Nếu thất bại (tài xế vừa offline/bận/hết hạn
-                // nợ...) thì KHÔNG để đơn mồ côi — rơi về tự động dispatch
-                // như cũ, chỉ báo cho tổng đài biết lý do.
-                $assignResult = app(DispatchService::class)->offerToSpecificDriver($order, $this->assignedDriverId);
+                // Gán tay — gán CỨNG luôn cho đúng người tổng đài chọn, đơn
+                // vào thẳng mục "Đã nhận" của tài xế, không qua bước offer
+                // chờ bấm nhận. Nếu thất bại (tài xế vừa bận/hết hạn nợ...)
+                // thì KHÔNG để đơn mồ côi — rơi về tự động dispatch như cũ,
+                // chỉ báo cho tổng đài biết lý do.
+                $assignResult = app(DispatchService::class)->assignDriverDirectly($order, $this->assignedDriverId);
                 if ($assignResult['success']) {
                     Notification::make()
                         ->title($assignResult['message'])

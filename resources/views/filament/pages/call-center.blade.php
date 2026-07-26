@@ -42,25 +42,35 @@
 
 {{-- ══ LAYOUT 2 PANEL: FORM (trái) + BẢN ĐỒ QUAN SÁT (phải) ═══════════════ --}}
 <style>
-    .cc-wrapper { position:relative; height:calc(100vh - 80px); min-height:600px; border-radius:16px; overflow:hidden; border:1px solid #e5e7eb; display:flex; background:#fff; }
+    {{-- Trang này tự vừa đúng 1 màn hình (nhờ _fitWrapperHeight) nên không cần
+    thanh cuộn ở cấp cả trang nữa — chỉ còn thanh cuộn dự phòng bên trong
+    panel form (.cc-form-panel) nếu lỡ tràn, không mất nội dung. --}}
+    body { overflow-y:hidden !important; }
+    @media (max-width: 900px) { body { overflow-y:auto !important; } }
 
-    .cc-form-panel { width:min(420px, 40%); flex-shrink:0; display:flex; flex-direction:column; gap:12px; padding:16px; overflow-y:auto; background:#f8fafc; border-right:1px solid #e5e7eb; }
+    {{-- height thật tính bằng JS (_fitWrapperHeight) theo đúng khoảng trống còn
+    lại của từng màn hình — số cứng calc(100vh - Npx) không đoán đúng chiều
+    cao thanh chrome của Filament trên mọi màn hình/độ phân giải, dễ tràn
+    trang. Giá trị dưới đây chỉ là fallback trước khi JS kịp chạy. --}}
+    .cc-wrapper { position:relative; height:calc(100vh - 100px); min-height:480px; border-radius:16px; overflow:hidden; border:1px solid #e5e7eb; display:flex; background:#fff; }
+
+    .cc-form-panel { width:min(420px, 40%); flex-shrink:0; display:flex; flex-direction:column; gap:8px; padding:12px; overflow-y:auto; background:#f8fafc; border-right:1px solid #e5e7eb; }
     .cc-form-panel::-webkit-scrollbar { width:0; }
 
-    .cc-card { background:#fff; border:1px solid #eef0f2; border-radius:16px; padding:14px; }
+    .cc-card { background:#fff; border:1px solid #eef0f2; border-radius:14px; padding:10px; }
 
     .cc-city-row { display:flex; align-items:center; gap:10px; }
-    .cc-city-row select { flex:1; border:none; outline:none; font-size:15px; font-weight:700; color:#111827; background:transparent; cursor:pointer; }
-    .cc-city-row span.cc-city-static { font-size:15px; font-weight:700; color:#111827; }
+    .cc-city-row select { flex:1; border:none; outline:none; font-size:14px; font-weight:700; color:#111827; background:transparent; cursor:pointer; }
+    .cc-city-row span.cc-city-static { font-size:14px; font-weight:700; color:#111827; }
 
-    .cc-service-tabs { display:grid; grid-template-columns:repeat(3, 1fr); gap:6px; margin-top:12px; padding-top:12px; border-top:1px solid #f1f2f4; }
-    .cc-service-tab { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:5px; border-radius:12px; padding:10px 4px; text-align:center; color:#6b7280; background:#f8fafc; border:1px solid transparent; transition:all .15s ease; }
+    .cc-service-tabs { display:grid; grid-template-columns:repeat(3, 1fr); gap:5px; margin-top:8px; padding-top:8px; border-top:1px solid #f1f2f4; }
+    .cc-service-tab { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px; border-radius:10px; padding:6px 4px; text-align:center; color:#6b7280; background:#f8fafc; border:1px solid transparent; transition:all .15s ease; }
     .cc-service-tab:hover { background:#f1f5f9; }
     .cc-service-tab.active { color:#fff; }
-    .cc-service-tab svg { width:18px; height:18px; }
-    .cc-service-tab span { font-size:12px; font-weight:600; line-height:1.2; }
+    .cc-service-tab svg { width:16px; height:16px; }
+    .cc-service-tab span { font-size:11px; font-weight:600; line-height:1.15; }
 
-    .cc-address-row { display:flex; align-items:flex-start; gap:10px; padding:9px 2px; }
+    .cc-address-row { display:flex; align-items:flex-start; gap:10px; padding:6px 2px; }
     .cc-address-row + .cc-address-row { border-top:1px dashed #eef0f2; }
     .cc-address-dot { width:9px; height:9px; border-radius:50%; flex-shrink:0; margin-top:8px; }
     .cc-address-col { flex:1; min-width:0; }
@@ -68,15 +78,32 @@
     .cc-address-col input { width:100%; border:none; outline:none; font-size:14px; color:#111827; background:transparent; padding:0; box-shadow:none; }
     .cc-address-col input:focus { border:none; outline:none; box-shadow:none; }
     .cc-address-col input::placeholder { color:#c1c5cb; }
+    .cc-pin-btn {
+        flex-shrink:0; width:28px; height:28px; border-radius:8px; margin-top:2px;
+        border:1px solid #e5e7eb; background:#f8fafc; color:#6b7280;
+        display:flex; align-items:center; justify-content:center; cursor:pointer;
+        transition:all .15s ease;
+    }
+    .cc-pin-btn svg { width:15px; height:15px; }
+    .cc-pin-btn:hover { background:#f1f5f9; color:#111827; }
+    .cc-pin-btn.active { background:var(--cc-accent, #4F46E5); border-color:var(--cc-accent, #4F46E5); color:#fff; }
 
-    .cc-field { margin-bottom:12px; }
+    .cc-pin-hint {
+        display:none; position:absolute; top:16px; left:50%; transform:translateX(-50%); z-index:11;
+        align-items:center; gap:10px; background:#111827; color:#fff; font-size:13px; font-weight:600;
+        padding:9px 10px 9px 16px; border-radius:12px; box-shadow:0 8px 24px rgba(0,0,0,0.25); white-space:nowrap;
+    }
+    .cc-pin-hint button { flex-shrink:0; width:22px; height:22px; border-radius:50%; border:none; background:rgba(255,255,255,0.15); color:#fff; cursor:pointer; font-size:13px; line-height:1; }
+    .cc-pin-hint button:hover { background:rgba(255,255,255,0.3); }
+
+    .cc-field { margin-bottom:8px; }
     .cc-field:last-child { margin-bottom:0; }
-    .cc-field label { display:block; font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:#9ca3af; margin-bottom:5px; }
-    .cc-field-row { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:12px; }
+    .cc-field label { display:block; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:#9ca3af; margin-bottom:3px; }
+    .cc-field-row { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:8px; }
     .cc-field-row .cc-field { margin-bottom:0; }
     .cc-input, .cc-textarea {
-        width:100%; border:1px solid #e5e7eb; border-radius:10px; padding:9px 12px;
-        font-size:14px; color:#111827; background:#f8fafc; outline:none;
+        width:100%; border:1px solid #e5e7eb; border-radius:9px; padding:6px 10px;
+        font-size:13.5px; color:#111827; background:#f8fafc; outline:none;
         transition:border-color .15s ease, background .15s ease, box-shadow .15s ease;
     }
     .cc-input::placeholder, .cc-textarea::placeholder { color:#c1c5cb; }
@@ -101,13 +128,13 @@
     .cc-select::-ms-expand { display:none; }
     .cc-select-chevron { position:absolute; right:12px; top:50%; width:16px; height:16px; transform:translateY(-50%); pointer-events:none; }
 
-    .cc-checkbox-row { display:flex; align-items:center; gap:10px; padding-top:12px; margin-top:12px; border-top:1px dashed #eef0f2; cursor:pointer; }
-    .cc-checkbox-row input[type="checkbox"] { width:18px; height:18px; accent-color:var(--cc-accent, #4F46E5); cursor:pointer; flex-shrink:0; }
-    .cc-checkbox-row span { font-size:13px; color:#111827; line-height:1.4; }
+    .cc-checkbox-row { display:flex; align-items:center; gap:8px; padding-top:8px; margin-top:8px; border-top:1px dashed #eef0f2; cursor:pointer; }
+    .cc-checkbox-row input[type="checkbox"] { width:16px; height:16px; accent-color:var(--cc-accent, #4F46E5); cursor:pointer; flex-shrink:0; }
+    .cc-checkbox-row span { font-size:12.5px; color:#111827; line-height:1.3; }
     .cc-checkbox-row strong { font-weight:600; }
-    .cc-checkbox-row small { font-size:11.5px; color:#9ca3af; }
+    .cc-checkbox-row small { font-size:11px; color:#9ca3af; }
 
-    .cc-submit-btn { width:100%; border-radius:14px; padding:14px; font-size:15px; font-weight:700; color:#fff; transition:all .15s ease; border:none; cursor:pointer; }
+    .cc-submit-btn { width:100%; border-radius:12px; padding:11px; font-size:14px; font-weight:700; color:#fff; transition:all .15s ease; border:none; cursor:pointer; }
     .cc-submit-btn:active { transform:scale(.98); }
     .cc-submit-btn:disabled { opacity:.7; cursor:default; }
 
@@ -183,6 +210,9 @@
                         autocomplete="off"
                         value="{{ $data['pickup_address'] ?? '' }}" />
                 </div>
+                <button type="button" id="cc-pin-btn-pickup" class="cc-pin-btn" onclick="_togglePinMode('pickup')" title="Chọn điểm lấy hàng trên bản đồ">
+                    <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M10 18s6-5.686 6-10A6 6 0 1 0 4 8c0 4.314 6 10 6 10Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><circle cx="10" cy="8" r="2" stroke="currentColor" stroke-width="1.6"/></svg>
+                </button>
             </div>
             @if ($needDelivery)
             <div class="cc-address-row">
@@ -193,6 +223,9 @@
                         autocomplete="off"
                         value="{{ $data['delivery_address'] ?? '' }}" />
                 </div>
+                <button type="button" id="cc-pin-btn-delivery" class="cc-pin-btn" onclick="_togglePinMode('delivery')" title="Chọn điểm giao hàng trên bản đồ">
+                    <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M10 18s6-5.686 6-10A6 6 0 1 0 4 8c0 4.314 6 10 6 10Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><circle cx="10" cy="8" r="2" stroke="currentColor" stroke-width="1.6"/></svg>
+                </button>
             </div>
             @endif
         </div>
@@ -251,8 +284,8 @@
 
         </div>
 
-        <div class="cc-card" style="margin-top:12px;">
-            <label style="display:block; font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:#9ca3af; margin-bottom:6px;">Gán tài xế (tuỳ chọn)</label>
+        <div class="cc-card" style="margin-top:8px;">
+            <label style="display:block; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:#9ca3af; margin-bottom:4px;">Gán tài xế (tuỳ chọn)</label>
             <div class="cc-select-wrap">
                 <select wire:model="assignedDriverId" class="cc-input cc-select">
                     <option value="">Để hệ thống tự chọn</option>
@@ -267,14 +300,16 @@
             @endif
         </div>
 
-        <button type="submit" wire:loading.attr="disabled" class="cc-submit-btn" style="margin-top:12px; background:{{ $activeSvc['color'] }}; box-shadow:0 4px 16px {{ $activeSvc['color'] }}4d;">
+        <button type="submit" wire:loading.attr="disabled" class="cc-submit-btn" style="margin-top:8px; background:{{ $activeSvc['color'] }}; box-shadow:0 4px 16px {{ $activeSvc['color'] }}4d;">
             <span wire:loading.remove wire:target="placeOrder">Đặt đơn ngay</span>
             <span wire:loading wire:target="placeOrder">Đang xử lý...</span>
         </button>
         </form>
     </div>
 
-    {{-- ═══ PANEL BẢN ĐỒ — CHỈ QUAN SÁT (khoảng cách + tài xế online), không nhận click gim địa chỉ ═══ --}}
+    {{-- ═══ PANEL BẢN ĐỒ — mặc định chỉ quan sát (khoảng cách + tài xế online),
+    chỉ nhận click gim địa chỉ khi bấm nút pin cạnh ô địa chỉ để bật "chế độ
+    chọn trên bản đồ" (dự phòng khi Autocomplete không ra đúng địa chỉ) ═══ --}}
     {{-- wire:ignore bọc CẢ map lẫn 2 script bên dưới — Livewire re-render (đổi
     thành phố, chọn dịch vụ...) không được đụng vào, nếu không trình duyệt sẽ
     load lại toàn bộ Google Maps API mỗi lần commit → bản đồ chớp liên tục,
@@ -292,6 +327,11 @@
                     <span id="cc-driver-label"></span>
                 </div>
             </div>
+
+            <div id="cc-pin-hint" class="cc-pin-hint">
+                <span id="cc-pin-hint-text"></span>
+                <button type="button" onclick="_exitPinMode()">✕</button>
+            </div>
         </div>
     </div>
 
@@ -304,11 +344,28 @@
 
 <div wire:ignore>
 <script>
+// Auto-fit chiều cao khung theo khoảng trống thật còn lại của từng màn hình
+// (không đoán số cứng "trừ Npx" — mỗi màn hình/độ phân giải có chiều cao
+// thanh chrome Filament khác nhau, đoán sai là tràn trang ngay). Dưới 900px
+// (chế độ mobile, layout xếp dọc) để CSS lo, không ép height JS.
+function _fitWrapperHeight() {
+    const wrap = document.querySelector('.cc-wrapper');
+    if (!wrap) return;
+    if (window.innerWidth <= 900) { wrap.style.height = ''; return; }
+    const top = wrap.getBoundingClientRect().top;
+    const h = window.innerHeight - top - 24;
+    wrap.style.height = Math.max(h, 480) + 'px';
+}
+window.addEventListener('resize', _fitWrapperHeight);
+window.addEventListener('load', _fitWrapperHeight);
+_fitWrapperHeight();
+
 let _mainMap, _geocoder, _pickupMarker, _deliveryMarker;
 let _mapsReady = false;
 let _pickupAc = null, _deliveryAc = null;
 let _directionsRenderer = null;
 let _driverMarkers = [];
+let _pinModeTarget = null; // 'pickup' | 'delivery' | null — chế độ chọn địa chỉ bằng click trên bản đồ
 
 const _cityCenter = { lat: {{ $defaultCenter['lat'] }}, lng: {{ $defaultCenter['lng'] }} };
 const _cityCoords = {
@@ -330,6 +387,7 @@ function _onCityChange(cityId) {
     if (_deliveryMarker) { _deliveryMarker.setMap(null); _deliveryMarker = null; }
     _clearRoute();
     _clearDriverMarkers();
+    _exitPinMode();
     const pi = document.getElementById('cc-pickup-input');
     const di = document.getElementById('cc-delivery-input');
     if (pi) pi.value = '';
@@ -346,27 +404,77 @@ function _onServiceChange() {
     if (_deliveryMarker) { _deliveryMarker.setMap(null); _deliveryMarker = null; }
     _clearRoute();
     _clearDriverMarkers();
+    _exitPinMode();
     const pi = document.getElementById('cc-pickup-input');
     const di = document.getElementById('cc-delivery-input');
     if (pi) pi.value = '';
     if (di) di.value = '';
 }
 
-// ── Init map (chỉ để xem — không có listener click gim địa chỉ) ──────────────
+// ── Init map ───────────────────────────────────────────────────────────────
 function _initMainMap() {
     _mainMap = new google.maps.Map(document.getElementById('cc-main-map'), {
         center: _cityCenter, zoom: 14,
         mapTypeControl: false, fullscreenControl: false,
         streetViewControl: false,
-        zoomControl: false,
-        scrollwheel: false,
-        disableDoubleClickZoom: true,
+        zoomControl: true,
+        zoomControlOptions: { position: google.maps.ControlPosition.RIGHT_CENTER },
         gestureHandling: 'greedy',
         styles: [{ featureType: 'poi', stylers: [{ visibility: 'off' }] }],
     });
     _geocoder = new google.maps.Geocoder();
 
+    // Click bản đồ CHỈ có tác dụng khi đang bật "chế độ chọn trên bản đồ"
+    // (bấm nút pin cạnh ô địa chỉ) — dự phòng cho lúc Autocomplete không ra
+    // đúng địa chỉ cần tìm. Mặc định bản đồ chỉ để xem, click không làm gì.
+    _mainMap.addListener('click', (e) => {
+        if (!_pinModeTarget) return;
+        const target = _pinModeTarget;
+        const lat = e.latLng.lat(), lng = e.latLng.lng();
+        _exitPinMode();
+        _geocoder.geocode({ location: { lat, lng } }, (res, status) => {
+            const addr = (status === 'OK' && res[0]) ? res[0].formatted_address : `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+            if (target === 'pickup') {
+                const pi = document.getElementById('cc-pickup-input');
+                if (pi) pi.value = addr;
+                _setPickupPin(lat, lng);
+                @this.call('setPickupLocation', addr, lat, lng).then(() => {
+                    _updateFeeInfo();
+                    _refreshDriverMarkers();
+                });
+            } else {
+                const di = document.getElementById('cc-delivery-input');
+                if (di) di.value = addr;
+                _setDeliveryPin(lat, lng);
+                @this.call('setDeliveryLocation', addr, lat, lng).then(_updateFeeInfo);
+            }
+        });
+    });
+
     _initSearchAutocomplete();
+}
+
+// Bật/tắt "chế độ chọn trên bản đồ" cho 1 ô địa chỉ cụ thể — bấm lại nút
+// đang bật thì tắt, bấm nút còn lại thì chuyển sang ô đó.
+function _togglePinMode(target) {
+    if (_pinModeTarget === target) { _exitPinMode(); return; }
+    _pinModeTarget = target;
+    document.querySelectorAll('.cc-pin-btn').forEach((b) => b.classList.remove('active'));
+    const btn = document.getElementById(`cc-pin-btn-${target}`);
+    if (btn) btn.classList.add('active');
+    const hint = document.getElementById('cc-pin-hint');
+    const hintText = document.getElementById('cc-pin-hint-text');
+    if (hintText) hintText.textContent = `📍 Bấm vào bản đồ để chọn ${target === 'pickup' ? 'điểm lấy hàng' : 'điểm giao hàng'}`;
+    if (hint) hint.style.display = 'flex';
+    if (_mainMap) _mainMap.setOptions({ draggableCursor: 'crosshair' });
+}
+
+function _exitPinMode() {
+    _pinModeTarget = null;
+    document.querySelectorAll('.cc-pin-btn').forEach((b) => b.classList.remove('active'));
+    const hint = document.getElementById('cc-pin-hint');
+    if (hint) hint.style.display = 'none';
+    if (_mainMap) _mainMap.setOptions({ draggableCursor: null });
 }
 
 // ── Autocomplete — nguồn nhập toạ độ DUY NHẤT ─────────────────────────────────
