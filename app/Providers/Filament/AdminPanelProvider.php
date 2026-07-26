@@ -92,6 +92,10 @@ class AdminPanelProvider extends PanelProvider
                         } catch(e) { console.warn("Echo init failed:", e); }
                     </script>'
                 )
+            )
+            ->renderHook(
+                \Filament\View\PanelsRenderHook::GLOBAL_SEARCH_AFTER,
+                fn (): string => \Illuminate\Support\Facades\Blade::render('@livewire(\'rain-mode-control\')'),
             );
     }
 }

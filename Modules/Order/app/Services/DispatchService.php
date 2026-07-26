@@ -219,8 +219,17 @@ class DispatchService
         ]);
 
         if ($offlineCountToday >= 2) {
-            DriverScoreService::onMissedOfferStreak($driver->id);
-            Log::warning("[Dispatch] Tài xế #{$driver->id} {$driver->name} bị tự tắt online lần {$offlineCountToday} trong ngày → -3 điểm");
+            // Đang bật chế độ trời mưa cho thành phố này → bỏ qua phạt điểm,
+            // lơ đơn lúc mưa to nhiều khả năng là chính đáng (đường ngập,
+            // nguy hiểm), không phải né đơn. Vẫn tự tắt online như thường —
+            // chỉ miễn phần trừ điểm.
+            $isRaining = \Modules\Core\Models\City::where('id', $driver->city_id)->value('is_rain_mode');
+            if ($isRaining) {
+                Log::info("[Dispatch] Tài xế #{$driver->id} {$driver->name} tự tắt online lần {$offlineCountToday} trong ngày — bỏ qua phạt điểm do thành phố đang bật chế độ trời mưa");
+            } else {
+                DriverScoreService::onMissedOfferStreak($driver->id);
+                Log::warning("[Dispatch] Tài xế #{$driver->id} {$driver->name} bị tự tắt online lần {$offlineCountToday} trong ngày → -3 điểm");
+            }
         }
 
         // Tích lũy giờ online của phiên hiện tại (cùng logic với toggleOnline,
@@ -623,6 +632,13 @@ class DispatchService
 
         if (!$affected) {
             return ['success' => false, 'message' => 'Đơn không còn ở trạng thái chờ (có thể vừa được xử lý).'];
+        }
+
+        // Chụp lại NGAY LÚC GÁN xem thành phố có đang bật chế độ trời mưa
+        // không — khoá giá trị cho đơn, không đổi theo trạng thái mưa hiện
+        // tại nữa dù sau đó tắt/bật lại giữa chừng.
+        if (\Modules\Core\Models\City::where('id', $order->city_id)->value('is_rain_mode')) {
+            DB::table('orders')->where('id', $order->id)->update(['rain_bonus_eligible' => true]);
         }
 
         // Ghi lại như 1 dòng "accepted" bình thường — để lên báo cáo/lịch sử

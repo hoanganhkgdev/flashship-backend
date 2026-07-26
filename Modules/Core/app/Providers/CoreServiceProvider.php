@@ -4,6 +4,7 @@ namespace Modules\Core\Providers;
 
 use Nwidart\Modules\Support\ModuleServiceProvider;
 use Illuminate\Console\Scheduling\Schedule;
+use Modules\Core\Console\Commands\RainModeAutoOffCommand;
 
 class CoreServiceProvider extends ModuleServiceProvider
 {
@@ -22,7 +23,9 @@ class CoreServiceProvider extends ModuleServiceProvider
      *
      * @var string[]
      */
-    // protected array $commands = [];
+    protected array $commands = [
+        RainModeAutoOffCommand::class,
+    ];
 
     /**
      * Provider classes to register.
@@ -36,11 +39,13 @@ class CoreServiceProvider extends ModuleServiceProvider
 
     /**
      * Define module schedules.
-     * 
+     *
      * @param $schedule
      */
-    // protected function configureSchedules(Schedule $schedule): void
-    // {
-    //     $schedule->command('inspire')->hourly();
-    // }
+    protected function configureSchedules(Schedule $schedule): void
+    {
+        // Mỗi 15 phút — tự tắt trời mưa cho thành phố đã bật quá 6 tiếng
+        // (đề phòng admin quên tắt tay).
+        $schedule->command('cities:rain-mode-auto-off')->everyFifteenMinutes();
+    }
 }

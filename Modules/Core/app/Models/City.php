@@ -6,8 +6,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class City extends Model
 {
-    protected $fillable = ['name', 'slug', 'lat', 'lng', 'is_active', 'weekly_fee'];
-    protected $casts = ['is_active' => 'boolean', 'weekly_fee' => 'integer'];
+    protected $fillable = ['name', 'slug', 'lat', 'lng', 'is_active', 'weekly_fee', 'is_rain_mode', 'rain_mode_started_at', 'rain_mode_by'];
+    protected $casts = ['is_active' => 'boolean', 'weekly_fee' => 'integer', 'is_rain_mode' => 'boolean', 'rain_mode_started_at' => 'datetime'];
 
     public function scopeActive(Builder $q): Builder { return $q->where('is_active', true); }
 

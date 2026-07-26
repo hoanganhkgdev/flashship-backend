@@ -149,6 +149,14 @@ class OrderService
             return ['success' => false, 'message' => 'Đơn đã có người nhận trước bạn.', 'status' => 409];
         }
 
+        // Chụp lại NGAY LÚC NHẬN xem thành phố có đang bật chế độ trời mưa
+        // không — khoá giá trị này cho đơn, không đổi theo trạng thái mưa
+        // hiện tại nữa dù sau đó tắt/bật lại giữa chừng (tài xế nhận lúc mưa
+        // thì được thưởng, dù giao xong trời đã tạnh).
+        if (\Modules\Core\Models\City::where('id', $order->city_id)->value('is_rain_mode')) {
+            DB::table('orders')->where('id', $order->id)->update(['rain_bonus_eligible' => true]);
+        }
+
         \Illuminate\Support\Facades\Redis::del("dispatch:lock:driver:{$user->id}");
         DB::table('users')->where('id', $user->id)->update([
             'last_order_accepted_at'    => now(),
@@ -329,6 +337,14 @@ class OrderService
 
         if ($bonusFee > 0) {
             DriverWalletService::adjust($user->id, $bonusFee, 'credit', "Bonus #{$order->id}", "order_{$order->id}_bonus");
+        }
+
+        // Thưởng trời mưa 5k — chỉ áp dụng nếu đã chụp lại lúc NHẬN đơn là
+        // thành phố đang bật chế độ trời mưa (xem rain_bonus_eligible ở
+        // acceptOrder()/assignDriverDirectly()), không xét lại trạng thái
+        // mưa hiện tại lúc hoàn thành.
+        if ($order->rain_bonus_eligible) {
+            DriverWalletService::adjust($user->id, 5000, 'credit', "Thưởng trời mưa #{$order->id}", "order_{$order->id}_rain");
         }
 
         DriverScoreService::onComplete($user->id);
