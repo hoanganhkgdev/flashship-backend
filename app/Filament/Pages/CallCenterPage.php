@@ -14,6 +14,7 @@ use Modules\Order\Models\Order;
 use Modules\Order\Services\DispatchService;
 use Modules\Order\Services\OrderService;
 use Modules\Pricing\Services\PricingService;
+use Modules\Shop\Services\ShopPricingService;
 
 class CallCenterPage extends Page implements HasForms
 {
@@ -199,11 +200,18 @@ class CallCenterPage extends Page implements HasForms
     }
 
     /**
-     * Đủ 2 điểm (lấy + giao) → tự tính phí ship theo đúng bảng giá đang dùng
-     * cho khách hàng (PricingService, theo dịch vụ + thành phố) — chỉ để
-     * THAM KHẢO (hiện bên bản đồ qua $previewFee), KHÔNG tự điền vào ô "Phí
-     * ship" của form. Tổng đài tự gõ số thật muốn thu, tránh submit nhầm số
-     * gợi ý mà chưa đối chiếu/đàm phán với khách.
+     * Đủ 2 điểm (lấy + giao) → tự tính phí ship, chỉ để THAM KHẢO (hiện bên
+     * bản đồ qua $previewFee), KHÔNG tự điền vào ô "Phí ship" của form. Tổng
+     * đài tự gõ số thật muốn thu, tránh submit nhầm số gợi ý mà chưa đối
+     * chiếu/đàm phán với khách.
+     *
+     * "Lấy Hộ"/"Mua Hộ" dùng đúng bảng giá SHOP (ShopPricingService, theo
+     * cargo_type) vì đây là đơn lấy/giao hàng hộ giống bản chất đơn shop —
+     * cố định cargo_type='food' (mức phổ biến nhất) vì trang này chưa có ô
+     * chọn loại hàng riêng.
+     * "Xe Ôm"/"Lái Xe Máy"/"Lái Xe Hơi" vẫn dùng bảng giá khách hàng
+     * (PricingService) vì là chở người, không phải hàng hoá, ShopPricingService
+     * không có hạng mục này.
      * Không áp dụng cho "topup" (phí không tính theo khoảng cách, mà theo số
      * tiền nạp — xem PricingService::topupFee()).
      */
@@ -212,13 +220,24 @@ class CallCenterPage extends Page implements HasForms
         if ($this->serviceType === 'topup') return;
         if (!$this->pickupLat || !$this->pickupLng || !$this->deliveryLat || !$this->deliveryLng) return;
 
-        $cityId  = $this->data['city_id'] ?? null;
-        $pricing = PricingService::estimateFromCoords(
-            $this->serviceType,
-            $this->pickupLat, $this->pickupLng,
-            $this->deliveryLat, $this->deliveryLng,
-            $cityId
-        );
+        $cityId = $this->data['city_id'] ?? null;
+
+        if (in_array($this->serviceType, ['delivery', 'shopping'])) {
+            $pricing = ShopPricingService::estimateFromCoords(
+                'food',
+                $this->pickupLat, $this->pickupLng,
+                $this->deliveryLat, $this->deliveryLng,
+                null,
+                $cityId
+            );
+        } else {
+            $pricing = PricingService::estimateFromCoords(
+                $this->serviceType,
+                $this->pickupLat, $this->pickupLng,
+                $this->deliveryLat, $this->deliveryLng,
+                $cityId
+            );
+        }
 
         $this->previewFee = $pricing['fee'];
     }

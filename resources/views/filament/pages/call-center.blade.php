@@ -360,6 +360,16 @@ window.addEventListener('resize', _fitWrapperHeight);
 window.addEventListener('load', _fitWrapperHeight);
 _fitWrapperHeight();
 
+// Cuộn chuột trên ô số (phí ship, số tiền nạp...) không được tự +/- giá trị
+// — bỏ focus ngay khi lăn chuột qua, tránh đổi số ngoài ý muốn lúc tổng đài
+// chỉ đang cuộn trang qua khu vực đó. Gắn trên document (event delegation)
+// nên vẫn hoạt động đúng dù Livewire re-render lại các input bên trong.
+document.addEventListener('wheel', (e) => {
+    if (document.activeElement === e.target && e.target.matches('.cc-form-panel input[type="number"]')) {
+        e.target.blur();
+    }
+}, { passive: true });
+
 let _mainMap, _geocoder, _pickupMarker, _deliveryMarker;
 let _mapsReady = false;
 let _pickupAc = null, _deliveryAc = null;
