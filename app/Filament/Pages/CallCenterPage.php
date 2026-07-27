@@ -442,8 +442,10 @@ class CallCenterPage extends Page implements HasForms
                 // Gán tay — gán CỨNG luôn cho đúng người tổng đài chọn, đơn
                 // vào thẳng mục "Đã nhận" của tài xế, không qua bước offer
                 // chờ bấm nhận. Nếu thất bại (tài xế vừa bận/hết hạn nợ...)
-                // thì KHÔNG để đơn mồ côi — rơi về tự động dispatch như cũ,
-                // chỉ báo cho tổng đài biết lý do.
+                // thì HUỶ đơn luôn — KHÔNG tự ý chuyển sang tự động phát cho
+                // cả thành phố, vì tổng đài đã chủ động chọn đúng người này
+                // (có thể đã gọi điện xác nhận trước), để hệ thống tự chọn
+                // người khác là sai ý định của tổng đài.
                 $assignResult = app(DispatchService::class)->assignDriverDirectly($order, $this->assignedDriverId);
                 if ($assignResult['success']) {
                     Notification::make()
@@ -451,12 +453,18 @@ class CallCenterPage extends Page implements HasForms
                         ->success()
                         ->send();
                 } else {
-                    app(OrderService::class)->dispatchNewOrder($order->id);
+                    DB::table('orders')->where('id', $order->id)->update([
+                        'status'       => 'cancelled',
+                        'cancel_reason' => 'admin',
+                        'updated_at'   => now(),
+                    ]);
+                    $this->resultError = "Không gán được cho tài xế đã chọn — {$assignResult['message']} Đơn #{$order->code} đã bị huỷ, vui lòng thử lại với tài xế khác.";
                     Notification::make()
-                        ->title('Gán tay thất bại — chuyển sang tự động tìm tài xế')
+                        ->title('Gán tay thất bại — đơn đã huỷ')
                         ->body($assignResult['message'])
-                        ->warning()
+                        ->danger()
                         ->send();
+                    return;
                 }
             } else {
                 app(OrderService::class)->dispatchNewOrder($order->id);
