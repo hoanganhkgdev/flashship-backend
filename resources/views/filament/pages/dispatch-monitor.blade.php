@@ -8,21 +8,6 @@
     $activeOrders = $this->getActiveOrders();
 @endphp
 
-{{-- Bộ lọc khu vực (admin) --}}
-@unless($this->isCityLocked)
-<div class="flex items-end gap-4 mb-4">
-    <div>
-        <label class="block text-xs font-medium text-gray-500 mb-1">Khu vực</label>
-        <select wire:model.live="city_id" class="rounded-lg border-gray-300 text-sm shadow-sm" style="min-width:160px">
-            <option value="">Tất cả</option>
-            @foreach ($this->cities as $id => $name)
-            <option value="{{ $id }}">{{ $name }}</option>
-            @endforeach
-        </select>
-    </div>
-</div>
-@endunless
-
 {{-- Thống kê phát đơn hôm nay --}}
 <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-4">
     <div class="rounded-xl bg-white dark:bg-gray-900 p-4 shadow-sm border border-gray-200 dark:border-gray-700">

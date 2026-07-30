@@ -19,10 +19,14 @@ class CityResource extends Resource
 {
     public static function canAccess(): bool
     {
-        return !auth()->user()?->isCallCenter();
+        return !auth()->user()?->isCallCenter() && static::canViewAny();
     }
 
     use HideFromCityManager;
+
+    // City là chính model tenant — quản lý danh sách khu vực phải xem xuyên
+    // suốt tất cả khu vực, không tự lọc theo khu vực đang đứng.
+    protected static bool $isScopedToTenant = false;
 
     protected static ?string $model          = City::class;
     protected static ?string $navigationIcon = 'heroicon-o-map-pin';

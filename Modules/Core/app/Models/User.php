@@ -3,14 +3,17 @@
 namespace Modules\Core\Models;
 
 use Filament\Models\Contracts\FilamentUser;
+use Filament\Models\Contracts\HasDefaultTenant;
+use Filament\Models\Contracts\HasTenants;
 use Filament\Panel;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
 use Spatie\Permission\Traits\HasRoles;
 
-class User extends Authenticatable implements FilamentUser
+class User extends Authenticatable implements FilamentUser, HasTenants, HasDefaultTenant
 {
     use HasRoles;
     use HasApiTokens, HasFactory, Notifiable;
@@ -204,6 +207,38 @@ class User extends Authenticatable implements FilamentUser
     public function canAccessPanel(Panel $panel): bool
     {
         return in_array($this->user_type, ['admin', 'subadmin', 'city_manager', 'call_center']);
+    }
+
+    // ─── Filament Tenancy (khu vực quản lý) ────────────────────────────────
+    // admin/subadmin quản lý xuyên suốt mọi thành phố; city_manager/call_center
+    // chỉ quản lý đúng thành phố gán ở city_id.
+    const TENANT_UNRESTRICTED_TYPES = ['admin', 'subadmin'];
+
+    public function getTenants(Panel $panel): \Illuminate\Support\Collection
+    {
+        if (in_array($this->user_type, self::TENANT_UNRESTRICTED_TYPES)) {
+            return City::orderBy('name')->get();
+        }
+
+        return City::where('id', $this->city_id)->get();
+    }
+
+    public function canAccessTenant(Model $tenant): bool
+    {
+        if (in_array($this->user_type, self::TENANT_UNRESTRICTED_TYPES)) {
+            return true;
+        }
+
+        return $tenant->id === $this->city_id;
+    }
+
+    public function getDefaultTenant(Panel $panel): ?Model
+    {
+        if (in_array($this->user_type, self::TENANT_UNRESTRICTED_TYPES)) {
+            return City::orderBy('name')->first();
+        }
+
+        return City::where('id', $this->city_id)->first();
     }
 
     public function isCallCenter(): bool

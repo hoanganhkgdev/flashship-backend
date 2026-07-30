@@ -30,6 +30,7 @@ class AdminPanelProvider extends PanelProvider
             ->id('admin')
             ->path('admin')
             ->login()
+            ->tenant(\Modules\Core\Models\City::class)
             ->brandName('FlashShip Admin')
             ->font('Roboto', provider: GoogleFontProvider::class)
             ->colors([

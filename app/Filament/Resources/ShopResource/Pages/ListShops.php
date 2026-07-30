@@ -7,7 +7,6 @@ use Filament\Actions;
 use Filament\Resources\Components\Tab;
 use Filament\Resources\Pages\ListRecords;
 use Illuminate\Database\Eloquent\Builder;
-use Modules\Core\Models\City;
 use Modules\Core\Models\User;
 
 class ListShops extends ListRecords
@@ -23,24 +22,16 @@ class ListShops extends ListRecords
 
     public function getTabs(): array
     {
-        $total = User::where('user_type', 'shop')->count();
+        // Chọn khu vực nay dùng bộ chuyển tenant trên topbar — không cần tab
+        // theo thành phố ở đây nữa.
+        $cityId = \Filament\Facades\Filament::getTenant()?->id;
+
+        $total  = User::where('user_type', 'shop')->where('city_id', $cityId)->count();
+        $locked = User::where('user_type', 'shop')->where('city_id', $cityId)->where('status', 2)->count();
 
         $tabs = [
             'all' => Tab::make('Tất cả')->badge($total ?: null),
         ];
-
-        $cities = City::where('is_active', true)->orderBy('name')->get(['id', 'name']);
-
-        foreach ($cities as $city) {
-            $count = User::where('user_type', 'shop')->where('city_id', $city->id)->count();
-            if ($count === 0) continue;
-            $tabs['city_' . $city->id] = Tab::make($city->name)
-                ->badge($count)
-                ->modifyQueryUsing(fn (Builder $query) => $query->where('city_id', $city->id));
-        }
-
-        $active  = User::where('user_type', 'shop')->where('status', 1)->count();
-        $locked  = User::where('user_type', 'shop')->where('status', 2)->count();
 
         if ($locked > 0) {
             $tabs['locked'] = Tab::make('Bị khoá')

@@ -23,9 +23,8 @@ class DriverFinanceReportPage extends Page
         return in_array(auth()->user()?->user_type, ['admin']);
     }
 
-    public string $city_id = '2';
-    public string $mode    = 'week';   // week | month
-    public string $date    = '';
+    public string $mode = 'week';   // week | month
+    public string $date = '';
 
     public function mount(): void
     {
@@ -56,7 +55,7 @@ class DriverFinanceReportPage extends Page
         [$from, $to] = $this->range;
         $fromStr = $from->toDateString() . ' 00:00:00';
         $toStr   = $to->toDateString() . ' 23:59:59';
-        $cityId  = $this->city_id ?: 2;
+        $cityId  = \Filament\Facades\Filament::getTenant()?->id;
 
         $drivers = DB::table('users')
             ->where('user_type', 'driver')
@@ -157,11 +156,6 @@ class DriverFinanceReportPage extends Page
             'remaining' => $sum('remaining'),
             'withdrawn' => $sum('withdrawn'),
         ];
-    }
-
-    public function getCitiesProperty(): array
-    {
-        return DB::table('cities')->orderBy('name')->pluck('name', 'id')->toArray();
     }
 
     /**

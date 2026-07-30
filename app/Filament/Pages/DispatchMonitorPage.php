@@ -25,9 +25,6 @@ class DispatchMonitorPage extends Page
 
     public function getHeading(): string { return ''; }
 
-    /** '' = tất cả khu vực (admin); city_manager bị khoá theo city của mình. */
-    public string $city_id = '';
-
     #[On('echo:dispatch-monitor,.state.changed')]
     public function refresh(): void {}
 
@@ -37,25 +34,10 @@ class DispatchMonitorPage extends Page
         return $cache ??= ServiceType::pluck('label', 'key')->toArray();
     }
 
-    /** City đang áp dụng: theo role hoặc theo bộ lọc admin chọn. */
+    /** Luôn khoá theo đúng khu vực (tenant) đang đứng — đổi khu vực thì dùng bộ chuyển tenant trên topbar. */
     private function effectiveCityId(): ?int
     {
-        $user = auth()->user();
-        if (in_array($user?->user_type, ['city_manager', 'call_center']) && $user->city_id) {
-            return (int) $user->city_id;
-        }
-        return $this->city_id !== '' ? (int) $this->city_id : null;
-    }
-
-    public function getCitiesProperty(): array
-    {
-        return DB::table('cities')->orderBy('name')->pluck('name', 'id')->toArray();
-    }
-
-    public function getIsCityLockedProperty(): bool
-    {
-        $user = auth()->user();
-        return in_array($user?->user_type, ['city_manager', 'call_center']) && $user->city_id;
+        return \Filament\Facades\Filament::getTenant()?->id;
     }
 
     /**

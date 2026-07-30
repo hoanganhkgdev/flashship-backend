@@ -3,19 +3,10 @@
 @php
     $drivers = $this->drivers;
     $totals  = $this->totals;
-    $cities  = $this->cities;
 @endphp
 
 {{-- Filters --}}
 <div class="flex flex-wrap items-end gap-4 mb-4">
-    <div>
-        <label class="block text-xs font-medium text-gray-500 mb-1">Khu vực</label>
-        <select wire:model.live="city_id" class="rounded-lg border-gray-300 text-sm shadow-sm" style="min-width:150px">
-            @foreach ($cities as $id => $name)
-            <option value="{{ $id }}">{{ $name }}</option>
-            @endforeach
-        </select>
-    </div>
     <div>
         <label class="block text-xs font-medium text-gray-500 mb-1">Ngày</label>
         <input type="date" wire:model.live="date" class="rounded-lg border-gray-300 text-sm shadow-sm" />

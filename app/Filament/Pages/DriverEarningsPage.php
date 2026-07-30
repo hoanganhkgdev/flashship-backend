@@ -21,8 +21,7 @@ class DriverEarningsPage extends Page
         return in_array(auth()->user()?->user_type, ['admin']);
     }
 
-    public string $city_id = '2';
-    public string $date    = '';
+    public string $date = '';
 
     public function mount(): void
     {
@@ -32,7 +31,7 @@ class DriverEarningsPage extends Page
     public function getDriversProperty(): array
     {
         $date      = $this->date ?: now()->toDateString();
-        $cityId    = $this->city_id ?: 2;
+        $cityId    = \Filament\Facades\Filament::getTenant()?->id;
         $weekStart = Carbon::parse($date)->startOfWeek()->toDateString();
         $weekEnd   = Carbon::parse($date)->endOfWeek()->toDateString();
 
@@ -94,11 +93,6 @@ class DriverEarningsPage extends Page
         usort($result, fn($a, $b) => $b['today_earnings'] <=> $a['today_earnings']);
 
         return $result;
-    }
-
-    public function getCitiesProperty(): array
-    {
-        return DB::table('cities')->orderBy('name')->pluck('name', 'id')->toArray();
     }
 
     public function getTotalsProperty(): array

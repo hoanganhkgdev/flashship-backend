@@ -19,8 +19,7 @@ class OnlineDriversWidget extends Widget
 
     private function cityId(): ?int
     {
-        $user = auth()->user();
-        return $user?->user_type === 'city_manager' ? $user->city_id : null;
+        return \Filament\Facades\Filament::getTenant()?->id;
     }
 
     public function getDrivers(): \Illuminate\Support\Collection

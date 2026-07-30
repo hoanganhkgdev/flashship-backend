@@ -19,8 +19,7 @@ class OrdersByHourWidget extends ChartWidget
 
     protected function getData(): array
     {
-        $user   = auth()->user();
-        $cityId = $user?->user_type === 'city_manager' ? $user->city_id : null;
+        $cityId = \Filament\Facades\Filament::getTenant()?->id;
 
         $orders = Order::whereDate('created_at', today())
             ->when($cityId, fn ($q) => $q->where('city_id', $cityId))

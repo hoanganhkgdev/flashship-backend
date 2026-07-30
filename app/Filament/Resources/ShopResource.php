@@ -18,7 +18,7 @@ class ShopResource extends Resource
 {
     public static function canAccess(): bool
     {
-        return !auth()->user()?->isCallCenter();
+        return !auth()->user()?->isCallCenter() && static::canViewAny();
     }
 
     use HideFromCityManager;

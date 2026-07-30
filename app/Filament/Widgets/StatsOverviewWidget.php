@@ -21,8 +21,7 @@ class StatsOverviewWidget extends Widget
     protected function getViewData(): array
     {
         $today  = now()->toDateString();
-        $user   = auth()->user();
-        $cityId = ($user?->user_type === 'city_manager') ? $user->city_id : null;
+        $cityId = \Filament\Facades\Filament::getTenant()?->id;
 
         $orderBase = Order::query()->when($cityId, fn ($q) => $q->where('city_id', $cityId));
 

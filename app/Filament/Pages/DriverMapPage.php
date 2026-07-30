@@ -24,27 +24,18 @@ class DriverMapPage extends Page
 
     public array $cities      = [];
     public array $driversMeta = [];
-    public ?int  $fixedCityId = null; // null = admin thấy tất cả
+    public ?int  $fixedCityId = null; // khu vực (tenant) đang đứng
 
     public function mount(): void
     {
-        $user = auth()->user();
+        $this->fixedCityId = \Filament\Facades\Filament::getTenant()?->id;
 
-        // city_manager chỉ thấy khu vực của mình
-        if (in_array($user->user_type, ['city_manager', 'call_center']) && $user->city_id) {
-            $this->fixedCityId = (int) $user->city_id;
-
-            $this->cities = DB::table('cities')
-                ->where('id', $user->city_id)
-                ->get(['id', 'name', 'lat', 'lng'])
-                ->map(fn($c) => ['id' => $c->id, 'name' => $c->name, 'lat' => (float) $c->lat, 'lng' => (float) $c->lng])
-                ->toArray();
-        } else {
-            $this->cities = DB::table('cities')->orderBy('name')
-                ->get(['id', 'name', 'lat', 'lng'])
-                ->map(fn($c) => ['id' => $c->id, 'name' => $c->name, 'lat' => (float) $c->lat, 'lng' => (float) $c->lng])
-                ->toArray();
-        }
+        $this->cities = DB::table('cities')
+            ->when($this->fixedCityId, fn ($q) => $q->where('id', $this->fixedCityId))
+            ->orderBy('name')
+            ->get(['id', 'name', 'lat', 'lng'])
+            ->map(fn($c) => ['id' => $c->id, 'name' => $c->name, 'lat' => (float) $c->lat, 'lng' => (float) $c->lng])
+            ->toArray();
 
         $this->loadDriversMeta();
     }

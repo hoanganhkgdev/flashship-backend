@@ -19,10 +19,16 @@ class VoucherResource extends Resource
 {
     public static function canAccess(): bool
     {
-        return !auth()->user()?->isCallCenter();
+        return !auth()->user()?->isCallCenter() && static::canViewAny();
     }
 
     use HideFromCityManager;
+
+    // city_id = null nghĩa là áp dụng cho mọi khu vực — vẫn phải hiện ở mọi tenant.
+    public static function scopeEloquentQueryToTenant(\Illuminate\Database\Eloquent\Builder $query, ?\Illuminate\Database\Eloquent\Model $tenant): \Illuminate\Database\Eloquent\Builder
+    {
+        return $query->where(fn ($q) => $q->where('city_id', $tenant?->id)->orWhereNull('city_id'));
+    }
 
     protected static ?string $model = Voucher::class;
 

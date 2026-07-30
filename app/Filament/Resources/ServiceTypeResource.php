@@ -15,10 +15,13 @@ class ServiceTypeResource extends Resource
 {
     public static function canAccess(): bool
     {
-        return !auth()->user()?->isCallCenter();
+        return !auth()->user()?->isCallCenter() && static::canViewAny();
     }
 
     use HideFromCityManager;
+
+    // Danh mục loại dịch vụ dùng chung toàn hệ thống, không theo khu vực.
+    protected static bool $isScopedToTenant = false;
 
     protected static ?string $model          = ServiceType::class;
     protected static ?string $navigationIcon = 'heroicon-o-squares-2x2';

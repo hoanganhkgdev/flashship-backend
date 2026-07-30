@@ -95,7 +95,9 @@ class CallCenterPage extends Page implements HasForms
     {
         $user = auth()->user();
         if ($user?->user_type === 'admin') {
-            return 2;
+            // Mặc định = khu vực (tenant) đang đứng, admin vẫn chọn được khu
+            // vực khác trên form (đặt đơn hộ cho khu vực khác qua tổng đài).
+            return \Filament\Facades\Filament::getTenant()?->id ?? 2;
         }
         return (int) ($user?->city_id ?? 2);
     }

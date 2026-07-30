@@ -69,11 +69,17 @@ class SendNotificationPage extends Page
                             ->label('Khu vực')
                             ->options(fn () => City::where('is_active', true)->pluck('name', 'id'))
                             ->searchable()
-                            ->visible(fn (Forms\Get $get) => str_contains($get('target') ?? '', 'city'))
-                            ->required(fn (Forms\Get $get) => str_contains($get('target') ?? '', 'city')),
+                            ->visible(fn (Forms\Get $get) => $this->canManageAllCities() && str_contains($get('target') ?? '', 'city'))
+                            ->required(fn (Forms\Get $get) => $this->canManageAllCities() && str_contains($get('target') ?? '', 'city')),
                     ]),
             ])
             ->statePath('data');
+    }
+
+    /** Chỉ admin/subadmin gửi được thông báo xuyên khu vực. */
+    private function canManageAllCities(): bool
+    {
+        return in_array(auth()->user()?->user_type, ['admin', 'subadmin']);
     }
 
     private function buildQuery(array $data): \Illuminate\Database\Eloquent\Builder
@@ -90,6 +96,12 @@ class SendNotificationPage extends Page
             $q->where('user_type', 'customer')->where('city_id', $data['city_id']);
         } else {
             $q->whereRaw('1=0');
+        }
+
+        // city_manager/call_center chỉ được gửi trong đúng khu vực (tenant)
+        // đang đứng — chặn cứng phía server, bất kể chọn target nào.
+        if (!$this->canManageAllCities()) {
+            $q->where('city_id', \Filament\Facades\Filament::getTenant()?->id);
         }
 
         return $q;
@@ -112,8 +124,9 @@ class SendNotificationPage extends Page
             $result = FCMService::getInstance()->broadcast($tokens, $data['title'], $data['body']);
 
             // Lưu vào DB để app fetch được
-            $cityId = isset($data['city_id']) && str_contains($data['target'], 'city')
-                ? (int) $data['city_id'] : null;
+            $cityId = $this->canManageAllCities()
+                ? (isset($data['city_id']) && str_contains($data['target'], 'city') ? (int) $data['city_id'] : null)
+                : \Filament\Facades\Filament::getTenant()?->id;
             if (str_contains($data['target'], 'customer')) {
                 CustomerNotificationController::broadcast($data['title'], $data['body'], $cityId);
             }

@@ -22,10 +22,16 @@ class DriverDebtResource extends Resource
 {
     public static function canAccess(): bool
     {
-        return !auth()->user()?->isCallCenter();
+        return !auth()->user()?->isCallCenter() && static::canViewAny();
     }
 
     use HideFromCityManager;
+
+    // DriverDebt không có city_id trực tiếp — khu vực xác định qua driver_id -> users.city_id.
+    public static function scopeEloquentQueryToTenant(\Illuminate\Database\Eloquent\Builder $query, ?\Illuminate\Database\Eloquent\Model $tenant): \Illuminate\Database\Eloquent\Builder
+    {
+        return $query->whereHas('driver', fn ($q) => $q->where('city_id', $tenant?->id));
+    }
 
     protected static ?string $model            = DriverDebt::class;
     protected static ?string $navigationIcon   = 'heroicon-o-document-minus';

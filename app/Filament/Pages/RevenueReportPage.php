@@ -6,7 +6,6 @@ use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Pages\Page;
 use Illuminate\Support\Facades\DB;
-use Modules\Core\Models\City;
 use Modules\Order\Models\Order;
 
 class RevenueReportPage extends Page
@@ -25,7 +24,6 @@ class RevenueReportPage extends Page
 
     public string $from      = '';
     public string $to        = '';
-    public string $city_id   = '';
     public string $groupBy   = 'service_type';
 
     private static array $serviceLabels = [
@@ -50,11 +48,6 @@ class RevenueReportPage extends Page
     {
         $this->from = now()->startOfMonth()->toDateString();
         $this->to   = now()->toDateString();
-    }
-
-    public function getCities(): array
-    {
-        return City::where('is_active', true)->pluck('name', 'id')->toArray();
     }
 
     public function getSummary(): array
@@ -99,32 +92,6 @@ class RevenueReportPage extends Page
             ->toArray();
     }
 
-    public function getByCity(): array
-    {
-        return $this->baseQuery()
-            ->select(
-                'orders.city_id',
-                DB::raw('COUNT(*) as total'),
-                DB::raw("SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed"),
-                DB::raw("SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) as cancelled"),
-                DB::raw("SUM(CASE WHEN status = 'completed' THEN shipping_fee ELSE 0 END) as revenue")
-            )
-            ->join('cities', 'cities.id', '=', 'orders.city_id', 'left')
-            ->addSelect('cities.name as city_name')
-            ->groupBy('orders.city_id', 'cities.name')
-            ->orderByDesc('total')
-            ->get()
-            ->map(fn ($r) => [
-                'city'      => $r->city_name ?? 'Không xác định',
-                'total'     => $r->total,
-                'completed' => $r->completed,
-                'cancelled' => $r->cancelled,
-                'rate'      => $r->total > 0 ? round($r->completed / $r->total * 100) : 0,
-                'revenue'   => number_format((int) $r->revenue, 0, ',', '.'),
-            ])
-            ->toArray();
-    }
-
     public function getByDay(): array
     {
         return $this->baseQuery()
@@ -152,8 +119,8 @@ class RevenueReportPage extends Page
                 \Carbon\Carbon::parse($this->to)->endOfDay(),
             ]);
 
-        if ($this->city_id) {
-            $q->where('city_id', $this->city_id);
+        if ($cityId = \Filament\Facades\Filament::getTenant()?->id) {
+            $q->where('city_id', $cityId);
         }
 
         return $q;

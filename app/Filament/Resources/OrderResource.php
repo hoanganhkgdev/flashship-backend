@@ -22,18 +22,6 @@ class OrderResource extends Resource
 {
     protected static ?string $model = Order::class;
 
-    public static function getEloquentQuery(): Builder
-    {
-        $query = parent::getEloquentQuery();
-        $user  = auth()->user();
-
-        if (in_array($user?->user_type, ['city_manager', 'call_center']) && $user->city_id) {
-            $query->where('city_id', $user->city_id);
-        }
-
-        return $query;
-    }
-
     protected static ?string $navigationIcon  = 'heroicon-o-shopping-bag';
     protected static ?string $navigationGroup = 'Đơn hàng';
     protected static ?string $modelLabel      = 'Đơn hàng';
@@ -420,7 +408,7 @@ class OrderResource extends Resource
                     ->color('success')
                     ->tooltip('Đặt lại')
                     ->visible(fn (Order $record) => in_array($record->status, ['cancelled', 'completed']))
-                    ->url(fn (Order $record) => route('filament.admin.pages.call-center-page') . '?' . http_build_query(array_filter([
+                    ->url(fn (Order $record) => \App\Filament\Pages\CallCenterPage::getUrl() . '?' . http_build_query(array_filter([
                         'reorder'          => $record->id,
                         'service'          => $record->service_type,
                         'city_id'          => $record->city_id,

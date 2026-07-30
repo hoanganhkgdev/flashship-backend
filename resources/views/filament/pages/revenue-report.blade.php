@@ -4,7 +4,6 @@
     $summary   = $this->getSummary();
     $rate      = $summary['total_orders'] > 0 ? round($summary['completed_orders'] / $summary['total_orders'] * 100) : 0;
     $services  = $this->getByService();
-    $cities    = $this->getByCity();
     $days      = $this->getByDay();
 
     $statCards = [
@@ -28,16 +27,6 @@
         <label class="mb-2 block pl-1 text-xs font-medium text-gray-400 dark:text-gray-500">Đến ngày</label>
         <input type="date" wire:model.live="to"
             class="fi-input w-full rounded-lg border-gray-300 bg-white h-9 px-3 text-sm shadow-sm transition focus:border-primary-500 focus:ring-1 focus:ring-primary-500 dark:border-gray-600 dark:bg-gray-800 dark:text-white">
-    </div>
-    <div class="flex-1 min-w-[160px] max-w-[200px]">
-        <label class="mb-2 block pl-1 text-xs font-medium text-gray-400 dark:text-gray-500">Khu vực</label>
-        <select wire:model.live="city_id"
-            class="fi-input w-full rounded-lg border-gray-300 bg-white h-9 px-3 text-sm shadow-sm transition focus:border-primary-500 focus:ring-1 focus:ring-primary-500 dark:border-gray-600 dark:bg-gray-800 dark:text-white">
-            <option value="">Tất cả khu vực</option>
-            @foreach($this->getCities() as $id => $name)
-                <option value="{{ $id }}">{{ $name }}</option>
-            @endforeach
-        </select>
     </div>
 </div>
 
@@ -100,53 +89,6 @@
                 <div class="rounded-lg px-2.5 py-1.5" style="background:{{ $row['color'] }}08;">
                     <p class="text-[10px] text-gray-400">Doanh thu</p>
                     <p class="text-sm font-extrabold" style="color:{{ $row['color'] }};">{{ $row['revenue'] }}đ</p>
-                </div>
-            </div>
-            @empty
-            <div class="col-span-full py-10 text-center text-gray-300">Không có dữ liệu</div>
-            @endforelse
-        </div>
-    </div>
-
-    {{-- Theo khu vực --}}
-    <div class="lg:col-span-2 mt-2">
-        <div class="mb-4 flex items-center gap-2 pl-1">
-            <x-heroicon-o-map class="h-4 w-4 text-gray-400" />
-            <span class="text-sm font-bold text-gray-700 dark:text-gray-200">Theo khu vực</span>
-        </div>
-        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-{{ count($cities) ?: 3 }}">
-            @forelse($cities as $row)
-            @php $cityColor = ['#f97316','#3b82f6','#8b5cf6','#10b981','#ef4444','#ec4899'][$loop->index % 6]; @endphp
-            <div class="relative overflow-hidden rounded-2xl border border-gray-100 bg-white p-4 shadow-sm dark:border-gray-800 dark:bg-gray-900">
-                {{-- Header --}}
-                <div class="mb-4 flex items-center gap-2">
-                    <div class="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg" style="background:{{ $cityColor }};">
-                        <x-heroicon-o-map-pin class="h-4 w-4 text-white" />
-                    </div>
-                    <span class="text-[13px] font-bold text-gray-800 dark:text-gray-100">{{ $row['city'] }}</span>
-                </div>
-
-                {{-- Số đơn --}}
-                <div class="mb-3">
-                    <p class="text-2xl font-black text-gray-900 dark:text-white leading-none">{{ $row['total'] }}</p>
-                    <p class="mt-1 text-[11px] text-gray-400">tổng đơn</p>
-                </div>
-
-                {{-- Progress bar --}}
-                <div class="mb-3">
-                    <div class="h-1.5 w-full overflow-hidden rounded-full bg-gray-100 dark:bg-gray-700">
-                        <div class="h-full rounded-full transition-all" style="width:{{ $row['rate'] }}%;background:{{ $cityColor }};"></div>
-                    </div>
-                    <div class="mt-1.5 flex items-center justify-between">
-                        <span class="text-[10px] font-semibold text-green-600">{{ $row['completed'] }} OK</span>
-                        <span class="text-[10px] font-bold" style="color:{{ $cityColor }}">{{ $row['rate'] }}%</span>
-                    </div>
-                </div>
-
-                {{-- Doanh thu --}}
-                <div class="rounded-lg px-2.5 py-1.5" style="background:{{ $cityColor }}08;">
-                    <p class="text-[10px] text-gray-400">Doanh thu</p>
-                    <p class="text-sm font-extrabold" style="color:{{ $cityColor }};">{{ $row['revenue'] }}đ</p>
                 </div>
             </div>
             @empty

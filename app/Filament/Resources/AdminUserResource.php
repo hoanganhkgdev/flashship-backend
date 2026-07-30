@@ -17,10 +17,14 @@ class AdminUserResource extends Resource
 {
     public static function canAccess(): bool
     {
-        return !auth()->user()?->isCallCenter();
+        return !auth()->user()?->isCallCenter() && static::canViewAny();
     }
 
     use HideFromCityManager;
+
+    // Quản lý tài khoản admin/city_manager/call_center là dữ liệu quản trị,
+    // không phải dữ liệu nghiệp vụ theo khu vực — xem xuyên suốt mọi tenant.
+    protected static bool $isScopedToTenant = false;
 
     protected static ?string $model = User::class;
 

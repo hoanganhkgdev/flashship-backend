@@ -89,8 +89,15 @@ Route::get('/app-version', function (\Illuminate\Http\Request $request) {
     ]);
 });
 
-Route::get('/banners', function () {
-    return response()->json(['success' => true, 'data' => \Modules\Admin\Models\Banner::where('is_active', true)->orderBy('sort_order')->get()]);
+Route::get('/banners', function (\Illuminate\Http\Request $request) {
+    $cityId = $request->query('city_id');
+
+    $banners = \Modules\Admin\Models\Banner::where('is_active', true)
+        ->when($cityId, fn ($q) => $q->where(fn ($q2) => $q2->where('city_id', $cityId)->orWhereNull('city_id')))
+        ->orderBy('sort_order')
+        ->get();
+
+    return response()->json(['success' => true, 'data' => $banners]);
 });
 
 Route::get('/support-configs', function () {

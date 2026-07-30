@@ -8,8 +8,8 @@ use Modules\Core\Models\City;
 
 /**
  * Nút "Chế độ trời mưa" trên thanh header, cạnh avatar user — bật/tắt theo
- * từng thành phố. Admin điều khiển được mọi thành phố; city_manager/
- * call_center chỉ điều khiển thành phố của mình. Các user_type khác không
+ * đúng khu vực (tenant) đang đứng. Admin muốn điều khiển thành phố khác thì
+ * chuyển tenant qua bộ chọn khu vực trên topbar. Các user_type khác không
  * thấy component này (ẩn hẳn, xem canManage()).
  *
  * Bật lên: mỗi đơn tài xế NHẬN trong lúc đang bật được cộng thêm 5.000đ vào
@@ -28,16 +28,14 @@ class RainModeControl extends Component
 
     public function getCitiesProperty()
     {
-        $user = auth()->user();
-        if (!$user) return collect();
+        if (!auth()->user()) return collect();
 
-        $query = City::query()->orderBy('name');
+        // Chỉ điều khiển đúng khu vực (tenant) đang đứng — đổi khu vực thì
+        // dùng bộ chuyển tenant trên topbar, không cần danh sách riêng ở đây.
+        $tenantId = \Filament\Facades\Filament::getTenant()?->id;
+        if (!$tenantId) return collect();
 
-        if (in_array($user->user_type, ['city_manager', 'call_center']) && $user->city_id) {
-            $query->where('id', $user->city_id);
-        }
-
-        return $query->get(['id', 'name', 'is_rain_mode', 'rain_mode_started_at']);
+        return City::where('id', $tenantId)->get(['id', 'name', 'is_rain_mode', 'rain_mode_started_at']);
     }
 
     public function toggleCity(int $cityId): void
@@ -45,9 +43,9 @@ class RainModeControl extends Component
         $user = auth()->user();
         if (!$this->canManage()) return;
 
-        // city_manager/call_center chỉ được đụng đúng thành phố của mình —
-        // chặn cứng phía server, không chỉ ẩn UI (UI có thể bị qua mặt).
-        if (in_array($user->user_type, ['city_manager', 'call_center']) && (int) $user->city_id !== $cityId) {
+        // Chặn cứng phía server: chỉ được đụng đúng khu vực (tenant) đang
+        // đứng, không chỉ ẩn UI (UI có thể bị qua mặt).
+        if (\Filament\Facades\Filament::getTenant()?->id !== $cityId) {
             return;
         }
 

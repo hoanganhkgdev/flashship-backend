@@ -15,10 +15,13 @@ class LegalPageResource extends Resource
 {
     public static function canAccess(): bool
     {
-        return !auth()->user()?->isCallCenter();
+        return !auth()->user()?->isCallCenter() && static::canViewAny();
     }
 
     use HideFromCityManager;
+
+    // Trang pháp lý dùng chung toàn hệ thống, không theo khu vực.
+    protected static bool $isScopedToTenant = false;
 
     protected static ?string $model = Page::class;
 

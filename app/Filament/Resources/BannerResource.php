@@ -15,10 +15,16 @@ class BannerResource extends Resource
 {
     public static function canAccess(): bool
     {
-        return !auth()->user()?->isCallCenter();
+        return !auth()->user()?->isCallCenter() && static::canViewAny();
     }
 
     use HideFromCityManager;
+
+    // city_id = null nghĩa là hiển thị ở mọi khu vực — vẫn phải hiện ở mọi tenant.
+    public static function scopeEloquentQueryToTenant(\Illuminate\Database\Eloquent\Builder $query, ?\Illuminate\Database\Eloquent\Model $tenant): \Illuminate\Database\Eloquent\Builder
+    {
+        return $query->where(fn ($q) => $q->where('city_id', $tenant?->id)->orWhereNull('city_id'));
+    }
 
     protected static ?string $model = Banner::class;
 
@@ -59,6 +65,13 @@ class BannerResource extends Resource
                             ->maxLength(255)
                             ->placeholder('Ví dụ: Khuyến mãi tháng 6')
                             ->required(),
+
+                        Forms\Components\Select::make('city_id')
+                            ->label('Khu vực áp dụng')
+                            ->relationship('city', 'name')
+                            ->searchable()
+                            ->preload()
+                            ->placeholder('Tất cả khu vực'),
 
                         Forms\Components\TextInput::make('link_url')
                             ->label('Đường dẫn khi nhấn (tuỳ chọn)')
@@ -105,6 +118,12 @@ class BannerResource extends Resource
                     ->limit(40)
                     ->url(fn (Banner $record) => $record->link_url, true)
                     ->color('primary'),
+
+                Tables\Columns\TextColumn::make('city.name')
+                    ->label('Khu vực')
+                    ->placeholder('Tất cả khu vực')
+                    ->badge()
+                    ->color('gray'),
 
                 Tables\Columns\TextColumn::make('sort_order')
                     ->label('Thứ tự')
