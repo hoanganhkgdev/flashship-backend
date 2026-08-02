@@ -154,12 +154,12 @@ class DispatchService
             ->update(['dispatching_to_driver_id' => null, 'updated_at' => now()]);
 
         if ($order->offer_viewed_at) {
-            DriverScoreService::onDecline($driverId);
+            DriverScoreService::onViewedTimeout($driverId);
             // Có tương tác (đã xem) → reset chuỗi bỏ lỡ
             DB::table('users')->where('id', $driverId)
                 ->where('consecutive_missed_offers', '>', 0)
                 ->update(['consecutive_missed_offers' => 0]);
-            Log::info("⏱  [Dispatch] Đơn #{$order->id}: Tài xế {$name} xem đơn nhưng không nhận → -2 điểm, pop tiếp");
+            Log::info("⏱  [Dispatch] Đơn #{$order->id}: Tài xế {$name} xem đơn nhưng không nhận → -3 điểm, pop tiếp");
         } else {
             Log::info("⏱  [Dispatch] Đơn #{$order->id}: Tài xế {$name} không xem đơn → 0 điểm, pop tiếp");
             if ($driver) {
@@ -768,7 +768,28 @@ class DispatchService
 
         Log::debug("     [Candidates] Online/active: {$candidates->count()} | Bận: {$busyDriverIds->count()} | Đang nhận offer: {$receivingOfferIds->count()} | Đã hỏi: " . count($excludeIds));
 
-        $afterDebt = $candidates->filter(fn(User $d) => !$this->hasBlockedDebt($d));
+        // ── 2.5. Phải có ca đang đăng ký VÀ ca đó đang hiệu lực ngay lúc này —
+        // không đăng ký ca nào (hoặc ca không phủ giờ hiện tại) thì không được
+        // phát đơn, dù đang bật online. Không phạt gì — chỉ đơn giản không có
+        // mặt trong danh sách ứng viên.
+        $shiftsByDriver = DB::table('shift_user')
+            ->join('shifts', 'shifts.id', '=', 'shift_user.shift_id')
+            ->whereIn('shift_user.user_id', $candidates->pluck('id'))
+            ->where('shifts.is_active', true)
+            ->select('shift_user.user_id', 'shifts.start_time', 'shifts.end_time')
+            ->get()
+            ->groupBy('user_id');
+
+        $afterShift = $candidates->filter(function (User $d) use ($shiftsByDriver) {
+            return $shiftsByDriver->get($d->id, collect())->contains(
+                fn ($s) => (new \Modules\Core\Models\Shift(['start_time' => $s->start_time, 'end_time' => $s->end_time]))->isNowInShift()
+            );
+        });
+        if (($removed = $candidates->count() - $afterShift->count()) > 0) {
+            Log::debug("     [Candidates] Loại {$removed} tài xế do chưa đăng ký ca / ngoài giờ ca đã đăng ký");
+        }
+
+        $afterDebt = $afterShift->filter(fn(User $d) => !$this->hasBlockedDebt($d));
         if (($removed = $candidates->count() - $afterDebt->count()) > 0) {
             Log::debug("     [Candidates] Loại {$removed} tài xế do nợ quá hạn");
         }

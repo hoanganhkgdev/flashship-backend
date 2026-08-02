@@ -11,6 +11,7 @@ use Modules\Driver\Console\Commands\SyncDriverLocationCommand;
 use Modules\Driver\Console\Commands\WeeklyScoreCommand;
 use Modules\Driver\Console\Commands\ResetDailyOnlineCommand;
 use Modules\Driver\Console\Commands\PruneDriverLocationLogsCommand;
+use Modules\Driver\Console\Commands\ScoreShiftSessionsCommand;
 
 class DriverServiceProvider extends ModuleServiceProvider
 {
@@ -25,6 +26,7 @@ class DriverServiceProvider extends ModuleServiceProvider
         WeeklyScoreCommand::class,
         ResetDailyOnlineCommand::class,
         PruneDriverLocationLogsCommand::class,
+        ScoreShiftSessionsCommand::class,
     ];
 
     protected array $providers = [
@@ -44,5 +46,8 @@ class DriverServiceProvider extends ModuleServiceProvider
         $schedule->command('driver:mark-overdue-debts')->hourly();
         // Thứ Hai 00:05 — tạo phí tuần mới (sau weekly-score)
         $schedule->command('driver:generate-weekly-fees')->weeklyOn(1, '00:05');
+        // Mỗi 5 phút — dò ca vừa kết thúc (giờ khác nhau theo từng khu vực),
+        // chấm % thời gian online cuối ca — thay luật "8h/ngày" cũ.
+        $schedule->command('drivers:score-shift-sessions')->everyFiveMinutes();
     }
 }

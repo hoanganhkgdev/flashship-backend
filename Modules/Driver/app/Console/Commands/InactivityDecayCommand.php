@@ -5,18 +5,15 @@ use Carbon\Carbon;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Modules\Driver\Services\DriverScoreService;
 
 class InactivityDecayCommand extends Command
 {
     protected $signature   = 'drivers:daily-decay';
-    protected $description = 'Cuối ngày (23:59): xét online 6:30-23:59 có đủ 8h không, trừ điểm, reset time';
+    protected $description = 'Cuối ngày (23:59): reset bộ đếm giờ online hiển thị, force-offline tài xế bị khoá';
 
     public function handle(): void
     {
-        $today     = Carbon::today()->toDateString();
-        $yesterday = Carbon::yesterday()->toDateString();
-        $dayStart  = Carbon::today()->setTime(6, 30, 0);
+        $today = Carbon::today()->toDateString();
 
         // Force offline tài xế bị khoá nhưng vẫn online
         DB::table('users')
@@ -29,32 +26,15 @@ class InactivityDecayCommand extends Command
             ->where('user_type', 'driver')
             ->where('status', 1)
             ->whereDate('created_at', '<', $today)
-            ->select('id', 'driver_last_active_date', 'is_online', 'online_since',
-                     'daily_online_seconds', 'daily_online_date')
+            ->select('id', 'is_online')
             ->get();
 
-        $lowOnline   = 0;
-        $inactivity1 = 0;
-        $inactivity2 = 0;
-
         foreach ($drivers as $driver) {
-
-            // ── 1. Tính online time từ hôm qua 6:30 đến 00:00 ────────────────
-            $onlineSeconds = ($driver->daily_online_date === $today)
-                ? (int) ($driver->daily_online_seconds ?? 0)
-                : 0;
-
-            // Nếu đang online, cộng thêm session hiện tại (chỉ phần từ 6:30)
-            if ($driver->is_online && $driver->online_since) {
-                $onlineSince  = Carbon::parse($driver->online_since);
-                $sessionStart = $onlineSince->lt($dayStart) ? $dayStart : $onlineSince;
-                $onlineSeconds += (int) abs($sessionStart->diffInSeconds(now()));
-            }
-
-            $hadOnline = ($driver->daily_online_date === $today) || $driver->is_online;
-            $isLowOnline = $hadOnline && $onlineSeconds > 0 && $onlineSeconds < DriverScoreService::MIN_ONLINE_SECONDS;
-
-            // Reset time online — ca đêm 00:01-06:30 sẽ đếm riêng
+            // Reset bộ đếm giờ online hiển thị (DriverEarningsPage) — ca đêm
+            // 00:01-06:30 sẽ đếm riêng. Luật chấm điểm theo giờ online/không
+            // hoạt động đã chuyển hẳn sang ScoreShiftSessionsCommand (theo
+            // từng ca đăng ký, không còn theo mốc 23:59 cố định này nữa —
+            // không đăng ký ca đã coi là nghỉ, không phạt).
             DB::table('users')->where('id', $driver->id)->update([
                 'daily_online_seconds' => 0,
                 'daily_online_date'    => null,
@@ -65,28 +45,10 @@ class InactivityDecayCommand extends Command
                     'online_since' => now(),
                 ]);
             }
-
-            // ── 2. Phạt: chỉ 1 trong 2, không trùng ────────────────────────
-            $lastActive = $driver->driver_last_active_date;
-
-            if ($isLowOnline) {
-                // Có online nhưng < 8h → phạt online_time_low
-                DriverScoreService::onLowOnlineTime($driver->id);
-                $lowOnline++;
-            } elseif ($lastActive !== null && $lastActive !== $today) {
-                // Không online, không chạy đơn hôm nay → phạt inactive
-                if ($lastActive === $yesterday) {
-                    DriverScoreService::onInactivity($driver->id, 1);
-                    $inactivity1++;
-                } else {
-                    DriverScoreService::onInactivity($driver->id, 2);
-                    $inactivity2++;
-                }
-            }
         }
 
         $total = $drivers->count();
-        $this->info("[DailyDecay] {$total} tài xế | online<8h: {$lowOnline} | inactive1: {$inactivity1} | inactive2+: {$inactivity2}");
-        Log::info("[DailyDecay] lowOnline={$lowOnline} inactive1={$inactivity1} inactive2={$inactivity2} total={$total}");
+        $this->info("[DailyDecay] {$total} tài xế đã reset bộ đếm giờ online.");
+        Log::info("[DailyDecay] total={$total}");
     }
 }
