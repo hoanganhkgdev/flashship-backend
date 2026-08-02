@@ -165,7 +165,7 @@ class User extends Authenticatable implements FilamentUser, HasTenants, HasDefau
         return $this->hasMany(\Modules\Driver\Models\DriverDebt::class, 'driver_id');
     }
 
-    /** Các ca làm việc tài xế đang đăng ký (1-3 ca, khoá cố định tới khi được duyệt đổi). */
+    /** Các ca làm việc tài xế đang đăng ký (ít nhất 1 ca, khoá cố định tới khi được duyệt đổi). */
     public function registeredShifts()
     {
         return $this->belongsToMany(Shift::class, 'shift_user', 'user_id', 'shift_id');

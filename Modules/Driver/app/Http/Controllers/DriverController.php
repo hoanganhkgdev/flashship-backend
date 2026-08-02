@@ -438,11 +438,11 @@ class DriverController extends Controller
         ]);
     }
 
-    /** Validate mảng shift_id: 1-3 ca, đúng khu vực tài xế, không trùng giờ nhau. */
+    /** Validate mảng shift_id: ít nhất 1 ca, đúng khu vực tài xế, không trùng giờ nhau. */
     private function validateShiftSelection(Request $request, User $user): array
     {
         $data = $request->validate([
-            'shift_ids'   => 'required|array|min:1|max:3',
+            'shift_ids'   => 'required|array|min:1',
             'shift_ids.*' => 'integer|exists:shifts,id',
         ]);
 
