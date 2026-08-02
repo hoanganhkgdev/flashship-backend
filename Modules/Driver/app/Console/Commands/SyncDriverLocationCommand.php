@@ -6,6 +6,7 @@ use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Modules\Core\Services\RTDBService;
+use Modules\Driver\Models\DriverLocationLog;
 
 class SyncDriverLocationCommand extends Command
 {
@@ -72,6 +73,22 @@ class SyncDriverLocationCommand extends Command
 
             if (empty($update)) {
                 continue;
+            }
+
+            // Chỉ ghi log lịch sử khi toạ độ thực sự đổi so với lần trước, tránh
+            // phình bảng vì cron chạy mỗi 5s trong khi vị trí cũ vẫn còn "mới".
+            if (isset($update['latitude']) && (
+                $d->latitude === null
+                || round((float) $d->latitude, 6) !== round((float) $update['latitude'], 6)
+                || round((float) $d->longitude, 6) !== round((float) $update['longitude'], 6)
+            )) {
+                DriverLocationLog::create([
+                    'driver_id' => $d->id,
+                    'latitude'  => $update['latitude'],
+                    'longitude' => $update['longitude'],
+                    'bearing'   => $update['bearing'] ?? null,
+                    'source'    => 'sync',
+                ]);
             }
 
             DB::table('users')->where('id', $d->id)->update($update);

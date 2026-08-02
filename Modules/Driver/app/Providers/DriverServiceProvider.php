@@ -10,6 +10,7 @@ use Modules\Driver\Console\Commands\MarkOverdueDebtsCommand;
 use Modules\Driver\Console\Commands\SyncDriverLocationCommand;
 use Modules\Driver\Console\Commands\WeeklyScoreCommand;
 use Modules\Driver\Console\Commands\ResetDailyOnlineCommand;
+use Modules\Driver\Console\Commands\PruneDriverLocationLogsCommand;
 
 class DriverServiceProvider extends ModuleServiceProvider
 {
@@ -23,6 +24,7 @@ class DriverServiceProvider extends ModuleServiceProvider
         SyncDriverLocationCommand::class,
         WeeklyScoreCommand::class,
         ResetDailyOnlineCommand::class,
+        PruneDriverLocationLogsCommand::class,
     ];
 
     protected array $providers = [

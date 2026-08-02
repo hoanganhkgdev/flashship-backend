@@ -14,6 +14,7 @@ use Modules\Core\Services\RTDBService;
 use Modules\Driver\Models\Bank;
 use Modules\Driver\Models\DriverCccdImage;
 use Modules\Driver\Models\DriverLicense;
+use Modules\Driver\Models\DriverLocationLog;
 use Modules\Order\Models\Order;
 use Modules\Driver\Services\DriverScoreService;
 use Modules\Order\Models\OrderDispatchLog;
@@ -166,6 +167,14 @@ class DriverController extends Controller
             'longitude'        => $data['longitude'],
             'bearing'          => $data['bearing'] ?? $driver->bearing,
             'last_location_at' => now(),
+        ]);
+
+        DriverLocationLog::create([
+            'driver_id' => $driver->id,
+            'latitude'  => $data['latitude'],
+            'longitude' => $data['longitude'],
+            'bearing'   => $data['bearing'] ?? $driver->bearing,
+            'source'    => 'api',
         ]);
 
         RTDBService::updateDriverLocation($driver->id, [

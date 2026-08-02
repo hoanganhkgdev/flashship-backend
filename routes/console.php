@@ -14,3 +14,6 @@ Schedule::command('zalo:refresh-token')->hourly();
 // Sync GPS tài xế từ Firebase RTDB → MySQL mỗi 30 giây (cho dispatch Haversine)
 Schedule::command('driver:sync-location')->everyFiveSeconds();
 
+// Dọn log lịch sử GPS tài xế cũ hơn 30 ngày, tránh phình bảng
+Schedule::command('driver:prune-location-logs')->daily();
+
