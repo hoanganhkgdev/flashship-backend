@@ -25,4 +25,9 @@ class City extends Model
     {
         return $this->hasMany(\Modules\Order\Models\Order::class);
     }
+
+    public function shifts(): HasMany
+    {
+        return $this->hasMany(Shift::class);
+    }
 }
