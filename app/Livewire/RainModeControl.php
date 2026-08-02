@@ -16,7 +16,7 @@ use Modules\Core\Models\City;
  * ví lúc hoàn thành (xem OrderService::completeOrder(), rain_bonus_eligible
  * được chụp lại ngay lúc nhận đơn — không đổi theo trạng thái mưa hiện tại
  * nữa dù tắt/bật lại giữa chừng), đồng thời tạm miễn phạt điểm "lơ đơn" cho
- * thành phố đó (xem DispatchService::trackMissedOffer()).
+ * thành phố đó (xem ScoreShiftSessionsCommand — chấm % offer bỏ lỡ cuối ca).
  */
 class RainModeControl extends Component
 {

@@ -40,9 +40,6 @@
 <div class="rounded-xl bg-white dark:bg-gray-900 shadow-sm border border-gray-200 dark:border-gray-700 p-4 mb-4">
     <div class="flex items-center justify-between mb-3">
         <span class="font-semibold text-sm">Lực lượng tài xế lúc này</span>
-        @if($supply['miss_streak'] > 0)
-        <span class="text-xs font-semibold rounded-full px-2 py-0.5" style="background:#fef3c7;color:#b45309">{{ $supply['miss_streak'] }} người đang có chuỗi lỡ đơn</span>
-        @endif
     </div>
     <div class="grid grid-cols-3 md:grid-cols-6 gap-3 text-center">
         <div>

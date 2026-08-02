@@ -159,8 +159,7 @@ class OrderService
 
         \Illuminate\Support\Facades\Redis::del("dispatch:lock:driver:{$user->id}");
         DB::table('users')->where('id', $user->id)->update([
-            'last_order_accepted_at'    => now(),
-            'consecutive_missed_offers' => 0,
+            'last_order_accepted_at' => now(),
         ]);
 
         $orderId   = $order->id;
@@ -226,11 +225,6 @@ class OrderService
             ->update(['dispatching_to_driver_id' => null, 'updated_at' => now()]);
 
         DriverScoreService::onDecline($user->id);
-
-        // Từ chối chủ động = có tương tác → reset chuỗi offer bỏ lỡ
-        DB::table('users')->where('id', $user->id)
-            ->where('consecutive_missed_offers', '>', 0)
-            ->update(['consecutive_missed_offers' => 0]);
 
         RTDBService::clearDriverOffer($user->id);
 

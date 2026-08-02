@@ -105,13 +105,21 @@ class DriverScoreService
     }
 
     /**
-     * Trừ điểm khi tài xế bị hệ thống tự tắt online (bỏ lỡ offer) từ lần
-     * THỨ 2 trong ngày trở đi — lần đầu trong ngày chỉ tự tắt, không phạt,
-     * tránh phạt oan ai chỉ lỡ 1 lần ngẫu nhiên.
+     * Chấm điểm cuối ca dựa trên % offer KHÔNG mở xem / tổng offer nhận
+     * trong ca — thay cho luật "bỏ lỡ 2 lần liên tiếp → tự tắt + phạt" cũ
+     * (đã bỏ hẳn cơ chế tự tắt). Gọi từ ScoreShiftSessionsCommand, bỏ qua
+     * nếu thành phố đang bật chế độ trời mưa (xem RainModeControl).
      */
-    public static function onMissedOfferStreak(int $driverId): void
+    public static function onMissedOfferRate(int $driverId, float $missedPercent): void
     {
-        self::adjust($driverId, -3, 'missed_offer_streak');
+        [$delta, $reason] = match (true) {
+            $missedPercent > 0.60 => [-12, 'missed_offer_high'],
+            $missedPercent > 0.40 => [-7,  'missed_offer_mid'],
+            $missedPercent > 0.20 => [-3,  'missed_offer_low'],
+            default               => [0,   'missed_offer_neutral'],
+        };
+
+        self::adjust($driverId, $delta, $reason);
     }
 
     public static function onShiftViolation(int $driverId): void

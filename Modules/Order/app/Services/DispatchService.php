@@ -41,13 +41,6 @@ class DispatchService
     const BATCH_MAX_PICKUP_KM   = 1.0;
     const BATCH_MAX_DELIVERY_KM = 1.5;
 
-    // Bỏ lỡ (không xem) đủ 2 offer liên tiếp → tự tắt online. Lần đầu trong
-    // ngày chỉ tự tắt (không phạt điểm — có thể là lỡ ngẫu nhiên 1 lần), từ
-    // lần thứ 2 trong ngày trở đi mới trừ điểm — nhắm đúng nhóm lặp lại
-    // nhiều lần/ngày (treo app farm giờ online mà né đơn), không phạt oan
-    // người chỉ gặp 1 cụm lỡ đơn hiếm hoi.
-    const MISSED_OFFERS_AUTO_OFFLINE_THRESHOLD = 2;
-
     // Chặn A — chỉ coi vị trí tài xế là đáng tin nếu đã được xác nhận mới
     // KỂ TỪ KHI bật online phiên này. App gửi /update-location mỗi 30s vô
     // điều kiện (không phụ thuộc di chuyển) nên tài xế đứng yên lâu vẫn được
@@ -155,121 +148,14 @@ class DispatchService
 
         if ($order->offer_viewed_at) {
             DriverScoreService::onViewedTimeout($driverId);
-            // Có tương tác (đã xem) → reset chuỗi bỏ lỡ
-            DB::table('users')->where('id', $driverId)
-                ->where('consecutive_missed_offers', '>', 0)
-                ->update(['consecutive_missed_offers' => 0]);
             Log::info("⏱  [Dispatch] Đơn #{$order->id}: Tài xế {$name} xem đơn nhưng không nhận → -3 điểm, pop tiếp");
         } else {
-            Log::info("⏱  [Dispatch] Đơn #{$order->id}: Tài xế {$name} không xem đơn → 0 điểm, pop tiếp");
-            if ($driver) {
-                $this->trackMissedOffer($driver);
-            }
+            Log::info("⏱  [Dispatch] Đơn #{$order->id}: Tài xế {$name} không xem đơn → 0 điểm ngay, tính vào % bỏ lỡ cuối ca");
         }
 
         RTDBService::clearDriverOffer($driverId);
 
         $this->sendToNextDriver($order->fresh());
-    }
-
-    /**
-     * Đếm offer bỏ lỡ liên tiếp (không xem) — đủ ngưỡng tự tắt online.
-     * Chặn chiêu treo app tích giờ online mà né đơn: lần đầu trong ngày chỉ
-     * tự tắt (không phạt — có thể lỡ ngẫu nhiên), từ lần thứ 2 trong ngày trở
-     * đi mới trừ điểm — nhắm đúng người lặp lại nhiều lần/ngày. Không đếm khi
-     * đang có đơn active (đang chạy giao ngoài đường không thể bấm điện thoại
-     * — lỡ đơn ghép là chính đáng).
-     */
-    private function trackMissedOffer(User $driver): void
-    {
-        $hasActive = Order::where('delivery_man_id', $driver->id)
-            ->whereIn('status', ['assigned', 'processing', 'on_the_way'])
-            ->exists();
-        if ($hasActive) {
-            return;
-        }
-
-        $missed = (int) DB::table('users')->where('id', $driver->id)->value('consecutive_missed_offers') + 1;
-        DB::table('users')->where('id', $driver->id)->update(['consecutive_missed_offers' => $missed]);
-
-        if ($missed < self::MISSED_OFFERS_AUTO_OFFLINE_THRESHOLD) {
-            if ($missed === 1 && $driver->fcm_token) {
-                FCMService::getInstance()->sendDriverNotice(
-                    $driver->fcm_token,
-                    '⚠️ Bạn vừa bỏ lỡ 1 đơn',
-                    'Bỏ lỡ thêm 1 đơn nữa sẽ bị tạm tắt nhận đơn. Mở app để sẵn sàng nhận đơn nhé!',
-                    ['type' => 'missed_offers_warning'],
-                );
-            }
-            return;
-        }
-
-        // ── Đủ ngưỡng: tự tắt online ──────────────────────────────────────────
-        // Từ lần thứ 2 trong ngày trở đi mới trừ điểm (-3/lần) — lazy-reset bộ
-        // đếm theo ngày giống pattern daily_online_seconds/daily_online_date.
-        $today             = now()->toDateString();
-        $offlineCountToday = ($driver->missed_offer_offline_date === $today)
-            ? (int) ($driver->missed_offer_offline_count ?? 0)
-            : 0;
-        $offlineCountToday++;
-
-        DB::table('users')->where('id', $driver->id)->update([
-            'missed_offer_offline_count' => $offlineCountToday,
-            'missed_offer_offline_date'  => $today,
-        ]);
-
-        if ($offlineCountToday >= 2) {
-            // Đang bật chế độ trời mưa cho thành phố này → bỏ qua phạt điểm,
-            // lơ đơn lúc mưa to nhiều khả năng là chính đáng (đường ngập,
-            // nguy hiểm), không phải né đơn. Vẫn tự tắt online như thường —
-            // chỉ miễn phần trừ điểm.
-            $isRaining = \Modules\Core\Models\City::where('id', $driver->city_id)->value('is_rain_mode');
-            if ($isRaining) {
-                Log::info("[Dispatch] Tài xế #{$driver->id} {$driver->name} tự tắt online lần {$offlineCountToday} trong ngày — bỏ qua phạt điểm do thành phố đang bật chế độ trời mưa");
-            } else {
-                DriverScoreService::onMissedOfferStreak($driver->id);
-                Log::warning("[Dispatch] Tài xế #{$driver->id} {$driver->name} bị tự tắt online lần {$offlineCountToday} trong ngày → -3 điểm");
-            }
-        }
-
-        // Tích lũy giờ online của phiên hiện tại (cùng logic với toggleOnline,
-        // chỉ tính phần nằm trong cửa sổ [6:30, now]).
-        $now    = now();
-        $update = [
-            'is_online'                 => false,
-            'online_since'              => null,
-            'consecutive_missed_offers' => 0,
-        ];
-
-        if ($driver->online_since) {
-            $windowStart = User::onlineWindowStart($now);
-            $onlineSince = Carbon::parse($driver->online_since);
-            $sessionSeconds = 0;
-            if ($now->greaterThan($windowStart)) {
-                $sessionStart   = $onlineSince->greaterThan($windowStart) ? $onlineSince : $windowStart;
-                $sessionSeconds = (int) max(0, $sessionStart->diffInSeconds($now, false));
-            }
-            $existing = ($driver->daily_online_date === $now->toDateString())
-                ? (int) ($driver->daily_online_seconds ?? 0)
-                : 0;
-            $update['daily_online_seconds'] = $existing + $sessionSeconds;
-            $update['daily_online_date']    = $now->toDateString();
-        }
-
-        DB::table('users')->where('id', $driver->id)->update($update);
-
-        RTDBService::setDriverOnlineStatus($driver->id, false);
-
-        if ($driver->fcm_token) {
-            FCMService::getInstance()->sendDriverNotice(
-                $driver->fcm_token,
-                'Bạn đã bị tạm tắt nhận đơn',
-                'Bạn bỏ lỡ 2 đơn liên tiếp nên hệ thống tạm tắt online. Mở app và bật lại khi sẵn sàng chạy.',
-                ['type' => 'auto_offline_missed'],
-            );
-        }
-
-        Log::warning("[Dispatch] Tài xế #{$driver->id} {$driver->name} bỏ lỡ " . self::MISSED_OFFERS_AUTO_OFFLINE_THRESHOLD . " offer liên tiếp → tự tắt online");
     }
 
     public function handleAccepted(Order $order, User $driver): void
@@ -655,8 +541,7 @@ class DispatchService
 
         Redis::del("dispatch:lock:driver:{$driver->id}");
         DB::table('users')->where('id', $driver->id)->update([
-            'last_order_accepted_at'    => $now,
-            'consecutive_missed_offers' => 0,
+            'last_order_accepted_at' => $now,
         ]);
 
         // RTDB + FCM đồng bộ khách hàng — giống hệt luồng accept bình thường

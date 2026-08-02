@@ -97,7 +97,7 @@ class DispatchMonitorPage extends Page
             ->where('status', 1)
             ->where('is_online', true)
             ->when($cityId, fn ($q) => $q->where('city_id', $cityId))
-            ->get(['id', 'last_heartbeat_at', 'consecutive_missed_offers']);
+            ->get(['id', 'last_heartbeat_at']);
 
         $ids = $drivers->pluck('id');
 
@@ -118,13 +118,11 @@ class DispatchMonitorPage extends Page
         $hbCutoff = now()->subMinutes(10);
 
         $online = $drivers->count();
-        $dead = $busy1 = $busy2 = $holding = $ready = $missStreak = 0;
+        $dead = $busy1 = $busy2 = $holding = $ready = 0;
 
         foreach ($drivers as $d) {
             $hbDead = $d->last_heartbeat_at && Carbon::parse($d->last_heartbeat_at)->lt($hbCutoff);
             $active = (int) ($activeCounts[$d->id] ?? 0);
-
-            if ($d->consecutive_missed_offers > 0) $missStreak++;
 
             if ($hbDead)                        { $dead++; continue; }
             if ($active >= 2)                   { $busy2++; continue; }
@@ -140,7 +138,6 @@ class DispatchMonitorPage extends Page
             'busy2'       => $busy2,
             'holding'     => $holding,
             'dead'        => $dead,
-            'miss_streak' => $missStreak,
         ];
     }
 

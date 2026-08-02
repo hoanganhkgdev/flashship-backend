@@ -70,11 +70,6 @@ class OrderController extends Controller
             return response()->json(['success' => false], 200);
         }
 
-        // Có tương tác → reset chuỗi offer bỏ lỡ liên tiếp
-        DB::table('users')->where('id', $driver->id)
-            ->where('consecutive_missed_offers', '>', 0)
-            ->update(['consecutive_missed_offers' => 0]);
-
         // Đặt offer_viewed_at để callkit-timeout job biết driver đã mở app
         if ($order->offer_viewed_at === null) {
             $expiresAt = now()->addSeconds(DispatchService::APP_DECISION_SECS);

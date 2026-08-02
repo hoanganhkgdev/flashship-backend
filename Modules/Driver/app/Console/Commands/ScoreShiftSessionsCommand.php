@@ -3,6 +3,7 @@ namespace Modules\Driver\Console\Commands;
 
 use Carbon\Carbon;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Modules\Core\Models\Shift;
 use Modules\Driver\Models\DriverScoreLog;
@@ -12,9 +13,12 @@ use Modules\Driver\Services\DriverScoreService;
 class ScoreShiftSessionsCommand extends Command
 {
     protected $signature   = 'drivers:score-shift-sessions';
-    protected $description = 'Chấm điểm % thời gian online cuối mỗi ca vừa kết thúc (thay luật 8h/ngày cũ)';
+    protected $description = 'Chấm điểm % thời gian online + % offer bỏ lỡ cuối mỗi ca vừa kết thúc';
 
-    private const SCORE_REASONS = ['shift_online_high', 'shift_online_neutral', 'shift_online_mid', 'shift_online_low', 'shift_violation'];
+    private const SCORE_REASONS = [
+        'shift_online_high', 'shift_online_neutral', 'shift_online_mid', 'shift_online_low', 'shift_violation',
+        'missed_offer_neutral', 'missed_offer_low', 'missed_offer_mid', 'missed_offer_high',
+    ];
 
     public function handle(): void
     {
@@ -35,6 +39,7 @@ class ScoreShiftSessionsCommand extends Command
                 }
 
                 $this->scoreDriverShift($driverId, $start, $end);
+                $this->scoreDriverMissedOffers($driverId, $start, $end);
                 $scored++;
             }
         }
@@ -112,5 +117,39 @@ class ScoreShiftSessionsCommand extends Command
         $shiftDuration = max(1, $start->diffInSeconds($end));
         $percent       = min(1.0, $onlineSeconds / $shiftDuration);
         DriverScoreService::onShiftOnlineRate($driverId, $percent);
+    }
+
+    /**
+     * % offer KHÔNG mở xem / tổng offer nhận trong ca — thay luật "bỏ lỡ 2
+     * lần liên tiếp → tự tắt + phạt" cũ. Không có offer nào trong ca (mẫu
+     * số = 0) thì không đủ căn cứ để chấm, bỏ qua hoàn toàn.
+     */
+    private function scoreDriverMissedOffers(int $driverId, Carbon $start, Carbon $end): void
+    {
+        $offers = DB::table('order_dispatch_logs')
+            ->where('driver_id', $driverId)
+            ->where('offered_at', '>=', $start)
+            ->where('offered_at', '<', $end)
+            ->get(['viewed_at']);
+
+        if ($offers->isEmpty()) {
+            return;
+        }
+
+        $missedPercent = $offers->whereNull('viewed_at')->count() / $offers->count();
+
+        if ($missedPercent > 0 && $this->isCityRaining($driverId)) {
+            // Lỡ đơn lúc mưa to nhiều khả năng chính đáng (đường ngập, nguy
+            // hiểm), không phải né đơn — miễn chấm hoàn toàn, giống cơ chế cũ.
+            return;
+        }
+
+        DriverScoreService::onMissedOfferRate($driverId, $missedPercent);
+    }
+
+    private function isCityRaining(int $driverId): bool
+    {
+        $cityId = DB::table('users')->where('id', $driverId)->value('city_id');
+        return (bool) DB::table('cities')->where('id', $cityId)->value('is_rain_mode');
     }
 }

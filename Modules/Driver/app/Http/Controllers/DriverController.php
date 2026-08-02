@@ -132,9 +132,8 @@ class DriverController extends Controller
 
         if ($user->is_online) {
             // Heartbeat khởi điểm để được phát đơn ngay (cron sync 30s sẽ cập nhật
-            // tiếp từ Firebase) + reset chuỗi offer bỏ lỡ của phiên trước.
-            $user->last_heartbeat_at         = now();
-            $user->consecutive_missed_offers = 0;
+            // tiếp từ Firebase).
+            $user->last_heartbeat_at = now();
         }
 
         // Bật online sang ngày mới → reset bộ đếm giờ online tích luỹ của hôm trước
