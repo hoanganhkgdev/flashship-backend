@@ -72,8 +72,8 @@ class DriverShiftChangeRequestResource extends Resource
 
                 Tables\Columns\TextColumn::make('shift_ids')
                     ->label('Ca yêu cầu')
-                    ->formatStateUsing(fn ($state) => static::shiftNames(
-                        is_array($state) ? $state : (json_decode((string) $state, true) ?? [])
+                    ->getStateUsing(fn (DriverShiftChangeRequest $record) => static::shiftNames(
+                        is_array($record->shift_ids) ? $record->shift_ids : (json_decode((string) $record->shift_ids, true) ?? [])
                     ))
                     ->wrap(),
 
