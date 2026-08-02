@@ -84,15 +84,6 @@ class DriverController extends Controller
             }
         }
 
-        // Vi phạm ca: tắt online giữa ca đã đăng ký → phạt nặng
-        if ($user->is_online && $user->shift_id) {
-            $shift = \Modules\Core\Models\Shift::find($user->shift_id);
-            if ($shift && $shift->is_active && $shift->isNowInShift()) {
-                DriverScoreService::onShiftViolation($user->id);
-                \Log::warning("[Shift] #{$user->id} tắt online giữa {$shift->name} → -15 điểm");
-            }
-        }
-
         // Tích lũy thời gian online khi chuyển sang offline
         \Log::info("[Toggle] #{$user->id} PRE: is_online={$user->is_online} online_since={$user->online_since} daily_online_seconds={$user->daily_online_seconds}");
         if ($user->is_online && $user->online_since) {
@@ -121,6 +112,22 @@ class DriverController extends Controller
 
         $user->is_online   = !$user->is_online;
         $user->online_since = $user->is_online ? now() : null;
+
+        // Ghi log phiên online/offline — dùng để tính % online trong ca ở lệnh
+        // drivers:score-shift-sessions cuối mỗi ca (thay cho luật "8h/ngày" cũ,
+        // và thay cho phạt -15 real-time khi tắt giữa ca — giờ chỉ phạt nếu
+        // tắt hẳn không bật lại tới hết ca, đánh giá ở cuối ca).
+        if ($user->is_online) {
+            \Modules\Driver\Models\DriverShiftSession::create([
+                'driver_id'  => $user->id,
+                'started_at' => now(),
+            ]);
+        } else {
+            \Modules\Driver\Models\DriverShiftSession::where('driver_id', $user->id)
+                ->whereNull('ended_at')
+                ->latest('started_at')
+                ->first()?->update(['ended_at' => now()]);
+        }
 
         if ($user->is_online) {
             // Heartbeat khởi điểm để được phát đơn ngay (cron sync 30s sẽ cập nhật
@@ -417,24 +424,111 @@ class DriverController extends Controller
             ->get(['id', 'code', 'name', 'start_time', 'end_time']);
 
         return response()->json([
-            'success'        => true,
-            'data'           => $shifts,
-            'current_shift_id' => $user->shift_id,
+            'success'           => true,
+            'data'              => $shifts,
+            'current_shift_ids' => $user->registeredShifts()->pluck('shifts.id'),
         ]);
+    }
+
+    /** Validate mảng shift_id: 1-3 ca, đúng khu vực tài xế, không trùng giờ nhau. */
+    private function validateShiftSelection(Request $request, User $user): array
+    {
+        $data = $request->validate([
+            'shift_ids'   => 'required|array|min:1|max:3',
+            'shift_ids.*' => 'integer|exists:shifts,id',
+        ]);
+
+        $shifts = \Modules\Core\Models\Shift::whereIn('id', $data['shift_ids'])->get();
+
+        if ($shifts->contains(fn ($s) => (int) $s->city_id !== (int) $user->city_id)) {
+            abort(response()->json([
+                'success' => false,
+                'message' => 'Có ca không thuộc khu vực của bạn',
+            ], 422));
+        }
+
+        // So le từng cặp — coi khung giờ là nửa-mở [start, end), 2 ca sát nhau
+        // (giờ kết thúc ca này = giờ bắt đầu ca kia) KHÔNG tính là trùng.
+        foreach ($shifts as $i => $a) {
+            $aStart = \Carbon\Carbon::parse($a->start_time);
+            $aEnd   = \Carbon\Carbon::parse($a->end_time)->lessThanOrEqualTo($aStart) ? \Carbon\Carbon::parse($a->end_time)->addDay() : \Carbon\Carbon::parse($a->end_time);
+
+            foreach ($shifts as $j => $b) {
+                if ($i >= $j) continue;
+                $bStart = \Carbon\Carbon::parse($b->start_time);
+                $bEnd   = \Carbon\Carbon::parse($b->end_time)->lessThanOrEqualTo($bStart) ? \Carbon\Carbon::parse($b->end_time)->addDay() : \Carbon\Carbon::parse($b->end_time);
+
+                if ($aStart->lessThan($bEnd) && $bStart->lessThan($aEnd)) {
+                    abort(response()->json([
+                        'success' => false,
+                        'message' => "Ca \"{$a->name}\" và \"{$b->name}\" bị trùng giờ nhau",
+                    ], 422));
+                }
+            }
+        }
+
+        return $data['shift_ids'];
     }
 
     public function selectShift(Request $request): JsonResponse
     {
-        $data = $request->validate([
-            'shift_id' => 'nullable|exists:shifts,id',
-        ]);
-
         $user = $request->user();
-        $user->update(['shift_id' => $data['shift_id'] ?? null]);
+
+        if ($user->registeredShifts()->exists()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Bạn đã đăng ký ca rồi. Muốn đổi ca vui lòng gửi yêu cầu để admin duyệt.',
+                'code'    => 'already_registered',
+            ], 422);
+        }
+
+        $shiftIds = $this->validateShiftSelection($request, $user);
+
+        $user->registeredShifts()->sync($shiftIds);
 
         return response()->json([
             'success' => true,
-            'message' => $data['shift_id'] ? 'Đã đăng ký ca làm việc' : 'Đã huỷ đăng ký ca',
+            'message' => 'Đã đăng ký ca làm việc',
+        ]);
+    }
+
+    public function submitShiftChangeRequest(Request $request): JsonResponse
+    {
+        $user = $request->user();
+
+        $pending = \Modules\Driver\Models\DriverShiftChangeRequest::where('driver_id', $user->id)
+            ->where('status', 'pending')->exists();
+        if ($pending) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Bạn đang có 1 yêu cầu đổi ca chờ duyệt, vui lòng đợi xử lý xong.',
+            ], 422);
+        }
+
+        $shiftIds = $this->validateShiftSelection($request, $user);
+
+        \Modules\Driver\Models\DriverShiftChangeRequest::create([
+            'driver_id' => $user->id,
+            'shift_ids' => $shiftIds,
+            'status'    => 'pending',
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Đã gửi yêu cầu đổi ca, chờ admin duyệt',
+        ]);
+    }
+
+    public function shiftChangeRequestStatus(Request $request): JsonResponse
+    {
+        $user = $request->user();
+
+        $latest = \Modules\Driver\Models\DriverShiftChangeRequest::where('driver_id', $user->id)
+            ->latest()->first();
+
+        return response()->json([
+            'success' => true,
+            'data'    => $latest,
         ]);
     }
 

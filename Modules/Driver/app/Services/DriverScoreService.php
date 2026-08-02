@@ -12,6 +12,7 @@ class DriverScoreService
     const MAX_SCORE            = 150;
 
     const SCORE_DECLINE        = -2;
+    const SCORE_VIEWED_TIMEOUT = -3;
 
     const RATING_DELTAS        = [5 => 1, 4 => 0, 3 => -1, 2 => -3, 1 => -5];
 
@@ -19,8 +20,6 @@ class DriverScoreService
     const STREAK_RESET_AT      = 10;
 
     const DAILY_BONUS_CAP      = 10;
-
-    const MIN_ONLINE_SECONDS   = 8 * 3600;
 
     const WEEKLY_BONUS_SCORE   = 150;
     const WEEKLY_PENALTY_SCORE = 70;
@@ -68,6 +67,16 @@ class DriverScoreService
         self::adjustWithStreakReset($driverId, self::SCORE_DECLINE, 'decline');
     }
 
+    /**
+     * Đã mở xem đơn nhưng để hết giờ không bấm gì — nặng hơn từ chối chủ động
+     * (-2) vì đã đọc được thông tin đơn nên để trôi là né có chủ ý, vừa thiếu
+     * minh bạch vừa tốn trọn thời gian chờ quyết định của khách.
+     */
+    public static function onViewedTimeout(int $driverId): void
+    {
+        self::adjustWithStreakReset($driverId, self::SCORE_VIEWED_TIMEOUT, 'viewed_timeout');
+    }
+
     public static function onRated(int $driverId, int $stars): void
     {
         $delta = self::RATING_DELTAS[$stars] ?? 0;
@@ -76,15 +85,23 @@ class DriverScoreService
         }
     }
 
-    public static function onInactivity(int $driverId, int $days): void
+    /**
+     * Chấm điểm cuối ca dựa trên % thời gian online / tổng thời lượng ca —
+     * thay cho luật "8h/ngày" cũ VÀ luật "không hoạt động cả ngày" cũ
+     * (onInactivity, đã bỏ — dư thừa vì không đăng ký ca đã coi là nghỉ
+     * không phạt, có đăng ký mà 0% đã bị tier <50% xử lý nặng hơn mức cũ).
+     * Gọi từ ScoreShiftSessionsCommand.
+     */
+    public static function onShiftOnlineRate(int $driverId, float $percent): void
     {
-        $delta = $days >= 2 ? -10 : -5;
-        self::adjust($driverId, $delta, "inactive_{$days}_day");
-    }
+        [$delta, $reason] = match (true) {
+            $percent >= 0.90 => [3, 'shift_online_high'],
+            $percent >= 0.70 => [0, 'shift_online_neutral'],
+            $percent >= 0.50 => [-5, 'shift_online_mid'],
+            default          => [-10, 'shift_online_low'],
+        };
 
-    public static function onLowOnlineTime(int $driverId): void
-    {
-        self::adjust($driverId, -5, 'online_time_low');
+        self::adjust($driverId, $delta, $reason);
     }
 
     /**

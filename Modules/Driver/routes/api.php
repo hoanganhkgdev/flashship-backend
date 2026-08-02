@@ -29,6 +29,8 @@ Route::middleware(['auth:sanctum', 'driver.active'])->group(function () {
         Route::get('/bank-lists',                   [DriverController::class, 'bankLists']);
         Route::get('/shifts',                        [DriverController::class, 'shifts']);
         Route::post('/shifts/select',                 [DriverController::class, 'selectShift']);
+        Route::post('/shifts/change-request',          [DriverController::class, 'submitShiftChangeRequest']);
+        Route::get('/shifts/change-request/status',   [DriverController::class, 'shiftChangeRequestStatus']);
         Route::get('/cities',                        [DriverController::class, 'cities']);
         Route::post('/delete-account/request',       [DriverController::class, 'requestDeleteAccount']);
         Route::post('/delete-account/cancel',        [DriverController::class, 'cancelDeleteAccount']);

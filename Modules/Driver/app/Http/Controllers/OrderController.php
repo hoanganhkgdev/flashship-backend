@@ -84,6 +84,15 @@ class OrderController extends Controller
                 'updated_at'      => now(),
             ]);
 
+            // Ghi thêm vào đúng dòng log offer này (khác cột chung ở trên) —
+            // hạ tầng tính % offer bị bỏ lỡ (không mở xem) mỗi ca sau này.
+            DB::table('order_dispatch_logs')
+                ->where('order_id', $order->id)
+                ->where('driver_id', $driver->id)
+                ->where('result', 'pending')
+                ->whereNull('viewed_at')
+                ->update(['viewed_at' => now()]);
+
             // Reset đồng hồ RTDB về APP_DECISION_SECS — giống ShopeeFood
             RTDBService::updateDriverOfferExpiry($driver->id, $expiresAt->timestamp);
 
