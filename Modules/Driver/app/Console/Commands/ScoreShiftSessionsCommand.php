@@ -38,7 +38,14 @@ class ScoreShiftSessionsCommand extends Command
                     continue;
                 }
 
-                $this->scoreDriverShift($driverId, $start, $end);
+                // TẠM DỪNG (2026-08-03): đợt backfill an toàn đăng ký MỌI tài xế
+                // vào TẤT CẢ ca của khu vực (kể cả ca họ không thật sự làm) để
+                // tránh chặn phát đơn ngay lúc deploy — hệ quả phụ là chấm %
+                // online theo ca sai be bét cho các ca "ảo" đó. Tắt riêng phần
+                // "Có mặt", GIỮ NGUYÊN "Phản hồi" (% bỏ lỡ, không liên quan lỗi
+                // này vì chỉ tính trên offer THẬT NHẬN được). Bật lại sau khi
+                // app Flutter release và tài xế tự chỉnh đúng ca của mình.
+                // $this->scoreDriverShift($driverId, $start, $end);
                 $this->scoreDriverMissedOffers($driverId, $start, $end);
                 $scored++;
             }
