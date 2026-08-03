@@ -2,7 +2,6 @@
 namespace Modules\Core\Services;
 
 use Illuminate\Support\Facades\Log;
-use Kreait\Firebase\Exception\Messaging\AuthenticationError;
 use Kreait\Firebase\Factory;
 use Kreait\Firebase\Messaging\CloudMessage;
 use Kreait\Firebase\Messaging\Notification;
@@ -33,6 +32,32 @@ class FCMService
     private static function resetInstance(): void
     {
         self::$instance = new self();
+    }
+
+    /**
+     * Lỗi FCM hay gặp không phải do sai key (đã xác nhận key hợp lệ) mà do
+     * mạng VPS chập chờn thoáng qua tới Google (cùng loại lỗi cURL cũng thấy
+     * ở đọc RTDB) — bước lấy OAuth2 token thất bại ngắt quãng khiến request
+     * gửi đi thiếu hẳn header xác thực (401 "missing credential"). Thử lại
+     * tối đa 3 lần, mỗi lần cách nhau dài hơn, tạo lại instance (token mới)
+     * ở các lần thử sau — đủ để vượt qua hầu hết đợt chập chờn ngắn.
+     */
+    private function sendWithRetry(\Closure $fn): mixed
+    {
+        $delaysMs = [0, 300, 800];
+        $last = null;
+        foreach ($delaysMs as $i => $delayMs) {
+            if ($i > 0) {
+                usleep($delayMs * 1000);
+                self::resetInstance();
+            }
+            try {
+                return $fn(self::$instance);
+            } catch (\Throwable $e) {
+                $last = $e;
+            }
+        }
+        throw $last;
     }
 
     /**
@@ -81,11 +106,7 @@ class FCMService
                         'content-available' => 1,
                     ]],
                 ]));
-            try {
-                $this->messaging->send($message);
-            } catch (AuthenticationError $e) {
-                self::resetInstance(); self::$instance->messaging->send($message);
-            }
+            $this->sendWithRetry(fn (self $fcm) => $fcm->messaging->send($message));
         } catch (\Throwable $e) {
             Log::error('[FCM] sendDriverWakeUp failed: ' . $e->getMessage());
         }
@@ -197,11 +218,7 @@ class FCMService
                         ->withApnsConfig($apns),
                     $batch
                 );
-                try {
-                    $report = $this->messaging->sendAll($messages);
-                } catch (AuthenticationError $e) {
-                    $report = self::resetInstance(); self::$instance->messaging->sendAll($messages);
-                }
+                $report = $this->sendWithRetry(fn (self $fcm) => $fcm->messaging->sendAll($messages));
                 $sent   += $report->successes()->count();
                 $failed += $report->failures()->count();
             } catch (\Throwable $e) {
@@ -278,11 +295,7 @@ class FCMService
                     ])
                 );
 
-            try {
-                $this->messaging->send($message);
-            } catch (AuthenticationError $e) {
-                self::resetInstance(); self::$instance->messaging->send($message);
-            }
+            $this->sendWithRetry(fn (self $fcm) => $fcm->messaging->send($message));
         } catch (\Throwable $e) {
             $prev = $e->getPrevious();
             Log::error('[FCM] Send failed: ' . $e->getMessage(), [
