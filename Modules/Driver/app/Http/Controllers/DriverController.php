@@ -159,6 +159,22 @@ class DriverController extends Controller
         ]);
     }
 
+    /**
+     * Endpoint này KHÔNG còn được dùng làm nguồn toạ độ chính thức — app gửi
+     * cố định mỗi 30s bằng _lastLat/_lastLng lưu trong bộ nhớ, không đọc GPS
+     * mới, nên nếu stream GPS phía app bị hệ điều hành đóng băng (Android
+     * Doze/tiết kiệm pin khi khoá màn hình) thì endpoint này cứ gửi lặp lại
+     * đúng 1 toạ độ cũ mỗi 30s mãi mãi. Trước đây điều này ghi đè lên cả
+     * users.latitude/longitude lẫn Firebase RTDB (kèm bump "updated_at"),
+     * khiến dữ liệu cũ trông "vừa mới cập nhật" và qua mặt luôn bộ lọc
+     * khoảng cách khi phát đơn (xem vụ đơn #12117 — tài xế cách thật ~5.8km
+     * nhưng hệ thống tin nhầm 3.27km, lọt qua trần 4km).
+     *
+     * Nguồn toạ độ chính thức giờ là Firebase RTDB — ghi trực tiếp từ
+     * LocationService (stream GPS thật, chỉ bắn khi di chuyển ≥10m) — được
+     * đồng bộ vào MySQL qua SyncDriverLocationCommand mỗi 5s. Endpoint này
+     * chỉ còn giữ lại để không phá app cũ đang gọi, và lưu log đối chiếu.
+     */
     public function updateLocation(Request $request): JsonResponse
     {
         $data = $request->validate([
@@ -168,12 +184,6 @@ class DriverController extends Controller
         ]);
 
         $driver = $request->user();
-        $driver->update([
-            'latitude'         => $data['latitude'],
-            'longitude'        => $data['longitude'],
-            'bearing'          => $data['bearing'] ?? $driver->bearing,
-            'last_location_at' => now(),
-        ]);
 
         DriverLocationLog::create([
             'driver_id' => $driver->id,
@@ -181,16 +191,6 @@ class DriverController extends Controller
             'longitude' => $data['longitude'],
             'bearing'   => $data['bearing'] ?? $driver->bearing,
             'source'    => 'api',
-        ]);
-
-        RTDBService::updateDriverLocation($driver->id, [
-            'lat'          => (float) $data['latitude'],
-            'lng'          => (float) $data['longitude'],
-            'bearing'      => isset($data['bearing']) ? (float) $data['bearing'] : null,
-            'city_id'      => $driver->city_id,
-            'name'         => $driver->name,
-            'phone'        => $driver->phone,
-            'driver_score' => (int) ($driver->driver_score ?? 100),
         ]);
 
         return response()->json(['success' => true]);
