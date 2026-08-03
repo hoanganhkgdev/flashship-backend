@@ -40,10 +40,18 @@ class FCMService
      */
     public function sendDriverWakeUp(string $fcmToken, int $orderId, string $orderCode = '', string $pickupAddress = '', ?int $expiresAt = null): void
     {
-        // Data-only message: Flutter background handler tạo notification
-        // → chỉ 1 notification duy nhất, không bị duplicate từ FCM system
+        // Kèm "notification" (không chỉ "data" như trước) — nếu app bị hệ
+        // điều hành kill nền (hay gặp trên Xiaomi/Oppo/Vivo ở VN), OS tự hiển
+        // thị thông báo thẳng từ hệ thống, không cần chờ code Dart chạy (mà
+        // trước đây KHÔNG có gì đảm bảo sẽ chạy — tài xế mất đơn trong im
+        // lặng, rồi bị tính vào % bỏ lỡ oan vì thật ra chưa từng thấy đơn).
+        // App đang mở/nền nhẹ thì hành vi không đổi: OS giao thẳng cho
+        // onMessage/onBackgroundMessage xử lý như cũ, không tự hiển thị gì
+        // thêm nên không bị trùng 2 thông báo. channel_id trỏ đúng kênh đã
+        // tạo sẵn trong app (kèm chuông/rung riêng) để OS tự hiển thị đúng.
         try {
             $message = CloudMessage::withTarget('token', $fcmToken)
+                ->withNotification(Notification::create('Có đơn hàng mới!', 'Nhấn để xem và nhận đơn hàng'))
                 ->withData([
                     'type'       => 'order_offer',
                     'order_id'   => (string) $orderId,
@@ -52,15 +60,24 @@ class FCMService
                     'expires_at' => (string) ($expiresAt ?? (time() + 25)),
                 ])
                 ->withAndroidConfig(AndroidConfig::fromArray([
-                    'priority' => 'high',
-                    'ttl'      => '25s',
+                    'priority'     => 'high',
+                    'ttl'          => '25s',
+                    'notification' => [
+                        'channel_id' => 'order_offer_channel',
+                        'sound'      => 'order_offer',
+                    ],
                 ]))
                 ->withApnsConfig(ApnsConfig::fromArray([
                     'headers' => [
                         'apns-priority'  => '10',
-                        'apns-push-type' => 'background',
+                        'apns-push-type' => 'alert',
                     ],
                     'payload' => ['aps' => [
+                        'alert' => [
+                            'title' => 'Có đơn hàng mới!',
+                            'body'  => 'Nhấn để xem và nhận đơn hàng',
+                        ],
+                        'sound'             => 'order_offer.aiff',
                         'content-available' => 1,
                     ]],
                 ]));
