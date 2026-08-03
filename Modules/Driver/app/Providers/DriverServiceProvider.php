@@ -9,7 +9,6 @@ use Modules\Driver\Console\Commands\InactivityDecayCommand;
 use Modules\Driver\Console\Commands\MarkOverdueDebtsCommand;
 use Modules\Driver\Console\Commands\SyncDriverLocationCommand;
 use Modules\Driver\Console\Commands\WeeklyScoreCommand;
-use Modules\Driver\Console\Commands\ResetDailyOnlineCommand;
 use Modules\Driver\Console\Commands\PruneDriverLocationLogsCommand;
 use Modules\Driver\Console\Commands\ScoreShiftSessionsCommand;
 
@@ -24,7 +23,6 @@ class DriverServiceProvider extends ModuleServiceProvider
         MarkOverdueDebtsCommand::class,
         SyncDriverLocationCommand::class,
         WeeklyScoreCommand::class,
-        ResetDailyOnlineCommand::class,
         PruneDriverLocationLogsCommand::class,
         ScoreShiftSessionsCommand::class,
     ];
@@ -36,10 +34,8 @@ class DriverServiceProvider extends ModuleServiceProvider
 
     protected function configureSchedules(Schedule $schedule): void
     {
-        // 23:59 hàng ngày — xét online 6:30-23:59 có đủ 8h không, trừ điểm, reset time
+        // 23:59 hàng ngày — force-offline tài xế bị khoá nhưng vẫn online
         $schedule->command('drivers:daily-decay')->dailyAt('23:59');
-        // 06:30 hàng ngày — reset time online, bắt đầu tính ngày mới
-        $schedule->command('driver:reset-daily-online')->dailyAt('06:30');
         // Thứ Hai 00:02 — chốt điểm tuần (sau daily-decay 23:59)
         $schedule->command('drivers:weekly-score')->weeklyOn(1, '00:02');
         // Mỗi giờ — đánh dấu quá hạn nợ chưa đóng sau 24 tiếng

@@ -70,8 +70,25 @@ class DriverResource extends Resource
                     ->label('Thành phố')
                     ->relationship('city', 'name')
                     ->searchable()
-                    ->preload(),
+                    ->preload()
+                    ->live(),
             ])->columns(2),
+
+            Forms\Components\Section::make('Ca làm việc')->schema([
+                Forms\Components\Select::make('registeredShifts')
+                    ->label('Ca đang đăng ký')
+                    ->relationship(
+                        'registeredShifts',
+                        'name',
+                        modifyQueryUsing: fn (Builder $query, Forms\Get $get) => $query
+                            ->where('city_id', $get('city_id'))
+                            ->where('is_active', true),
+                    )
+                    ->multiple()
+                    ->searchable()
+                    ->preload()
+                    ->helperText('Gán trực tiếp ca làm việc cho tài xế — bỏ qua luồng gửi yêu cầu đổi ca chờ duyệt. Chỉ hiện ca đang kích hoạt của thành phố đã chọn ở trên.'),
+            ]),
 
             Forms\Components\Section::make('Trạng thái')->schema([
                 Forms\Components\Select::make('status')

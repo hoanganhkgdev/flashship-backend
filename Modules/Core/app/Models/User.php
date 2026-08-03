@@ -82,48 +82,6 @@ class User extends Authenticatable implements FilamentUser, HasTenants, HasDefau
     // HELPERS
     // =========================================================================
 
-    // Giờ online trong ngày chỉ tính từ 6:30 sáng → 23:59.
-    // Khoảng 00:00–6:30 là "vùng chết" không tính (chống bật app đi ngủ).
-    const ONLINE_WINDOW_START_HOUR   = 6;
-    const ONLINE_WINDOW_START_MINUTE = 30;
-
-    /** Mốc bắt đầu tính giờ online của ngày chứa $ref (mặc định hôm nay): 6:30 sáng. */
-    public static function onlineWindowStart($ref = null)
-    {
-        return ($ref ? $ref->copy() : now())
-            ->setTime(self::ONLINE_WINDOW_START_HOUR, self::ONLINE_WINDOW_START_MINUTE, 0);
-    }
-
-    /**
-     * Chuẩn hoá thời gian online trong ngày cho payload trả về client.
-     * - Reset daily_online_seconds về 0 nếu số liệu là của ngày trước.
-     * - Kẹp online_since về mốc 6:30 sáng nay để client tính đúng phiên hiện tại.
-     *   Nếu đang trong vùng chết [00:00, 6:30), online_since = 6:30 (tương lai)
-     *   → client tính ra số âm, hiển thị 0 cho tới khi qua 6:30.
-     * Tránh lỗi mở app sáng hôm sau vẫn thấy giờ online của tối qua / rạng sáng.
-     */
-    public function applyTodayOnline(array $data): array
-    {
-        $now         = now();
-        $today       = $now->toDateString();
-        $windowStart = self::onlineWindowStart($now);
-
-        $data['daily_online_seconds'] = ($this->daily_online_date === $today)
-            ? (int) ($this->daily_online_seconds ?? 0)
-            : 0;
-        // Giây trả về luôn là của hôm nay → gắn ngày hôm nay cho client nhất quán
-        $data['daily_online_date'] = $today;
-
-        if ($this->is_online && $this->online_since) {
-            $effective = $this->online_since->greaterThan($windowStart)
-                ? $this->online_since
-                : $windowStart;
-            $data['online_since'] = $effective->toIso8601String();
-        }
-
-        return $data;
-    }
-
     // =========================================================================
     // RELATIONSHIPS
     // =========================================================================

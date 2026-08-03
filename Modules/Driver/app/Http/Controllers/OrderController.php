@@ -11,7 +11,6 @@ use Modules\Order\Models\Order;
 use Modules\Order\Models\OrderDispatchLog;
 use Modules\Order\Services\DispatchService;
 use Modules\Order\Services\OrderService;
-use Modules\Driver\Services\DriverScoreService;
 
 class OrderController extends Controller
 {
@@ -115,32 +114,6 @@ class OrderController extends Controller
         return response()->json($result, $status);
     }
 
-    public function cancelOrder(Request $request, Order $order): JsonResponse
-    {
-        $driver = $request->user();
-        if ((int) $order->delivery_man_id !== $driver->id) {
-            return response()->json(['success' => false, 'message' => 'Không phải đơn của bạn'], 403);
-        }
-        if (!in_array($order->status, ['assigned', 'processing', 'on_the_way'])) {
-            return response()->json(['success' => false, 'message' => 'Không thể huỷ đơn ở trạng thái này'], 400);
-        }
-
-        $data = $request->validate(['reason' => 'nullable|string|max:255']);
-
-        $order->update([
-            'status'           => 'pending',
-            'delivery_man_id'  => null,
-            'cancel_reason'    => 'driver:' . ($data['reason'] ?? 'Tài xế huỷ đơn'),
-        ]);
-
-        DriverScoreService::onCancel($driver->id);
-        RTDBService::clearOrder($order->code);
-
-        app(OrderService::class)->dispatchNewOrder($order->id);
-
-        return response()->json(['success' => true, 'message' => 'Đã huỷ đơn, đơn sẽ được phát lại cho tài xế khác']);
-    }
-
     public function updateStatus(Request $request, Order $order): JsonResponse
     {
         $data   = $request->validate(['status' => 'required|in:processing,on_the_way']);
@@ -173,28 +146,44 @@ class OrderController extends Controller
             return response()->json(['success' => false, 'message' => 'Không phải đơn gộp'], 400);
         }
 
-        $stops = $order->stops ?? [];
-        $found = false;
-        foreach ($stops as &$stop) {
-            if ((int) $stop['seq'] === $seq) {
-                if ($stop['delivered_at'] !== null) {
-                    return response()->json(['success' => false, 'message' => 'Điểm này đã được giao rồi'], 400);
+        // Khoá + đọc lại bản mới nhất TRONG transaction — nếu không, 2 request
+        // bấm "Đã giao" liên tiếp nhanh cho 2 điểm khác nhau sẽ cùng đọc bản
+        // stops cũ, mỗi request sửa xong ghi đè toàn bộ mảng, request chạy
+        // sau xoá mất dấu "đã giao" mà request trước vừa đánh dấu.
+        $error = null;
+        $fresh = null;
+        $stops = [];
+        DB::transaction(function () use ($order, $seq, &$error, &$fresh, &$stops) {
+            $fresh = Order::where('id', $order->id)->lockForUpdate()->first();
+            $stops = $fresh->stops ?? [];
+            $found = false;
+            foreach ($stops as &$stop) {
+                if ((int) $stop['seq'] === $seq) {
+                    if ($stop['delivered_at'] !== null) {
+                        $error = ['status' => 400, 'message' => 'Điểm này đã được giao rồi'];
+                        return;
+                    }
+                    $stop['delivered_at'] = now()->toIso8601String();
+                    $found = true;
+                    break;
                 }
-                $stop['delivered_at'] = now()->toIso8601String();
-                $found = true;
-                break;
             }
-        }
-        if (!$found) {
-            return response()->json(['success' => false, 'message' => 'Không tìm thấy điểm giao'], 404);
-        }
+            unset($stop);
+            if (!$found) {
+                $error = ['status' => 404, 'message' => 'Không tìm thấy điểm giao'];
+                return;
+            }
+            $fresh->update(['stops' => $stops]);
+        });
 
-        $order->update(['stops' => $stops]);
+        if ($error) {
+            return response()->json(['success' => false, 'message' => $error['message']], $error['status']);
+        }
 
         // Nếu tất cả stops đã delivered → hoàn thành đơn
         $allDone = collect($stops)->every(fn($s) => $s['delivered_at'] !== null);
         if ($allDone) {
-            $this->orderService->completeOrder($order, $driver);
+            $this->orderService->completeOrder($fresh, $driver);
             return response()->json([
                 'success'   => true,
                 'message'   => "Đã giao điểm $seq — Tất cả điểm đã giao, đơn hoàn thành!",

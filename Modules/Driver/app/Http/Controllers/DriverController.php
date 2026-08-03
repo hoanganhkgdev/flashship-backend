@@ -26,7 +26,7 @@ class DriverController extends Controller
         $user = $request->user();
         $user->loadMissing(['city', 'bank', 'driverLicenses', 'driverCccdImages', 'wallet']);
 
-        $data = $user->applyTodayOnline($user->toArray());
+        $data = $user->toArray();
         $data['city_name']    = $user->city?->name ?? '';
         $data['balance']      = $user->wallet?->balance ?? 0;
         $data['bank_code']     = $user->bank?->bank_code;
@@ -85,31 +85,7 @@ class DriverController extends Controller
             }
         }
 
-        // Tích lũy thời gian online khi chuyển sang offline
-        \Log::info("[Toggle] #{$user->id} PRE: is_online={$user->is_online} online_since={$user->online_since} daily_online_seconds={$user->daily_online_seconds}");
-        if ($user->is_online && $user->online_since) {
-            $now         = now();
-            $today       = $now->toDateString();
-            $windowStart = User::onlineWindowStart($now);
-
-            // Chỉ tính phần phiên nằm trong [6:30 sáng nay, now].
-            // now < 6:30 (vùng chết 00:00–6:30) → session này không tính giây nào.
-            if ($now->greaterThan($windowStart)) {
-                $sessionStart   = $user->online_since->greaterThan($windowStart)
-                    ? $user->online_since
-                    : $windowStart;
-                $sessionSeconds = (int) max(0, $sessionStart->diffInSeconds($now, false));
-            } else {
-                $sessionSeconds = 0;
-            }
-
-            $existingSeconds = ($user->daily_online_date === $today)
-                ? (int) ($user->daily_online_seconds ?? 0)
-                : 0;
-
-            $user->daily_online_seconds = $existingSeconds + $sessionSeconds;
-            $user->daily_online_date    = $today;
-        }
+        \Log::info("[Toggle] #{$user->id} PRE: is_online={$user->is_online} online_since={$user->online_since}");
 
         $user->is_online   = !$user->is_online;
         $user->online_since = $user->is_online ? now() : null;
@@ -136,26 +112,17 @@ class DriverController extends Controller
             $user->last_heartbeat_at = now();
         }
 
-        // Bật online sang ngày mới → reset bộ đếm giờ online tích luỹ của hôm trước
-        // (khối tích luỹ ở trên chỉ chạy khi TẮT online nên không reset được ở đây).
-        if ($user->is_online && $user->daily_online_date !== now()->toDateString()) {
-            $user->daily_online_seconds = 0;
-            $user->daily_online_date    = now()->toDateString();
-        }
-
         $user->save();
 
         RTDBService::setDriverOnlineStatus($user->id, (bool) $user->is_online);
 
-        $responseSeconds = (int) ($user->daily_online_seconds ?? 0);
-        \Log::info("[Toggle] #{$user->id} → online={$user->is_online} daily_online_seconds={$responseSeconds} online_since={$user->online_since}");
+        \Log::info("[Toggle] #{$user->id} → online={$user->is_online} online_since={$user->online_since}");
 
         return response()->json([
-            'success'              => true,
-            'message'             => $user->is_online ? 'Bạn đang online' : 'Bạn đang offline',
-            'is_online'           => $user->is_online,
-            'online_since'        => $user->online_since?->toIso8601String(),
-            'daily_online_seconds' => $responseSeconds,
+            'success'      => true,
+            'message'      => $user->is_online ? 'Bạn đang online' : 'Bạn đang offline',
+            'is_online'    => $user->is_online,
+            'online_since' => $user->online_since?->toIso8601String(),
         ]);
     }
 
@@ -504,27 +471,37 @@ class DriverController extends Controller
     {
         $user = $request->user();
 
-        $pending = \Modules\Driver\Models\DriverShiftChangeRequest::where('driver_id', $user->id)
-            ->where('status', 'pending')->exists();
-        if ($pending) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Bạn đang có 1 yêu cầu đổi ca chờ duyệt, vui lòng đợi xử lý xong.',
-            ], 422);
-        }
+        // Khoá theo tài xế trong lúc kiểm tra + tạo — nếu không, bấm gửi 2
+        // lần liên tiếp nhanh sẽ khiến cả 2 request cùng đọc thấy "chưa có
+        // gì pending" (request sau chưa kịp thấy request trước vừa tạo),
+        // tạo ra 2 yêu cầu đổi ca trùng nhau cùng chờ duyệt.
+        $result = \DB::transaction(function () use ($request, $user) {
+            User::where('id', $user->id)->lockForUpdate()->first();
 
-        $shiftIds = $this->validateShiftSelection($request, $user);
+            $pending = \Modules\Driver\Models\DriverShiftChangeRequest::where('driver_id', $user->id)
+                ->where('status', 'pending')->exists();
+            if ($pending) {
+                return ['status' => 422, 'body' => [
+                    'success' => false,
+                    'message' => 'Bạn đang có 1 yêu cầu đổi ca chờ duyệt, vui lòng đợi xử lý xong.',
+                ]];
+            }
 
-        \Modules\Driver\Models\DriverShiftChangeRequest::create([
-            'driver_id' => $user->id,
-            'shift_ids' => $shiftIds,
-            'status'    => 'pending',
-        ]);
+            $shiftIds = $this->validateShiftSelection($request, $user);
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Đã gửi yêu cầu đổi ca, chờ admin duyệt',
-        ]);
+            \Modules\Driver\Models\DriverShiftChangeRequest::create([
+                'driver_id' => $user->id,
+                'shift_ids' => $shiftIds,
+                'status'    => 'pending',
+            ]);
+
+            return ['status' => 200, 'body' => [
+                'success' => true,
+                'message' => 'Đã gửi yêu cầu đổi ca, chờ admin duyệt',
+            ]];
+        });
+
+        return response()->json($result['body'], $result['status']);
     }
 
     public function shiftChangeRequestStatus(Request $request): JsonResponse

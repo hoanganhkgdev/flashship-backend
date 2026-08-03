@@ -51,7 +51,6 @@
                 <th class="text-left px-4 py-3 font-semibold text-gray-600">Tài xế</th>
                 <th class="text-left px-4 py-3 font-semibold text-gray-600">SĐT</th>
                 <th class="text-center px-4 py-3 font-semibold text-gray-600">Online</th>
-                <th class="text-right px-4 py-3 font-semibold text-gray-600">Giờ online</th>
                 <th class="text-right px-4 py-3 font-semibold text-gray-600">Đơn ngày</th>
                 <th class="text-right px-4 py-3 font-semibold text-orange-600">Thu nhập ngày</th>
                 <th class="text-right px-4 py-3 font-semibold text-gray-600">Đơn tuần</th>
@@ -71,7 +70,6 @@
                         <span class="inline-block w-2.5 h-2.5 rounded-full bg-gray-300"></span>
                     @endif
                 </td>
-                <td class="px-4 py-2.5 text-right text-gray-600">{{ $d['online_hours'] }}h</td>
                 <td class="px-4 py-2.5 text-right font-medium">{{ $d['today_orders'] }}</td>
                 <td class="px-4 py-2.5 text-right font-bold text-orange-600">{{ number_format($d['today_earnings']) }}đ</td>
                 <td class="px-4 py-2.5 text-right font-medium">{{ $d['week_orders'] }}</td>

@@ -191,7 +191,7 @@ class AuthController extends Controller
     private function formatUser(User $user): array
     {
         $user->loadMissing(['city', 'bank', 'driverLicenses']);
-        $data = $user->applyTodayOnline($user->toArray());
+        $data = $user->toArray();
         $data['city_name'] = $user->city?->name ?? '';
         $data['bank_name'] = $user->bank?->bank_name;
         $data['bank_account'] = $user->bank?->account_number;

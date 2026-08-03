@@ -40,7 +40,7 @@ class DriverEarningsPage extends Page
             ->where('city_id', $cityId)
             ->where('status', '>=', 1)
             ->orderBy('name')
-            ->get(['id', 'name', 'phone', 'is_online', 'daily_online_seconds', 'daily_online_date']);
+            ->get(['id', 'name', 'phone', 'is_online']);
 
         $driverIds = $drivers->pluck('id')->toArray();
         if (empty($driverIds)) return [];
@@ -75,7 +75,6 @@ class DriverEarningsPage extends Page
         $result = [];
         foreach ($drivers as $d) {
             $week = $weekStats->get($d->id);
-            $onlineSeconds = ($d->daily_online_date === $date) ? (int) $d->daily_online_seconds : 0;
 
             $result[] = [
                 'id'              => $d->id,
@@ -86,7 +85,6 @@ class DriverEarningsPage extends Page
                 'today_earnings'  => (int) ($todayEarnings[$d->id] ?? 0),
                 'week_orders'     => (int) ($week->cnt ?? 0),
                 'week_earnings'   => (int) ($week->earnings ?? 0),
-                'online_hours'    => round($onlineSeconds / 3600, 1),
             ];
         }
 
