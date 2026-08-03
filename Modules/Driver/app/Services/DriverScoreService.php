@@ -11,8 +11,8 @@ class DriverScoreService
     const MIN_SCORE            = 0;
     const MAX_SCORE            = 150;
 
-    const SCORE_DECLINE        = -2;
-    const SCORE_VIEWED_TIMEOUT = -3;
+    const SCORE_DECLINE        = -1;
+    const SCORE_VIEWED_TIMEOUT = -2;
 
     const RATING_DELTAS        = [5 => 1, 4 => 0, 3 => -1, 2 => -3, 1 => -5];
 
@@ -21,7 +21,16 @@ class DriverScoreService
 
     const DAILY_BONUS_CAP      = 10;
 
-    const WEEKLY_BONUS_SCORE   = 150;
+    // Trần điểm trừ mỗi ngày cho decline + viewed_timeout gộp lại — đối xứng
+    // với DAILY_BONUS_CAP, chặn trường hợp cực đoan (tài xế từ chối rất
+    // nhiều đơn trong 1 ngày) kéo điểm âm mất kiểm soát, không áp dụng cho
+    // các khoản trừ khác (rating thấp, vi phạm ca...).
+    const DAILY_PENALTY_FLOOR         = -10;
+    const DAILY_PENALTY_CAPPED_REASONS = ['decline', 'viewed_timeout'];
+
+    // 130 khớp đúng ngưỡng "Xuất sắc" của label() — trước đây neo ở kịch
+    // trần 150 khiến tài xế được xếp "Xuất sắc" vẫn có thể nhận 0đ thưởng.
+    const WEEKLY_BONUS_SCORE   = 130;
     const WEEKLY_PENALTY_SCORE = 70;
     const WEEKLY_BONUS_AMOUNT  = 100_000;
     const WEEKLY_PENALTY_AMOUNT= 100_000;
@@ -202,6 +211,34 @@ class DriverScoreService
                 'daily_bonus_points' => $earned + $delta,
                 'daily_bonus_date'   => $today,
             ]);
+        } elseif ($delta < 0 && in_array($reason, self::DAILY_PENALTY_CAPPED_REASONS, true)) {
+            $row = DB::table('users')
+                ->where('id', $driverId)
+                ->select('daily_penalty_points', 'daily_penalty_date')
+                ->first();
+
+            $used      = ($row?->daily_penalty_date === $today) ? (int) ($row->daily_penalty_points ?? 0) : 0;
+            $remaining = abs(self::DAILY_PENALTY_FLOOR) - $used;
+
+            if ($remaining <= 0) {
+                Log::info("[DriverScore] Driver #{$driverId} daily penalty floor reached — {$reason} blocked.");
+                DB::table('driver_score_logs')->insert([
+                    'driver_id'    => $driverId,
+                    'delta'        => 0,
+                    'score_before' => $current,
+                    'score_after'  => $current,
+                    'reason'       => "floor_blocked:{$reason}",
+                    'created_at'   => now(),
+                ]);
+                return;
+            }
+
+            $delta = max($delta, -$remaining);
+
+            DB::table('users')->where('id', $driverId)->update([
+                'daily_penalty_points' => $used + abs($delta),
+                'daily_penalty_date'   => $today,
+            ]);
         }
 
         $newScore = max(self::MIN_SCORE, min(self::MAX_SCORE, $current + $delta));
@@ -247,7 +284,7 @@ class DriverScoreService
     public static function tips(int $score): array
     {
         if ($score >= self::WEEKLY_BONUS_SCORE) {
-            return ['Bạn đã đạt 150 điểm — tiếp tục duy trì để nhận thưởng 100.000₫ cuối tuần!'];
+            return ['Bạn đã đạt ' . self::WEEKLY_BONUS_SCORE . ' điểm — tiếp tục duy trì để nhận thưởng 100.000₫ cuối tuần!'];
         }
         if ($score <= self::WEEKLY_PENALTY_SCORE) {
             return ['Điểm dưới 70 — cố gắng cải thiện để tránh bị phạt 100.000₫ cuối tuần.'];
