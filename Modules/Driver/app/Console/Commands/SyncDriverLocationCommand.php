@@ -25,17 +25,12 @@ class SyncDriverLocationCommand extends Command
             return self::SUCCESS;
         }
 
-        // Đang chuyển dần path Firebase từ "flashship_main/locations" sang
-        // "locations" (bỏ tiền tố thừa) — app tài xế ghi thẳng lên Firebase,
-        // không qua backend, nên không thể đổi path 1 phát cho cả app Tài xế/
-        // Khách hàng/Shop cùng lúc (mỗi app release độc lập, không ép update
-        // đồng thời được). Đọc CẢ 2 path, ưu tiên path mới — path cũ chỉ để
-        // tương thích ngược trong lúc các app đang rollout dần. Sau khi toàn
-        // bộ app đã chuyển hẳn sang ghi path mới, xoá nhánh fallback path cũ.
+        // Đã ép toàn bộ app Tài xế cập nhật lên bản ghi path mới (force update)
+        // — path cũ "flashship_main/locations" không còn tài xế nào ghi vào
+        // nữa, bỏ hẳn fallback, chỉ đọc path mới.
         $newLocations = $this->readLocations('locations');
-        $oldLocations = $this->readLocations('flashship_main/locations');
 
-        if ($newLocations === null && $oldLocations === null) {
+        if ($newLocations === null) {
             return self::SUCCESS;
         }
 
@@ -44,7 +39,7 @@ class SyncDriverLocationCommand extends Command
 
         foreach ($onlineDrivers as $d) {
             $key  = "driver_{$d->id}";
-            $data = $newLocations[$key] ?? $oldLocations[$key] ?? null;
+            $data = $newLocations[$key] ?? null;
 
             if (!$data) {
                 continue;
