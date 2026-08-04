@@ -1,99 +1,9 @@
 <x-filament-panels::page>
 
 <style>
-    #driver-map-wrapper { position: relative; width: 100%; padding-top: 100%; }
+    #driver-map-wrapper { position: relative; width: 100%; min-height: 70vh; }
     #driver-map { position: absolute; inset: 0; width: 100%; height: 100%; }
 </style>
-
-{{-- TOOLBAR --}}
-<div class="mb-3 rounded-2xl border border-gray-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-900">
-
-    {{-- Top row: city buttons --}}
-    <div class="border-b border-gray-100 px-4 py-3 dark:border-gray-800 flex justify-center">
-        <div class="flex items-center gap-1.5 rounded-xl bg-gray-100 p-1 dark:bg-gray-800 w-fit">
-            @foreach ($cities as $city)
-            @if ($fixedCityId)
-                {{-- city_manager: chỉ 1 button, không click được --}}
-                <span id="city-btn-{{ $city['id'] }}"
-                    class="city-btn rounded-lg px-4 py-1.5 text-sm font-medium"
-                    style="background:#ffffff; color:#ea580c; box-shadow:0 1px 3px rgba(0,0,0,0.12); cursor:default;">
-                    {{ $city['name'] }}
-                </span>
-            @else
-                <button onclick="setCityFilter('{{ $city['id'] }}', { lat: {{ $city['lat'] }}, lng: {{ $city['lng'] }} })"
-                    id="city-btn-{{ $city['id'] }}"
-                    class="city-btn rounded-lg px-4 py-1.5 text-sm font-medium transition-all"
-                    style="color: #6b7280;">
-                    {{ $city['name'] }}
-                </button>
-            @endif
-            @endforeach
-        </div>
-    </div>
-
-    {{-- Bottom row: toggle + stats + realtime --}}
-    <div class="flex items-center justify-between px-4 py-1.5">
-        {{-- Offline toggle --}}
-        <div class="flex cursor-pointer items-center gap-2" onclick="toggleOffline()" title="Hiện tài xế offline">
-            <div class="relative" style="width:36px; height:20px;">
-                <div id="toggle-track" style="position:absolute;inset:0;border-radius:999px;background:#f97316;transition:background .2s;"></div>
-                <div id="toggle-thumb" style="position:absolute;top:2px;left:18px;width:16px;height:16px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,0.2);transition:left .2s;"></div>
-            </div>
-            <span style="color:#6b7280; font-size:12px; font-weight:500; user-select:none;">Hiện offline</span>
-            <input type="checkbox" id="show-offline" checked class="hidden">
-        </div>
-
-        <div id="map-counter" class="rounded-full bg-gray-100 px-3 py-1 dark:bg-gray-800"
-            style="font-size:11px; color:#6b7280;">Đang kết nối...</div>
-    </div>
-</div>
-
-<script>
-var _activeCityId = '{{ $fixedCityId ?? 2 }}';
-
-function toggleOffline() {
-    var cb    = document.getElementById('show-offline');
-    var track = document.getElementById('toggle-track');
-    var thumb = document.getElementById('toggle-thumb');
-    cb.checked = !cb.checked;
-    if (cb.checked) {
-        track.style.background = '#f97316';
-        thumb.style.left = '18px';
-    } else {
-        track.style.background = '#d1d5db';
-        thumb.style.left = '2px';
-    }
-    if (window._renderMarkers) window._renderMarkers();
-}
-function setCityFilter(cityId, latlng) {
-    _activeCityId = cityId;
-    document.querySelectorAll('.city-btn').forEach(function(btn) {
-        btn.style.background = 'transparent';
-        btn.style.color = '#6b7280';
-        btn.style.boxShadow = 'none';
-    });
-    var active = document.getElementById('city-btn-' + cityId);
-    if (active) {
-        active.style.background = '#ffffff';
-        active.style.color = '#ea580c';
-        active.style.boxShadow = '0 1px 3px rgba(0,0,0,0.12)';
-    }
-    if (latlng && window._map) {
-        window._map.panTo(latlng);
-        window._map.setZoom(13);
-    }
-    if (window._renderMarkers) window._renderMarkers();
-}
-// Active button mặc định
-(function() {
-    var btn = document.getElementById('city-btn-' + _activeCityId);
-    if (btn) {
-        btn.style.background = '#ffffff';
-        btn.style.color = '#ea580c';
-        btn.style.boxShadow = '0 1px 3px rgba(0,0,0,0.12)';
-    }
-})();
-</script>
 
 {{-- MAP: wire:ignore — Livewire không được đụng vào đây --}}
 <div wire:ignore>
@@ -136,6 +46,17 @@ if (!window._mapReady) {
             renderMarkers();
         });
 
+        // Bản đồ full chiều cao còn lại của viewport — tính lại mỗi khi resize
+        function fitMapHeight() {
+            var wrapper = document.getElementById('driver-map-wrapper');
+            if (!wrapper) return;
+            var top = wrapper.getBoundingClientRect().top + window.scrollY;
+            var h   = window.innerHeight - top - 24;
+            wrapper.style.height = Math.max(400, h) + 'px';
+        }
+        fitMapHeight();
+        window.addEventListener('resize', fitMapHeight);
+
         map = window._map = new google.maps.Map(document.getElementById('driver-map'), {
             center: { lat: {{ $cities[0]['lat'] ?? 10.0125 }}, lng: {{ $cities[0]['lng'] ?? 105.0809 }} },
             zoom: 13,
@@ -146,8 +67,8 @@ if (!window._mapReady) {
         });
         infoWindow = new google.maps.InfoWindow();
 
-        // Firebase real-time GPS — path: flashship_main/locations/driver_{id}
-        rtdb.ref('flashship_main/locations').on('value', function(snapshot) {
+        // Firebase real-time GPS — path: locations/driver_{id}
+        rtdb.ref('locations').on('value', function(snapshot) {
             var raw = snapshot.val() || {};
             var newGps = {};
             Object.entries(raw).forEach(function(entry) {
@@ -160,17 +81,18 @@ if (!window._mapReady) {
             });
             rtdbGps = newGps;
             renderMarkers();
+        }, function(error) {
+            console.error('[DriverMap] Firebase read failed:', error);
         });
 
-        document.getElementById('show-offline').addEventListener('change', renderMarkers);
         window._renderMarkers = renderMarkers;
 
-        // Cache icon canvas theo driverId + trạng thái online
+        // Cache icon canvas theo driverId (chỉ hiện tài xế online nên không
+        // cần biến thể "_off" nữa)
         var iconCache = {};
 
-        function buildIcon(driverId, avatarUrl, isOnline, callback) {
-            var key = driverId + (isOnline ? '_on' : '_off');
-            if (iconCache[key]) { callback(iconCache[key]); return; }
+        function buildIcon(driverId, avatarUrl, callback) {
+            if (iconCache[driverId]) { callback(iconCache[driverId]); return; }
 
             var S = 40, B = 3;
             var canvas = document.createElement('canvas');
@@ -179,10 +101,10 @@ if (!window._mapReady) {
 
             function draw(img) {
                 ctx.clearRect(0, 0, S, S);
-                // Viền màu
+                // Viền màu (luôn xanh — chỉ hiện tài xế online)
                 ctx.beginPath();
                 ctx.arc(S/2, S/2, S/2 - 1, 0, Math.PI*2);
-                ctx.fillStyle = isOnline ? '#22c55e' : '#94a3b8';
+                ctx.fillStyle = '#22c55e';
                 ctx.fill();
                 // Clip avatar
                 ctx.save();
@@ -194,7 +116,7 @@ if (!window._mapReady) {
                 } else {
                     ctx.fillStyle = '#e5e7eb';
                     ctx.fillRect(0, 0, S, S);
-                    ctx.fillStyle = isOnline ? '#22c55e' : '#9ca3af';
+                    ctx.fillStyle = '#22c55e';
                     ctx.font = 'bold 16px sans-serif';
                     ctx.textAlign = 'center';
                     ctx.textBaseline = 'middle';
@@ -206,7 +128,7 @@ if (!window._mapReady) {
                     scaledSize: new google.maps.Size(S, S),
                     anchor: new google.maps.Point(S/2, S/2),
                 };
-                iconCache[key] = icon;
+                iconCache[driverId] = icon;
                 callback(icon);
             }
 
@@ -226,8 +148,6 @@ if (!window._mapReady) {
 
         function renderMarkers() {
             if (!map) return;
-            var cityFilter  = window._activeCityId || '';
-            var showOffline = document.getElementById('show-offline').checked;
 
             var allIds = new Set(
                 Object.keys(dbMeta).map(Number).concat(Object.keys(rtdbGps).map(Number))
@@ -237,80 +157,70 @@ if (!window._mapReady) {
                 if (!allIds.has(Number(id))) { markers[id].setMap(null); delete markers[id]; }
             });
 
-            var visibleCount = 0, onlineCount = 0, offlineCount = 0;
-
             allIds.forEach(function(id) {
                 var meta = dbMeta[id]  || {};
                 var gps  = rtdbGps[id] || {};
                 var lat  = gps.lat  != null ? gps.lat  : meta.lat;
                 var lng  = gps.lng  != null ? gps.lng  : meta.lng;
-                if (!lat || !lng) return;
 
-                // Firebase is_online ưu tiên hơn DB (real-time hơn)
+                // Firebase is_online ưu tiên hơn DB (real-time hơn) — chỉ hiện
+                // tài xế đang online, ẩn hẳn (không chỉ mờ đi) tài xế offline.
                 var isOnline = gps.is_online !== undefined ? (gps.is_online === true) : (meta.is_online === true);
-                var passCity   = !cityFilter || String(meta.city_id) === cityFilter;
-                var passOnline = showOffline || isOnline;
-                var visible    = passCity && passOnline;
+                var visible  = isOnline && lat != null && lng != null;
 
-                if (visible) { visibleCount++; if (isOnline) onlineCount++; else offlineCount++; }
-
-                var fallbackIcon = {
-                    path: google.maps.SymbolPath.CIRCLE,
-                    fillColor: isOnline ? '#22c55e' : '#94a3b8',
-                    fillOpacity: 1, strokeColor: '#fff', strokeWeight: 2,
-                    scale: isOnline ? 9 : 7,
-                };
+                if (!visible) {
+                    if (markers[id]) markers[id].setVisible(false);
+                    return;
+                }
 
                 if (markers[id]) {
                     markers[id].setPosition({ lat: lat, lng: lng });
-                    markers[id].setVisible(visible);
-                    markers[id].setZIndex(isOnline ? 10 : 1);
+                    markers[id].setVisible(true);
                     markers[id]._meta = meta;
                     markers[id]._gps  = gps;
-                    // Cập nhật icon nếu online status thay đổi
-                    buildIcon(id, meta.avatar, isOnline, function(icon) {
+                    buildIcon(id, meta.avatar, function(icon) {
                         if (markers[id]) markers[id].setIcon(icon);
                     });
                 } else {
+                    var fallbackIcon = {
+                        path: google.maps.SymbolPath.CIRCLE,
+                        fillColor: '#22c55e',
+                        fillOpacity: 1, strokeColor: '#fff', strokeWeight: 2,
+                        scale: 9,
+                    };
                     var m = new google.maps.Marker({
                         position: { lat: lat, lng: lng },
-                        map: map, icon: fallbackIcon, visible: visible,
+                        map: map, icon: fallbackIcon, visible: true,
                         title: meta.name || ('#' + id),
-                        zIndex: isOnline ? 10 : 1,
+                        zIndex: 10,
                     });
                     m._meta = meta; m._gps = gps;
-                    // Load avatar async và cập nhật icon
-                    (function(marker, driverId, meta, isOnline) {
-                        buildIcon(driverId, meta.avatar, isOnline, function(icon) {
+                    (function(marker, driverId, meta) {
+                        buildIcon(driverId, meta.avatar, function(icon) {
                             marker.setIcon(icon);
                         });
                         marker.addListener('click', function() {
                             var ago = marker._gps && marker._gps.updated_at
                                 ? Math.round((Date.now() / 1000 - marker._gps.updated_at) / 60) + ' phút trước'
                                 : 'GPS từ DB';
-                            var color = marker._meta.is_online ? '#22c55e' : '#94a3b8';
                             var avatarHtml = marker._meta.avatar
-                                ? '<img src="' + marker._meta.avatar + '" style="width:48px;height:48px;border-radius:50%;object-fit:cover;border:2px solid ' + color + ';margin-bottom:6px;">'
+                                ? '<img src="' + marker._meta.avatar + '" style="width:48px;height:48px;border-radius:50%;object-fit:cover;border:2px solid #22c55e;margin-bottom:6px;">'
                                 : '<div style="width:48px;height:48px;border-radius:50%;background:#e5e7eb;display:flex;align-items:center;justify-content:center;margin-bottom:6px;font-size:20px;">👤</div>';
                             infoWindow.setContent(
                                 '<div style="font-size:13px;line-height:1.8;min-width:180px;padding:4px 0;text-align:center">' +
                                 avatarHtml +
                                 '<strong style="font-size:14px;display:block">' + (marker._meta.name || '#' + driverId) + '</strong>' +
-                                '<span style="background:' + color + ';color:#fff;padding:1px 10px;border-radius:999px;font-size:11px;display:inline-block;margin-bottom:4px">' +
-                                (marker._meta.is_online ? '🟢 Online' : '⚫ Offline') + '</span><br>' +
+                                '<span style="background:#22c55e;color:#fff;padding:1px 10px;border-radius:999px;font-size:11px;display:inline-block;margin-bottom:4px">🟢 Online</span><br>' +
                                 (marker._meta.phone ? '<a href="https://zalo.me/' + marker._meta.phone + '" target="_blank" style="color:#0068ff;text-decoration:none;">📞 ' + marker._meta.phone + '</a><br>' : '<span style="color:#6b7280">📞 —</span><br>') +
                                 '<span style="color:#6b7280">⭐ Điểm: ' + (marker._meta.driver_score != null ? marker._meta.driver_score : '—') + '</span><br>' +
                                 '<span style="color:#6b7280">🕐 ' + ago + '</span></div>'
                             );
                             infoWindow.open(map, marker);
                         });
-                    })(m, id, meta, isOnline);
+                    })(m, id, meta);
                     markers[id] = m;
                 }
             });
-
-            var el = document.getElementById('map-counter');
-            if (el) el.textContent = onlineCount + ' online  ·  ' + offlineCount + ' offline  ·  ' + visibleCount + ' tổng cộng';
         }
     };
 
