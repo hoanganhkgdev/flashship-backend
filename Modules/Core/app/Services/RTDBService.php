@@ -144,13 +144,18 @@ class RTDBService
 
     /**
      * Cập nhật trạng thái online/offline của tài xế trên RTDB.
+     *
+     * CHỈ ghi is_online — không đụng updated_at. App tài xế là nguồn DUY
+     * NHẤT ghi updated_at (kèm lat/lng thật mỗi lần). Nếu hàm này cũng bump
+     * updated_at ở đây (không có toạ độ mới đi kèm) sẽ tạo đúng kiểu lỗi đã
+     * gây ra vụ đơn #12117: timestamp trông "vừa mới" trong khi toạ độ thực
+     * ra vẫn cũ — hệ thống phát đơn tưởng nhầm vị trí đang fresh.
      */
     public static function setDriverOnlineStatus(int $driverId, bool $isOnline): void
     {
         try {
             self::db()->getReference("locations/driver_{$driverId}")->update([
-                'is_online'  => $isOnline,
-                'updated_at' => time() * 1000,
+                'is_online' => $isOnline,
             ]);
         } catch (\Throwable $e) {
             Log::error('[RTDB] setDriverOnlineStatus failed: ' . $e->getMessage());
