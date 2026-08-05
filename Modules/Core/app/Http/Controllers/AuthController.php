@@ -163,6 +163,15 @@ class AuthController extends Controller
         $user->tokens()->where('name', 'like', 'api_token%')->delete();
         $token = $user->createToken($tokenName)->plainTextToken;
 
+        // Token cũ vừa bị xoá ở trên khiến máy cũ (nếu có) không thể tự gọi
+        // API báo offline được nữa (401) — xử lý luôn ở đây, lúc chắc chắn
+        // biết phiên cũ đang bị thay thế, thay vì trông cậy máy cũ tự báo.
+        if ($user->is_online) {
+            $user->update(['is_online' => false, 'online_since' => null]);
+            RTDBService::removeDriverLocation($user->id);
+            \Illuminate\Support\Facades\Log::info("[Auth] Driver #{$user->id} tự động chuyển offline do đăng nhập thiết bị mới.");
+        }
+
         // Ghi device_id lên RTDB — thiết bị cũ sẽ tự detect và force logout
         if ($deviceId) {
             RTDBService::writeSessionDevice($user->id, $deviceId);

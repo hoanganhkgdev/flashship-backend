@@ -161,4 +161,18 @@ class RTDBService
             Log::error('[RTDB] setDriverOnlineStatus failed: ' . $e->getMessage());
         }
     }
+
+    /**
+     * Xoá hẳn node vị trí — dùng khi chắc chắn phiên đó đã kết thúc hẳn (vd
+     * đăng nhập thiết bị mới thay thế thiết bị cũ) và sẽ không còn ai dọn
+     * toạ độ cũ nữa, thay vì chỉ tắt cờ is_online mà để toạ độ cũ nằm lại.
+     */
+    public static function removeDriverLocation(int $driverId): void
+    {
+        try {
+            self::db()->getReference("locations/driver_{$driverId}")->remove();
+        } catch (\Throwable $e) {
+            Log::error('[RTDB] removeDriverLocation failed: ' . $e->getMessage());
+        }
+    }
 }
