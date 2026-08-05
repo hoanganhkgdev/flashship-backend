@@ -1,15 +1,27 @@
 <x-filament-panels::page>
 
-<div wire:poll.15s>
+<div wire:poll.15s.visible style="padding-top:20px; padding-bottom:32px;">
 
 @php
     $stats  = $this->getTodayStats();
     $supply = $this->getDriverSupply();
     $activeOrders = $this->getActiveOrders();
+    $supplyTotal = max(1, $supply['online']); // tránh chia 0 khi không ai online
+    $supplySegments = [
+        ['key' => 'ready',   'label' => 'Sẵn sàng nhận',        'color' => '#16a34a', 'value' => $supply['ready']],
+        ['key' => 'busy1',   'label' => 'Đang chạy 1 đơn',      'color' => '#0ea5e9', 'value' => $supply['busy1']],
+        ['key' => 'busy2',   'label' => 'Full 2 đơn',           'color' => '#f59e0b', 'value' => $supply['busy2']],
+        ['key' => 'holding', 'label' => 'Đang cầm offer',       'color' => '#8b5cf6', 'value' => $supply['holding']],
+        ['key' => 'dead',    'label' => 'Mất kết nối (app chết)', 'color' => '#ef4444', 'value' => $supply['dead']],
+    ];
 @endphp
 
 {{-- Thống kê phát đơn hôm nay --}}
-<div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-4">
+<div style="display:flex; align-items:center; gap:8px; margin-bottom:12px;">
+    <x-heroicon-o-chart-bar class="w-4 h-4 text-gray-400" />
+    <span class="text-sm font-semibold text-gray-700 dark:text-gray-200">Thống kê phát đơn hôm nay</span>
+</div>
+<div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3" style="margin-bottom:32px;">
     <div class="rounded-xl bg-white dark:bg-gray-900 p-4 shadow-sm border border-gray-200 dark:border-gray-700">
         <p class="text-xs text-gray-500">Đơn phát hôm nay</p>
         <p class="text-2xl font-bold text-gray-900 dark:text-white">{{ $stats['total'] }}</p>
@@ -37,35 +49,34 @@
 </div>
 
 {{-- Lực lượng tài xế lúc này --}}
-<div class="rounded-xl bg-white dark:bg-gray-900 shadow-sm border border-gray-200 dark:border-gray-700 p-4 mb-4">
-    <div class="flex items-center justify-between mb-3">
-        <span class="font-semibold text-sm">Lực lượng tài xế lúc này</span>
+<div class="rounded-xl bg-white dark:bg-gray-900 shadow-sm border border-gray-200 dark:border-gray-700" style="padding:16px; margin-bottom:32px;">
+    <div style="display:flex; align-items:center; gap:8px; margin-bottom:12px;">
+        <x-heroicon-o-truck class="w-4 h-4 text-gray-400" />
+        <span class="font-semibold text-sm text-gray-700 dark:text-gray-200">Lực lượng tài xế lúc này</span>
+        <span class="text-xs text-gray-400">— {{ $supply['online'] }} đang online</span>
     </div>
-    <div class="grid grid-cols-3 md:grid-cols-6 gap-3 text-center">
-        <div>
-            <p class="text-2xl font-bold text-gray-900 dark:text-white">{{ $supply['online'] }}</p>
-            <p class="text-xs text-gray-500">Online</p>
+
+    {{-- Thanh tỉ lệ — nhìn 1 cái biết ngay cơ cấu lực lượng, không phải cộng nhẩm 5 con số --}}
+    <div style="display:flex; width:100%; height:10px; border-radius:999px; overflow:hidden; background:#f3f4f6; margin-bottom:20px;">
+        @foreach ($supplySegments as $seg)
+            @if ($seg['value'] > 0)
+                <div style="display:block; height:100%; width:{{ $seg['value'] / $supplyTotal * 100 }}%; background:{{ $seg['color'] }};"
+                     title="{{ $seg['label'] }}: {{ $seg['value'] }}"></div>
+            @endif
+        @endforeach
+    </div>
+
+    <div style="display:flex; flex-wrap:wrap; gap:10px;">
+        <div style="flex:1 1 120px; min-width:110px; border-radius:12px; padding:12px 14px; background:#f9fafb; border:1px solid #e5e7eb;">
+            <p class="text-2xl font-bold text-gray-900 dark:text-white" style="margin:0;">{{ $supply['online'] }}</p>
+            <p class="text-xs text-gray-500" style="margin:2px 0 0;">Online</p>
         </div>
-        <div>
-            <p class="text-2xl font-bold" style="color:#16a34a">{{ $supply['ready'] }}</p>
-            <p class="text-xs text-gray-500">Sẵn sàng nhận</p>
-        </div>
-        <div>
-            <p class="text-2xl font-bold" style="color:#0ea5e9">{{ $supply['busy1'] }}</p>
-            <p class="text-xs text-gray-500">Đang chạy 1 đơn</p>
-        </div>
-        <div>
-            <p class="text-2xl font-bold" style="color:#f59e0b">{{ $supply['busy2'] }}</p>
-            <p class="text-xs text-gray-500">Full 2 đơn</p>
-        </div>
-        <div>
-            <p class="text-2xl font-bold" style="color:#8b5cf6">{{ $supply['holding'] }}</p>
-            <p class="text-xs text-gray-500">Đang cầm offer</p>
-        </div>
-        <div>
-            <p class="text-2xl font-bold" style="color:#ef4444">{{ $supply['dead'] }}</p>
-            <p class="text-xs text-gray-500">Mất kết nối (app chết)</p>
-        </div>
+        @foreach ($supplySegments as $seg)
+            <div style="flex:1 1 120px; min-width:110px; border-radius:12px; padding:12px 14px; background:{{ $seg['color'] }}0d; border:1px solid {{ $seg['color'] }}33;">
+                <p class="text-2xl font-bold" style="margin:0; color:{{ $seg['color'] }}">{{ $seg['value'] }}</p>
+                <p class="text-xs text-gray-500" style="margin:2px 0 0;">{{ $seg['label'] }}</p>
+            </div>
+        @endforeach
     </div>
 </div>
 
@@ -74,7 +85,10 @@
     {{-- Đơn đang phát --}}
     <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-sm overflow-hidden">
         <div class="px-4 py-3 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between">
-            <span class="font-semibold text-sm">Đơn đang chờ tài xế nhận</span>
+            <span class="font-semibold text-sm flex items-center gap-2">
+                <x-heroicon-o-signal class="w-4 h-4 text-gray-400" />
+                Đơn đang chờ tài xế nhận
+            </span>
             @if(count($activeOrders))
                 <span class="text-xs font-semibold rounded-full px-2 py-0.5" style="background:#ffedd5;color:#ea580c">{{ count($activeOrders) }} đơn</span>
             @endif
@@ -89,7 +103,8 @@
                     $secs = $o['elapsed'] % 60;
                     $elapsed = $mins > 0 ? $mins . 'p' . str_pad($secs, 2, '0', STR_PAD_LEFT) . 's' : $secs . 's';
                 @endphp
-                <div class="dispatch-card rounded-xl border overflow-hidden {{ $bgClass }}"
+                <div wire:key="active-order-{{ $o['id'] }}"
+                     class="dispatch-card rounded-xl border overflow-hidden {{ $bgClass }}"
                      data-started="{{ \Carbon\Carbon::parse($o['started_at'])->timestamp }}"
                      style="border-color: {{ $accentColor }}20; border-left: 3px solid {{ $accentColor }};">
 
@@ -115,7 +130,7 @@
                 </div>
             @empty
                 <div class="py-10 text-center">
-                    <svg class="w-10 h-10 mx-auto text-gray-300 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                    <x-heroicon-o-check-circle class="w-10 h-10 mx-auto text-gray-300 mb-2" />
                     <p class="text-gray-400 text-sm">Không có đơn nào đang phát</p>
                 </div>
             @endforelse
@@ -124,29 +139,16 @@
 
     {{-- Lịch sử offer gần đây --}}
     <div class="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-sm overflow-hidden">
-        <div class="px-4 py-3 border-b border-gray-100 dark:border-gray-800 font-semibold text-sm">
+        <div class="px-4 py-3 border-b border-gray-100 dark:border-gray-800 font-semibold text-sm flex items-center gap-2">
+            <x-heroicon-o-clock class="w-4 h-4 text-gray-400" />
             Lịch sử offer gần đây
         </div>
         <div class="p-3 space-y-2 max-h-[600px] overflow-y-auto">
             @forelse($this->getRecentOffers() as $r)
-                @php
-                    $resultColor = match($r['result']) {
-                        'accepted'     => '#22c55e',
-                        'declined'     => '#ef4444',
-                        'expired'      => '#9ca3af',
-                        'skipped_busy' => '#f97316',
-                        default        => '#f59e0b',
-                    };
-                    $resultLabel = match($r['result']) {
-                        'accepted'     => 'Nhận',
-                        'declined'     => 'Từ chối',
-                        'expired'      => 'Hết hạn',
-                        'skipped_busy' => 'Bận',
-                        default        => 'Đang chờ',
-                    };
-                @endphp
-                <div class="rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden"
-                     style="border-left: 3px solid {{ $resultColor }};">
+                @php $cfg = \App\Filament\Pages\DispatchMonitorPage::offerResultConfig($r['result']); @endphp
+                <div wire:key="offer-{{ $r['id'] }}"
+                     class="rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden"
+                     style="border-left: 3px solid {{ $cfg['color'] }};">
 
                     <div class="flex items-center gap-1.5 px-3 py-2 text-sm flex-wrap">
                         <span class="font-bold text-gray-900 dark:text-white">#{{ $r['order_id'] }}</span>
@@ -159,7 +161,7 @@
                     <div class="mx-3 border-t border-gray-100 dark:border-gray-800"></div>
 
                     <div class="flex items-center gap-1.5 px-3 py-2 text-xs">
-                        <span class="px-2 py-0.5 rounded-full font-medium" style="background:{{ $resultColor }}22;color:{{ $resultColor }}">{{ $resultLabel }}</span>
+                        <span class="px-2 py-0.5 rounded-full font-medium" style="background:{{ $cfg['color'] }}22;color:{{ $cfg['color'] }}">{{ $cfg['label'] }}</span>
                         @if($r['response_sec'] !== null)
                             <span class="text-gray-300 dark:text-gray-600">·</span>
                             <span class="text-gray-500 dark:text-gray-400">phản hồi sau {{ $r['response_sec'] }}s</span>
@@ -168,7 +170,7 @@
                 </div>
             @empty
                 <div class="py-10 text-center">
-                    <svg class="w-10 h-10 mx-auto text-gray-300 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                    <x-heroicon-o-document-text class="w-10 h-10 mx-auto text-gray-300 mb-2" />
                     <p class="text-gray-400 text-sm">Chưa có dữ liệu</p>
                 </div>
             @endforelse

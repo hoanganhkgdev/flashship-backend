@@ -34,6 +34,17 @@ class DispatchMonitorPage extends Page
         return $cache ??= ServiceType::pluck('label', 'key')->toArray();
     }
 
+    /** Màu + nhãn cho từng kết quả offer — khớp đúng 4 giá trị thật của enum order_dispatch_logs.result. */
+    public static function offerResultConfig(string $result): array
+    {
+        return match ($result) {
+            'accepted' => ['color' => '#22c55e', 'label' => 'Nhận'],
+            'declined' => ['color' => '#ef4444', 'label' => 'Từ chối'],
+            'expired'  => ['color' => '#9ca3af', 'label' => 'Hết hạn'],
+            default    => ['color' => '#f59e0b', 'label' => 'Đang chờ'], // 'pending'
+        };
+    }
+
     /** Luôn khoá theo đúng khu vực (tenant) đang đứng — đổi khu vực thì dùng bộ chuyển tenant trên topbar. */
     private function effectiveCityId(): ?int
     {
@@ -155,6 +166,7 @@ class DispatchMonitorPage extends Page
             ->orderByDesc('order_dispatch_logs.id')
             ->limit(20)
             ->get([
+                'order_dispatch_logs.id',
                 'order_dispatch_logs.order_id',
                 'users.name as driver_name',
                 'order_dispatch_logs.offered_at',
@@ -167,6 +179,7 @@ class DispatchMonitorPage extends Page
                     : null;
 
                 return [
+                    'id'           => $r->id,
                     'order_id'     => $r->order_id,
                     'driver_name'  => $r->driver_name,
                     'offered_at'   => Carbon::parse($r->offered_at)->format('H:i:s d/m'),
