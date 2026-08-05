@@ -31,6 +31,13 @@ class DispatchService
     const W_RATING_CNT    = 10;
     const W_WAIT_TIME     = 50;
     const W_DISTANCE      = 25;
+    // Ưu tiên MỀM cho tài xế đúng ca đã đăng ký — KHÔNG loại tài xế ngoài ca
+    // khỏi danh sách ứng viên nữa (trước đây chặn cứng khiến đơn không phát
+    // được nếu không ai đúng ca online gần đó, dù có tài xế khác rảnh gần
+    // hơn). Đúng ca vẫn được ưu tiên hơn khi có nhiều lựa chọn cạnh tranh,
+    // giữ ý nghĩa của việc đăng ký ca; ngoài ca vẫn có cơ hội nhận đơn khi
+    // không đủ người đúng ca phục vụ.
+    const W_IN_SHIFT      = 15;
 
     const WAIT_TIME_CAP_MINS = 480; // 8 tiếng — tài xế chờ lâu được ưu tiên rõ hơn
     const RATING_COUNT_CAP   = 200;
@@ -653,10 +660,9 @@ class DispatchService
 
         Log::debug("     [Candidates] Online/active: {$candidates->count()} | Bận: {$busyDriverIds->count()} | Đang nhận offer: {$receivingOfferIds->count()} | Đã hỏi: " . count($excludeIds));
 
-        // ── 2.5. Phải có ca đang đăng ký VÀ ca đó đang hiệu lực ngay lúc này —
-        // không đăng ký ca nào (hoặc ca không phủ giờ hiện tại) thì không được
-        // phát đơn, dù đang bật online. Không phạt gì — chỉ đơn giản không có
-        // mặt trong danh sách ứng viên.
+        // ── 2.5. Đúng ca đã đăng ký → ưu tiên mềm (cộng điểm trong composite
+        // score ở bước xếp hạng cuối), KHÔNG còn loại tài xế ngoài ca khỏi
+        // danh sách ứng viên — chỉ đơn giản đánh dấu ai đang đúng ca.
         $shiftsByDriver = DB::table('shift_user')
             ->join('shifts', 'shifts.id', '=', 'shift_user.shift_id')
             ->whereIn('shift_user.user_id', $candidates->pluck('id'))
@@ -665,16 +671,14 @@ class DispatchService
             ->get()
             ->groupBy('user_id');
 
-        $afterShift = $candidates->filter(function (User $d) use ($shiftsByDriver) {
-            return $shiftsByDriver->get($d->id, collect())->contains(
+        foreach ($candidates as $d) {
+            $inShift = $shiftsByDriver->get($d->id, collect())->contains(
                 fn ($s) => (new \Modules\Core\Models\Shift(['start_time' => $s->start_time, 'end_time' => $s->end_time]))->isNowInShift()
             );
-        });
-        if (($removed = $candidates->count() - $afterShift->count()) > 0) {
-            Log::debug("     [Candidates] Loại {$removed} tài xế do chưa đăng ký ca / ngoài giờ ca đã đăng ký");
+            $d->setAttribute('_in_shift', $inShift);
         }
 
-        $afterDebt = $afterShift->filter(fn(User $d) => !$this->hasBlockedDebt($d));
+        $afterDebt = $candidates->filter(fn(User $d) => !$this->hasBlockedDebt($d));
         if (($removed = $candidates->count() - $afterDebt->count()) > 0) {
             Log::debug("     [Candidates] Loại {$removed} tài xế do nợ quá hạn");
         }
@@ -767,7 +771,8 @@ class DispatchService
                 $cnt   = (int) ($ratingStats[$d->id] ?? 0);
                 $score = round($this->compositeScore($d, $cnt, $d->_road_km ?? self::MAX_ROAD_DISTANCE_KM), 1);
                 $wait  = round($this->waitTimeScore($d), 1);
-                Log::debug("       " . ($i + 1) . ". #{$d->id} {$d->name} | đường thật: {$km} | điểm={$score} | driver_score=" . ($d->driver_score ?? DriverScoreService::DEFAULT_SCORE) . " | so_dg={$cnt} | wait={$wait}");
+                $shift = $d->_in_shift ? 'đúng ca' : 'ngoài ca';
+                Log::debug("       " . ($i + 1) . ". #{$d->id} {$d->name} | đường thật: {$km} | điểm={$score} | driver_score=" . ($d->driver_score ?? DriverScoreService::DEFAULT_SCORE) . " | so_dg={$cnt} | wait={$wait} | {$shift}");
             }
         }
 
@@ -797,7 +802,8 @@ class DispatchService
         $ratingCntScore = min($ratingCount, self::RATING_COUNT_CAP) / self::RATING_COUNT_CAP * self::W_RATING_CNT;
         $waitScore      = $this->waitTimeScore($driver);
         $distScore      = (1 - min($distanceKm, self::MAX_ROAD_DISTANCE_KM) / self::MAX_ROAD_DISTANCE_KM) * self::W_DISTANCE;
-        return $scoreScore + $ratingCntScore + $waitScore + $distScore;
+        $shiftScore     = $driver->_in_shift ? self::W_IN_SHIFT : 0;
+        return $scoreScore + $ratingCntScore + $waitScore + $distScore + $shiftScore;
     }
 
     private function waitTimeScore(User $driver): float
