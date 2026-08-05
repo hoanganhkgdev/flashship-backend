@@ -3,6 +3,13 @@
 <style>
     #driver-map-wrapper { position: relative; width: 100%; min-height: 70vh; }
     #driver-map { position: absolute; inset: 0; width: 100%; height: 100%; }
+    #driver-map-counter {
+        position: absolute; top: 12px; left: 12px; z-index: 5;
+        background: #fff; border-radius: 999px; padding: 6px 14px;
+        font-size: 12.5px; font-weight: 600; color: #374151;
+        box-shadow: 0 1px 4px rgba(0,0,0,0.18);
+    }
+    .dark #driver-map-counter { background: #1f2937; color: #e5e7eb; }
 </style>
 
 {{-- Làm mới trạng thái "đang đi đơn / đang rảnh" mỗi 15s — vị trí GPS đã
@@ -14,6 +21,7 @@
 <div wire:ignore>
     <div id="driver-map-wrapper">
         <div id="driver-map"></div>
+        <div id="driver-map-counter">— online</div>
     </div>
 </div>
 
@@ -167,6 +175,8 @@ if (!window._mapReady) {
                 if (!allIds.has(Number(id))) { markers[id].setMap(null); delete markers[id]; }
             });
 
+            var onlineCount = 0;
+
             allIds.forEach(function(id) {
                 var meta = dbMeta[id]  || {};
                 var gps  = rtdbGps[id] || {};
@@ -183,6 +193,7 @@ if (!window._mapReady) {
                     return;
                 }
 
+                onlineCount++;
                 var isBusy = meta.busy === true;
 
                 if (markers[id]) {
@@ -236,6 +247,9 @@ if (!window._mapReady) {
                     markers[id] = m;
                 }
             });
+
+            var counterEl = document.getElementById('driver-map-counter');
+            if (counterEl) counterEl.textContent = onlineCount + ' đang online';
         }
     };
 
