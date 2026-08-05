@@ -19,10 +19,17 @@ class RTDBService
         return self::$db;
     }
 
-    public static function pingDriverScore(int $driverId): void
+    /**
+     * Ghi kèm điểm số thật (không chỉ ping) — app cập nhật ngay con số hiển
+     * thị từ chính sự kiện realtime này, không cần đợi gọi API mới thấy số
+     * mới (trước đây chỉ ping "có gì đó đổi", app phải gọi lại API mới biết
+     * giá trị, tốn thêm 1 vòng round-trip cho phần quan trọng nhất — con số).
+     */
+    public static function pingDriverScore(int $driverId, int $score): void
     {
         try {
             self::db()->getReference("driver_score/{$driverId}")->set([
+                'score'      => $score,
                 'updated_at' => now()->timestamp,
             ]);
         } catch (\Throwable $e) {

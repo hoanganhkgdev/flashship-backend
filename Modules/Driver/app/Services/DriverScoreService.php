@@ -220,7 +220,7 @@ class DriverScoreService
         ]);
 
         Log::info("[DriverScore] Driver #{$driverId} {$reason}: {$current} → {$newScore} (Δ{$delta})");
-        RTDBService::pingDriverScore($driverId);
+        RTDBService::pingDriverScore($driverId, $newScore);
     }
 
     // ─── Helpers ─────────────────────────────────────────────────────────────────
