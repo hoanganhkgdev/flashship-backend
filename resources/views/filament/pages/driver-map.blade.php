@@ -5,6 +5,11 @@
     #driver-map { position: absolute; inset: 0; width: 100%; height: 100%; }
 </style>
 
+{{-- Làm mới trạng thái "đang đi đơn / đang rảnh" mỗi 15s — vị trí GPS đã
+     realtime qua Firebase riêng, chỉ mục này cần Livewire poll vì lấy từ
+     bảng orders (MySQL), không có kênh realtime sẵn như GPS. --}}
+<div wire:poll.15s="loadDriversMeta" style="display:none"></div>
+
 {{-- MAP: wire:ignore — Livewire không được đụng vào đây --}}
 <div wire:ignore>
     <div id="driver-map-wrapper">
@@ -87,24 +92,29 @@ if (!window._mapReady) {
 
         window._renderMarkers = renderMarkers;
 
-        // Cache icon canvas theo driverId (chỉ hiện tài xế online nên không
-        // cần biến thể "_off" nữa)
+        // Xanh lá = đang rảnh, xanh dương = đang đi đơn.
+        function statusColor(isBusy) { return isBusy ? '#3b82f6' : '#22c55e'; }
+
+        // Cache icon canvas theo driverId + trạng thái bận (đổi màu viền khi
+        // nhận/trả đơn nên cần cache riêng theo cả 2 trạng thái).
         var iconCache = {};
 
-        function buildIcon(driverId, avatarUrl, callback) {
-            if (iconCache[driverId]) { callback(iconCache[driverId]); return; }
+        function buildIcon(driverId, avatarUrl, isBusy, callback) {
+            var cacheKey = driverId + (isBusy ? '_busy' : '_free');
+            if (iconCache[cacheKey]) { callback(iconCache[cacheKey]); return; }
 
             var S = 40, B = 3;
             var canvas = document.createElement('canvas');
             canvas.width = S; canvas.height = S;
             var ctx = canvas.getContext('2d');
+            var color = statusColor(isBusy);
 
             function draw(img) {
                 ctx.clearRect(0, 0, S, S);
-                // Viền màu (luôn xanh — chỉ hiện tài xế online)
+                // Viền màu theo trạng thái
                 ctx.beginPath();
                 ctx.arc(S/2, S/2, S/2 - 1, 0, Math.PI*2);
-                ctx.fillStyle = '#22c55e';
+                ctx.fillStyle = color;
                 ctx.fill();
                 // Clip avatar
                 ctx.save();
@@ -116,7 +126,7 @@ if (!window._mapReady) {
                 } else {
                     ctx.fillStyle = '#e5e7eb';
                     ctx.fillRect(0, 0, S, S);
-                    ctx.fillStyle = '#22c55e';
+                    ctx.fillStyle = color;
                     ctx.font = 'bold 16px sans-serif';
                     ctx.textAlign = 'center';
                     ctx.textBaseline = 'middle';
@@ -128,7 +138,7 @@ if (!window._mapReady) {
                     scaledSize: new google.maps.Size(S, S),
                     anchor: new google.maps.Point(S/2, S/2),
                 };
-                iconCache[driverId] = icon;
+                iconCache[cacheKey] = icon;
                 callback(icon);
             }
 
@@ -173,18 +183,20 @@ if (!window._mapReady) {
                     return;
                 }
 
+                var isBusy = meta.busy === true;
+
                 if (markers[id]) {
                     markers[id].setPosition({ lat: lat, lng: lng });
                     markers[id].setVisible(true);
                     markers[id]._meta = meta;
                     markers[id]._gps  = gps;
-                    buildIcon(id, meta.avatar, function(icon) {
+                    buildIcon(id, meta.avatar, isBusy, function(icon) {
                         if (markers[id]) markers[id].setIcon(icon);
                     });
                 } else {
                     var fallbackIcon = {
                         path: google.maps.SymbolPath.CIRCLE,
-                        fillColor: '#22c55e',
+                        fillColor: statusColor(isBusy),
                         fillOpacity: 1, strokeColor: '#fff', strokeWeight: 2,
                         scale: 9,
                     };
@@ -196,21 +208,24 @@ if (!window._mapReady) {
                     });
                     m._meta = meta; m._gps = gps;
                     (function(marker, driverId, meta) {
-                        buildIcon(driverId, meta.avatar, function(icon) {
+                        buildIcon(driverId, meta.avatar, isBusy, function(icon) {
                             marker.setIcon(icon);
                         });
                         marker.addListener('click', function() {
                             var ago = marker._gps && marker._gps.updated_at
                                 ? Math.round((Date.now() / 1000 - marker._gps.updated_at) / 60) + ' phút trước'
                                 : 'GPS từ DB';
+                            var busy  = marker._meta.busy === true;
+                            var color = statusColor(busy);
+                            var badge = busy ? '🔵 Đang đi đơn' : '🟢 Đang rảnh';
                             var avatarHtml = marker._meta.avatar
-                                ? '<img src="' + marker._meta.avatar + '" style="width:48px;height:48px;border-radius:50%;object-fit:cover;border:2px solid #22c55e;margin-bottom:6px;">'
+                                ? '<img src="' + marker._meta.avatar + '" style="width:48px;height:48px;border-radius:50%;object-fit:cover;border:2px solid ' + color + ';margin-bottom:6px;">'
                                 : '<div style="width:48px;height:48px;border-radius:50%;background:#e5e7eb;display:flex;align-items:center;justify-content:center;margin-bottom:6px;font-size:20px;">👤</div>';
                             infoWindow.setContent(
                                 '<div style="font-size:13px;line-height:1.8;min-width:180px;padding:4px 0;text-align:center">' +
                                 avatarHtml +
                                 '<strong style="font-size:14px;display:block">' + (marker._meta.name || '#' + driverId) + '</strong>' +
-                                '<span style="background:#22c55e;color:#fff;padding:1px 10px;border-radius:999px;font-size:11px;display:inline-block;margin-bottom:4px">🟢 Online</span><br>' +
+                                '<span style="background:' + color + ';color:#fff;padding:1px 10px;border-radius:999px;font-size:11px;display:inline-block;margin-bottom:4px">' + badge + '</span><br>' +
                                 (marker._meta.phone ? '<a href="https://zalo.me/' + marker._meta.phone + '" target="_blank" style="color:#0068ff;text-decoration:none;">📞 ' + marker._meta.phone + '</a><br>' : '<span style="color:#6b7280">📞 —</span><br>') +
                                 '<span style="color:#6b7280">⭐ Điểm: ' + (marker._meta.driver_score != null ? marker._meta.driver_score : '—') + '</span><br>' +
                                 '<span style="color:#6b7280">🕐 ' + ago + '</span></div>'

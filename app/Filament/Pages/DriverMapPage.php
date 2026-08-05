@@ -52,6 +52,15 @@ class DriverMapPage extends Page
             $query->where('city_id', $this->fixedCityId);
         }
 
+        // Đang đi đơn = có ít nhất 1 đơn ở trạng thái đang xử lý — cùng danh
+        // sách trạng thái "active" dùng chung trong OrderService/DispatchService.
+        $busyDriverIds = DB::table('orders')
+            ->whereIn('status', ['assigned', 'processing', 'on_the_way'])
+            ->whereNotNull('delivery_man_id')
+            ->pluck('delivery_man_id')
+            ->unique()
+            ->flip();
+
         $meta = [];
         foreach ($query->get() as $d) {
             $meta[$d->id] = [
@@ -59,6 +68,7 @@ class DriverMapPage extends Page
                 'phone'        => $d->phone ?? '',
                 'city_id'      => $d->city_id,
                 'is_online'    => (bool) $d->is_online,
+                'busy'         => $busyDriverIds->has($d->id),
                 'driver_score' => (int) ($d->driver_score ?? 100),
                 'lat'          => $d->latitude  ? (float) $d->latitude  : null,
                 'lng'          => $d->longitude ? (float) $d->longitude : null,
