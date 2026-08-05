@@ -599,8 +599,8 @@ class OrderController extends Controller
         if ($withTracking) {
             $result['tracking'] = [
                 'firebase_db_url'      => config('services.firebase.database_url'),
-                'rtdb_path'            => "/flashship_main/orders/city_{$order->city_id}/order_{$order->id}",
-                'driver_location_path' => $order->delivery_man_id ? "/flashship_main/locations/driver_{$order->delivery_man_id}" : null,
+                'rtdb_path'            => "/orders/{$order->code}",
+                'driver_location_path' => $order->delivery_man_id ? "/locations/driver_{$order->delivery_man_id}" : null,
             ];
         }
 
