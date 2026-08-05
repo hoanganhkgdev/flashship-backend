@@ -16,6 +16,7 @@ use Filament\Tables\Columns\Layout\Stack;
 use Filament\Notifications\Notification;
 use Illuminate\Database\Eloquent\Builder;
 use Modules\Core\Models\ServiceType;
+use Modules\Core\Services\RTDBService;
 use Modules\Order\Models\Order;
 
 class OrderResource extends Resource
@@ -399,6 +400,7 @@ class OrderResource extends Resource
                     ->modalDescription(fn (Order $record) => 'Xác nhận huỷ đơn ' . $record->code . '?')
                     ->action(function (Order $record) {
                         $record->update(['status' => 'cancelled', 'cancel_reason' => 'admin']);
+                        RTDBService::clearOrder($record->code);
                         Notification::make()->title('Đã huỷ đơn ' . $record->code)->warning()->send();
                     }),
 

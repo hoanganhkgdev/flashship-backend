@@ -10,6 +10,7 @@ use Filament\Notifications\Notification;
 use Illuminate\Support\Facades\DB;
 use Modules\Core\Models\User;
 use Modules\Core\Services\GoogleMapService;
+use Modules\Core\Services\RTDBService;
 use Modules\Order\Models\Order;
 use Modules\Order\Services\DispatchService;
 use Modules\Order\Services\OrderService;
@@ -460,6 +461,7 @@ class CallCenterPage extends Page implements HasForms
                         'cancel_reason' => 'admin',
                         'updated_at'   => now(),
                     ]);
+                    RTDBService::clearOrder($order->code);
                     $this->resultError = "Không gán được cho tài xế đã chọn — {$assignResult['message']} Đơn #{$order->code} đã bị huỷ, vui lòng thử lại với tài xế khác.";
                     Notification::make()
                         ->title('Gán tay thất bại — đơn đã huỷ')
