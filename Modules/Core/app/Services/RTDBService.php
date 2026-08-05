@@ -109,28 +109,6 @@ class RTDBService
     }
 
     /**
-     * Cập nhật vị trí GPS tài xế lên RTDB — admin map đọc real-time.
-     */
-    public static function updateDriverLocation(int $driverId, array $data): void
-    {
-        try {
-            self::db()->getReference("flashship_main/locations/driver_{$driverId}")->update(array_filter([
-                'lat'          => $data['lat'],
-                'lng'          => $data['lng'],
-                'bearing'      => $data['bearing'] ?? null,
-                'is_online'    => true,
-                'city_id'      => $data['city_id'] ?? null,
-                'name'         => $data['name'] ?? null,
-                'phone'        => $data['phone'] ?? null,
-                'driver_score' => $data['driver_score'] ?? null,
-                'updated_at'   => time() * 1000,
-            ], fn($v) => $v !== null));
-        } catch (\Throwable $e) {
-            Log::error('[RTDB] updateDriverLocation failed: ' . $e->getMessage());
-        }
-    }
-
-    /**
      * Khóa/mở khóa tài khoản tài xế real-time — app sẽ detect và force logout.
      * Path: drivers/{driverId}/account_locked
      */
@@ -163,7 +141,7 @@ class RTDBService
     public static function setDriverOnlineStatus(int $driverId, bool $isOnline): void
     {
         try {
-            self::db()->getReference("flashship_main/locations/driver_{$driverId}")->update([
+            self::db()->getReference("locations/driver_{$driverId}")->update([
                 'is_online'  => $isOnline,
                 'updated_at' => time() * 1000,
             ]);
