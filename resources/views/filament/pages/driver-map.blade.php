@@ -103,6 +103,16 @@ if (!window._mapReady) {
         // Xanh lá = đang rảnh, xanh dương = đang đi đơn.
         function statusColor(isBusy) { return isBusy ? '#3b82f6' : '#22c55e'; }
 
+        // updated_at của Firebase là mili-giây (ServerValue.timestamp) —
+        // Date.now() cũng mili-giây, trừ thẳng cho nhau rồi mới quy đổi phút.
+        function formatAgo(updatedAtMs) {
+            if (!updatedAtMs) return 'Chưa rõ';
+            var diffMin = Math.max(0, Math.round((Date.now() - updatedAtMs) / 60000));
+            if (diffMin < 1)  return 'Vừa xong';
+            if (diffMin < 60) return diffMin + ' phút trước';
+            return Math.round(diffMin / 60) + ' giờ trước';
+        }
+
         // Cache icon canvas theo driverId + trạng thái bận (đổi màu viền khi
         // nhận/trả đơn nên cần cache riêng theo cả 2 trạng thái).
         var iconCache = {};
@@ -223,23 +233,32 @@ if (!window._mapReady) {
                             marker.setIcon(icon);
                         });
                         marker.addListener('click', function() {
-                            var ago = marker._gps && marker._gps.updated_at
-                                ? Math.round((Date.now() / 1000 - marker._gps.updated_at) / 60) + ' phút trước'
-                                : 'GPS từ DB';
+                            var ago   = formatAgo(marker._gps && marker._gps.updated_at);
                             var busy  = marker._meta.busy === true;
                             var color = statusColor(busy);
                             var badge = busy ? '🔵 Đang đi đơn' : '🟢 Đang rảnh';
                             var avatarHtml = marker._meta.avatar
-                                ? '<img src="' + marker._meta.avatar + '" style="width:48px;height:48px;border-radius:50%;object-fit:cover;border:2px solid ' + color + ';margin-bottom:6px;">'
-                                : '<div style="width:48px;height:48px;border-radius:50%;background:#e5e7eb;display:flex;align-items:center;justify-content:center;margin-bottom:6px;font-size:20px;">👤</div>';
+                                ? '<img src="' + marker._meta.avatar + '" style="width:56px;height:56px;border-radius:50%;object-fit:cover;border:2.5px solid ' + color + ';">'
+                                : '<div style="width:56px;height:56px;border-radius:50%;background:#f3f4f6;display:flex;align-items:center;justify-content:center;font-size:24px;border:2.5px solid ' + color + ';">👤</div>';
+                            var row = function(icon, content) {
+                                return '<div style="display:flex;align-items:center;gap:8px;font-size:13px;color:#374151;">' +
+                                    '<span style="width:16px;text-align:center;flex-shrink:0">' + icon + '</span>' + content + '</div>';
+                            };
                             infoWindow.setContent(
-                                '<div style="font-size:13px;line-height:1.8;min-width:180px;padding:4px 0;text-align:center">' +
-                                avatarHtml +
-                                '<strong style="font-size:14px;display:block">' + (marker._meta.name || '#' + driverId) + '</strong>' +
-                                '<span style="background:' + color + ';color:#fff;padding:1px 10px;border-radius:999px;font-size:11px;display:inline-block;margin-bottom:4px">' + badge + '</span><br>' +
-                                (marker._meta.phone ? '<a href="https://zalo.me/' + marker._meta.phone + '" target="_blank" style="color:#0068ff;text-decoration:none;">📞 ' + marker._meta.phone + '</a><br>' : '<span style="color:#6b7280">📞 —</span><br>') +
-                                '<span style="color:#6b7280">⭐ Điểm: ' + (marker._meta.driver_score != null ? marker._meta.driver_score : '—') + '</span><br>' +
-                                '<span style="color:#6b7280">🕐 ' + ago + '</span></div>'
+                                '<div style="width:200px;font-family:inherit;padding:2px;">' +
+                                    '<div style="text-align:center;padding-bottom:12px;margin-bottom:12px;border-bottom:1px solid #f0f0f0;">' +
+                                        avatarHtml +
+                                        '<div style="margin-top:8px;font-size:14.5px;font-weight:700;color:#111827;">' + (marker._meta.name || '#' + driverId) + '</div>' +
+                                        '<span style="display:inline-block;margin-top:5px;background:' + color + ';color:#fff;padding:2px 11px;border-radius:999px;font-size:11px;font-weight:600;">' + badge + '</span>' +
+                                    '</div>' +
+                                    '<div style="display:flex;flex-direction:column;gap:7px;">' +
+                                        (marker._meta.phone
+                                            ? row('📞', '<a href="https://zalo.me/' + marker._meta.phone + '" target="_blank" style="color:#2563eb;text-decoration:none;">' + marker._meta.phone + '</a>')
+                                            : row('📞', '<span style="color:#9ca3af">—</span>')) +
+                                        row('⭐', 'Điểm: ' + (marker._meta.driver_score != null ? marker._meta.driver_score : '—')) +
+                                        row('🕐', '<span style="color:#6b7280">' + ago + '</span>') +
+                                    '</div>' +
+                                '</div>'
                             );
                             infoWindow.open(map, marker);
                         });
