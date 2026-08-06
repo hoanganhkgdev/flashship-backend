@@ -203,7 +203,7 @@ class RTDBService
         try {
             $factory = (new Factory)
                 ->withServiceAccount(storage_path('app/firebase-service-account.json'));
-            return (string) $factory->createAuth()->createCustomToken($uid);
+            return $factory->createAuth()->createCustomToken($uid)->toString();
         } catch (\Throwable $e) {
             Log::error('[RTDB] createCustomAuthToken failed: ' . $e->getMessage());
             return null;
