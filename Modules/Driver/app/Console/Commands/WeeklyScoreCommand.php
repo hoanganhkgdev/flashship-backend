@@ -11,7 +11,7 @@ use Modules\Driver\Services\DriverWalletService;
 class WeeklyScoreCommand extends Command
 {
     protected $signature   = 'drivers:weekly-score';
-    protected $description = 'Chốt điểm cuối tuần (thưởng/phạt 100k vào ví) rồi reset về 100 cho tuần mới';
+    protected $description = 'Chốt điểm cuối tuần (thưởng 200k / phạt 100k vào ví) rồi reset về 100 cho tuần mới';
 
     public function handle(): void
     {

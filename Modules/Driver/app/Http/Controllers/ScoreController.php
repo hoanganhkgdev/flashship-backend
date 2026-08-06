@@ -121,6 +121,8 @@ class ScoreController extends Controller
             $reason === 'complete'         => 'Hoàn thành đơn',
             $reason === 'weekly_reset'     => 'Reset điểm đầu tuần',
             $reason === 'shift_violation'  => 'Vi phạm ca làm việc',
+            $reason === 'shift_never_online' => 'Không online cả ca',
+            $reason === 'offer_unviewed_x3'  => 'Bỏ lỡ 3 đơn không xem',
             $reason === 'streak_bonus'     => 'Thưởng chuỗi đơn liên tiếp',
             $reason === 'inactive_1_day' || $reason === 'inactivity_1d'
                 => 'Không giao đơn 1 ngày',

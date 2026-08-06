@@ -11,7 +11,7 @@ class DriverScoreService
     const MIN_SCORE            = 0;
     const MAX_SCORE            = 150;
 
-    const SCORE_DECLINE        = -1;
+    const SCORE_DECLINE        = -2;
     const SCORE_VIEWED_TIMEOUT = -2;
 
     const RATING_DELTAS        = [5 => 1, 4 => 0, 3 => -1, 2 => -3, 1 => -5];
@@ -21,11 +21,11 @@ class DriverScoreService
 
     const DAILY_BONUS_CAP      = 10;
 
-    // 130 khớp đúng ngưỡng "Xuất sắc" của label() — trước đây neo ở kịch
+    // 140 khớp đúng ngưỡng "Xuất sắc" của label() — trước đây neo ở kịch
     // trần 150 khiến tài xế được xếp "Xuất sắc" vẫn có thể nhận 0đ thưởng.
-    const WEEKLY_BONUS_SCORE   = 130;
+    const WEEKLY_BONUS_SCORE   = 140;
     const WEEKLY_PENALTY_SCORE = 70;
-    const WEEKLY_BONUS_AMOUNT  = 100_000;
+    const WEEKLY_BONUS_AMOUNT  = 200_000;
     const WEEKLY_PENALTY_AMOUNT= 100_000;
 
     // ─── Triggers ────────────────────────────────────────────────────────────────
@@ -70,9 +70,8 @@ class DriverScoreService
     }
 
     /**
-     * Đã mở xem đơn nhưng để hết giờ không bấm gì — nặng hơn từ chối chủ động
-     * (-2) vì đã đọc được thông tin đơn nên để trôi là né có chủ ý, vừa thiếu
-     * minh bạch vừa tốn trọn thời gian chờ quyết định của khách.
+     * Đã mở xem đơn nhưng để hết giờ không bấm gì — cùng mức với từ chối chủ
+     * động (-2), vì cả 2 đều là né đơn có chủ ý, chỉ khác cách thể hiện.
      */
     public static function onViewedTimeout(int $driverId): void
     {
@@ -97,6 +96,7 @@ class DriverScoreService
     public static function onShiftOnlineRate(int $driverId, float $percent): void
     {
         [$delta, $reason] = match (true) {
+            $percent <= 0.0  => [-15, 'shift_never_online'],
             $percent >= 0.90 => [3, 'shift_online_high'],
             $percent >= 0.70 => [0, 'shift_online_neutral'],
             $percent >= 0.50 => [-5, 'shift_online_mid'],
@@ -107,26 +107,25 @@ class DriverScoreService
     }
 
     /**
-     * Chấm điểm cuối ca dựa trên % offer KHÔNG mở xem / tổng offer nhận
-     * trong ca — thay cho luật "bỏ lỡ 2 lần liên tiếp → tự tắt + phạt" cũ
-     * (đã bỏ hẳn cơ chế tự tắt). Gọi từ ScoreShiftSessionsCommand, bỏ qua
-     * nếu thành phố đang bật chế độ trời mưa (xem RainModeControl).
+     * Offer bị bỏ lỡ KHÔNG xem (khác viewed_timeout — trường hợp này chưa hề
+     * mở app xem đơn) — đếm dồn liên tục, cứ đủ 3 lần thì trừ 1 điểm rồi
+     * reset bộ đếm về 0. Thay hẳn luật % bỏ lỡ tính cuối ca cũ
+     * (onMissedOfferRate, đã bỏ). Gọi từ DispatchService::handleTimeout(),
+     * bỏ qua nếu thành phố đang bật chế độ trời mưa (miễn chấm hoàn toàn,
+     * không tăng bộ đếm).
      */
-    public static function onMissedOfferRate(int $driverId, float $missedPercent): void
+    public static function onOfferUnviewed(int $driverId): void
     {
-        [$delta, $reason] = match (true) {
-            $missedPercent > 0.60 => [-12, 'missed_offer_high'],
-            $missedPercent > 0.40 => [-7,  'missed_offer_mid'],
-            $missedPercent > 0.20 => [-3,  'missed_offer_low'],
-            default               => [0,   'missed_offer_neutral'],
-        };
+        DB::transaction(function () use ($driverId) {
+            $count = (int) (DB::table('users')->where('id', $driverId)->lockForUpdate()->value('unviewed_offer_count') ?? 0) + 1;
 
-        self::adjust($driverId, $delta, $reason);
-    }
-
-    public static function onShiftViolation(int $driverId): void
-    {
-        self::adjust($driverId, -15, 'shift_violation');
+            if ($count >= 3) {
+                DB::table('users')->where('id', $driverId)->update(['unviewed_offer_count' => 0]);
+                self::adjust($driverId, -1, 'offer_unviewed_x3');
+            } else {
+                DB::table('users')->where('id', $driverId)->update(['unviewed_offer_count' => $count]);
+            }
+        });
     }
 
     // ─── Weekly Reset ────────────────────────────────────────────────────────────
@@ -238,7 +237,7 @@ class DriverScoreService
     public static function label(int $score): string
     {
         return match (true) {
-            $score >= 130 => 'Xuất sắc',
+            $score >= self::WEEKLY_BONUS_SCORE => 'Xuất sắc',
             $score >= 110 => 'Tốt',
             $score >= 90  => 'Khá',
             $score >= 70  => 'Trung bình',
@@ -248,12 +247,15 @@ class DriverScoreService
 
     public static function tips(int $score): array
     {
+        $bonusAmount   = number_format(self::WEEKLY_BONUS_AMOUNT, 0, ',', '.') . '₫';
+        $penaltyAmount = number_format(self::WEEKLY_PENALTY_AMOUNT, 0, ',', '.') . '₫';
+
         if ($score >= self::WEEKLY_BONUS_SCORE) {
-            return ['Bạn đã đạt ' . self::WEEKLY_BONUS_SCORE . ' điểm — tiếp tục duy trì để nhận thưởng 100.000₫ cuối tuần!'];
+            return ['Bạn đã đạt ' . self::WEEKLY_BONUS_SCORE . ' điểm — tiếp tục duy trì để nhận thưởng ' . $bonusAmount . ' cuối tuần!'];
         }
         if ($score <= self::WEEKLY_PENALTY_SCORE) {
-            return ['Điểm dưới 70 — cố gắng cải thiện để tránh bị phạt 100.000₫ cuối tuần.'];
+            return ['Điểm dưới ' . self::WEEKLY_PENALTY_SCORE . ' — cố gắng cải thiện để tránh bị phạt ' . $penaltyAmount . ' cuối tuần.'];
         }
-        return ['Cần thêm ' . (self::WEEKLY_BONUS_SCORE - $score) . ' điểm để đạt thưởng 100.000₫ cuối tuần.'];
+        return ['Cần thêm ' . (self::WEEKLY_BONUS_SCORE - $score) . ' điểm để đạt thưởng ' . $bonusAmount . ' cuối tuần.'];
     }
 }
