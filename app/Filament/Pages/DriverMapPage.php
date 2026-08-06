@@ -45,7 +45,7 @@ class DriverMapPage extends Page
         $query = DB::table('users')
             ->where('user_type', 'driver')
             ->where('status', 1)
-            ->select('id', 'name', 'phone', 'city_id', 'is_online', 'driver_score', 'latitude', 'longitude', 'profile_photo_path');
+            ->select('id', 'name', 'phone', 'city_id', 'driver_score', 'profile_photo_path');
 
         // city_manager chỉ thấy tài xế khu vực mình
         if ($this->fixedCityId) {
@@ -61,17 +61,17 @@ class DriverMapPage extends Page
             ->unique()
             ->flip();
 
+        // Chỉ giữ metadata quan hệ (tên/sđt/avatar/điểm) — is_online và toạ độ
+        // đọc thẳng Firebase RTDB phía client (driver-map.blade.php), không
+        // còn nguồn nào từ MySQL nữa.
         $meta = [];
         foreach ($query->get() as $d) {
             $meta[$d->id] = [
                 'name'         => $d->name ?? '',
                 'phone'        => $d->phone ?? '',
                 'city_id'      => $d->city_id,
-                'is_online'    => (bool) $d->is_online,
                 'busy'         => $busyDriverIds->has($d->id),
                 'driver_score' => (int) ($d->driver_score ?? 100),
-                'lat'          => $d->latitude  ? (float) $d->latitude  : null,
-                'lng'          => $d->longitude ? (float) $d->longitude : null,
                 'avatar'       => $d->profile_photo_path
                     ? Storage::url($d->profile_photo_path)
                     : null,

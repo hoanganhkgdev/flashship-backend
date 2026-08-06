@@ -189,32 +189,32 @@ if (!window._mapReady) {
 
             allIds.forEach(function(id) {
                 var meta = dbMeta[id]  || {};
-                var gps  = rtdbGps[id] || {};
+                var gps  = rtdbGps[id]; // KHÔNG fallback {} — phải phân biệt được "chưa có dữ liệu"
+
+                // Online/offline CHỈ tin Firebase — không còn lấy is_online từ
+                // MySQL nữa (2 nguồn độc lập, dễ lệch nhau — vd tài xế bấm
+                // online trong app nhưng chưa kịp có GPS, hoặc dữ liệu Firebase
+                // bị xoá tay nhưng MySQL vẫn còn is_online=1 cũ).
+                var isOnline = !!gps && gps.is_online === true;
+
+                if (!isOnline) {
+                    if (markers[id]) markers[id].setVisible(false);
+                    return;
+                }
+
                 var lat, lng;
                 if (gps.lat != null && gps.lng != null) {
                     // Có vị trí live từ Firebase — luôn ưu tiên.
                     lat = gps.lat; lng = gps.lng;
                 } else if (markers[id]) {
-                    // Firebase tạm thời chưa có dữ liệu ở lần render này — giữ
-                    // nguyên vị trí live gần nhất, KHÔNG lùi về MySQL (cột đó
-                    // không còn được đồng bộ nữa từ khi bỏ cron sync-location,
-                    // lùi về đây sẽ là toạ độ đông cứng từ rất lâu, gây nhảy
-                    // loạn xạ trên bản đồ).
+                    // Firebase tạm thời chưa có toạ độ ở lần render này (vừa
+                    // online, chưa kịp gửi GPS) — giữ nguyên vị trí live gần
+                    // nhất thay vì trống hẳn.
                     var pos = markers[id].getPosition();
                     lat = pos.lat(); lng = pos.lng();
                 } else {
-                    // Marker mới, chưa từng nhận được dữ liệu Firebase — tạm
-                    // dùng MySQL để không trống hẳn lúc mới tải trang, chờ
-                    // Firebase bắn snapshot đầu tiên.
-                    lat = meta.lat; lng = meta.lng;
-                }
-
-                // Firebase is_online ưu tiên hơn DB (real-time hơn) — chỉ hiện
-                // tài xế đang online, ẩn hẳn (không chỉ mờ đi) tài xế offline.
-                var isOnline = gps.is_online !== undefined ? (gps.is_online === true) : (meta.is_online === true);
-                var visible  = isOnline && lat != null && lng != null;
-
-                if (!visible) {
+                    // Online nhưng chưa từng có toạ độ nào từ Firebase — chưa
+                    // hiện được, không còn nguồn MySQL nào để tạm dùng nữa.
                     if (markers[id]) markers[id].setVisible(false);
                     return;
                 }
