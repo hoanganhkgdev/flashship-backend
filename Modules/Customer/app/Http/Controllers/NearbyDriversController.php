@@ -4,6 +4,7 @@ namespace Modules\Customer\Http\Controllers;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\DB;
+use Modules\Driver\Services\DriverLocationService;
 use Modules\Order\Models\Order;
 
 class NearbyDriversController extends Controller
@@ -24,33 +25,30 @@ class NearbyDriversController extends Controller
 
         $cityId = $request->user()->city_id;
 
-        $drivers = DB::table('users')
+        $candidateIds = DB::table('users')
             ->where('user_type', 'driver')
             ->where('status', 1)
             ->where('is_online', true)
             ->when($cityId, fn($q) => $q->where('city_id', $cityId))
-            ->whereNotNull('latitude')
-            ->whereNotNull('longitude')
             ->whereNotIn('id', $busyIds)
             ->where(function ($q) {
                 $q->whereNull('score_suspended_until')
                   ->orWhere('score_suspended_until', '<=', now());
             })
-            ->select('id', 'latitude', 'longitude', 'bearing')
-            ->get()
-            ->filter(function ($d) use ($lat, $lng, $radius) {
-                return $this->haversineKm(
-                    (float) $d->latitude, (float) $d->longitude,
-                    $lat, $lng
-                ) <= $radius;
-            })
-            ->values()
-            ->map(fn($d) => [
-                'id'      => $d->id,
-                'lat'     => (float) $d->latitude,
-                'lng'     => (float) $d->longitude,
-                'bearing' => (float) ($d->bearing ?? 0),
-            ]);
+            ->pluck('id')
+            ->all();
+
+        $locations = app(DriverLocationService::class)->freshLocationsFor($candidateIds);
+
+        $drivers = collect($locations)
+            ->filter(fn($loc) => $this->haversineKm($loc['lat'], $loc['lng'], $lat, $lng) <= $radius)
+            ->map(fn($loc, $id) => [
+                'id'      => $id,
+                'lat'     => $loc['lat'],
+                'lng'     => $loc['lng'],
+                'bearing' => $loc['bearing'] ?? 0,
+            ])
+            ->values();
 
         return response()->json(['data' => $drivers]);
     }

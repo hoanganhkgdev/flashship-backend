@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\DB;
 use Modules\Core\Models\User;
 use Modules\Core\Services\GoogleMapService;
 use Modules\Core\Services\RTDBService;
+use Modules\Driver\Services\DriverLocationService;
 use Modules\Order\Models\Order;
 use Modules\Order\Services\DispatchService;
 use Modules\Order\Services\OrderService;
@@ -272,9 +273,7 @@ class CallCenterPage extends Page implements HasForms
         $drivers = User::where('user_type', 'driver')
             ->where('city_id', $cityId)
             ->where('is_online', true)
-            ->whereNotNull('latitude')
-            ->whereNotNull('longitude')
-            ->get(['id', 'name', 'phone', 'latitude', 'longitude']);
+            ->get(['id', 'name', 'phone']);
 
         $this->onlineDrivers = $drivers
             ->map(fn (User $d) => ['id' => $d->id, 'name' => $d->name, 'phone' => $d->phone])
@@ -286,9 +285,7 @@ class CallCenterPage extends Page implements HasForms
             return;
         }
 
-        $origins = $drivers->mapWithKeys(fn (User $d) => [
-            $d->id => ['lat' => (float) $d->latitude, 'lng' => (float) $d->longitude],
-        ])->all();
+        $origins = app(DriverLocationService::class)->freshLocationsFor($drivers->pluck('id')->all());
 
         $roadDistances = GoogleMapService::roadDistanceBatchKm($origins, $this->pickupLat, $this->pickupLng);
 
@@ -297,8 +294,8 @@ class CallCenterPage extends Page implements HasForms
                 && $roadDistances[$d->id] <= DispatchService::MAX_ROAD_DISTANCE_KM)
             ->map(fn (User $d) => [
                 'id'      => $d->id,
-                'lat'     => (float) $d->latitude,
-                'lng'     => (float) $d->longitude,
+                'lat'     => $origins[$d->id]['lat'],
+                'lng'     => $origins[$d->id]['lng'],
                 'road_km' => round($roadDistances[$d->id], 2),
             ])
             ->sortBy('road_km')

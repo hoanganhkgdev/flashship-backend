@@ -175,4 +175,19 @@ class RTDBService
             Log::error('[RTDB] removeDriverLocation failed: ' . $e->getMessage());
         }
     }
+
+    /**
+     * Đọc toàn bộ node `locations` (toạ độ realtime mọi tài xế) trong 1 lần
+     * gọi — dùng bởi các nơi cần quét toạ độ tài xế tại thời điểm xử lý
+     * (dispatch, tìm tài xế gần) thay vì đọc qua bản sao MySQL đã lỗi thời.
+     */
+    public static function getDriverLocations(): array
+    {
+        try {
+            return self::db()->getReference('locations')->getValue() ?? [];
+        } catch (\Throwable $e) {
+            Log::error('[RTDB] getDriverLocations failed: ' . $e->getMessage());
+            return [];
+        }
+    }
 }

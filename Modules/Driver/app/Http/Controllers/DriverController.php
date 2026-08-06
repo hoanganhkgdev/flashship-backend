@@ -138,9 +138,10 @@ class DriverController extends Controller
      * nhưng hệ thống tin nhầm 3.27km, lọt qua trần 4km).
      *
      * Nguồn toạ độ chính thức giờ là Firebase RTDB — ghi trực tiếp từ
-     * LocationService (stream GPS thật, chỉ bắn khi di chuyển ≥10m) — được
-     * đồng bộ vào MySQL qua SyncDriverLocationCommand mỗi 5s. Endpoint này
-     * chỉ còn giữ lại để không phá app cũ đang gọi, và lưu log đối chiếu.
+     * LocationService (stream GPS thật, chỉ bắn khi di chuyển ≥10m), được
+     * dispatch/map đọc thẳng tại thời điểm cần (không còn đồng bộ qua MySQL).
+     * Endpoint này chỉ còn giữ lại để không phá app cũ đang gọi, và lưu log
+     * đối chiếu.
      */
     public function updateLocation(Request $request): JsonResponse
     {

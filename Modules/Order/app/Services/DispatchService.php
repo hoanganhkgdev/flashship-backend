@@ -2,6 +2,7 @@
 namespace Modules\Order\Services;
 
 use Carbon\Carbon;
+use Modules\Driver\Services\DriverLocationService;
 use Modules\Driver\Services\DriverScoreService;
 use Modules\Order\Jobs\DispatchOrderJob;
 use Modules\Order\Jobs\DispatchOrderRetryJob;
@@ -44,14 +45,6 @@ class DispatchService
     // giao mới hợp lý để 1 tài xế chạy được cả 2 mà không vòng vèo quá xa).
     const BATCH_MAX_PICKUP_KM   = 1.0;
     const BATCH_MAX_DELIVERY_KM = 1.5;
-
-    // Chặn A — chỉ coi vị trí tài xế là đáng tin nếu đã được xác nhận mới
-    // KỂ TỪ KHI bật online phiên này. App gửi /update-location mỗi 30s vô
-    // điều kiện (không phụ thuộc di chuyển) nên tài xế đứng yên lâu vẫn được
-    // làm mới liên tục — không bị chặn oan. Van an toàn: sau vài phút không
-    // có vị trí mới (GPS lỗi) vẫn cho vào lại, tránh khoá tài xế vĩnh viễn.
-    const LOCATION_FRESHNESS_GRACE_SECS    = 5;
-    const LOCATION_FRESHNESS_MAX_WAIT_MINS = 3;
 
     // Không còn khái niệm "bán kính tìm kiếm" (2km/4km đường chim bay) — quét
     // TOÀN BỘ tài xế online đủ điều kiện trong thành phố ngay từ đầu, tính
@@ -618,45 +611,35 @@ class DispatchService
         // cách nào ở bước này. Với quy mô vài chục tài xế/thành phố, tính khoảng
         // cách đường thật cho tất cả (bước 5) rẻ hơn hẳn chi phí duy trì Redis
         // GEO + 2 lớp lọc thô/lọc lại như trước, và không bỏ sót ai.
-        // Không lọc theo last_location_at có "còn mới nói chung" hay không (app
-        // chỉ gửi GPS khi di chuyển ≥10m qua kênh RTDB, tài xế ngồi yên sẽ stale
-        // theo kiểu đó) — lọc theo HEARTBEAT: app sống thì đập 30s/lần kể cả đứng
-        // yên, mất nhịp quá 10 phút nghĩa là app bị kill/máy tắt nguồn.
-        $hbCutoff = $now->copy()->subMinutes(10);
+        // Toạ độ/độ mới KHÔNG còn lọc qua cột MySQL (latitude/longitude/
+        // last_heartbeat_at/last_location_at — vốn do 1 cron đồng bộ định kỳ
+        // ghi, có độ trễ và từng gây race ghi đè vị trí cũ/mới lẫn lộn). Danh
+        // sách ở đây chỉ lọc theo metadata quan hệ (thành phố/trạng thái); toạ
+        // độ + độ mới được lọc ngay sau, đọc thẳng Firebase RTDB tại chính thời
+        // điểm này — xem bước dưới.
         $candidates = User::where('user_type', 'driver')
             ->where('city_id', $order->city_id)
             ->whereNotIn('id', $excludeIds)
             ->whereNotIn('id', $unavailableIds)
-            ->whereNotNull('latitude')
-            ->whereNotNull('longitude')
             ->where('status', 1)
             ->where('is_online', true)
             ->where(function ($q) use ($now) {
                 $q->whereNull('score_suspended_until')
                   ->orWhere('score_suspended_until', '<=', $now);
             })
-            ->where(function ($q) use ($hbCutoff) {
-                $q->whereNull('last_heartbeat_at')
-                  ->orWhere('last_heartbeat_at', '>=', $hbCutoff);
-            })
-            // Chặn A — toạ độ chỉ đáng tin nếu đã được xác nhận mới KỂ TỪ KHI
-            // bật online phiên này (khác với check heartbeat ở trên — heartbeat
-            // chỉ chứng minh "app còn sống", không chứng minh "toạ độ đang lưu
-            // đúng vị trí hiện tại"). App gửi /update-location mỗi 30s vô điều
-            // kiện (bất kể có di chuyển) nên chỉ cần 1 lần cập nhật sau khi bật
-            // online là đủ tin mãi cho phiên đó — không phạt oan tài xế đứng yên
-            // lâu. Van an toàn: quá 3 phút chưa có vị trí mới (GPS lỗi) thì vẫn
-            // cho vào lại, tránh khoá tài xế vĩnh viễn vì lý do họ không biết.
-            ->where(function ($q) use ($now) {
-                $q->whereNull('online_since')
-                  ->orWhereRaw(
-                      'last_location_at >= DATE_SUB(online_since, INTERVAL ? SECOND)',
-                      [self::LOCATION_FRESHNESS_GRACE_SECS]
-                  )
-                  ->orWhere('online_since', '<=', $now->copy()->subMinutes(self::LOCATION_FRESHNESS_MAX_WAIT_MINS));
-            })
             ->with(['debts', 'driverLicenses'])
             ->get();
+
+        // ── 2b. Lọc theo toạ độ + độ mới — đọc trực tiếp Firebase RTDB (nguồn
+        // gốc do app tài xế ghi), không qua bản sao MySQL. Ai không có vị trí
+        // đủ mới (app tắt/mất kết nối) bị loại ngay ở đây, thay cho check
+        // heartbeat/"Chặn A" cũ dựa trên cột MySQL.
+        $locations = app(DriverLocationService::class)->freshLocationsFor($candidates->pluck('id')->all());
+        $candidates = $candidates->filter(fn (User $d) => isset($locations[$d->id]))->values();
+        foreach ($candidates as $d) {
+            $d->setAttribute('latitude', $locations[$d->id]['lat']);
+            $d->setAttribute('longitude', $locations[$d->id]['lng']);
+        }
 
         Log::debug("     [Candidates] Online/active: {$candidates->count()} | Bận: {$busyDriverIds->count()} | Đang nhận offer: {$receivingOfferIds->count()} | Đã hỏi: " . count($excludeIds));
 
