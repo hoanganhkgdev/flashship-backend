@@ -190,4 +190,23 @@ class RTDBService
             return [];
         }
     }
+
+    /**
+     * Cấp Firebase custom token gắn với 1 UID theo thiết bị (không phải theo
+     * user) — dùng để Security Rules so khớp `auth.uid` với `session_device`
+     * hiện tại, chặn cứng thiết bị cũ ghi RTDB sau khi bị đăng nhập đè (kể cả
+     * khi đang chạy nền, không nhận được tín hiệu logout kịp thời qua
+     * listener thường — xem điều tra tài xế #405/#414).
+     */
+    public static function createCustomAuthToken(string $uid): ?string
+    {
+        try {
+            $factory = (new Factory)
+                ->withServiceAccount(storage_path('app/firebase-service-account.json'));
+            return (string) $factory->createAuth()->createCustomToken($uid);
+        } catch (\Throwable $e) {
+            Log::error('[RTDB] createCustomAuthToken failed: ' . $e->getMessage());
+            return null;
+        }
+    }
 }

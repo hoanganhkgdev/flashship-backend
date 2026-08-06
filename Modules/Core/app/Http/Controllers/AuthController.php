@@ -42,6 +42,7 @@ class AuthController extends Controller
             'password'  => 'required|string|min:6',
             'city_id'   => 'required|integer|exists:cities,id',
             'fcm_token' => 'nullable|string',
+            'device_id' => 'nullable|string',
         ]);
 
         if (!OtpService::verify($data['phone'], $data['otp'])) {
@@ -73,10 +74,20 @@ class AuthController extends Controller
             return [$user, $token];
         });
 
+        // Cấp luôn firebase_token theo device_id ngay lúc đăng ký (giống
+        // login()) — tránh tài xế mới duyệt xong online mà chưa từng có
+        // Firebase Auth, bị Security Rules chặn ghi GPS oan.
+        $deviceId      = $data['device_id'] ?? null;
+        $firebaseToken = null;
+        if ($deviceId) {
+            RTDBService::writeSessionDevice($user->id, $deviceId);
+            $firebaseToken = RTDBService::createCustomAuthToken("driver_{$user->id}_{$deviceId}");
+        }
+
         return response()->json([
             'success' => true,
             'message' => 'Đăng ký thành công. Tài khoản đang chờ admin duyệt.',
-            'data'    => ['user' => $user->load('city'), 'token' => $token],
+            'data'    => ['user' => $user->load('city'), 'token' => $token, 'firebase_token' => $firebaseToken],
         ], 201);
     }
 
@@ -173,14 +184,20 @@ class AuthController extends Controller
         }
 
         // Ghi device_id lên RTDB — thiết bị cũ sẽ tự detect và force logout
+        // (qua listener), VÀ cấp thêm Firebase custom token gắn UID theo
+        // đúng thiết bị này — để Security Rules chặn cứng ở tầng Firebase,
+        // không phụ thuộc thiết bị cũ có nhận được tín hiệu logout kịp lúc
+        // đang chạy nền hay không (xem điều tra tài xế #405/#414).
+        $firebaseToken = null;
         if ($deviceId) {
             RTDBService::writeSessionDevice($user->id, $deviceId);
+            $firebaseToken = RTDBService::createCustomAuthToken("driver_{$user->id}_{$deviceId}");
         }
 
         return response()->json([
             'success' => true,
             'message' => 'Đăng nhập thành công',
-            'data'    => ['token' => $token, 'user' => $this->formatUser($user)],
+            'data'    => ['token' => $token, 'user' => $this->formatUser($user), 'firebase_token' => $firebaseToken],
         ]);
     }
 
