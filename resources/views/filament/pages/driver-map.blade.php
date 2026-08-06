@@ -190,8 +190,24 @@ if (!window._mapReady) {
             allIds.forEach(function(id) {
                 var meta = dbMeta[id]  || {};
                 var gps  = rtdbGps[id] || {};
-                var lat  = gps.lat  != null ? gps.lat  : meta.lat;
-                var lng  = gps.lng  != null ? gps.lng  : meta.lng;
+                var lat, lng;
+                if (gps.lat != null && gps.lng != null) {
+                    // Có vị trí live từ Firebase — luôn ưu tiên.
+                    lat = gps.lat; lng = gps.lng;
+                } else if (markers[id]) {
+                    // Firebase tạm thời chưa có dữ liệu ở lần render này — giữ
+                    // nguyên vị trí live gần nhất, KHÔNG lùi về MySQL (cột đó
+                    // không còn được đồng bộ nữa từ khi bỏ cron sync-location,
+                    // lùi về đây sẽ là toạ độ đông cứng từ rất lâu, gây nhảy
+                    // loạn xạ trên bản đồ).
+                    var pos = markers[id].getPosition();
+                    lat = pos.lat(); lng = pos.lng();
+                } else {
+                    // Marker mới, chưa từng nhận được dữ liệu Firebase — tạm
+                    // dùng MySQL để không trống hẳn lúc mới tải trang, chờ
+                    // Firebase bắn snapshot đầu tiên.
+                    lat = meta.lat; lng = meta.lng;
+                }
 
                 // Firebase is_online ưu tiên hơn DB (real-time hơn) — chỉ hiện
                 // tài xế đang online, ẩn hẳn (không chỉ mờ đi) tài xế offline.
