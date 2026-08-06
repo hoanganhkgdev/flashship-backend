@@ -7,6 +7,7 @@ use Filament\Pages\Page;
 use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\On;
 use Modules\Core\Models\ServiceType;
+use Modules\Driver\Services\DriverLocationService;
 use Modules\Order\Models\Order;
 use Modules\Order\Models\OrderDispatchLog;
 
@@ -108,9 +109,14 @@ class DispatchMonitorPage extends Page
             ->where('status', 1)
             ->where('is_online', true)
             ->when($cityId, fn ($q) => $q->where('city_id', $cityId))
-            ->get(['id', 'last_heartbeat_at']);
+            ->get(['id']);
 
         $ids = $drivers->pluck('id');
+
+        // "Dead" = không có GPS/heartbeat đủ mới trên Firebase (nguồn duy
+        // nhất, thay cho cột last_heartbeat_at đã ngừng được cập nhật định
+        // kỳ từ khi bỏ cron sync GPS).
+        $freshLocations = app(DriverLocationService::class)->freshLocationsFor($ids->all());
 
         // Số đơn active theo tài xế (assigned/processing/on_the_way)
         $activeCounts = DB::table('orders')
@@ -126,13 +132,11 @@ class DispatchMonitorPage extends Page
             ->pluck('dispatching_to_driver_id')
             ->flip();
 
-        $hbCutoff = now()->subMinutes(10);
-
         $online = $drivers->count();
         $dead = $busy1 = $busy2 = $holding = $ready = 0;
 
         foreach ($drivers as $d) {
-            $hbDead = $d->last_heartbeat_at && Carbon::parse($d->last_heartbeat_at)->lt($hbCutoff);
+            $hbDead = !isset($freshLocations[$d->id]);
             $active = (int) ($activeCounts[$d->id] ?? 0);
 
             if ($hbDead)                        { $dead++; continue; }

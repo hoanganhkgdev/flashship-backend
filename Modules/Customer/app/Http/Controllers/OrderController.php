@@ -327,6 +327,9 @@ class OrderController extends Controller
             'driver_rating'    => $order->driver_rating,
             'scheduled_at'     => $order->scheduled_at?->toIso8601String(),
             'created_at'       => $order->created_at->toIso8601String(),
+            // Toạ độ tài xế KHÔNG trả qua field này nữa — cột MySQL đã đông
+            // cứng vĩnh viễn từ khi bỏ cron sync GPS. Nguồn duy nhất là
+            // tracking.driver_location_path (Firebase), xem bên dưới.
             'driver'           => $order->driver ? [
                 'id'         => $order->driver->id,
                 'name'       => $order->driver->name,
@@ -334,8 +337,6 @@ class OrderController extends Controller
                 'avatar_url' => $order->driver->profile_photo_path
                     ? asset('storage/' . $order->driver->profile_photo_path)
                     : null,
-                'latitude'   => $order->driver->latitude  ? (float) $order->driver->latitude  : null,
-                'longitude'  => $order->driver->longitude ? (float) $order->driver->longitude : null,
             ] : null,
         ];
 

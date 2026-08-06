@@ -107,8 +107,10 @@ class DriverController extends Controller
         }
 
         if ($user->is_online) {
-            // Heartbeat khởi điểm để được phát đơn ngay (cron sync 30s sẽ cập nhật
-            // tiếp từ Firebase).
+            // Chỉ còn là mốc "lần cuối bật online" — không có gì cập nhật lại
+            // định kỳ nữa (cron sync GPS cũ đã bỏ). Không dùng để quyết định
+            // nghiệp vụ ở đâu; độ mới GPS thật đọc thẳng Firebase qua
+            // DriverLocationService.
             $user->last_heartbeat_at = now();
         }
 
