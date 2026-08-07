@@ -22,8 +22,9 @@ Route::prefix('auth')->group(function () {
     Route::post('/reset-password',        [AuthController::class, 'resetPassword']);
 
     Route::middleware(['auth:sanctum', 'driver.active'])->group(function () {
-        Route::get('/me',      [AuthController::class, 'me']);
-        Route::post('/logout', [AuthController::class, 'logout']);
+        Route::get('/me',             [AuthController::class, 'me']);
+        Route::post('/logout',        [AuthController::class, 'logout']);
+        Route::post('/firebase-token', [AuthController::class, 'firebaseToken']);
     });
 });
 

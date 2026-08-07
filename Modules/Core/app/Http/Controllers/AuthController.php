@@ -214,6 +214,28 @@ class AuthController extends Controller
         return response()->json(['success' => true, 'message' => 'Đăng xuất thành công']);
     }
 
+    /**
+     * Cấp lại firebase_token cho phiên ĐÃ đăng nhập sẵn — dùng lúc app tự
+     * khôi phục phiên khi mở lại (không đi qua login()/verifyOtpAndRegister()
+     * nên trước đây không bao giờ ký nhập Firebase). Chỉ cần Sanctum token
+     * còn hiệu lực là đủ tin — nếu thiết bị này đã bị thay thế bởi 1 lần
+     * đăng nhập khác, token cũ đã bị xoá lúc đó (login() xoá hết token cũ),
+     * request sẽ tự 401 trước khi vào tới đây, không cần so lại session_device.
+     */
+    public function firebaseToken(Request $request): JsonResponse
+    {
+        $data = $request->validate(['device_id' => 'required|string']);
+
+        $firebaseToken = RTDBService::createCustomAuthToken(
+            "driver_{$request->user()->id}_{$data['device_id']}"
+        );
+
+        return response()->json([
+            'success' => true,
+            'data'    => ['firebase_token' => $firebaseToken],
+        ]);
+    }
+
     private function formatUser(User $user): array
     {
         $user->loadMissing(['city', 'bank', 'driverLicenses']);
