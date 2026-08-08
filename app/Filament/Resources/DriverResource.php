@@ -121,8 +121,7 @@ class DriverResource extends Resource
 
                 Tables\Columns\TextColumn::make('cccd')
                     ->label('CCCD')
-                    ->default('—')
-                    ->toggleable(isToggledHiddenByDefault: true),
+                    ->default('—'),
 
                 Tables\Columns\TextColumn::make('city.name')
                     ->label('Thành phố')
@@ -174,8 +173,7 @@ class DriverResource extends Resource
                 Tables\Columns\TextColumn::make('created_at')
                     ->label('Ngày đăng ký')
                     ->dateTime('d/m/Y')
-                    ->sortable()
-                    ->toggleable(isToggledHiddenByDefault: true),
+                    ->sortable(),
             ])
             ->filters([])
             ->actions([
