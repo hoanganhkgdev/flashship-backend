@@ -147,7 +147,7 @@ class DriverResource extends Resource
                         'approved' => 'Đã duyệt',
                         'rejected' => 'Từ chối',
                         'pending'  => 'Chờ duyệt',
-                        default    => '—',
+                        default    => 'Chưa tải lên',
                     })
                     ->color(fn ($state) => match ($state) {
                         'approved' => 'success',
