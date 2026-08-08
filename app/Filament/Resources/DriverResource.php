@@ -163,8 +163,7 @@ class DriverResource extends Resource
                 Tables\Columns\TextColumn::make('created_at')
                     ->label('Ngày đăng ký')
                     ->alignCenter()
-                    ->dateTime('d/m/Y')
-                    ->sortable(),
+                    ->dateTime('d/m/Y'),
             ])
             ->filters([])
             ->actions([
