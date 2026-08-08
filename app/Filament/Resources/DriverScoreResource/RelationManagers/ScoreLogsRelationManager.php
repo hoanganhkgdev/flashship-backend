@@ -57,7 +57,7 @@ class ScoreLogsRelationManager extends RelationManager
             $reason === 'complete'             => 'Hoàn thành đơn',
             $reason === 'decline'              => 'Từ chối đơn',
             $reason === 'viewed_timeout'        => 'Xem đơn nhưng không nhận',
-            $reason === 'offer_unviewed_x3'    => 'Bỏ lỡ đơn 3 lần liên tiếp (không xem)',
+            $reason === 'offer_unviewed_x3'    => 'Không xem đơn, dồn đủ 3 lần',
             $reason === 'streak_3'             => 'Streak 3 đơn liên tiếp',
             $reason === 'streak_6'             => 'Streak 6 đơn liên tiếp',
             $reason === 'streak_10'            => 'Streak 10 đơn liên tiếp',
