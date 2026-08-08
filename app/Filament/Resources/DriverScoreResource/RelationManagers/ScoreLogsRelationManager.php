@@ -17,12 +17,12 @@ class ScoreLogsRelationManager extends RelationManager
     public function table(Table $table): Table
     {
         return $table
-            // Chỉ hiện các lần bị TRỪ điểm trong hôm nay — bỏ qua mọi dòng
-            // không đổi/tăng điểm (complete +0, streak thưởng, đánh giá tốt...)
-            // và ngày khác, cho admin nhìn nhanh "hôm nay trừ vì gì" thay vì
-            // audit trail đầy đủ.
+            // Chỉ hiện các lần có ĐỔI điểm (cộng hoặc trừ) trong hôm nay — bỏ
+            // qua dòng delta=0 (complete không đạt streak...) và ngày khác,
+            // cho admin nhìn nhanh "hôm nay tăng/trừ vì gì" thay vì audit
+            // trail đầy đủ.
             ->modifyQueryUsing(fn ($query) => $query
-                ->where('delta', '<', 0)
+                ->where('delta', '<>', 0)
                 ->whereDate('created_at', now()->toDateString()))
             ->columns([
                 Tables\Columns\TextColumn::make('delta')
