@@ -113,21 +113,8 @@ class DriverResource extends Resource
 
                 Tables\Columns\TextColumn::make('name')
                     ->label('Họ tên')
-                    ->weight('semibold'),
-
-                Tables\Columns\TextColumn::make('phone')
-                    ->label('Số điện thoại')
-                    ->copyable(),
-
-                Tables\Columns\TextColumn::make('cccd')
-                    ->label('CCCD')
-                    ->default('—'),
-
-                Tables\Columns\TextColumn::make('city.name')
-                    ->label('Thành phố')
-                    ->default('—')
-                    ->badge()
-                    ->color('info'),
+                    ->weight('semibold')
+                    ->description(fn (User $record) => $record->phone),
 
                 Tables\Columns\TextColumn::make('is_online')
                     ->label('Online')
