@@ -21,11 +21,9 @@
                         $score = $driver->driver_score ?? 80;
                         $scoreColor = $score >= 80 ? '#22c55e' : ($score >= 60 ? '#3b82f6' : ($score >= 40 ? '#f59e0b' : '#ef4444'));
                         $initial = mb_strtoupper(mb_substr($driver->name, 0, 1));
-                        $onlineDuration = $driver->online_since
-                            ? \Carbon\Carbon::parse($driver->online_since)->diffForHumans(null, true)
-                            : null;
+                        $scoreUrl = \App\Filament\Resources\DriverScoreResource::getUrl('view', ['record' => $driver->id]);
                     @endphp
-                    <div class="rounded-xl border border-gray-100 dark:border-gray-800 p-4" style="background:#fafafa;" >
+                    <a href="{{ $scoreUrl }}" wire:navigate class="rounded-xl border border-gray-100 dark:border-gray-800 p-4" style="background:#fafafa; display:block; text-decoration:none; cursor:pointer;">
                         {{-- Avatar + tên --}}
                         @php $photoUrl = $driver->profile_photo_path ? \Illuminate\Support\Facades\Storage::url($driver->profile_photo_path) : null; @endphp
                         <div style="display:flex; align-items:center; gap:10px; margin-bottom:10px;">
@@ -55,15 +53,7 @@
                                 <span style="font-size:0.65rem; color:#9ca3af;">điểm</span>
                             </div>
                         </div>
-
-                        {{-- Online từ --}}
-                        @if($onlineDuration)
-                            <div style="margin-top:8px; font-size:0.7rem; color:#9ca3af; display:flex; align-items:center; gap:4px;">
-                                <svg style="width:11px;height:11px;" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-                                {{ $onlineDuration }}
-                            </div>
-                        @endif
-                    </div>
+                    </a>
                 @endforeach
             </div>
         @endif
