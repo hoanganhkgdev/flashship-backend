@@ -10,8 +10,6 @@ use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
-use Filament\Tables\Filters\SelectFilter;
-use Filament\Tables\Filters\TernaryFilter;
 use Illuminate\Database\Eloquent\Builder;
 use Modules\Core\Models\User;
 use Modules\Core\Services\RTDBService;
@@ -115,12 +113,10 @@ class DriverResource extends Resource
 
                 Tables\Columns\TextColumn::make('name')
                     ->label('Họ tên')
-                    ->searchable()
                     ->weight('semibold'),
 
                 Tables\Columns\TextColumn::make('phone')
                     ->label('Số điện thoại')
-                    ->searchable()
                     ->copyable(),
 
                 Tables\Columns\TextColumn::make('cccd')
@@ -181,23 +177,7 @@ class DriverResource extends Resource
                     ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
-            ->filters([
-                SelectFilter::make('city_id')
-                    ->label('Thành phố')
-                    ->relationship('city', 'name'),
-
-                TernaryFilter::make('is_online')
-                    ->label('Trực tuyến')
-                    ->trueLabel('Đang online')
-                    ->falseLabel('Offline'),
-
-                \Filament\Tables\Filters\Filter::make('pending_docs')
-                    ->label('Có hồ sơ chờ duyệt')
-                    ->query(fn (Builder $query) => $query->where(function ($q) {
-                        $q->whereHas('driverCccdImages', fn ($q) => $q->where('status', 'pending'))
-                          ->orWhereHas('driverLicenses', fn ($q) => $q->where('status', 'pending'));
-                    })),
-            ])
+            ->filters([])
             ->actions([
                 Tables\Actions\Action::make('approve')
                     ->label('Duyệt')
