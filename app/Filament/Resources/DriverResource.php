@@ -118,19 +118,21 @@ class DriverResource extends Resource
 
                 Tables\Columns\TextColumn::make('is_online')
                     ->label('Online')
+                    ->alignCenter()
                     ->badge()
                     ->formatStateUsing(fn ($state) => $state ? 'Online' : 'Offline')
                     ->color(fn ($state) => $state ? 'success' : 'gray'),
 
                 Tables\Columns\TextColumn::make('cccd_review')
                     ->label('CCCD')
+                    ->alignCenter()
                     ->badge()
-                    ->state(fn ($record) => $record->driverCccdImages()->latest()->value('status'))
+                    ->state(fn ($record) => $record->driverCccdImages()->latest()->value('status') ?? 'none')
                     ->formatStateUsing(fn ($state) => match ($state) {
                         'approved' => 'Đã duyệt',
                         'rejected' => 'Từ chối',
                         'pending'  => 'Chờ duyệt',
-                        default    => '—',
+                        default    => 'Chưa tải lên',
                     })
                     ->color(fn ($state) => match ($state) {
                         'approved' => 'success',
@@ -141,6 +143,7 @@ class DriverResource extends Resource
 
                 Tables\Columns\TextColumn::make('license_review')
                     ->label('Bằng lái')
+                    ->alignCenter()
                     ->badge()
                     ->state(fn ($record) => $record->driverLicenses()->latest()->value('status') ?? 'none')
                     ->formatStateUsing(fn ($state) => match ($state) {
@@ -159,6 +162,7 @@ class DriverResource extends Resource
 
                 Tables\Columns\TextColumn::make('created_at')
                     ->label('Ngày đăng ký')
+                    ->alignCenter()
                     ->dateTime('d/m/Y')
                     ->sortable(),
             ])
