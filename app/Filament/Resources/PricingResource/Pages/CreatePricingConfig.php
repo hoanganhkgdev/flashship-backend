@@ -4,6 +4,7 @@ namespace App\Filament\Resources\PricingResource\Pages;
 
 use App\Filament\Resources\PricingResource;
 use Filament\Resources\Pages\CreateRecord;
+use Illuminate\Database\Eloquent\Model;
 
 class CreatePricingConfig extends CreateRecord
 {
@@ -12,6 +13,17 @@ class CreatePricingConfig extends CreateRecord
     protected function getRedirectUrl(): string
     {
         return $this->getResource()::getUrl('index');
+    }
+
+    /**
+     * Bỏ qua cơ chế tự gán tenant mặc định của Filament (City::pricingConfigs()
+     * không tồn tại — city_id=null nghĩa là bảng giá global, form tự chọn,
+     * không nên bị ép theo tenant đang đứng).
+     */
+    protected function associateRecordWithTenant(Model $record, Model $tenant): Model
+    {
+        $record->save();
+        return $record;
     }
 
     protected function mutateFormDataBeforeCreate(array $data): array
