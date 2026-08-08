@@ -142,7 +142,7 @@ class DriverResource extends Resource
                 Tables\Columns\TextColumn::make('license_review')
                     ->label('Bằng lái')
                     ->badge()
-                    ->state(fn ($record) => $record->driverLicenses()->latest()->value('status'))
+                    ->state(fn ($record) => $record->driverLicenses()->latest()->value('status') ?? 'none')
                     ->formatStateUsing(fn ($state) => match ($state) {
                         'approved' => 'Đã duyệt',
                         'rejected' => 'Từ chối',
