@@ -91,15 +91,6 @@ class DriverResource extends Resource
             ]),
 
             Forms\Components\Section::make('Trạng thái')->schema([
-                Forms\Components\Select::make('status')
-                    ->label('Trạng thái tài khoản')
-                    ->options([
-                        0 => 'Chờ duyệt',
-                        1 => 'Hoạt động',
-                        2 => 'Bị khóa',
-                    ])
-                    ->required(),
-
                 Forms\Components\Toggle::make('is_online')
                     ->label('Đang trực tuyến'),
             ])->columns(2),
@@ -142,22 +133,6 @@ class DriverResource extends Resource
                     ->default('—')
                     ->badge()
                     ->color('info'),
-
-                Tables\Columns\TextColumn::make('status')
-                    ->label('Trạng thái')
-                    ->badge()
-                    ->formatStateUsing(fn ($state) => match ((int) $state) {
-                        0 => 'Chờ duyệt',
-                        1 => 'Hoạt động',
-                        2 => 'Bị khóa',
-                        default => 'Không rõ',
-                    })
-                    ->color(fn ($state) => match ((int) $state) {
-                        0 => 'warning',
-                        1 => 'success',
-                        2 => 'danger',
-                        default => 'gray',
-                    }),
 
                 Tables\Columns\TextColumn::make('is_online')
                     ->label('Online')
@@ -207,14 +182,6 @@ class DriverResource extends Resource
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
-                SelectFilter::make('status')
-                    ->label('Trạng thái')
-                    ->options([
-                        0 => 'Chờ duyệt',
-                        1 => 'Hoạt động',
-                        2 => 'Bị khóa',
-                    ]),
-
                 SelectFilter::make('city_id')
                     ->label('Thành phố')
                     ->relationship('city', 'name'),
