@@ -54,15 +54,26 @@ class ScoreLogsRelationManager extends RelationManager
     private static function reasonLabel(string $reason): string
     {
         return match (true) {
-            $reason === 'decline'         => 'Từ chối đơn',
-            $reason === 'timeout'         => 'Hết giờ nhận đơn',
-            $reason === 'streak_3'        => 'Streak 3 đơn liên tiếp',
-            $reason === 'streak_6'        => 'Streak 6 đơn liên tiếp',
-            $reason === 'streak_10'       => 'Streak 10 đơn liên tiếp',
-            $reason === 'inactivity_1d'   => 'Không HĐ 1 ngày',
-            $reason === 'inactivity_2d'   => 'Không HĐ 2+ ngày',
-            $reason === 'online_below_8h' => 'Online dưới 8h',
-            $reason === 'weekly_reset'    => 'Reset đầu tuần',
+            $reason === 'complete'             => 'Hoàn thành đơn',
+            $reason === 'decline'              => 'Từ chối đơn',
+            $reason === 'viewed_timeout'        => 'Xem đơn nhưng không nhận',
+            $reason === 'offer_unviewed_x3'    => 'Bỏ lỡ đơn 3 lần liên tiếp (không xem)',
+            $reason === 'streak_3'             => 'Streak 3 đơn liên tiếp',
+            $reason === 'streak_6'             => 'Streak 6 đơn liên tiếp',
+            $reason === 'streak_10'            => 'Streak 10 đơn liên tiếp',
+            $reason === 'shift_never_online'   => 'Ca: Không online phút nào',
+            $reason === 'shift_online_high'    => 'Ca: Online ≥90%',
+            $reason === 'shift_online_neutral' => 'Ca: Online 70-90%',
+            $reason === 'shift_online_mid'     => 'Ca: Online 50-70%',
+            $reason === 'shift_online_low'     => 'Ca: Online dưới 50%',
+            $reason === 'inactivity_1d'        => 'Không HĐ 1 ngày',
+            $reason === 'inactivity_2d'        => 'Không HĐ 2+ ngày',
+            $reason === 'online_below_8h'      => 'Online dưới 8h',
+            $reason === 'weekly_reset'         => 'Reset đầu tuần',
+            str_starts_with($reason, 'cap_blocked:') => (function () use ($reason) {
+                $inner = self::reasonLabel(substr($reason, strlen('cap_blocked:')));
+                return "Đã đạt trần điểm ngày ({$inner})";
+            })(),
             str_starts_with($reason, 'rated_') => (function () use ($reason) {
                 $stars = str_replace(['rated_', '_stars'], '', $reason);
                 return "Đánh giá {$stars}★";
@@ -75,11 +86,19 @@ class ScoreLogsRelationManager extends RelationManager
     {
         return match (true) {
             $reason === 'decline'                          => 'danger',
-            $reason === 'timeout'                          => 'warning',
+            $reason === 'viewed_timeout'                    => 'danger',
+            $reason === 'offer_unviewed_x3'                => 'warning',
+            $reason === 'complete'                          => 'gray',
             str_starts_with($reason, 'streak_')           => 'success',
+            $reason === 'shift_never_online'               => 'danger',
+            $reason === 'shift_online_high'                => 'success',
+            $reason === 'shift_online_neutral'             => 'gray',
+            $reason === 'shift_online_mid'                 => 'warning',
+            $reason === 'shift_online_low'                 => 'danger',
             str_starts_with($reason, 'inactivity_')       => 'danger',
             $reason === 'online_below_8h'                 => 'warning',
             $reason === 'weekly_reset'                    => 'gray',
+            str_starts_with($reason, 'cap_blocked:')      => 'gray',
             $reason === 'rated_5_stars'                   => 'success',
             $reason === 'rated_4_stars'                   => 'gray',
             $reason === 'rated_3_stars'                   => 'gray',
