@@ -123,6 +123,13 @@ class DriverResource extends Resource
                     ->formatStateUsing(fn ($state) => $state ? 'Online' : 'Offline')
                     ->color(fn ($state) => $state ? 'success' : 'gray'),
 
+                Tables\Columns\TextColumn::make('registeredShifts.name')
+                    ->label('Ca đăng ký')
+                    ->alignCenter()
+                    ->badge()
+                    ->color('info')
+                    ->placeholder('Chưa đăng ký'),
+
                 Tables\Columns\TextColumn::make('cccd_review')
                     ->label('CCCD')
                     ->alignCenter()
