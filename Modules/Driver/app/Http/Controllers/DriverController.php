@@ -168,8 +168,14 @@ class DriverController extends Controller
 
     public function updateFcmToken(Request $request): JsonResponse
     {
-        $data = $request->validate(['fcm_token' => 'required|string']);
-        $request->user()->update(['fcm_token' => $data['fcm_token']]);
+        $data = $request->validate([
+            'fcm_token' => 'required|string',
+            'platform'  => 'nullable|in:ios,android',
+        ]);
+        $request->user()->update([
+            'fcm_token' => $data['fcm_token'],
+            ...(isset($data['platform']) ? ['platform' => $data['platform']] : []),
+        ]);
         return response()->json(['success' => true, 'message' => 'FCM Token đã cập nhật']);
     }
 
