@@ -35,9 +35,11 @@ chung, phiên mới vẫn đang chạy).
 - Verify bằng `app/driver/test/location_push_service_test.dart` — verify
   2 chiều: bỏ chặn `_generation` → test tự fail đúng chỗ, có chặn → pass
 
-**Trạng thái**: Đã sửa & verify (dữ liệu production thật + test tự động).
-**CHƯA build/release** — tài xế vẫn đang chạy bản cũ (10.0.9, chưa có fix
-này) tại thời điểm viết nhật ký này.
+**Trạng thái**: ✅ Đã sửa, đã build/release, **đã xác nhận hết hẳn trên
+production** — theo dõi trực tiếp Firebase 10 tài xế đang online liên tục
+60 giây, 0 lần nhảy vị trí (trước fix: bắt được gần như 100% tài xế online
+nhảy trong vòng 1 phút theo dõi). Người dùng xác nhận không còn ai báo
+nhảy vị trí nữa.
 
 ---
 

@@ -10,10 +10,11 @@ use Modules\Core\Services\RTDBService;
  */
 class DriverLocationService
 {
-    // Kế thừa từ ngưỡng "GPS mới hơn 10 phút" / "heartbeat trong 15 phút"
-    // trước đây dùng bởi SyncDriverLocationCommand.
+    // Kế thừa ngưỡng "GPS mới hơn 10 phút" trước đây dùng bởi
+    // SyncDriverLocationCommand. App tự làm mới updated_at tối đa mỗi 20s kể
+    // cả lúc đứng yên (xem LocationPushService bên app), nên quá 10 phút
+    // không có gì nghĩa là app đã chết/mất mạng hẳn.
     const POS_MAX_AGE_SECS = 600;
-    const HB_MAX_AGE_SECS  = 900;
 
     /**
      * @param  array<int> $driverIds
@@ -34,12 +35,6 @@ class DriverLocationService
             $updatedAt = $data['updated_at'] ?? 0;
             $posAge    = is_numeric($updatedAt) ? $now - (int) ($updatedAt / 1000) : PHP_INT_MAX;
             if ($posAge > self::POS_MAX_AGE_SECS) {
-                continue;
-            }
-
-            $hbMs  = max((int) ($data['heartbeat_at'] ?? 0), (int) $updatedAt);
-            $hbAge = $hbMs > 0 ? $now - (int) ($hbMs / 1000) : PHP_INT_MAX;
-            if ($hbAge > self::HB_MAX_AGE_SECS) {
                 continue;
             }
 
