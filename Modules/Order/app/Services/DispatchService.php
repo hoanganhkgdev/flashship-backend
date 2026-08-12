@@ -22,22 +22,24 @@ use Illuminate\Support\Facades\Redis;
 
 class DispatchService
 {
-    const DRIVER_OFFER_SECS  = 25;   // giây để mở app (trước khi offer_viewed_at set)
+    const DRIVER_OFFER_SECS  = 18;   // giây để mở app (trước khi offer_viewed_at set) — giảm 25→18 để rút ngắn thời gian chờ mỗi vòng
     const APP_DECISION_SECS  = 30;   // giây để đọc & quyết định SAU KHI mở app (như ShopeeFood)
-    const FCM_TTL_SECS       = 25;
+    const FCM_TTL_SECS       = 18;
     const MAX_DRIVERS        = 50;
 
-    // Trọng số xếp hạng
-    const W_SCORE         = 15;
+    // Trọng số xếp hạng — khoảng cách tăng lên 35 (tài xế gần ưu tiên hơn để
+    // khách đợi ít hơn), thời gian chờ giảm xuống 35 (vẫn ưu tiên công bằng
+    // nhưng không áp đảo khoảng cách), điểm uy tín tăng 15→20.
+    const W_SCORE         = 20;
     const W_RATING_CNT    = 10;
-    const W_WAIT_TIME     = 50;
-    const W_DISTANCE      = 25;
+    const W_WAIT_TIME     = 35;
+    const W_DISTANCE      = 35;
     // Phát đơn KHÔNG phân biệt trong/ngoài ca — công bằng như nhau cho mọi
     // tài xế online. Trách nhiệm đăng ký ca chỉ còn tính qua chấm điểm
     // (luật riêng — % online trong ca, cuối ca), không còn ảnh hưởng thứ tự
     // nhận đơn nữa (trước đây có cộng điểm ưu tiên mềm W_IN_SHIFT, đã bỏ).
 
-    const WAIT_TIME_CAP_MINS = 480; // 8 tiếng — tài xế chờ lâu được ưu tiên rõ hơn
+    const WAIT_TIME_CAP_MINS = 120; // 2 tiếng — ai chờ hơn 2h đều nhận điểm chờ tối đa, không cần phân biệt 2h vs 8h
     const RATING_COUNT_CAP   = 200;
 
     // Ghép đơn tự động trong getCandidates() — điều kiện: điểm lấy 2 đơn gần
@@ -46,12 +48,8 @@ class DispatchService
     const BATCH_MAX_PICKUP_KM   = 1.0;
     const BATCH_MAX_DELIVERY_KM = 1.5;
 
-    // Không còn khái niệm "bán kính tìm kiếm" (2km/4km đường chim bay) — quét
-    // TOÀN BỘ tài xế online đủ điều kiện trong thành phố ngay từ đầu, tính
-    // khoảng cách đường đi thật (Google Distance Matrix, 1 lần cho cả lô) cho
-    // tất cả, rồi lọc thẳng ai vượt trần này. Không ai trong trần thì coi như
-    // không có tài xế, KHÔNG gán đại người xa — gán xa chỉ dời vấn đề sang lúc
-    // tài xế huỷ/không chạy, không giải quyết được gì thêm.
+    // Trần khoảng cách đường thật mặc định — xem maxDistanceForService() để
+    // biết trần linh hoạt theo loại dịch vụ (bike thấp hơn, car cao hơn).
     const MAX_ROAD_DISTANCE_KM = 4.0;
 
     // =========================================================================
@@ -212,6 +210,31 @@ class DispatchService
 
         $this->clearDispatchCache($order->id);
         broadcast(new DispatchStateChanged());
+
+        // Báo khách biết hệ thống đang hỗ trợ tìm tài xế — tránh khách tự
+        // huỷ đơn vì nghĩ app bị treo khi không thấy cập nhật trong 15 phút.
+        $customer = User::find($order->sender_platform_id);
+        if ($customer?->fcm_token) {
+            try {
+                FCMService::getInstance()->sendDriverNotice(
+                    $customer->fcm_token,
+                    "Đơn #{$order->code}",
+                    'Chưa tìm được tài xế. Đội ngũ đang hỗ trợ tìm cho bạn, vui lòng đợi thêm.',
+                    ['type' => 'dispatch_no_driver', 'order_code' => $order->code]
+                );
+            } catch (\Throwable $e) {
+                Log::warning("[Dispatch] Không gửi được FCM cho khách đơn #{$order->id}: " . $e->getMessage());
+            }
+        }
+        if ($customer) {
+            \Modules\Customer\Http\Controllers\CustomerNotificationController::create(
+                $customer->id,
+                "Đơn #{$order->code}",
+                'Chưa tìm được tài xế, đội ngũ đang hỗ trợ tìm cho bạn',
+                'order_status',
+                $order->code
+            );
+        }
 
         $admins = User::whereIn('user_type', ['admin', 'call_center', 'city_manager'])
             ->where('city_id', $order->city_id)
@@ -658,41 +681,59 @@ class DispatchService
             Log::debug("     [Candidates] Loại {$removed} tài xế do không phù hợp loại xe ({$order->service_type})");
         }
 
-        // ── 4. Ghép đơn: giữ tài xế rảnh HOẶC có 1 đơn mà đơn đang chạy "cùng
-        // tuyến" với đơn mới — điểm lấy 2 đơn ≤ BATCH_MAX_PICKUP_KM VÀ điểm
-        // giao 2 đơn ≤ BATCH_MAX_DELIVERY_KM (cả 2 điều kiện, không phải 1).
+        // ── 4. Ghép đơn: giữ tài xế rảnh HOẶC có đơn active mà đơn đang chạy "đều
+        // cùng tuyến" với đơn mới — kiểm tra TẤT CẢ đơn active (groupBy),
+        // không chỉ 1 đơn cuối (keyBy cũ có thể bỏ sót đơn trước).
         $activeOrders = Order::whereIn('status', ['assigned', 'processing', 'on_the_way'])
             ->whereIn('delivery_man_id', $afterLicense->pluck('id'))
             ->get(['delivery_man_id', 'pickup_lat', 'pickup_lng', 'delivery_lat', 'delivery_lng'])
-            ->keyBy('delivery_man_id');
+            ->groupBy('delivery_man_id');
 
         $afterDetour = $afterLicense->filter(function (User $d) use ($order, $activeOrders) {
-            $active = $activeOrders->get($d->id);
-            if (!$active) return true;
-            if (!$active->pickup_lat || !$active->pickup_lng || !$active->delivery_lat || !$active->delivery_lng) return false;
+            $actives = $activeOrders->get($d->id);
+            if (!$actives || $actives->isEmpty()) return true;
 
-            $pickupToPickup = $this->haversineKm(
-                (float) $order->pickup_lat, (float) $order->pickup_lng,
-                (float) $active->pickup_lat, (float) $active->pickup_lng
-            );
-            $deliveryToDelivery = $this->haversineKm(
-                (float) $order->delivery_lat, (float) $order->delivery_lng,
-                (float) $active->delivery_lat, (float) $active->delivery_lng
-            );
-
-            return $pickupToPickup <= self::BATCH_MAX_PICKUP_KM
-                && $deliveryToDelivery <= self::BATCH_MAX_DELIVERY_KM;
+            // Phải cùng tuyến với MỌI đơn active — nếu bất kỳ đơn nào lệch
+            // tuyến thì không ghép được.
+            return $actives->every(function ($active) use ($order) {
+                if (!$active->pickup_lat || !$active->pickup_lng || !$active->delivery_lat || !$active->delivery_lng) {
+                    return false;
+                }
+                $pickupToPickup = $this->haversineKm(
+                    (float) $order->pickup_lat, (float) $order->pickup_lng,
+                    (float) $active->pickup_lat, (float) $active->pickup_lng
+                );
+                $deliveryToDelivery = $this->haversineKm(
+                    (float) $order->delivery_lat, (float) $order->delivery_lng,
+                    (float) $active->delivery_lat, (float) $active->delivery_lng
+                );
+                return $pickupToPickup <= self::BATCH_MAX_PICKUP_KM
+                    && $deliveryToDelivery <= self::BATCH_MAX_DELIVERY_KM;
+            });
         });
         if (($removed = $afterLicense->count() - $afterDetour->count()) > 0) {
             Log::debug("     [Candidates] Loại {$removed} tài xế — đơn đang chạy không cùng tuyến (lấy >1km hoặc giao >1.5km)");
         }
 
-        // ── 5. Tính khoảng cách đường thật cho TOÀN BỘ ứng viên còn lại — 1 lần
-        // gọi Google Distance Matrix duy nhất (không phải 1 lần/tài xế) — rồi
-        // lọc thẳng ai vượt trần self::MAX_ROAD_DISTANCE_KM. Không còn khái
-        // niệm "bán kính chim bay lọc thô rồi lọc lại" — quét city-wide ngay
-        // từ bước 2 ở trên rồi.
-        $driverIds   = $afterDetour->pluck('id')->toArray();
+        // ── 5. Lọc sơ bộ bằng haversine (chiếu dài chim bay) trước khi gọi
+        // Google Distance Matrix — ai > maxKm * 1.5 đường chim bay thì chắc
+        // chắn > maxKm đường thật (hệ số 1.5 lấy theo kinh nghiệm điện hình
+        // thành phố Việt Nam: đường thật thường dài 1.2–1.4x chim bay, dùng
+        // 1.5x để an toàn, không bỏ sót ai). Làm giảm số phần tử gọi API
+        // khi số tài xế online lớn, giảm chi phí Google Maps khi scale.
+        $haversineThreshold = $maxKm * 1.5;
+        $afterHaversine = $afterDetour->filter(function (User $d) use ($order, $haversineThreshold) {
+            if (!$d->latitude || !$d->longitude) return true; // giữ lại nếu không có tọa độ (Google sẽ xử lý sau)
+            return $this->haversineKm(
+                (float) $d->latitude, (float) $d->longitude,
+                (float) $order->pickup_lat, (float) $order->pickup_lng
+            ) <= $haversineThreshold;
+        });
+        if (($removed = $afterDetour->count() - $afterHaversine->count()) > 0) {
+            Log::debug("     [Candidates] Lọc sơ: loại {$removed} tài xế > {$haversineThreshold}km chim bay trước khi gọi Google API");
+        }
+
+        $driverIds   = $afterHaversine->pluck('id')->toArray();
         $ratingStats = Order::whereIn('delivery_man_id', $driverIds)
             ->whereNotNull('driver_rating')
             ->where('status', 'completed')
@@ -700,7 +741,7 @@ class DispatchService
             ->groupBy('delivery_man_id')
             ->pluck('rating_count', 'delivery_man_id');
 
-        $origins = $afterDetour
+        $origins = $afterHaversine
             ->filter(fn (User $d) => $d->latitude && $d->longitude)
             ->mapWithKeys(fn (User $d) => [$d->id => ['lat' => (float) $d->latitude, 'lng' => (float) $d->longitude]])
             ->all();
@@ -709,32 +750,33 @@ class DispatchService
             $origins, (float) $order->pickup_lat, (float) $order->pickup_lng
         );
 
-        foreach ($afterDetour as $d) {
+        foreach ($afterHaversine as $d) {
             $d->setAttribute('_road_km', $roadDistances[$d->id] ?? null);
         }
 
         // Không đo được (lỗi API/thiếu toạ độ) thì tạm cho qua, không loại oan
         // vì sự cố hạ tầng tạm thời — composite score sẽ dùng trần làm fallback.
+        $maxKm = $this->maxDistanceForService($order->service_type);
         $withinRange = $afterDetour->filter(
-            fn (User $d) => $d->_road_km === null || $d->_road_km <= self::MAX_ROAD_DISTANCE_KM
+            fn (User $d) => $d->_road_km === null || $d->_road_km <= $maxKm
         );
         if (($removed = $afterDetour->count() - $withinRange->count()) > 0) {
             Log::debug("     [Candidates] Loại {$removed} tài xế — đường thật vượt trần " . self::MAX_ROAD_DISTANCE_KM . "km");
         }
 
         $sorted = $withinRange
-            ->sortByDesc(function (User $d) use ($ratingStats) {
-                return $this->compositeScore($d, (int) ($ratingStats[$d->id] ?? 0), $d->_road_km ?? self::MAX_ROAD_DISTANCE_KM);
+            ->sortByDesc(function (User $d) use ($ratingStats, $maxKm) {
+                return $this->compositeScore($d, (int) ($ratingStats[$d->id] ?? 0), $d->_road_km ?? $maxKm, $maxKm);
             })
             ->take(self::MAX_DRIVERS)
             ->values();
 
         if ($sorted->isNotEmpty()) {
-            Log::debug("     [Candidates] Top " . min(5, $sorted->count()) . " tài xế:");
+            Log::debug("     [Candidates] Top " . min(5, $sorted->count()) . " tài xế (trần {$maxKm}km):");
             foreach ($sorted->take(5) as $i => $d) {
                 $km    = $d->_road_km !== null ? round($d->_road_km, 2) . 'km' : 'lỗi API';
                 $cnt   = (int) ($ratingStats[$d->id] ?? 0);
-                $score = round($this->compositeScore($d, $cnt, $d->_road_km ?? self::MAX_ROAD_DISTANCE_KM), 1);
+                $score = round($this->compositeScore($d, $cnt, $d->_road_km ?? $maxKm, $maxKm), 1);
                 $wait  = round($this->waitTimeScore($d), 1);
                 Log::debug("       " . ($i + 1) . ". #{$d->id} {$d->name} | đường thật: {$km} | điểm={$score} | driver_score=" . ($d->driver_score ?? DriverScoreService::DEFAULT_SCORE) . " | so_dg={$cnt} | wait={$wait}");
             }
@@ -760,13 +802,27 @@ class DispatchService
         }
     }
 
-    private function compositeScore(User $driver, int $ratingCount, float $distanceKm = 0.0): float
+    private function compositeScore(User $driver, int $ratingCount, float $distanceKm = 0.0, float $maxKm = self::MAX_ROAD_DISTANCE_KM): float
     {
         $scoreScore     = ($driver->driver_score ?? DriverScoreService::DEFAULT_SCORE) / DriverScoreService::MAX_SCORE * self::W_SCORE;
         $ratingCntScore = min($ratingCount, self::RATING_COUNT_CAP) / self::RATING_COUNT_CAP * self::W_RATING_CNT;
         $waitScore      = $this->waitTimeScore($driver);
-        $distScore      = (1 - min($distanceKm, self::MAX_ROAD_DISTANCE_KM) / self::MAX_ROAD_DISTANCE_KM) * self::W_DISTANCE;
+        $distScore      = (1 - min($distanceKm, $maxKm) / $maxKm) * self::W_DISTANCE;
         return $scoreScore + $ratingCntScore + $waitScore + $distScore;
+    }
+
+    /**
+     * Trần khoảng cách đường thật linh hoạt theo loại dịch vụ.
+     * Car chấp nhận xa hơn (phí cao, tài xế ít hơn); bike giao nhanh nên
+     * cần gần hơn để đảm bảo thời gian giao.
+     */
+    private function maxDistanceForService(string $serviceType): float
+    {
+        return match ($serviceType) {
+            'bike'       => 3.5,
+            'car'        => 6.0,
+            default      => self::MAX_ROAD_DISTANCE_KM, // 4.0 cho các loại khác
+        };
     }
 
     private function waitTimeScore(User $driver): float
