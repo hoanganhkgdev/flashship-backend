@@ -51,7 +51,11 @@ class CloseStaleOnlineSessionsCommand extends Command
                 continue;
             }
 
-            $lastFreshAt = is_numeric($updatedAt) ? Carbon::createFromTimestamp((int) ($updatedAt / 1000)) : null;
+            // createFromTimestamp() KHÔNG tự theo timezone app (Asia/Ho_Chi_Minh)
+            // như now() — mặc định trả về UTC, lệch 7 tiếng nếu không truyền tay.
+            $lastFreshAt = is_numeric($updatedAt)
+                ? Carbon::createFromTimestamp((int) ($updatedAt / 1000), config('app.timezone'))
+                : null;
 
             DB::transaction(function () use ($driver, $lastFreshAt) {
                 $session = DriverShiftSession::where('driver_id', $driver->id)
