@@ -73,11 +73,23 @@ hình tốt bằng bản trống**. Sửa lại: bỏ hẳn việc tự dựng d
 
 File thêm: `app/driver/lib/core/services/offer_listener_service.dart`.
 
-**Trạng thái**: Đã sửa (cả bản gốc lẫn bản tự sửa lại), `flutter analyze`
-sạch, `flutter test` pass. **CHƯA build/release.** Lỗi 1 (điều hướng khi
-bấm) không thể verify bằng dữ liệu Firebase như các bug GPS trước — cần
-test tay thật sau khi build. Lỗi 2 (iOS) cần xác nhận riêng capability
-"Time Sensitive" đã bật cho App ID trước khi build.
+**[Bổ sung] Lỗ hổng thứ 5 phát hiện lúc tự soát lại: không có cơ chế phục
+hồi listener nhận đơn khi app mở lại từ nền.** `didChangeAppLifecycleState`
+ở `home_screen.dart` chỉ gọi `LocationService.instance.restart()` cho GPS —
+listener RTDB nhận đơn (`OfferListenerService`) không có gì cứu nếu đã
+chết/treo sau thời gian dài ở nền (Doze, mất mạng, iOS đóng băng socket).
+Đúng kiểu bất đối xứng đã gây ra bug GPS "chết vĩnh viễn" trước đây — GPS
+được vá, đường nhận đơn thì bỏ sót. Sửa: thêm
+`OfferListenerService.instance.ensureOfferVisible(uid)` ngay cạnh dòng
+restart GPS đó.
+File: `app/driver/lib/features/home/screens/home_screen.dart`.
+
+**Trạng thái**: Đã sửa toàn bộ (bản gốc + 2 lần tự soát lại), `flutter
+analyze` sạch, `flutter test` pass. **CHƯA build/release.** Lỗi liên quan
+điều hướng khi bấm thông báo / phục hồi khi resume không thể verify bằng
+dữ liệu Firebase như các bug GPS trước — cần test tay thật sau khi build.
+Lỗi iOS cần xác nhận riêng capability "Time Sensitive" đã bật cho App ID
+trước khi build.
 
 ---
 
