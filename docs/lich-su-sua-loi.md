@@ -9,6 +9,41 @@ mục vào đây TRƯỚC khi coi là xong việc.
 
 ---
 
+## 2026-08-12 (c) — Farm điểm online-rate bằng cách tắt GPS/tắt mạng
+
+**Triệu chứng**: phát hiện lúc điều tra tài xế #107 (mục ngay dưới) — tài xế
+online liên tục 15 tiếng, GPS chết hẳn suốt thời gian đó, vẫn được chấm
+`shift_online_high` +3đ/ca đều đặn dù không hề chạy 1 đơn nào và không hề bị
+dispatch phát đơn (vô hình với dispatch vì GPS không tươi — mục dưới). Từ đó
+suy ra: tài xế có thể CHỦ ĐỘNG bật online rồi tắt định vị/tắt mạng, farm điểm
+mỗi ca mà không cần chạy xe, không rủi ro gì (không có đơn để mà bỏ lỡ nên
+không bị `offer_unviewed_x3` trừ bù lại).
+
+**Nguyên nhân gốc**: `DriverController::toggleOnline()` chỉ mở 1 dòng
+`DriverShiftSession`, chỉ chính tài xế tự tắt mới đóng lại — không có gì khác
+đóng session. `ScoreShiftSessionsCommand` chấm % online hoàn toàn theo giờ
+đồng hồ `started_at`→`ended_at` của session, **không đối chiếu GPS còn sống
+hay không** — 2 khái niệm "đã bấm nút online" và "GPS thật sự tươi" bị lẫn
+làm một, trong khi dispatch (`DriverLocationService::freshLocationsFor`) đã
+tách riêng và dùng ngưỡng GPS tươi ≤10 phút từ trước.
+
+**Cách sửa**: thêm lệnh định kỳ mới `drivers:close-stale-sessions` (chạy mỗi
+5 phút, cùng lịch với `drivers:score-shift-sessions`) — quét mọi tài xế
+`is_online=true`, đối chiếu GPS Firebase, tài xế nào quá ngưỡng
+`DriverLocationService::POS_MAX_AGE_SECS` (10 phút) không có fix mới thì tự
+chuyển `is_online=false` và đóng `DriverShiftSession` tại **đúng thời điểm
+GPS cuối cùng còn tươi** (không phải "bây giờ") — quãng thời gian mất tín
+hiệu không bị tính là online khi chấm điểm ca. Tài xế chưa từng có 1 fix GPS
+nào thì đóng ngay tại lúc mở ca (0 giây online được tính).
+File: `backend/Modules/Driver/app/Console/Commands/CloseStaleOnlineSessionsCommand.php`,
+`backend/Modules/Driver/app/Providers/DriverServiceProvider.php`.
+
+**Trạng thái**: Đã viết xong, `php -l` sạch. **CHƯA commit/deploy** — chờ xác
+nhận trước khi đẩy lên production vì đây là hành vi tự động thay đổi trạng
+thái online của tài xế thật.
+
+---
+
 ## 2026-08-12 (b) — 4 lỗi nuốt/mất thông báo đơn (rà theo yêu cầu, sau vụ #351)
 
 Rà toàn bộ đường thông báo (iOS + Android) sau khi tìm ra bug cờ offer kẹt

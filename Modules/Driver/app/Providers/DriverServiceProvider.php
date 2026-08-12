@@ -10,6 +10,7 @@ use Modules\Driver\Console\Commands\MarkOverdueDebtsCommand;
 use Modules\Driver\Console\Commands\WeeklyScoreCommand;
 use Modules\Driver\Console\Commands\PruneDriverLocationLogsCommand;
 use Modules\Driver\Console\Commands\ScoreShiftSessionsCommand;
+use Modules\Driver\Console\Commands\CloseStaleOnlineSessionsCommand;
 
 class DriverServiceProvider extends ModuleServiceProvider
 {
@@ -23,6 +24,7 @@ class DriverServiceProvider extends ModuleServiceProvider
         WeeklyScoreCommand::class,
         PruneDriverLocationLogsCommand::class,
         ScoreShiftSessionsCommand::class,
+        CloseStaleOnlineSessionsCommand::class,
     ];
 
     protected array $providers = [
@@ -43,5 +45,10 @@ class DriverServiceProvider extends ModuleServiceProvider
         // Mỗi 5 phút — dò ca vừa kết thúc (giờ khác nhau theo từng khu vực),
         // chấm % thời gian online cuối ca — thay luật "8h/ngày" cũ.
         $schedule->command('drivers:score-shift-sessions')->everyFiveMinutes();
+        // Mỗi 5 phút — tài xế "online" nhưng GPS chết quá 10 phút (cùng ngưỡng
+        // dispatch dùng để lọc ứng viên) thì tự chuyển offline, đóng session
+        // tại đúng lúc GPS cuối còn tươi. Chặn farm điểm online-rate bằng cách
+        // bật online rồi tắt định vị/tắt mạng — xem CloseStaleOnlineSessionsCommand.
+        $schedule->command('drivers:close-stale-sessions')->everyFiveMinutes();
     }
 }
