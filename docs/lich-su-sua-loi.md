@@ -48,11 +48,36 @@ File: `app/driver/lib/core/services/notification_service.dart`,
 `app/driver/android/app/src/main/AndroidManifest.xml`,
 `app/driver/ios/Runner/Runner.entitlements`.
 
-**Trạng thái**: Đã sửa, `flutter analyze` sạch. **CHƯA build/release.**
-**Lỗi 1 (điều hướng khi bấm) không thể verify bằng dữ liệu Firebase như
-các bug GPS trước — cần test tay thật (gửi push, bấm vào, xem có mở đúng
-đơn không) sau khi build.** Lỗi 2 cần xác nhận riêng capability "Time
-Sensitive" đã bật cho App ID trước khi build iOS.
+**[Sửa lại lỗi 1 — do chính bản vá đầu tiên gây ra, phát hiện lúc tự soát
+lại]** Bản đầu của `_navigateToOfferFromNotification()` tự dựng dữ liệu đơn
+từ payload thông báo (chỉ có order_id/order_code/expires_at, thiếu địa
+chỉ/tiền công...) rồi điều hướng thẳng bằng dữ liệu nghèo đó — màn hình
+hiện ra toàn ô trống. Tệ hơn, ở trường hợp phổ biến nhất (app đang mở, RTDB
+đã mở sẵn màn hình ĐÚNG), việc bấm thêm vào thông báo còn **ghi đè mất màn
+hình tốt bằng bản trống**. Sửa lại: bỏ hẳn việc tự dựng dữ liệu, giao cho
+`OfferListenerService.ensureOfferVisible(driverId)` — đọc thẳng RTDB 1 lần
+(nguồn dữ liệu đầy đủ) rồi tái dùng đúng logic điều hướng đã có, không tạo
+đường điều hướng thứ 2 chạy song song.
+
+**Tiện sửa luôn 2 lỗi kẹt cờ còn sót phát hiện lúc soát lại:**
+- `_offerVisible` (bool) đổi thành `_visibleOrderId` (int?) — bool cũ không
+  phân biệt được đơn nào đang hiện, nên nếu đơn A hết hạn và đơn B được ghi
+  gần như cùng lúc mà Firebase chỉ giao sự kiện cuối (đơn B), code cũ thấy
+  "đang hiện rồi" và bỏ qua hẳn đơn B.
+- Kiểm tra `order_id` hợp lệ chuyển lên TRƯỚC khi đụng vào trạng thái "đang
+  hiện" (trước đây bật cờ rồi mới kiểm tra bên trong `_navigateToOffer()`,
+  payload thiếu order_id sẽ làm cờ kẹt vĩnh viễn dù màn hình chưa từng mở).
+- `markOfferHandled()` giờ nhận `orderId`, chỉ xoá trạng thái nếu đúng đơn
+  đang hiện — tránh 1 lệnh gọi trễ của màn hình đơn CŨ xoá nhầm trạng thái
+  của đơn MỚI hơn.
+
+File thêm: `app/driver/lib/core/services/offer_listener_service.dart`.
+
+**Trạng thái**: Đã sửa (cả bản gốc lẫn bản tự sửa lại), `flutter analyze`
+sạch, `flutter test` pass. **CHƯA build/release.** Lỗi 1 (điều hướng khi
+bấm) không thể verify bằng dữ liệu Firebase như các bug GPS trước — cần
+test tay thật sau khi build. Lỗi 2 (iOS) cần xác nhận riêng capability
+"Time Sensitive" đã bật cho App ID trước khi build.
 
 ---
 
