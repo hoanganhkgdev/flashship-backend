@@ -9,6 +9,41 @@ mục vào đây TRƯỚC khi coi là xong việc.
 
 ---
 
+## 2026-08-12 — Tài xế bị trừ điểm oan vì không thấy thông báo đơn — cờ "đang hiện offer" kẹt vĩnh viễn
+
+**Triệu chứng**: nhiều tài xế báo không thấy thông báo đơn mới, để trôi mất
+nhiều đơn liên tiếp rồi bị trừ điểm (luật "cứ 3 đơn không xem -1 điểm").
+Điều tra tài xế #351: mất liên tiếp 41/41 đơn trong 1 buổi sáng (6h-11h),
+trong khi GPS vẫn tươi 0 giây suốt (app hoàn toàn còn sống, không phải tắt
+máy/hết pin/mất mạng). Đúng 12h đột ngột xem và nhận đơn ngay lần đầu chạm
+máy. Tổng cộng 23 tài xế bị trừ 172 điểm trong ~1 tuần từ khi bật luật này.
+
+**Nguyên nhân gốc**: `OfferListenerService._offerVisible` là cờ chặn mở
+trùng 2 màn hình offer cùng lúc — chỉ được mở lại (`markOfferHandled()`) ở
+3 nhánh hành động bên trong `order_offer_screen.dart` (nhận/từ chối/hết
+giờ). Nếu 1 offer tới máy nhưng ĐÃ HẾT HẠN ngay lúc mở màn hình (mạng
+chậm, app vừa mở lại từ nền), màn hình phát hiện hết hạn và thoát thẳng về
+trang chủ — **không đi qua nhánh nào trong 3 nhánh trên**, cờ kẹt `true`
+vĩnh viễn. Từ đó mọi offer tiếp theo bị `OfferListenerService._onEvent()`
+nuốt im lặng (điều kiện `if (!_offerVisible)` không bao giờ đúng nữa) —
+không mở màn hình, không chuông, tài xế không hề biết. Chỉ tự hết kẹt khi
+tắt/bật lại online hoặc khởi động lại app hẳn.
+
+**Cách sửa**: chuyển `markOfferHandled()` từ 3 nhánh hành động rải rác vào
+`dispose()` của `OrderOfferScreen` — nơi CHẮC CHẮN luôn chạy khi màn hình
+biến mất, bất kể thoát bằng cách nào (kể cả nhánh hết hạn ngay lúc mở, hay
+bất kỳ nhánh thoát nào phát sinh sau này). Loại bỏ hẳn cả nhóm lỗi "quên
+gọi ở 1 nhánh" thay vì chỉ vá đúng chỗ vừa tìm thấy.
+File: `app/driver/lib/features/orders/screens/order_offer_screen.dart`.
+
+**Trạng thái**: Đã sửa, `flutter analyze` sạch. **CHƯA build/release.**
+**CHƯA xử lý hậu quả**: 172 điểm đã trừ oan của 23 tài xế chưa được hoàn
+lại — chờ quyết định của user (đã hỏi, đang chờ xác nhận riêng cho phần
+này). Cũng phát hiện kèm theo: chứng chỉ APNs (đẩy thông báo iOS) của app
+Shop đang lỗi 401 "Invalid APNs credential" — vấn đề khác, chưa xử lý.
+
+---
+
 ## 2026-08-10/11 — GPS "nhảy vị trí" — đồng hồ ma sống ngoài vòng đời phiên
 
 **Triệu chứng**: vị trí tài xế trên bản đồ/dispatch nhảy loạn giữa nhiều toạ
