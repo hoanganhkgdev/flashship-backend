@@ -9,6 +9,53 @@ mục vào đây TRƯỚC khi coi là xong việc.
 
 ---
 
+## 2026-08-12 (b) — 4 lỗi nuốt/mất thông báo đơn (rà theo yêu cầu, sau vụ #351)
+
+Rà toàn bộ đường thông báo (iOS + Android) sau khi tìm ra bug cờ offer kẹt
+(mục ngay trên). Tìm thêm 4 lỗi thật, không liên quan cờ kẹt:
+
+**1. [Nặng nhất] Bấm vào thông báo không mở được đơn — cả 2 nền tảng, mọi
+trạng thái app.** `getInitialMessage()` (app bị kill) chưa từng được gọi;
+`onMessageOpenedApp` (app ở nền) callback rỗng; `_localNotif.initialize()`
+thiếu `onDidReceiveNotificationResponse` (bấm local notification lúc app
+đang mở). Toàn bộ việc mở màn hình offer phụ thuộc 100% vào luồng RTDB
+(`OfferListenerService`) tự bắt kịp — không đảm bảo nếu app khởi động chậm
+hơn thời hạn offer (25s). Sửa: thêm hàm dùng chung
+`_navigateToOfferFromNotification()`, nối vào cả 3 nguồn tap.
+
+**2. iOS: thiếu quyền "Time Sensitive"** — code khai
+`interruptionLevel: timeSensitive` nhưng `Runner.entitlements` thiếu key
+`com.apple.developer.usernotifications.time-sensitive`. Thiếu key này,
+thông báo đơn bị Chế độ Tập trung/Lái xe của iOS chặn hoàn toàn như thông
+báo thường — tài xế bật chế độ này lúc đang chạy xe (rất phổ biến) sẽ mất
+hẳn thông báo. **Cần bật capability "Time Sensitive Notifications" cho
+App ID trên Apple Developer trước khi build, nếu không Xcode báo lỗi ký.**
+
+**3. `firebaseBackgroundHandler` tự show notification trùng lặp + rủi ro
+plugin chưa init.** Backend đã gửi kèm khối `notification` (không chỉ
+`data`) nên OS tự hiển thị thông báo hệ thống khi app nền/bị kill — hàm
+nền gọi thêm `_localNotif.show()` tạo ra **2 thông báo cho 1 đơn**, và bản
+thân lệnh gọi đó rủi ro vì plugin local-notifications chưa từng
+`initialize()` trong tiến trình nền riêng biệt. Sửa: bỏ hẳn, giữ hàm rỗng.
+
+**4. Thông báo khác (đơn huỷ, công nợ...) không có channel_id trên
+Android** — bị đẩy vào kênh mặc định "Miscellaneous" (chuông im, dễ bỏ
+sót). Sửa: thêm kênh `general_channel` + khai
+`default_notification_channel_id` trong `AndroidManifest.xml` — FCM tự áp
+dụng cho MỌI thông báo không chỉ định channel riêng, không cần sửa backend.
+
+File: `app/driver/lib/core/services/notification_service.dart`,
+`app/driver/android/app/src/main/AndroidManifest.xml`,
+`app/driver/ios/Runner/Runner.entitlements`.
+
+**Trạng thái**: Đã sửa, `flutter analyze` sạch. **CHƯA build/release.**
+**Lỗi 1 (điều hướng khi bấm) không thể verify bằng dữ liệu Firebase như
+các bug GPS trước — cần test tay thật (gửi push, bấm vào, xem có mở đúng
+đơn không) sau khi build.** Lỗi 2 cần xác nhận riêng capability "Time
+Sensitive" đã bật cho App ID trước khi build iOS.
+
+---
+
 ## 2026-08-12 — Tài xế bị trừ điểm oan vì không thấy thông báo đơn — cờ "đang hiện offer" kẹt vĩnh viễn
 
 **Triệu chứng**: nhiều tài xế báo không thấy thông báo đơn mới, để trôi mất
