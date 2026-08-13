@@ -9,7 +9,7 @@ use Modules\Core\Services\RTDBService;
 use Modules\Order\Jobs\DispatchOrderJob;
 use Modules\Order\Models\Order;
 use Modules\Order\Models\OrderDispatchLog;
-use Modules\Order\Services\DispatchService;
+use Modules\Order\Services\DispatchOfferSender;
 use Modules\Order\Services\OrderService;
 
 class OrderController extends Controller
@@ -71,7 +71,7 @@ class OrderController extends Controller
 
         // Đặt offer_viewed_at để callkit-timeout job biết driver đã mở app
         if ($order->offer_viewed_at === null) {
-            $expiresAt = now()->addSeconds(DispatchService::APP_DECISION_SECS);
+            $expiresAt = now()->addSeconds(DispatchOfferSender::APP_DECISION_SECS);
 
             DB::table('orders')->where('id', $order->id)->update([
                 'offer_viewed_at' => now(),

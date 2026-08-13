@@ -13,6 +13,7 @@ use Modules\Core\Services\GoogleMapService;
 use Modules\Core\Services\RTDBService;
 use Modules\Driver\Services\DriverLocationService;
 use Modules\Order\Models\Order;
+use Modules\Order\Services\DispatchCandidateFinder;
 use Modules\Order\Services\DispatchService;
 use Modules\Order\Services\OrderService;
 use Modules\Pricing\Services\PricingService;
@@ -252,7 +253,7 @@ class CallCenterPage extends Page implements HasForms
      *    khoảng cách — đổ vào dropdown gán tay (tổng đài chủ động chọn ai
      *    cũng được, kể cả người đã liên hệ qua điện thoại dù hơi xa).
      *  - $nearbyDrivers: lọc còn trong bán kính 4km đường thật tính từ điểm
-     *    lấy hàng (khớp DispatchService::MAX_ROAD_DISTANCE_KM) — chỉ để hiện
+     *    lấy hàng (khớp DispatchCandidateFinder::MAX_ROAD_DISTANCE_KM) — chỉ để hiện
      *    chấm xanh + đếm số trên bản đồ, không dùng cho dropdown gán tay nữa.
      *
      * Gọi trực tiếp trong setPickupLocation() (cùng 1 request với lúc set
@@ -291,7 +292,7 @@ class CallCenterPage extends Page implements HasForms
 
         $this->nearbyDrivers = $drivers
             ->filter(fn (User $d) => ($roadDistances[$d->id] ?? null) !== null
-                && $roadDistances[$d->id] <= DispatchService::MAX_ROAD_DISTANCE_KM)
+                && $roadDistances[$d->id] <= DispatchCandidateFinder::MAX_ROAD_DISTANCE_KM)
             ->map(fn (User $d) => [
                 'id'      => $d->id,
                 'lat'     => $origins[$d->id]['lat'],

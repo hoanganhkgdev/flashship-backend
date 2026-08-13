@@ -21,7 +21,7 @@ class DispatchScheduledOrders extends Command
 
         if ($orders->isEmpty()) return;
 
-        $dispatch = new DispatchService();
+        $dispatch = app(DispatchService::class);
 
         foreach ($orders as $order) {
             $dispatch->startDispatch($order);
