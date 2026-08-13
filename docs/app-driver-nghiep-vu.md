@@ -71,3 +71,42 @@ File chính: `lib/features/home/screens/home_screen.dart` (2 State: `_HomeScreen
 - `core/services/offer_listener_service.dart` — lắng nghe offer đơn mới
 - `core/services/session_guard_service.dart` — bảo vệ phiên đăng nhập
 - `features/auth/providers/auth_provider.dart` — `logout()` gom tất cả các bước dừng service khi đăng xuất
+
+---
+
+## Backend: Chấm điểm & phát đơn cho tài xế (không phải flow app, nhưng quyết định trực tiếp app tài xế nhận được đơn nào)
+
+File chính: `backend/Modules/Order/app/Services/DispatchService.php` (orchestrator,
+điều phối vòng lặp offer) + 4 collaborator cùng namespace `Modules\Order\Services`:
+- `DispatchScoringCalculator.php` — công thức chấm điểm (thuần, không đụng DB/Redis/RTDB)
+- `DispatchCandidateFinder.php` — tìm + lọc + xếp hạng ứng viên (`find()`)
+- `DispatchOfferSender.php` — gửi 1 offer cụ thể (RTDB + OrderDispatchLog + FCM + job timeout)
+- `DispatchManualAssignment.php` — tổng đài gán tay, bỏ qua bước offer
+
+### Công thức chấm điểm (`DispatchScoringCalculator`, cập nhật 2026-08-13)
+
+Điểm tổng (`composite()`) = 3 thành phần cộng lại, tối đa 100:
+
+| Thành phần | Trọng số | Công thức |
+|---|---|---|
+| `scoreComponent` | 15 | `driver_score / MAX_SCORE * 15` — điểm uy tín tài xế (`DriverScoreService`) |
+| `waitTimeScore` | 42.5 | `min(phút_chờ, 480) / 480 * 42.5` — chờ từ lúc hoàn thành đơn trước (`last_order_completed_at`), hoặc lúc bật online nếu chưa chạy đơn nào (`online_since`); trần 8 tiếng |
+| `distanceComponent` | 42.5 | `(1 - min(km, trần) / trần) * 42.5` — trần = `DispatchCandidateFinder::MAX_ROAD_DISTANCE_KM` (4km đường thật), càng gần điểm lấy hàng càng cao |
+
+**Lịch sử đổi trọng số**:
+- Trước 2026-08-13: `score=15, rating_count=10, wait=50, distance=25` — `wait` áp đảo hoàn toàn, tài xế chờ đủ 8 tiếng gần như luôn thắng bất kể khoảng cách.
+- 2026-08-13: bỏ hẳn tiêu chí số lượt đánh giá khách (`rating_count`, chưa cần thiết); cân bằng `wait = distance = 42.5` — mục tiêu ưu tiên tài xế gần hơn để giảm thời gian khách chờ, nhưng vẫn giữ công bằng cho tài xế chờ lâu (không để khoảng cách áp đảo hoàn toàn như wait trước đây).
+
+### Thứ tự lọc ứng viên (`DispatchCandidateFinder::find()`, trước khi chấm điểm)
+
+1. Loại tài xế đang bận (≥2 đơn active) hoặc đang cầm offer đơn khác.
+2. Online đúng thành phố, đủ điều kiện (status/không bị suspend điểm).
+3. Vị trí đủ mới — đọc thẳng Firebase RTDB (không qua cột MySQL latitude/longitude, vốn có độ trễ).
+4. Không nợ quá hạn.
+5. Đủ bằng lái nếu đơn `service_type = car`.
+6. Ghép-tuyến hợp lệ nếu tài xế đang chạy 1 đơn khác (điểm lấy 2 đơn ≤1km VÀ điểm giao 2 đơn ≤1.5km).
+7. Khoảng cách đường thật ≤ `MAX_ROAD_DISTANCE_KM` — tính 1 lần cho cả lô qua Google Distance Matrix, không loại thô theo bán kính chim bay.
+
+Ai qua hết 7 lớp lọc mới được đưa vào `composite()` xếp hạng, lấy top `MAX_DRIVERS` (50), tài xế điểm cao nhất được gửi offer trước; bị skip/hết hạn thì `DispatchService::offerToNext()` quét lại lấy ứng viên kế.
+
+**Refactor 2026-08-13**: tách từ 1 class `DispatchService` (794 dòng, gộp cả điều phối/chấm điểm/gửi offer/gán tay) thành 5 file trên — không đổi hành vi lúc tách, chỉ tổ chức lại code; thay đổi trọng số ở trên là bước sau, có đổi hành vi thật.
