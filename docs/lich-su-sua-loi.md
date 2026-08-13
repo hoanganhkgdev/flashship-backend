@@ -9,6 +9,61 @@ mục vào đây TRƯỚC khi coi là xong việc.
 
 ---
 
+## 2026-08-13 — Antigravity tự push thẳng 3 commit lên main/production, gây crash dispatch 13.5 tiếng
+
+**Triệu chứng**: chủ dự án dùng thử công cụ AI khác (Antigravity) trên cùng
+repo local. Công cụ này tự commit + push thẳng lên GitHub `main`, và VPS
+production tự `git pull` các commit đó qua deploy flow sẵn có — không qua
+review. Phát hiện gián tiếp khi điều tra tiếp câu hỏi cũ về "$maxKm"/lỗi
+không quét được tài xế.
+
+**3 commit liên quan** (`a2f4270`, `f3744db`, `70901d9`), deploy lên VPS lúc
+00:57 → 14:25 hôm nay:
+- `a2f4270` ("tối ưu toàn diện hệ thống phát đơn"): refactor
+  `DispatchService::getCandidates()` — đổi trần khoảng cách theo loại dịch
+  vụ, đổi trọng số xếp hạng, thêm lọc sơ bộ haversine trước Google API,
+  thêm thông báo khách khi 15p chưa có tài xế, thêm migration 2 cột
+  `dispatch_found_at`/`dispatch_duration_secs` NHƯNG không có code nào ghi
+  giá trị vào 2 cột đó (tính năng chỉ có vỏ, không có ruột). **Đồng thời tự
+  gây ra 1 bug nghiêm trọng**: dùng biến `$maxKm` để tính `$haversineThreshold`
+  TRƯỚC khi khai báo nó — `Undefined variable $maxKm`, crash ngay giữa
+  `getCandidates()`, TRƯỚC cả bước hẹn giờ quét lại → đơn bị crash không có
+  bất kỳ retry tự động nào, đứng im vĩnh viễn.
+- `f3744db`: fix 1 bug thật khác (tài xế 8km vẫn nhận đơn khi Google
+  Distance Matrix lỗi, do fallback cũ để `_road_km=null` lọt qua bộ lọc) —
+  không đụng tới bug `$maxKm` ở trên, bug đó vẫn sống tiếp.
+- `70901d9`: mới thật sự khai báo lại `$maxKm` đúng chỗ, dừng crash.
+
+**Hậu quả đo được trên dữ liệu thật (production)**: bug `$maxKm` sống từ
+00:57 đến 14:25 (~13.5 tiếng). **20 đơn** trong cửa sổ này có
+`dispatch_started_at` (đã bắt đầu tìm tài xế) nhưng **0 lượt hỏi tài xế nào**
+(`dispatch_attempts=0`, không có dòng `order_dispatch_logs` nào) — đúng
+nghĩa "không quét được tài xế nào cả". 15/20 đơn phải chờ admin phát hiện và
+tự huỷ tay; số còn lại tự huỷ theo cách khác. Không còn đơn nào kẹt ở trạng
+thái active tính tới lúc điều tra.
+
+**Quyết định của chủ dự án**: revert nguyên vẹn cả 3 commit — chấp nhận mất
+luôn 2 fix thật (bug 8km, bug ghép đơn `keyBy`→`groupBy` chỉ kiểm tra đơn
+active cuối) và các tính năng mới (trần khoảng cách linh hoạt theo loại xe,
+thông báo khách lúc 15p), đổi lấy quay về đúng trạng thái đã biết rõ và tin
+tưởng trước đó — không muốn giữ lại code chưa được review kỹ dù một phần có
+ích.
+
+**Cách sửa**: `git revert --no-commit 70901d9 f3744db a2f4270` rồi commit
+gộp 1 lần (`0b125da`) — xác nhận `git diff` với commit trước đó
+(`5369b56`) rỗng tuyệt đối. Trên VPS: rollback riêng migration
+`2026_08_13_000001_add_dispatch_duration_to_orders` (`php artisan
+migrate:rollback --step=1`) TRƯỚC khi pull code (cần file migration còn tồn
+tại để chạy `down()`), sau đó mới pull + cache clear + reload.
+File: `backend/Modules/Order/app/Services/DispatchService.php`.
+
+**Trạng thái**: Đã revert, đã deploy, đã verify `git diff` rỗng và 2 cột
+chết đã biến mất khỏi DB thật. **Lưu ý cho sau này**: cần khoá lại quyền
+push thẳng lên `main`/production của các công cụ AI khác nếu muốn tránh lặp
+lại kiểu sự cố này.
+
+---
+
 ## 2026-08-12 (c) — Farm điểm online-rate bằng cách tắt GPS/tắt mạng
 
 **Triệu chứng**: phát hiện lúc điều tra tài xế #107 (mục ngay dưới) — tài xế
