@@ -751,17 +751,29 @@ class DispatchService
         );
 
         foreach ($afterHaversine as $d) {
-            $d->setAttribute('_road_km', $roadDistances[$d->id] ?? null);
+            // Google API lỗi/không trả kết quả → dùng haversine * 1.3 làm
+            // ước lượng đường thật (hệ số thực nghiệm TP Việt Nam). KHÔNG
+            // cho qua như trước (null = vượt trần vẫn lọt) — đó là nguyên nhân
+            // tài xế cách 8km vẫn nhận đơn khi Google API timeout.
+            if (isset($roadDistances[$d->id])) {
+                $d->setAttribute('_road_km', $roadDistances[$d->id]);
+            } elseif ($d->latitude && $d->longitude) {
+                $fallback = $this->haversineKm(
+                    (float) $d->latitude, (float) $d->longitude,
+                    (float) $order->pickup_lat, (float) $order->pickup_lng
+                ) * 1.3;
+                $d->setAttribute('_road_km', $fallback);
+                Log::debug("     [Candidates] #{$d->id}: Google API lỗi → dùng haversine×1.3 = " . round($fallback, 2) . "km");
+            } else {
+                $d->setAttribute('_road_km', $maxKm); // không có toạ độ → coi như xa nhất
+            }
         }
 
-        // Không đo được (lỗi API/thiếu toạ độ) thì tạm cho qua, không loại oan
-        // vì sự cố hạ tầng tạm thời — composite score sẽ dùng trần làm fallback.
-        $maxKm = $this->maxDistanceForService($order->service_type);
-        $withinRange = $afterDetour->filter(
-            fn (User $d) => $d->_road_km === null || $d->_road_km <= $maxKm
+        $withinRange = $afterHaversine->filter(
+            fn (User $d) => $d->_road_km <= $maxKm
         );
-        if (($removed = $afterDetour->count() - $withinRange->count()) > 0) {
-            Log::debug("     [Candidates] Loại {$removed} tài xế — đường thật vượt trần " . self::MAX_ROAD_DISTANCE_KM . "km");
+        if (($removed = $afterHaversine->count() - $withinRange->count()) > 0) {
+            Log::debug("     [Candidates] Loại {$removed} tài xế — đường thật vượt trần {$maxKm}km");
         }
 
         $sorted = $withinRange
@@ -774,7 +786,7 @@ class DispatchService
         if ($sorted->isNotEmpty()) {
             Log::debug("     [Candidates] Top " . min(5, $sorted->count()) . " tài xế (trần {$maxKm}km):");
             foreach ($sorted->take(5) as $i => $d) {
-                $km    = $d->_road_km !== null ? round($d->_road_km, 2) . 'km' : 'lỗi API';
+                $km    = round($d->_road_km, 2) . 'km';
                 $cnt   = (int) ($ratingStats[$d->id] ?? 0);
                 $score = round($this->compositeScore($d, $cnt, $d->_road_km ?? $maxKm, $maxKm), 1);
                 $wait  = round($this->waitTimeScore($d), 1);
