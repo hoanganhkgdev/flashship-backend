@@ -721,6 +721,7 @@ class DispatchService
         // thành phố Việt Nam: đường thật thường dài 1.2–1.4x chim bay, dùng
         // 1.5x để an toàn, không bỏ sót ai). Làm giảm số phần tử gọi API
         // khi số tài xế online lớn, giảm chi phí Google Maps khi scale.
+        $maxKm = $this->maxDistanceForService($order->service_type);
         $haversineThreshold = $maxKm * 1.5;
         $afterHaversine = $afterDetour->filter(function (User $d) use ($order, $haversineThreshold) {
             if (!$d->latitude || !$d->longitude) return true; // giữ lại nếu không có tọa độ (Google sẽ xử lý sau)
