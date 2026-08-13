@@ -2,7 +2,6 @@
 namespace Modules\Order\Services;
 
 use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Modules\Core\Models\User;
 use Modules\Core\Services\GoogleMapService;
@@ -148,14 +147,6 @@ class DispatchCandidateFinder
         // lọc thẳng ai vượt trần self::MAX_ROAD_DISTANCE_KM. Không còn khái
         // niệm "bán kính chim bay lọc thô rồi lọc lại" — quét city-wide ngay
         // từ bước 2 ở trên rồi.
-        $driverIds   = $afterDetour->pluck('id')->toArray();
-        $ratingStats = Order::whereIn('delivery_man_id', $driverIds)
-            ->whereNotNull('driver_rating')
-            ->where('status', 'completed')
-            ->select('delivery_man_id', DB::raw('COUNT(*) as rating_count'))
-            ->groupBy('delivery_man_id')
-            ->pluck('rating_count', 'delivery_man_id');
-
         $origins = $afterDetour
             ->filter(fn (User $d) => $d->latitude && $d->longitude)
             ->mapWithKeys(fn (User $d) => [$d->id => ['lat' => (float) $d->latitude, 'lng' => (float) $d->longitude]])
@@ -179,8 +170,8 @@ class DispatchCandidateFinder
         }
 
         $sorted = $withinRange
-            ->sortByDesc(function (User $d) use ($ratingStats) {
-                return $this->scoringCalculator->composite($d, (int) ($ratingStats[$d->id] ?? 0), $d->_road_km ?? self::MAX_ROAD_DISTANCE_KM, self::MAX_ROAD_DISTANCE_KM);
+            ->sortByDesc(function (User $d) {
+                return $this->scoringCalculator->composite($d, $d->_road_km ?? self::MAX_ROAD_DISTANCE_KM, self::MAX_ROAD_DISTANCE_KM);
             })
             ->take(self::MAX_DRIVERS)
             ->values();
@@ -189,10 +180,9 @@ class DispatchCandidateFinder
             Log::debug("     [Candidates] Top " . min(5, $sorted->count()) . " tài xế:");
             foreach ($sorted->take(5) as $i => $d) {
                 $km    = $d->_road_km !== null ? round($d->_road_km, 2) . 'km' : 'lỗi API';
-                $cnt   = (int) ($ratingStats[$d->id] ?? 0);
-                $score = round($this->scoringCalculator->composite($d, $cnt, $d->_road_km ?? self::MAX_ROAD_DISTANCE_KM, self::MAX_ROAD_DISTANCE_KM), 1);
+                $score = round($this->scoringCalculator->composite($d, $d->_road_km ?? self::MAX_ROAD_DISTANCE_KM, self::MAX_ROAD_DISTANCE_KM), 1);
                 $wait  = round($this->scoringCalculator->waitTimeScore($d), 1);
-                Log::debug("       " . ($i + 1) . ". #{$d->id} {$d->name} | đường thật: {$km} | điểm={$score} | driver_score=" . ($d->driver_score ?? DriverScoreService::DEFAULT_SCORE) . " | so_dg={$cnt} | wait={$wait}");
+                Log::debug("       " . ($i + 1) . ". #{$d->id} {$d->name} | đường thật: {$km} | điểm={$score} | driver_score=" . ($d->driver_score ?? DriverScoreService::DEFAULT_SCORE) . " | wait={$wait}");
             }
         }
 

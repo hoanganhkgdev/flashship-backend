@@ -67,22 +67,20 @@ class DispatchOfferSender
                 (float) $order->pickup_lat, (float) $order->pickup_lng
             ), 2);
 
-        $ratingCount    = Order::where('delivery_man_id', $driver->id)
-            ->whereNotNull('driver_rating')
-            ->where('status', 'completed')
-            ->count();
-
-        $scoreScore     = round($this->scoringCalculator->scoreComponent($driver), 1);
-        $ratingCntScore = round($this->scoringCalculator->ratingCountComponent($ratingCount), 1);
-        $waitScore      = round($this->scoringCalculator->waitTimeScore($driver), 1);
-        $total          = round($scoreScore + $ratingCntScore + $waitScore, 1);
+        $scoreScore = round($this->scoringCalculator->scoreComponent($driver), 1);
+        $waitScore  = round($this->scoringCalculator->waitTimeScore($driver), 1);
+        $distScore  = round($this->scoringCalculator->distanceComponent(
+            $driver->_road_km ?? DispatchCandidateFinder::MAX_ROAD_DISTANCE_KM,
+            DispatchCandidateFinder::MAX_ROAD_DISTANCE_KM
+        ), 1);
+        $total      = round($scoreScore + $waitScore + $distScore, 1);
 
         Log::info("│");
         Log::info("└→ [Dispatch] GỬI ĐƠN #{$order->id}");
         Log::info("     Tài xế     : #{$driver->id} {$driver->name} | SĐT: {$driver->phone}");
         Log::info("     Khoảng cách (đường thật): {$dist} km");
-        Log::info("     Điểm tổng  : {$total} = score({$scoreScore}) + so_dg({$ratingCntScore}) + wait({$waitScore})");
-        Log::info("     driver_score: " . ($driver->driver_score ?? DriverScoreService::DEFAULT_SCORE) . " | so_danh_gia: {$ratingCount}");
+        Log::info("     Điểm tổng  : {$total} = score({$scoreScore}) + wait({$waitScore}) + distance({$distScore})");
+        Log::info("     driver_score: " . ($driver->driver_score ?? DriverScoreService::DEFAULT_SCORE));
         Log::info("     FCM token  : " . ($driver->fcm_token ? 'có' : 'KHÔNG CÓ'));
 
         $ok = $this->commitOffer($order, $driver, $now);
