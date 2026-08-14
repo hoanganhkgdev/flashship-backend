@@ -9,7 +9,7 @@ class DriverScoreService
 {
     const DEFAULT_SCORE        = 100;
     const MIN_SCORE            = 0;
-    const MAX_SCORE            = 150;
+    const MAX_SCORE            = 140;
 
     const SCORE_DECLINE        = -2;
     const SCORE_VIEWED_TIMEOUT = -2;

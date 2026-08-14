@@ -9,6 +9,239 @@ mục vào đây TRƯỚC khi coi là xong việc.
 
 ---
 
+## 2026-08-14 (g) — App tài xế: banner "GPS đang tắt" đôi khi không tự tắt sau khi bật lại GPS
+
+**Triệu chứng**: tài xế báo banner "GPS đang tắt" trên dashboard bị đứng lại
+dù đã bật GPS lên rồi.
+
+**Nguyên nhân gốc**: banner dựa vào `Geolocator.getServiceStatusStream()`
+(lắng nghe realtime GPS service bật/tắt) để tự cập nhật. Stream này không
+đáng tin cậy 100% lúc GPS được BẬT LẠI trên 1 số máy/OS — đặc biệt khi tài
+xế đang offline (không có location manager nào đang hoạt động lúc đó) —
+khiến sự kiện "đã bật lại" đôi khi không bắn ra, banner kẹt ở trạng thái cũ
+vô thời hạn (chỉ tự khỏi khi app resume từ nền, không phải lúc nào tài xế
+cũng làm việc đó).
+
+**Cách sửa**: thêm 1 timer poll nhẹ mỗi 5s làm lưới an toàn — nhưng chỉ thật
+sự gọi `Geolocator` khi đang có banner hiển thị (`_locationIssueProvider !=
+null`), lúc mọi thứ bình thường thân timer gần như không tốn gì. Đảm bảo
+banner tự khỏi trong tối đa 5s kể từ lúc GPS được bật lại, không phụ thuộc
+vào độ tin cậy của stream nữa.
+
+**File**: `app/driver/lib/features/home/screens/home_screen.dart`.
+
+**Trạng thái**: Đã sửa, `flutter analyze` sạch. Chưa test tay trên thiết bị
+thật.
+
+---
+
+## 2026-08-14 (f) — App tài xế: bấm tắt online đúng lúc backend force-offline vì GPS chết có thể bị bật lại nhầm
+
+**Triệu chứng**: phát hiện lúc audit logic tắt online của màn `home`. Chưa
+ghi nhận sự cố thật từ tài xế — cửa sổ race hẹp nhưng khả thi, không phải lý
+thuyết suông. Cùng lớp "tài xế ma" như mục (e) ở trên, nhưng theo hướng
+ngược: lần này là tự bật nhầm lại thay vì kẹt online ảo.
+
+**Nguyên nhân gốc**: `/driver/toggle-status` ở backend là API **toggle**
+(đảo trạng thái), không phải "set trạng thái cụ thể". Nếu tài xế bấm tắt
+online đúng lúc backend phát hiện GPS chết >10 phút và bắn RTDB
+`is_online=false` (→ app nhận qua `_handleForceOffline()`): `_toggleOnline()`
+đọc `currentlyOnline=true` (chưa kịp nhận sự kiện), gửi request
+`/driver/toggle-status` đi. Trong lúc đang chờ phản hồi, `_handleForceOffline()`
+chạy trước (đồng bộ, cập nhật `authProvider.isOnline=false` ngay), backend
+cũng đã tự set `is_online=false` trước khi request kia tới nơi — nên "toggle"
+đảo nó thành `true` lại. App nhận `isOnline=true` từ response và bật lại GPS
+push + offer listener, dù lý do gốc (GPS chết) chưa chắc đã hết.
+
+**Cách sửa**: thêm biến đếm `_externalOfflineEpoch` (tăng mỗi lần
+`_handleForceOffline()` tự chạy — nguồn DUY NHẤT có thể đổi `is_online` phía
+backend mà không qua 1 request app đang theo dõi). Gộp logic gọi
+`/driver/toggle-status` với ý định tắt online vào `_postToggleOffline()`:
+chụp lại epoch lúc bắt đầu, nếu response trả về `is_online=true` NHƯNG epoch
+đã đổi trong lúc chờ → biết chắc vừa trúng race, tự gọi lại API 1 lần nữa để
+đưa về đúng ý định ban đầu (tắt). Áp dụng cho cả 2 nơi gọi tắt online:
+`_toggleOnline()` (bấm tay) và `_forceOffline()` (công nợ quá hạn/mất GPS).
+
+**File**: `app/driver/lib/features/home/screens/home_screen.dart`.
+
+**Trạng thái**: Đã sửa, `flutter analyze` sạch. Chưa test tay trên thiết bị
+thật (race hẹp, khó tái hiện thủ công).
+
+---
+
+## 2026-08-14 (e) — App tài xế: bật online qua nút thì force-offline từ backend không cập nhật được UI
+
+**Triệu chứng**: phát hiện lúc audit logic màn `home` (toggle online/offline,
+GPS, fetch dữ liệu). Chưa ghi nhận sự cố thật từ tài xế, nhưng đúng lớp bug
+"tài xế ma" từng gặp trước đây (#68/#107/#148/#232 — xem comment trong
+`location_push_service.dart`).
+
+**Nguyên nhân gốc**: `_DashboardPageState.initState()` chỉ gọi
+`_syncOnlineTimer()`, và hàm này gán 2 callback
+(`OfferListenerService.instance.onOfferDismissed`,
+`LocationPushService.instance.onForceOffline`) **bên trong nhánh có điều
+kiện** `if (driver?.isOnline != true) return;` — nghĩa là callback chỉ được
+wire nếu tài xế ĐÃ online sẵn tại thời điểm mount màn hình. Nếu tài xế mở app
+lúc đang offline rồi bấm nút bật online sau đó, `start()` của 2 service vẫn
+chạy bình thường (đi qua nhánh khác trong `_toggleOnline`), nhưng 2 field
+callback chưa từng được gán → khi backend tự phát hiện GPS chết quá 10 phút
+và bắn `is_online=false` qua RTDB, `LocationPushService` gọi
+`onForceOffline` nhưng field đang là `null`, không có gì xảy ra: tài xế vẫn
+hiển thị "Đang nhận đơn" trên UI, `authProvider` vẫn giữ `isOnline=true`,
+trong khi backend đã âm thầm coi tài xế là offline — đúng kịch bản "tài xế
+ma" (app tưởng online, hệ thống không giao đơn được).
+
+**Cách sửa**: chuyển 2 dòng gán callback ra khỏi `_syncOnlineTimer()`, gán 1
+lần không điều kiện ngay trong `initState()` — `.start()`/`.stop()` của 2
+service này không hề đụng tới field callback nên gán 1 lần là đủ dùng cho cả
+phiên sống của màn hình, bất kể tài xế online/offline bao nhiêu lần sau đó.
+`_syncOnlineTimer()` giờ chỉ còn phần `.start()` có điều kiện. Thêm dọn dẹp
+`onOfferDismissed = null;`/`onForceOffline = null;` vào `dispose()` (giống
+pattern `SessionGuardService.instance.onForceLogout = null;` đã có sẵn), vì 2
+service này là singleton toàn app, không tự huỷ theo vòng đời màn hình.
+
+**File**: `app/driver/lib/features/home/screens/home_screen.dart`.
+
+**Trạng thái**: Đã sửa, `flutter analyze` sạch. Chưa test tay trên thiết bị
+thật.
+
+---
+
+## 2026-08-14 (d) — App tài xế: bấm "Đăng nhập" ở màn chờ duyệt có thể im lặng không làm gì
+
+**Triệu chứng**: phát hiện lúc audit tiếp `pending_screen.dart`. Chưa ghi
+nhận sự cố thật từ tài xế.
+
+**Nguyên nhân gốc**: `_login()` gọi `AuthNotifier.refreshUser()` — hàm này
+nuốt mọi lỗi mạng âm thầm (`catch (_) {}`), đúng cho các lần gọi nền khác
+(polling 30s, lúc app resume) nhưng sai cho lần gọi do tài xế CHỦ ĐỘNG bấm
+nút "Đăng nhập" sau khi đã được duyệt. Nếu mất mạng đúng lúc bấm,
+`authProvider.user.status` không được cập nhật, router không redirect về
+`/home` được, nút chỉ tắt loading rồi đứng im — không có phản hồi gì, tài xế
+không hiểu vì sao bấm không có tác dụng.
+
+**Cách sửa**: sau khi `refreshUser()` xong, kiểm tra lại
+`ref.read(authProvider).isPending` — nếu vẫn còn true (nghĩa là chưa được
+redirect) thì hiện SnackBar báo thử lại. Không đụng gì tới `refreshUser()`
+dùng chung (các lần gọi nền khác vẫn im lặng đúng như cũ).
+
+**File**: `app/driver/lib/features/auth/screens/pending_screen.dart`.
+
+**Trạng thái**: Đã sửa, `flutter analyze` sạch. Chưa test tay trên thiết bị
+thật.
+
+---
+
+## 2026-08-14 (c) — App tài xế: màn login hiện nhầm lỗi của màn khác
+
+**Triệu chứng**: phát hiện lúc audit tiếp `login_screen.dart` +
+`forgot_password_screen.dart`. Chưa ghi nhận sự cố thật từ tài xế.
+
+**Nguyên nhân gốc**: `login_screen` là màn auth DUY NHẤT dùng
+`ref.watch(authProvider).error` để hiện banner lỗi trực tiếp (3 màn kia —
+register/otp/forgot-password — đều tự giữ `_error` cục bộ). `authProvider`
+dùng 1 field `error` chung cho cả `login()`/`sendOtp()`/
+`verifyOtpAndRegister()`, chỉ xoá lúc BẮT ĐẦU lệnh gọi mới, không xoá khi
+chuyển màn. Kịch bản: vào Đăng ký → `sendOtp()` lỗi (set `authProvider.error`)
+→ bấm "Đăng nhập" quay lại `/login` → login hiện ngay banner lỗi của lần
+`sendOtp()` thất bại đó, dù chưa hề bấm đăng nhập.
+
+Đồng thời phát hiện `login_screen._submit()` và
+`forgot_password_screen._sendOtp()`/`_resetPassword()` không có chốt chặn
+gọi lại (cùng loại bug OTP đã sửa ở mục 2026-08-14 (b)) — field vẫn bấm
+"Done"/enter được trong lúc request đang chạy.
+
+**Cách sửa**: `login_screen.dart` đổi sang giữ `_loading`/`_error` cục bộ
+giống 3 màn kia (đọc `authProvider.error` 1 lần ngay lúc thất bại thay vì
+`watch` phản ứng theo state dùng chung); thêm `if (_loading) return;` đầu
+`_submit()`. Thêm `if (_loading) return;`/`return false;` đầu
+`_sendOtp()`/`_resetPassword()` trong `forgot_password_screen.dart`.
+
+**File**: `app/driver/lib/features/auth/screens/login_screen.dart`,
+`app/driver/lib/features/auth/screens/forgot_password_screen.dart`.
+
+**Trạng thái**: Đã sửa, `flutter analyze` sạch. Chưa test tay trên thiết bị
+thật.
+
+---
+
+## 2026-08-14 (b) — App tài xế: OTP có thể gọi xác thực 2 lần song song
+
+**Triệu chứng**: phát hiện lúc audit tiếp code màn `otp_screen.dart` sau đợt
+sửa bug flow auth ở mục ngay trên. Chưa ghi nhận sự cố thật từ tài xế.
+
+**Nguyên nhân gốc**: `_submit()` được gọi từ 2 nguồn — nút "Xác nhận OTP"
+(đã disable đúng lúc `_loading=true`) và tự động khi gõ đủ 6 số
+(`OtpInputRow.onFilled`). Ô nhập OTP không hề bị khoá trong lúc đang xác
+thực và `_submit()` không có chốt chặn gọi lại — nếu user xoá rồi gõ lại số
+cuối ngay trong lúc request `verifyOtpAndRegister` đầu tiên còn đang chạy,
+`onFilled` bắn lần nữa → 2 request xác thực chạy song song, request về sau
+ghi đè kết quả (điều hướng/lỗi) của request trước.
+
+**Cách sửa**: thêm `if (_loading) return;` đầu `_submit()`; thêm param
+`enabled` cho `OtpInputRow` (mặc định `true`), khoá `TextField` +
+`GestureDetector` khi `enabled=false`; `otp_screen.dart` truyền
+`enabled: !_loading`.
+
+**File**: `app/driver/lib/features/auth/screens/otp_screen.dart`,
+`app/driver/lib/features/auth/widgets/otp_input_row.dart`.
+
+**Trạng thái**: Đã sửa, `flutter analyze` sạch. Chưa test tay trên thiết bị
+thật.
+
+---
+
+## 2026-08-14 — App tài xế: 3 bug logic phát hiện lúc audit code flow auth
+
+**Triệu chứng**: không phải do tài xế báo — phát hiện lúc chủ động rà lại
+code chức năng (không phải UI) của luồng đăng nhập/đăng ký/quên mật khẩu sau
+đợt làm mới giao diện. Cả 3 chưa từng gây sự cố production được ghi nhận,
+nhưng đều là bug thật, sẽ lộ ra khi gặp đúng điều kiện.
+
+**3 bug**:
+1. `forgot_password_screen.dart` — `_sendOtp()`/`_resetPassword()` gọi
+   `setState()` sau `await` network mà không check `mounted` trước (4 màn
+   auth còn lại đều có check này). Thoát màn giữa lúc request đang chạy →
+   `setState` trên State đã dispose → crash/assert lúc debug.
+2. `AuthNotifier.copyWith()` (auth_provider.dart) — param `error` gán thẳng
+   `error: error` thay vì `error ?? this.error`, phá vỡ hợp đồng "giữ nguyên
+   field không truyền" mà mọi field khác của `copyWith` đều tuân theo. Bất
+   kỳ lệnh gọi `copyWith(...)` nào không nhắc tới `error` sẽ vô tình xoá
+   error đang có trong state.
+3. `AuthNotifier.updateOnlineStatus()` — thiếu `try/finally` quanh cờ
+   `_toggleInFlight`. Nếu `_persistUser()` (ghi SharedPreferences) throw,
+   cờ kẹt `true` vĩnh viễn → `refreshUser()` bị chặn đồng bộ profile
+   (`is_online`, `balance`...) cho tới khi tài xế tắt/mở lại app.
+
+**Cách sửa**:
+1. Thêm `if (!mounted) return;`/`if (mounted) setState(...)` ở đúng các
+   điểm sau `await` trong `forgot_password_screen.dart`.
+2. Đổi `copyWith` sang dùng sentinel (`static const _unset = Object()`) để
+   phân biệt "không truyền error" (giữ nguyên) với "truyền `error: null`"
+   (xoá) — `AuthState copyWith({..., Object? error = _unset})`.
+3. Bọc thân hàm `updateOnlineStatus()` trong `try { ... } finally { _toggleInFlight = false; }`.
+
+Tiện thể gộp luôn logic đọc message lỗi từ backend (trước đó viết lặp lại 3
+nơi, chỉ 1 bản đọc được field `errors` kiểu Laravel) vào
+`core/utils/api_error.dart` (`parseApiError`), dùng chung cho
+`auth_provider.dart` + `forgot_password_screen.dart` — login/register/otp
+giờ cũng hiện đúng message lỗi validate cụ thể thay vì message chung chung.
+Và sửa `register_screen.dart` dùng `ApiClient(null)` thay vì `Dio()` trần khi
+tải danh sách khu vực — bản `Dio()` trần bỏ qua timeout + adapter bypass
+bad-cert ở debug mode mà `ApiClient` có, có thể fail SSL riêng ở màn đăng ký
+nếu backend dev/staging dùng cert tự ký.
+
+**File**: `app/driver/lib/features/auth/providers/auth_provider.dart`,
+`app/driver/lib/features/auth/screens/forgot_password_screen.dart`,
+`app/driver/lib/features/auth/screens/register_screen.dart`,
+`app/driver/lib/core/utils/api_error.dart` (mới).
+
+**Trạng thái**: Đã sửa, `flutter analyze` sạch. Chưa test tay trên thiết bị
+thật (theo yêu cầu user — không tự build/verify simulator khi không được
+hỏi).
+
+---
+
 ## 2026-08-13 — Antigravity tự push thẳng 3 commit lên main/production, gây crash dispatch 13.5 tiếng
 
 **Triệu chứng**: chủ dự án dùng thử công cụ AI khác (Antigravity) trên cùng
@@ -293,6 +526,56 @@ cầu, nhưng có kèm vài lỗi thật được sửa trong lúc làm:
   rời cho cùng 1 nhóm hành vi.
 
 **Trạng thái**: Đã sửa, đã deploy backend.
+
+---
+
+## 2026-08-14 — Lặp chữ "Ca" trong dòng trạng thái ca làm việc ở header trang home
+
+**Triệu chứng**: Header trang home driver hiển thị "Ca Ca tối (18:00–00:00) ·
+còn 11p" — lặp chữ "Ca".
+**Nguyên nhân gốc**: `DashboardHeader` (widget vừa được redesign) prefix cứng
+`TextSpan(text: 'Ca ')` trước `active.$1.name`, trong khi `ShiftModel.name`
+đã tự chứa chữ "Ca" (VD "Ca tối", "Ca sáng").
+**Cách sửa**: Bỏ `TextSpan` prefix "Ca " thừa trong
+`app/driver/lib/features/home/widgets/dashboard_header.dart`, chỉ còn hiển
+thị `${active.$1.name} (...)`.
+**Trạng thái**: Đã sửa, chưa deploy/release app.
+
+---
+
+## 2026-08-14 — Ảnh đại diện không hiện ở Home sau khi upload ở Profile
+
+**Triệu chứng**: Driver upload ảnh đại diện ở màn Profile (báo "Cập nhật ảnh
+thành công"), nhưng avatar ở header trang Home vẫn hiện chữ cái viết tắt
+(initials) thay vì ảnh thật, kể cả sau khi quay lại Home.
+**Nguyên nhân gốc**: `_pickAndUpload()` trong
+`app/driver/lib/features/profile/screens/profile_screen.dart` sau khi POST
+`/driver/profile/update` thành công chỉ set `_photoUrl` vào **state cục bộ**
+của `ProfileScreen` — không cập nhật `authProvider` (nơi
+`DashboardHeader` ở Home đọc `user.profilePhotoUrl` qua
+`ref.watch(authProvider).user`). State toàn cục vẫn giữ ảnh cũ (null) cho
+tới khi app restart.
+**Cách sửa**: Gọi thêm `ref.read(authProvider.notifier).refreshUser()` ngay
+sau khi upload thành công, để đồng bộ `authProvider` với ảnh mới.
+**Trạng thái**: Đã sửa, chưa deploy/release app.
+
+---
+
+## 2026-08-15 — RenderFlex overflow ~0.2px ở bottom nav khi chuyển tab
+
+**Triệu chứng**: Console báo "A RenderFlex overflowed by 0.174/0.299 pixels
+on the right" khi chuyển tab ở bottom nav (phát hiện ngay sau khi redesign
+`BottomNav` để hiện icon+nhãn cạnh nhau cho tab đang chọn).
+**Nguyên nhân gốc**: `AnimatedSize` lồng trong `AnimatedContainer` bọc
+`Row(mainAxisSize: min, [Icon, Text?])` — trong lúc `AnimatedSize` đang nội
+suy kích thước khung giữa 2 trạng thái (chỉ icon ↔ icon+nhãn), có khung hình
+mà `Row` render đúng kích thước tự nhiên (đã lớn hơn) trong khi khung chứa
+chưa kịp lớn theo, gây tràn vài phần trăm pixel.
+**Cách sửa**: Bỏ `AnimatedSize` ở
+`app/driver/lib/features/home/widgets/bottom_nav.dart` — chỉ giữ
+`AnimatedContainer` animate màu/padding, nhãn xuất hiện tức thời (không cần
+animate riêng kích thước Row).
+**Trạng thái**: Đã sửa, chưa deploy/release app.
 
 ---
 
