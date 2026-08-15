@@ -54,7 +54,6 @@ Route::middleware(['auth:sanctum', 'driver.active'])->group(function () {
     Route::prefix('earnings')->group(function () {
         Route::get('/weekly',  [EarningController::class, 'weekly']);
         Route::get('/monthly', [EarningController::class, 'monthly']);
-        Route::get('/kpi',     [EarningController::class, 'kpi']);
         Route::get('/summary', [EarningController::class, 'summary']);
     });
 

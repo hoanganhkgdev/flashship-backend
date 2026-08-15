@@ -475,31 +475,6 @@ class OrderService
             ])->toArray();
     }
 
-    public function getKpi(User $driver): array
-    {
-        $start = Carbon::now()->startOfWeek();
-        $end   = Carbon::now()->endOfWeek();
-
-        $row = Order::where('delivery_man_id', $driver->id)
-            ->whereBetween('created_at', [$start, $end])
-            ->selectRaw("COUNT(*) as orders_done,
-                SUM(CASE WHEN status='completed' THEN shipping_fee ELSE 0 END) as earnings_shipping,
-                SUM(CASE WHEN status='completed' THEN bonus_fee ELSE 0 END) as earnings_bonus")
-            ->first();
-
-        $shipping = (float) ($row->earnings_shipping ?? 0);
-        $bonus    = (float) ($row->earnings_bonus ?? 0);
-
-        return [
-            'orders_done'       => (int) ($row->orders_done ?? 0),
-            'orders_target'     => 20,
-            'earnings_done'     => $shipping + $bonus,
-            'earnings_shipping' => $shipping,
-            'earnings_bonus'    => $bonus,
-            'earnings_target'   => 2000000,
-        ];
-    }
-
     public function getEarningsSummary(int $driverId, string $period): array
     {
         $start = match ($period) {

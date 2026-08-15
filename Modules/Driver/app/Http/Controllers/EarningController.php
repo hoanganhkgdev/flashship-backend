@@ -22,12 +22,6 @@ class EarningController extends Controller
         return response()->json(['success' => true, 'data' => $data]);
     }
 
-    public function kpi(Request $request): JsonResponse
-    {
-        $data = $this->orderService->getKpi($request->user());
-        return response()->json(['success' => true, 'data' => $data]);
-    }
-
     public function summary(Request $request): JsonResponse
     {
         $id = $request->user()->id;
