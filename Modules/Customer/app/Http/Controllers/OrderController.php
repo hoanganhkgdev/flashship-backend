@@ -8,7 +8,6 @@ use Illuminate\Support\Facades\Log;
 use Modules\Order\Models\Order;
 use Modules\Core\Models\Voucher;
 use Modules\Core\Models\VoucherUsage;
-use Modules\Driver\Services\DriverScoreService;
 use Modules\Core\Services\RTDBService;
 use Modules\Customer\Models\CustomerAddress;
 use Modules\Order\Services\OrderService;
@@ -279,8 +278,10 @@ class OrderController extends Controller
             return response()->json(['success' => false, 'message' => 'Đã quá 24 giờ, không thể đánh giá đơn hàng này.'], 400);
         }
 
-        // Atomic update — chỉ apply nếu chưa có rating (tránh race condition double-rate)
-        $affected = \DB::table('orders')
+        // Atomic update — chỉ apply nếu chưa có rating (tránh race condition
+        // double-rate). Rating không còn kích hoạt tác dụng phụ nào (điểm tài
+        // xế) nữa nên không cần đọc số dòng bị ảnh hưởng sau update.
+        \DB::table('orders')
             ->where('id', $order->id)
             ->whereNull('driver_rating')
             ->update([
@@ -288,10 +289,6 @@ class OrderController extends Controller
                 'driver_rating_note' => $data['note'] ?? null,
                 'updated_at'         => now(),
             ]);
-
-        if ($affected > 0 && $order->delivery_man_id) {
-            DriverScoreService::onRated($order->delivery_man_id, (int) $data['rating']);
-        }
 
         return response()->json(['success' => true, 'message' => 'Cảm ơn đánh giá của bạn']);
     }

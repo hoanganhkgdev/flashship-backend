@@ -14,8 +14,6 @@ class DriverScoreService
     const SCORE_DECLINE        = -2;
     const SCORE_VIEWED_TIMEOUT = -2;
 
-    const RATING_DELTAS        = [5 => 1, 4 => 0, 3 => -1, 2 => -3, 1 => -5];
-
     const STREAK_MILESTONES    = [3 => 1, 6 => 2, 10 => 4];
     const STREAK_RESET_AT      = 10;
 
@@ -76,14 +74,6 @@ class DriverScoreService
     public static function onViewedTimeout(int $driverId): void
     {
         self::adjustWithStreakReset($driverId, self::SCORE_VIEWED_TIMEOUT, 'viewed_timeout');
-    }
-
-    public static function onRated(int $driverId, int $stars): void
-    {
-        $delta = self::RATING_DELTAS[$stars] ?? 0;
-        if ($delta !== 0) {
-            self::adjust($driverId, $delta, "rated_{$stars}_stars");
-        }
     }
 
     /**

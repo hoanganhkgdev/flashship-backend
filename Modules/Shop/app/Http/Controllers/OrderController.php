@@ -9,7 +9,6 @@ use Illuminate\Support\Facades\Log;
 use Modules\Core\Models\Voucher;
 use Modules\Core\Models\VoucherUsage;
 use Modules\Core\Services\RTDBService;
-use Modules\Driver\Services\DriverScoreService;
 use Modules\Order\Models\Order;
 use Modules\Order\Services\OrderService;
 use Modules\Shop\Services\ShopPricingService;
@@ -530,7 +529,10 @@ class OrderController extends Controller
             return response()->json(['success' => false, 'message' => 'Đã quá 24 giờ, không thể đánh giá đơn hàng này.'], 400);
         }
 
-        $affected = \DB::table('orders')
+        // whereNull('driver_rating') giữ vai trò khoá atomic chống double-rate
+        // race — không còn cần đọc số dòng bị ảnh hưởng vì rating không còn
+        // kích hoạt tác dụng phụ nào (điểm tài xế) nữa.
+        \DB::table('orders')
             ->where('id', $order->id)
             ->whereNull('driver_rating')
             ->update([
@@ -538,10 +540,6 @@ class OrderController extends Controller
                 'driver_rating_note' => $data['note'] ?? null,
                 'updated_at'         => now(),
             ]);
-
-        if ($affected > 0 && $order->delivery_man_id) {
-            DriverScoreService::onRated($order->delivery_man_id, (int) $data['rating']);
-        }
 
         return response()->json(['success' => true, 'message' => 'Cảm ơn đánh giá của bạn']);
     }

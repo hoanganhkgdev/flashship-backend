@@ -9,6 +9,58 @@ mục vào đây TRƯỚC khi coi là xong việc.
 
 ---
 
+## 2026-08-16 (b) — App tài xế: lịch sử điểm hiện reason code thô thay vì nhãn tiếng Việt
+
+**Triệu chứng**: người dùng báo trong màn "Điểm tích lũy" → tab lịch sử, một
+số dòng hiện thẳng mã lý do (vd `viewed_timeout`, `shift_online_mid`) thay vì
+câu tiếng Việt dễ hiểu như các dòng khác.
+
+**Nguyên nhân gốc**: `ScoreController::reasonLabel()` map `reason` lưu trong
+`driver_score_logs` sang nhãn hiển thị, nhưng thiếu map cho đúng các `reason`
+mà `DriverScoreService` đang thực sự tạo ra — `onViewedTimeout()` ghi
+`'viewed_timeout'` nhưng hàm chỉ có map cho `'timeout'` (không còn nơi nào
+tạo ra reason này); `onShiftOnlineRate()` ghi 1 trong 4 reason
+`shift_online_high/neutral/mid/low` nhưng hàm chỉ map mỗi
+`shift_never_online`. Các trường hợp không khớp map rơi vào nhánh
+`default => $reason`, hiện thẳng mã thô cho tài xế.
+
+**Cách sửa**: thêm map cho `viewed_timeout` (gộp chung nhãn với `timeout` cũ)
+và 4 reason `shift_online_*`, đồng thời đổi nhãn `shift_never_online` cho
+khớp đúng chữ đang dùng ở `RulesCard` trên app ("Không online suốt cả ca").
+
+**File**: `backend/Modules/Driver/app/Http/Controllers/ScoreController.php`.
+
+**Trạng thái**: Đã sửa, `php -l` sạch. Chưa deploy lên VPS, chưa test tay
+trên thiết bị thật.
+
+---
+
+## 2026-08-16 — App tài xế: màn "Điểm tích lũy" mô tả sai luật trừ điểm online
+
+**Triệu chứng**: phát hiện lúc dọn lại UI màn Score theo yêu cầu người dùng
+(bỏ card trùng lặp). Chưa ghi nhận khiếu nại từ tài xế, nhưng nội dung hiển
+thị sai lệch với luật tính điểm thật đang chạy trên server.
+
+**Nguyên nhân gốc**: `RulesCard` (`app/driver/lib/features/score/widgets/score_rules.dart`)
+liệt kê 3 luật trừ điểm cũ đã bị gỡ bỏ khỏi backend từ lâu — "Không giao đơn 1
+ngày -5", "Online dưới 8 giờ/ngày -5", "Không giao đơn 2+ ngày -10" — trong
+khi `DriverScoreService::onShiftOnlineRate()` đã thay hẳn 3 luật đó bằng chấm
+điểm theo % thời gian online/tổng thời lượng ca (+3 nếu ≥90%, -5 nếu 50-69%,
+-10 nếu <50%, -15 nếu không online phút nào), và còn thiếu hẳn luật trừ -1
+điểm khi bỏ lỡ 3 đơn không xem liên tiếp (`onOfferUnviewed`). Tài xế xem màn
+này sẽ hiểu sai hoàn toàn cách mình bị trừ điểm.
+
+**Cách sửa**: cập nhật danh sách `items` trong `RulesCard` cho khớp đúng các
+hằng số/nhánh hiện có trong `DriverScoreService.php` (`Modules/Driver/app/Services/DriverScoreService.php`).
+Không đổi logic tính điểm ở backend, chỉ sửa phần hiển thị.
+
+**File**: `app/driver/lib/features/score/widgets/score_rules.dart`.
+
+**Trạng thái**: Đã sửa, `flutter analyze` sạch. Chưa test tay trên thiết bị
+thật.
+
+---
+
 ## 2026-08-14 (g) — App tài xế: banner "GPS đang tắt" đôi khi không tự tắt sau khi bật lại GPS
 
 **Triệu chứng**: tài xế báo banner "GPS đang tắt" trên dashboard bị đứng lại

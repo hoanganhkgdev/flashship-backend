@@ -117,11 +117,16 @@ class ScoreController extends Controller
     {
         return match (true) {
             $reason === 'decline'          => 'Từ chối đơn',
-            $reason === 'timeout'          => 'Để đơn trôi qua',
+            $reason === 'timeout' || $reason === 'viewed_timeout'
+                => 'Để đơn trôi qua',
             $reason === 'complete'         => 'Hoàn thành đơn',
             $reason === 'weekly_reset'     => 'Reset điểm đầu tuần',
             $reason === 'shift_violation'  => 'Vi phạm ca làm việc',
-            $reason === 'shift_never_online' => 'Không online cả ca',
+            $reason === 'shift_never_online' => 'Không online suốt cả ca',
+            $reason === 'shift_online_high'    => 'Online ≥ 90% thời lượng ca',
+            $reason === 'shift_online_neutral' => 'Online 70–89% thời lượng ca',
+            $reason === 'shift_online_mid'     => 'Online 50–69% thời lượng ca',
+            $reason === 'shift_online_low'     => 'Online dưới 50% thời lượng ca',
             $reason === 'offer_unviewed_x3'  => 'Bỏ lỡ 3 đơn không xem',
             $reason === 'streak_bonus'     => 'Thưởng chuỗi đơn liên tiếp',
             $reason === 'inactive_1_day' || $reason === 'inactivity_1d'
