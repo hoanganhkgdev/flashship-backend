@@ -48,6 +48,7 @@ class CallCenterPage extends Page implements HasForms
     public ?float $deliveryLng = null;
 
     public ?int    $previewFee      = null;
+    public int     $previewNightSurcharge = 0;
     public ?string $previewDistance = null;
     public ?string $previewStatus   = null;
 
@@ -245,6 +246,7 @@ class CallCenterPage extends Page implements HasForms
         }
 
         $this->previewFee = $pricing['fee'];
+        $this->previewNightSurcharge = $pricing['night_surcharge'] ?? 0;
     }
 
     /**
@@ -411,6 +413,7 @@ class CallCenterPage extends Page implements HasForms
                 'city_id'            => $cityId,
                 'created_by'         => auth()->id(),
                 'shipping_fee'       => $shippingFee,
+                'night_surcharge'    => $this->previewNightSurcharge,
                 'bonus_fee'          => 0,
                 'is_freeship'        => $this->isFreeship,
                 'status'             => 'pending',

@@ -9,6 +9,38 @@ mục vào đây TRƯỚC khi coi là xong việc.
 
 ---
 
+## 2026-08-17 — Backend: đơn tạo qua tổng đài (CallCenterPage) không lưu breakdown night_surcharge
+
+**Triệu chứng**: phát hiện lúc soát các nơi tạo `Order` — cột `night_surcharge`
+có thật và được `PricingService`/`ShopPricingService::estimateFromCoords()`
+tính đúng để hiện preview phí cho tổng đài viên, nhưng không được lưu lại
+khi tạo đơn.
+
+**Nguyên nhân gốc**: `CallCenterPage::suggestShippingFee()` chỉ lấy
+`$pricing['fee']` (tổng đã gộp sẵn phụ phí đêm) vào `$previewFee`, không
+giữ lại riêng `$pricing['night_surcharge']`. `Order::create()` sau đó cũng
+không có key `night_surcharge` — tổng tiền đơn tạo qua tổng đài vẫn đúng,
+nhưng breakdown phụ phí đêm bị mất, khác với đơn tạo qua app khách/shop
+(đã lưu đúng field này).
+
+**Cách sửa**: thêm property `$previewNightSurcharge`, gán trong
+`suggestShippingFee()` cạnh `$previewFee`, thêm vào `Order::create()` cạnh
+`shipping_fee`.
+
+**Lưu ý còn tồn tại (chưa sửa, ngoài phạm vi yêu cầu)**: `$previewNightSurcharge`
+không được reset về 0 ở các chỗ `$previewFee` bị reset (`selectService()`,
+`setPickupLocation()`, `setDeliveryLocation()`) — nếu tổng đài viên đổi loại
+dịch vụ/địa điểm mà không kích hoạt tính lại preview trước khi submit, giá
+trị phụ phí đêm cũ có thể bị lưu nhầm cho đơn mới. Rủi ro thấp (chỉ ảnh
+hưởng breakdown hiển thị, không ảnh hưởng tổng tiền do tổng đài tự gõ tay),
+nhưng nên cân nhắc reset cùng lúc nếu muốn triệt để.
+
+**File**: `app/Filament/Pages/CallCenterPage.php`.
+
+**Trạng thái**: Đã sửa, `php -l` sạch. Chưa deploy lên VPS, chưa test tay.
+
+---
+
 ## 2026-08-16 (g) — Backend: badge "+Xđ đêm" trên màn offer luôn hiện 0 do thiếu field trong payload
 
 **Triệu chứng**: phát hiện lúc thêm badge thưởng mưa vào màn offer — soát
