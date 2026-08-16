@@ -159,10 +159,20 @@ class PaymentController extends Controller
     private function handlePaid(object $order): void
     {
         DB::transaction(function () use ($order) {
-            DB::table('payment_orders')->where('id', $order->id)->update([
-                'status'     => 'paid',
-                'updated_at' => now(),
-            ]);
+            // Compare-and-swap: WHERE status='pending' + lockForUpdate() đảm bảo
+            // chỉ đúng 1 trong các lệnh gọi đồng thời (app poll vs webhook, hoặc
+            // webhook tự retry) có $updated > 0 — bên thua cuộc thấy 0 dòng bị
+            // ảnh hưởng và tự return sớm, không cộng tiền/công nợ lần 2.
+            $updated = DB::table('payment_orders')
+                ->where('id', $order->id)
+                ->where('status', 'pending')
+                ->lockForUpdate()
+                ->update(['status' => 'paid', 'updated_at' => now()]);
+
+            if ($updated === 0) {
+                // Đã có request khác (poll hoặc webhook retry) xử lý trước rồi — dừng lại, không cộng tiền/công nợ lần 2.
+                return;
+            }
 
             // Giữ nhánh này cho các payment_orders type=topup còn "pending" từ
             // trước khi bỏ tính năng nạp ví — webhook PayOS có thể đến trễ.
@@ -175,7 +185,7 @@ class PaymentController extends Controller
                     "payos_{$order->order_code}"
                 );
             } elseif ($order->type === 'debt_payment' && $order->ref_id) {
-                $debt = DriverDebt::find($order->ref_id);
+                $debt = DriverDebt::where('id', $order->ref_id)->lockForUpdate()->first();
                 if ($debt && in_array($debt->status, ['pending', 'overdue'])) {
                     $newPaid = $debt->amount_paid + $order->amount;
                     $status  = $newPaid >= $debt->amount_due ? 'paid' : $debt->status;

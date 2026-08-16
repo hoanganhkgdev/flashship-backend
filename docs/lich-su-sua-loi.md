@@ -9,6 +9,39 @@ mục vào đây TRƯỚC khi coi là xong việc.
 
 ---
 
+## 2026-08-16 (d) — Backend: PayOS handlePaid() có thể cộng tiền/công nợ trùng 2 lần
+
+**Triệu chứng**: người dùng phát hiện lúc soát flow thanh toán công nợ qua
+PayOS — chưa ghi nhận sự cố thật từ tài xế nhưng cửa sổ race khả thi và dễ
+trúng (không cần app poll trùng lúc webhook, PayOS tự retry webhook cũng đủ
+kích hoạt).
+
+**Nguyên nhân gốc**: `PaymentController::handlePaid()` được gọi từ 2 nguồn
+độc lập cho cùng 1 order — `status()` (app poll `/driver/payment/{code}/status`
+mỗi 3s) và `webhook()` (`POST /payment/webhook/payos`). Cả 2 nơi gọi đều
+check `$order->status !== 'pending'` bằng SELECT thường (không khoá) trước
+khi gọi `handlePaid()`, và bên trong hàm này UPDATE chỉ có `WHERE id = ?`
+(không có `WHERE status = 'pending'`) — không phải compare-and-swap, không
+có cách nào phát hiện mình là request thua cuộc. Với `debt_payment`, dòng
+`$newPaid = $debt->amount_paid + $order->amount` chạy trùng khiến công nợ
+được cộng "đã trả" gấp đôi số tiền thật. `topup` vô tình không dính lỗi này
+vì `driver_wallet_transactions.reference` có unique index chặn request thứ
+2 (nhưng type này không còn dùng, chỉ giữ nhánh code cho payment cũ).
+
+**Cách sửa**: đổi UPDATE trong `handlePaid()` thành compare-and-swap thật —
+thêm `WHERE status = 'pending'` + `lockForUpdate()`, kiểm tra số dòng bị
+ảnh hưởng (`$updated`); nếu `0` nghĩa là đã có request khác xử lý trước,
+return sớm không cộng tiền/công nợ lần 2. Đồng thời thêm `lockForUpdate()`
+khi đọc lại `$debt` trước khi cộng `amount_paid`, phòng race hiếm hơn nếu 2
+`payment_orders` khác nhau cùng trỏ 1 `ref_id`.
+
+**File**: `Modules/Driver/app/Http/Controllers/PaymentController.php`.
+
+**Trạng thái**: Đã sửa, `php -l` sạch. Chưa deploy lên VPS, chưa test tay
+kịch bản race thật (poll + webhook đồng thời).
+
+---
+
 ## 2026-08-16 (c) — Backend: đổi 5 mốc chấm điểm online-ca suýt gây chấm điểm trùng ca
 
 **Triệu chứng**: phát hiện lúc đổi ngưỡng % online/ca trong
