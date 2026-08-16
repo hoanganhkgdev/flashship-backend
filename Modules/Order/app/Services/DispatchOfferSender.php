@@ -140,6 +140,7 @@ class DispatchOfferSender
             'discount_amount'   => (int) ($order->discount_amount ?? 0),
             'voucher_code'      => $order->voucher_code      ?? null,
             'bonus_fee'         => (int) ($order->bonus_fee  ?? 0),
+            'night_surcharge'   => (int) ($order->night_surcharge ?? 0),
             'payment_method'    => $order->payment_method    ?? 'prepaid',
             'cod_amount'        => (int) ($order->cod_amount ?? 0),
             'customer_phone'    => $order->sender?->phone    ?? '',

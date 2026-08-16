@@ -9,6 +9,30 @@ mục vào đây TRƯỚC khi coi là xong việc.
 
 ---
 
+## 2026-08-16 (g) — Backend: badge "+Xđ đêm" trên màn offer luôn hiện 0 do thiếu field trong payload
+
+**Triệu chứng**: phát hiện lúc thêm badge thưởng mưa vào màn offer — soát
+payload RTDB thấy thiếu `night_surcharge` dù app (`OfferHeader`,
+`order_model.dart`) đã đọc field này từ lâu để hiện badge "+Xđ đêm".
+
+**Nguyên nhân gốc**: `DispatchOfferSender::commitOffer()` build payload
+offer gửi cho tài xế (RTDB node `dispatch/driver_{id}/offer`) không có key
+`night_surcharge`, dù cột này có thật trên `orders` (migration
+`2026_05_29_000001_add_night_surcharge_to_orders.php`, fillable trên
+`Order` model) và được tính đúng ở `OrderController`/`PricingService` lúc
+tạo đơn. App đọc `j['night_surcharge']` không thấy key này nên luôn mặc
+định 0 — badge phụ phí đêm trên màn offer vì vậy chưa từng hiện đúng số
+tiền thật từ khi widget này tồn tại.
+
+**Cách sửa**: thêm `'night_surcharge' => (int) ($order->night_surcharge ?? 0)`
+vào payload trong `commitOffer()`, cạnh `bonus_fee`.
+
+**File**: `Modules/Order/app/Services/DispatchOfferSender.php`.
+
+**Trạng thái**: Đã sửa, `php -l` sạch. Chưa deploy lên VPS, chưa test tay.
+
+---
+
 ## 2026-08-16 (f) — Backend: upload lại CCCD/bằng lái sau khi đã approved làm tài xế tụt về pending
 
 **Triệu chứng**: phát hiện lúc soát flow duyệt hồ sơ tài xế — chưa ghi nhận
