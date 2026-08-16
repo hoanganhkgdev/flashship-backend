@@ -9,6 +9,37 @@ mục vào đây TRƯỚC khi coi là xong việc.
 
 ---
 
+## 2026-08-16 (c) — Backend: đổi 5 mốc chấm điểm online-ca suýt gây chấm điểm trùng ca
+
+**Triệu chứng**: phát hiện lúc đổi ngưỡng % online/ca trong
+`onShiftOnlineRate()` theo yêu cầu — đổi tên reason string đi kèm (vd
+`shift_online_high` → `shift_online_normal`) nhưng
+`ScoreShiftSessionsCommand::SCORE_REASONS` (dùng để check "ca này đã chấm
+điểm chưa" trong `alreadyScored()`) vẫn còn trỏ tới 5 reason cũ. Nếu không
+sửa, lần chạy cron kế tiếp sẽ không nhận ra ca vừa chấm bằng reason mới,
+dẫn tới chấm điểm (cộng/trừ điểm) trùng lần thứ 2 cho cùng 1 ca.
+
+**Nguyên nhân gốc**: reason string vừa là dữ liệu hiển thị (label lịch sử
+điểm) vừa là khoá dùng cho logic idempotency (`alreadyScored()`) — đổi tên
+reason ở nơi tạo ra (`DriverScoreService`) mà không rà hết các nơi khác
+đang so khớp chuỗi đó thì phần logic (không chỉ phần hiển thị) cũng vỡ theo.
+
+**Cách sửa**: cập nhật `SCORE_REASONS` gồm cả 5 reason mới lẫn cũ (giữ cũ
+để không chấm trùng nếu log cũ còn rơi vào cửa sổ kiểm tra ngay sau khi
+deploy). Đồng thời cập nhật `ScoreController::reasonLabel()` và Filament
+`ScoreLogsRelationManager::reasonLabel()/reasonColor()` cho khớp 5 mốc mới,
+giữ nguyên mapping cũ để log lịch sử trước đó vẫn hiển thị đúng.
+
+**File**: `Modules/Driver/app/Services/DriverScoreService.php`,
+`Modules/Driver/app/Console/Commands/ScoreShiftSessionsCommand.php`,
+`Modules/Driver/app/Http/Controllers/ScoreController.php`,
+`app/Filament/Resources/DriverScoreResource/RelationManagers/ScoreLogsRelationManager.php`.
+
+**Trạng thái**: Đã sửa, `php -l` sạch cả 4 file. Chưa deploy lên VPS, chưa
+chạy thử lệnh `drivers:score-shift-sessions` trên môi trường thật.
+
+---
+
 ## 2026-08-16 (b) — App tài xế: lịch sử điểm hiện reason code thô thay vì nhãn tiếng Việt
 
 **Triệu chứng**: người dùng báo trong màn "Điểm tích lũy" → tab lịch sử, một

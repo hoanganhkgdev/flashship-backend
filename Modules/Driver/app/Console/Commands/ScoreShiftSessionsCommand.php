@@ -16,8 +16,12 @@ class ScoreShiftSessionsCommand extends Command
     protected $signature   = 'drivers:score-shift-sessions';
     protected $description = 'Chấm điểm % thời gian online cuối mỗi ca vừa kết thúc';
 
+    // Dùng để nhận diện ca đã chấm điểm rồi (alreadyScored) — giữ cả reason
+    // cũ trước đợt đổi ngưỡng lẫn 5 reason hiện hành, để không chấm trùng
+    // nếu có log cũ còn rơi vào cửa sổ kiểm tra ngay sau khi đổi.
     private const SCORE_REASONS = [
-        'shift_online_high', 'shift_online_neutral', 'shift_online_mid', 'shift_online_low', 'shift_never_online',
+        'shift_online_normal', 'shift_online_reduced', 'shift_online_mid', 'shift_online_low', 'shift_online_critical',
+        'shift_online_high', 'shift_online_neutral', 'shift_never_online',
     ];
 
     public function handle(): void

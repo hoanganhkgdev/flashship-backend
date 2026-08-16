@@ -122,11 +122,18 @@ class ScoreController extends Controller
             $reason === 'complete'         => 'Hoàn thành đơn',
             $reason === 'weekly_reset'     => 'Reset điểm đầu tuần',
             $reason === 'shift_violation'  => 'Vi phạm ca làm việc',
-            $reason === 'shift_never_online' => 'Không online suốt cả ca',
+            // 5 mốc hiện hành (onShiftOnlineRate) — % thời gian online/ca.
+            $reason === 'shift_online_normal'   => 'Online 85–100% ca',
+            $reason === 'shift_online_reduced'  => 'Online 70–84% ca',
+            $reason === 'shift_online_mid'      => 'Online 60–69% ca',
+            $reason === 'shift_online_low'      => 'Online 50–59% ca',
+            $reason === 'shift_online_critical' => 'Online dưới 50% ca',
+            // Mốc cũ trước đợt đổi ngưỡng ở trên — giữ lại chỉ để hiển thị
+            // đúng cho các dòng lịch sử đã ghi từ trước, không còn được tạo
+            // mới.
+            $reason === 'shift_never_online'   => 'Không online suốt cả ca',
             $reason === 'shift_online_high'    => 'Online ≥ 90% thời lượng ca',
             $reason === 'shift_online_neutral' => 'Online 70–89% thời lượng ca',
-            $reason === 'shift_online_mid'     => 'Online 50–69% thời lượng ca',
-            $reason === 'shift_online_low'     => 'Online dưới 50% thời lượng ca',
             $reason === 'offer_unviewed_x3'  => 'Bỏ lỡ 3 đơn không xem',
             $reason === 'streak_bonus'     => 'Thưởng chuỗi đơn liên tiếp',
             $reason === 'inactive_1_day' || $reason === 'inactivity_1d'

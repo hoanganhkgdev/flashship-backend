@@ -12,7 +12,7 @@ class DriverScoreService
     const MAX_SCORE            = 140;
 
     const SCORE_DECLINE        = -2;
-    const SCORE_VIEWED_TIMEOUT = -2;
+    const SCORE_VIEWED_TIMEOUT = -3;
 
     const STREAK_MILESTONES    = [3 => 1, 6 => 2, 10 => 4];
     const STREAK_RESET_AT      = 10;
@@ -81,16 +81,18 @@ class DriverScoreService
      * thay cho luật "8h/ngày" cũ VÀ luật "không hoạt động cả ngày" cũ
      * (onInactivity, đã bỏ — dư thừa vì không đăng ký ca đã coi là nghỉ
      * không phạt, có đăng ký mà 0% đã bị tier <50% xử lý nặng hơn mức cũ).
+     * Không còn mốc cộng điểm — 85-100% chỉ trung lập (0đ), vì online đủ ca
+     * là kỳ vọng tối thiểu chứ không phải thành tích để thưởng thêm.
      * Gọi từ ScoreShiftSessionsCommand.
      */
     public static function onShiftOnlineRate(int $driverId, float $percent): void
     {
         [$delta, $reason] = match (true) {
-            $percent <= 0.0  => [-15, 'shift_never_online'],
-            $percent >= 0.90 => [3, 'shift_online_high'],
-            $percent >= 0.70 => [0, 'shift_online_neutral'],
-            $percent >= 0.50 => [-5, 'shift_online_mid'],
-            default          => [-10, 'shift_online_low'],
+            $percent >= 0.85 => [0,   'shift_online_normal'],
+            $percent >= 0.70 => [-3,  'shift_online_reduced'],
+            $percent >= 0.60 => [-5,  'shift_online_mid'],
+            $percent >= 0.50 => [-10, 'shift_online_low'],
+            default          => [-15, 'shift_online_critical'],
         };
 
         self::adjust($driverId, $delta, $reason);
@@ -111,7 +113,7 @@ class DriverScoreService
 
             if ($count >= 3) {
                 DB::table('users')->where('id', $driverId)->update(['unviewed_offer_count' => 0]);
-                self::adjust($driverId, -1, 'offer_unviewed_x3');
+                self::adjust($driverId, -2, 'offer_unviewed_x3');
             } else {
                 DB::table('users')->where('id', $driverId)->update(['unviewed_offer_count' => $count]);
             }
