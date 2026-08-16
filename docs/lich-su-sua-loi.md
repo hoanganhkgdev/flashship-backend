@@ -9,6 +9,31 @@ mục vào đây TRƯỚC khi coi là xong việc.
 
 ---
 
+## 2026-08-16 (f) — Backend: upload lại CCCD/bằng lái sau khi đã approved làm tài xế tụt về pending
+
+**Triệu chứng**: phát hiện lúc soát flow duyệt hồ sơ tài xế — chưa ghi nhận
+sự cố thật, nhưng lỗ hổng dễ trúng (chỉ cần tài xế đã duyệt bấm nhầm nút
+upload lại, hoặc gọi thẳng API).
+
+**Nguyên nhân gốc**: `uploadCccdImage()`/`uploadLicense()` không kiểm tra
+trạng thái hiện tại trước khi tạo bản ghi `status='pending'` mới — chặn duy
+nhất nằm ở phía app (`_DocCard.canUpload`), không có gì ở backend. Trong khi
+đó `profile()` lấy license/CCCD hiện tại bằng
+`sortByDesc('id')->first()` (bản ghi MỚI NHẤT theo id), không phải bản ghi
+`approved`. Tài xế đã được duyệt mà upload thêm 1 lần (qua app cũ chưa cập
+nhật UI, hoặc gọi thẳng API) sẽ tạo bản ghi pending mới đè lên, khiến
+`profile()` trả về `status=pending` — tụt hạng dù trước đó đã duyệt.
+
+**Cách sửa**: thêm chốt chặn ngay đầu 2 hàm — nếu đã có bản ghi
+`status=approved` cho user đó thì trả lỗi 422, không cho tạo bản ghi mới,
+đặt trước bước lưu file để không tốn công lưu ảnh sẽ bị từ chối ngay sau.
+
+**File**: `Modules/Driver/app/Http/Controllers/DriverController.php`.
+
+**Trạng thái**: Đã sửa, `php -l` sạch. Chưa deploy lên VPS, chưa test tay.
+
+---
+
 ## 2026-08-16 (e) — App tài xế: bấm "Bỏ qua" đơn offer luôn về Home dù API từ chối thất bại
 
 **Triệu chứng**: phát hiện lúc soát màn hình offer đơn — chưa ghi nhận sự

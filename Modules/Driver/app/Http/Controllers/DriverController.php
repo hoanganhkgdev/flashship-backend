@@ -357,6 +357,15 @@ class DriverController extends Controller
 
     public function uploadLicense(Request $request): JsonResponse
     {
+        $approved = DriverLicense::where('user_id', $request->user()->id)
+            ->where('status', 'approved')->exists();
+        if ($approved) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Bằng lái đã được xác minh, không thể tải lên lại.',
+            ], 422);
+        }
+
         $request->validate([
             'image' => 'required|image|mimes:jpg,jpeg,png,webp|max:5120',
         ]);
@@ -379,6 +388,15 @@ class DriverController extends Controller
 
     public function uploadCccdImage(Request $request): JsonResponse
     {
+        $approved = DriverCccdImage::where('user_id', $request->user()->id)
+            ->where('status', 'approved')->exists();
+        if ($approved) {
+            return response()->json([
+                'success' => false,
+                'message' => 'CCCD đã được xác minh, không thể tải lên lại.',
+            ], 422);
+        }
+
         $request->validate([
             'image' => 'required|image|mimes:jpg,jpeg,png,webp|max:5120',
         ]);
