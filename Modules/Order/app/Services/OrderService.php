@@ -17,6 +17,12 @@ use Illuminate\Support\Facades\Log;
 
 class OrderService
 {
+    // Thưởng thêm khi tài xế nhận đơn lúc thành phố đang bật chế độ trời mưa
+    // (xem rain_bonus_eligible ở acceptOrder()) — 1 nguồn duy nhất cho cả số
+    // tiền cộng thật (completeOrder()) lẫn số tiền xem trước gửi kèm offer
+    // (DispatchOfferSender::commitOffer()), tránh lệch nếu sau này đổi giá trị.
+    const RAIN_BONUS_AMOUNT = 5000;
+
     public function getDriverOrders(User $user): array
     {
         $assigned = Order::with('city')
@@ -338,7 +344,7 @@ class OrderService
         // acceptOrder()/assignDriverDirectly()), không xét lại trạng thái
         // mưa hiện tại lúc hoàn thành.
         if ($order->rain_bonus_eligible) {
-            DriverWalletService::adjust($user->id, 5000, 'credit', "Thưởng trời mưa #{$order->id}", "order_{$order->id}_rain");
+            DriverWalletService::adjust($user->id, self::RAIN_BONUS_AMOUNT, 'credit', "Thưởng trời mưa #{$order->id}", "order_{$order->id}_rain");
         }
 
         DriverScoreService::onComplete($user->id);

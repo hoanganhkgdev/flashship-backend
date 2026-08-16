@@ -102,6 +102,13 @@ class DispatchOfferSender
         // không bắt tài xế "ôm" offer ma rồi đợi hết 25s hệ thống mới nhận ra.
         $offeredAt = $now->timestamp;
         $expiresAt = $offeredAt + self::DRIVER_OFFER_SECS;
+
+        // Xem trước cho tài xế lúc đang cân nhắc — đọc LIVE trạng thái mưa
+        // tại đúng lúc gửi offer, không phải giá trị đã khoá. Giá trị áp
+        // dụng thật vẫn được chốt độc lập ở OrderService::acceptOrder()
+        // (rain_bonus_eligible), không đổi logic đó.
+        $isRainMode = (bool) \Modules\Core\Models\City::where('id', $order->city_id)->value('is_rain_mode');
+
         $rtdbOk = RTDBService::writeDriverOffer($driver->id, [
             'order_id'          => $order->id,
             'order_code'        => $order->code,
@@ -136,6 +143,8 @@ class DispatchOfferSender
             'payment_method'    => $order->payment_method    ?? 'prepaid',
             'cod_amount'        => (int) ($order->cod_amount ?? 0),
             'customer_phone'    => $order->sender?->phone    ?? '',
+            'is_rain_mode'      => $isRainMode,
+            ...($isRainMode ? ['rain_bonus_amount' => OrderService::RAIN_BONUS_AMOUNT] : []),
         ]);
 
         if (!$rtdbOk) {
