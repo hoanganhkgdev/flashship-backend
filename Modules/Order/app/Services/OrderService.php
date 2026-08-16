@@ -74,6 +74,8 @@ class OrderService
             'shipping_fee'     => (int) ($order->shipping_fee    ?? 0),
             'bonus_fee'        => (int) ($order->bonus_fee       ?? 0),
             'night_surcharge'  => (int) ($order->night_surcharge ?? 0),
+            'rain_bonus_eligible' => (bool) ($order->rain_bonus_eligible ?? false),
+            'rain_bonus_amount'   => $order->rain_bonus_eligible ? self::RAIN_BONUS_AMOUNT : 0,
             'discount_amount'  => (int) ($order->discount_amount ?? 0),
             'voucher_code'     => $order->voucher_code ?? null,
             'payment_method'   => $order->payment_method ?? 'prepaid',
