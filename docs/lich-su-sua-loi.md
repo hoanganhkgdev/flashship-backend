@@ -9,6 +9,33 @@ mục vào đây TRƯỚC khi coi là xong việc.
 
 ---
 
+## 2026-08-16 (e) — App tài xế: bấm "Bỏ qua" đơn offer luôn về Home dù API từ chối thất bại
+
+**Triệu chứng**: phát hiện lúc soát màn hình offer đơn — chưa ghi nhận sự
+cố thật từ tài xế.
+
+**Nguyên nhân gốc**: `_decline()` trong `order_offer_screen.dart` gọi
+`activeOrderProvider.notifier.decline()` (đã trả `Future<bool>`) nhưng bỏ
+qua giá trị trả về, luôn `context.go('/home')` bất kể API thành công hay
+thất bại — tài xế không biết đơn có thực sự bị từ chối hay không, và mất
+luôn màn hình nên không thể bấm lại. Nút "Bỏ qua" cũng là `GestureDetector`
+trần, không có cờ khoá như nút "Nhận đơn ngay" (`_accepting`), bấm nhanh
+nhiều lần có thể gọi `decline()` chồng nhau.
+
+**Cách sửa**: thêm `_declining` (giống `_accepting`), disable nút "Bỏ qua"
+trong lúc gọi API (hiện icon loading nhỏ thay chữ). `_decline()` giờ kiểm
+tra `ok` — thất bại thì hiện snackbar lỗi, mở khoá nút, KHÔNG điều hướng về
+home để tài xế bấm lại được; chỉ về home khi API xác nhận từ chối thành
+công.
+
+**File**: `app/driver/lib/features/orders/screens/order_offer_screen.dart`,
+`app/driver/lib/features/orders/widgets/offer_actions.dart`.
+
+**Trạng thái**: Đã sửa, `flutter analyze` sạch. Chưa test tay trên thiết bị
+thật.
+
+---
+
 ## 2026-08-16 (d) — Backend: PayOS handlePaid() có thể cộng tiền/công nợ trùng 2 lần
 
 **Triệu chứng**: người dùng phát hiện lúc soát flow thanh toán công nợ qua
