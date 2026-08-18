@@ -43,6 +43,8 @@ class AuthController extends Controller
             'address'       => 'nullable|string|max:500',
             'password'      => 'required|string|min:6',
             'city_id'       => 'required|integer|exists:cities,id',
+            'lat'           => 'sometimes|nullable|numeric',
+            'lng'           => 'sometimes|nullable|numeric',
         ]);
 
         $phone = $this->normalizePhone($data['phone']);
@@ -63,6 +65,8 @@ class AuthController extends Controller
             'user_type' => 'shop',
             'city_id'   => $data['city_id'] ?? null,
             'status'    => 1,
+            'latitude'  => $data['lat'] ?? null,
+            'longitude' => $data['lng'] ?? null,
         ]);
 
         $token = $user->createToken('shop_token')->plainTextToken;
@@ -177,7 +181,21 @@ class AuthController extends Controller
             'address' => 'sometimes|nullable|string|max:500',
             'email'   => 'sometimes|nullable|email|unique:users,email,' . $user->id,
             'city_id' => 'sometimes|integer|exists:cities,id',
+            'lat'     => 'sometimes|nullable|numeric',
+            'lng'     => 'sometimes|nullable|numeric',
         ]);
+
+        // Request dùng lat/lng ngắn gọn nhưng cột thật trên bảng users là
+        // latitude/longitude (đã có sẵn, dùng chung với vị trí tài xế cho
+        // dispatch) — map lại tên field trước khi mass-update.
+        if (array_key_exists('lat', $data)) {
+            $data['latitude'] = $data['lat'];
+            unset($data['lat']);
+        }
+        if (array_key_exists('lng', $data)) {
+            $data['longitude'] = $data['lng'];
+            unset($data['lng']);
+        }
 
         $user->update($data);
 
@@ -225,6 +243,58 @@ class AuthController extends Controller
         return response()->json(['success' => true, 'message' => 'Đổi mật khẩu thành công']);
     }
 
+    public function changePhoneSendOtp(Request $request): JsonResponse
+    {
+        $data     = $request->validate(['new_phone' => 'required|string']);
+        $newPhone = $this->normalizePhone($data['new_phone']);
+        $user     = $request->user();
+
+        if ($newPhone === $user->phone) {
+            return response()->json(['success' => false, 'message' => 'Số điện thoại mới trùng với số hiện tại'], 422);
+        }
+
+        if (User::where('phone', $newPhone)->where('user_type', 'shop')->where('id', '!=', $user->id)->exists()) {
+            return response()->json(['success' => false, 'message' => 'Số điện thoại đã được dùng bởi tài khoản shop khác'], 422);
+        }
+
+        if (OtpService::recentlySent($newPhone, 'change_phone')) {
+            return response()->json(['success' => false, 'message' => 'Vui lòng chờ 60 giây trước khi gửi lại'], 429);
+        }
+
+        OtpService::send($newPhone, 'change_phone');
+
+        return response()->json(['success' => true, 'message' => 'Mã OTP đã được gửi tới ' . $newPhone]);
+    }
+
+    public function changePhoneVerify(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'new_phone' => 'required|string',
+            'otp'       => 'required|string|size:6',
+        ]);
+        $newPhone = $this->normalizePhone($data['new_phone']);
+        $user     = $request->user();
+
+        if (!OtpService::verify($newPhone, $data['otp'], 'change_phone')) {
+            return response()->json(['success' => false, 'message' => 'Mã OTP không hợp lệ hoặc đã hết hạn'], 422);
+        }
+
+        // Cột phone unique toàn hệ thống (không riêng shop) — kiểm tra lại
+        // ngay trước khi ghi để tránh lỗi 500 do trùng với tài khoản khác
+        // loại (driver/customer) xảy ra giữa lúc gửi OTP và lúc verify.
+        if (User::where('phone', $newPhone)->where('id', '!=', $user->id)->exists()) {
+            return response()->json(['success' => false, 'message' => 'Số điện thoại đã được sử dụng'], 422);
+        }
+
+        $user->update(['phone' => $newPhone]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Đổi số điện thoại thành công',
+            'data'    => $this->formatUser($user->fresh()),
+        ]);
+    }
+
     public function updateFcmToken(Request $request): JsonResponse
     {
         $request->validate(['fcm_token' => 'required|string']);
@@ -257,6 +327,8 @@ class AuthController extends Controller
             'phone'              => $user->phone,
             'email'              => $user->email,
             'address'            => $user->address,
+            'lat'                => $user->latitude,
+            'lng'                => $user->longitude,
             'profile_photo_path' => $user->profile_photo_path,
             'avatar_url'         => $user->profile_photo_path
                 ? Storage::disk('public')->url($user->profile_photo_path)

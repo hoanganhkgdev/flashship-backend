@@ -26,6 +26,9 @@ Route::prefix('shop')->middleware(TrackShopEvent::class)->group(function () {
             Route::patch('/password',   [AuthController::class, 'changePassword']);
             Route::post('/fcm-token',   [AuthController::class, 'updateFcmToken']);
             Route::delete('/account',   [AuthController::class, 'deleteAccount']);
+
+            Route::post('/change-phone/send-otp', [AuthController::class, 'changePhoneSendOtp']);
+            Route::post('/change-phone/verify',   [AuthController::class, 'changePhoneVerify']);
         });
     });
 
