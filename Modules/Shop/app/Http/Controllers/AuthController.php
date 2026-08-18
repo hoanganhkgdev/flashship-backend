@@ -45,6 +45,8 @@ class AuthController extends Controller
             'city_id'       => 'required|integer|exists:cities,id',
             'lat'           => 'sometimes|nullable|numeric',
             'lng'           => 'sometimes|nullable|numeric',
+            'device_name'   => 'sometimes|nullable|string|max:255',
+            'location'      => 'sometimes|nullable|string|max:255',
         ]);
 
         $phone = $this->normalizePhone($data['phone']);
@@ -69,7 +71,7 @@ class AuthController extends Controller
             'longitude' => $data['lng'] ?? null,
         ]);
 
-        $token = $user->createToken('shop_token')->plainTextToken;
+        $token = $this->issueToken($user, 'shop_token', $data);
 
         return response()->json([
             'success' => true,
@@ -125,10 +127,12 @@ class AuthController extends Controller
     public function login(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'phone'     => 'required|string',
-            'password'  => 'required|string',
-            'fcm_token' => 'nullable|string',
-            'device_id' => 'nullable|string',
+            'phone'       => 'required|string',
+            'password'    => 'required|string',
+            'fcm_token'   => 'nullable|string',
+            'device_id'   => 'nullable|string',
+            'device_name' => 'sometimes|nullable|string|max:255',
+            'location'    => 'sometimes|nullable|string|max:255',
         ]);
 
         $user = User::where('phone', $this->normalizePhone($data['phone']))
@@ -150,8 +154,11 @@ class AuthController extends Controller
         }
 
         $tokenName = !empty($data['device_id']) ? "shop_token_{$data['device_id']}" : 'shop_token';
-        $user->tokens()->where('name', 'like', 'shop_token%')->delete();
-        $token = $user->createToken($tokenName)->plainTextToken;
+        // Chỉ xoá token CŨ của CÙNG thiết bị (trùng tên) — không xoá token
+        // của thiết bị khác nữa, để hỗ trợ nhiều phiên đăng nhập song song
+        // (quản lý qua GET/DELETE /shop/auth/devices).
+        $user->tokens()->where('name', $tokenName)->delete();
+        $token = $this->issueToken($user, $tokenName, $data);
 
         return response()->json([
             'success' => true,
@@ -295,6 +302,52 @@ class AuthController extends Controller
         ]);
     }
 
+    public function devices(Request $request): JsonResponse
+    {
+        $currentId = $request->user()->currentAccessToken()->id;
+
+        $devices = $request->user()->tokens()
+            ->where('name', 'like', 'shop_token%')
+            ->orderByDesc('last_used_at')
+            ->get()
+            ->map(fn ($token) => [
+                'id'             => $token->id,
+                'device_name'    => $token->device_name,
+                'location'       => $token->location,
+                'last_active_at' => $token->last_used_at,
+                'is_current'     => $token->id === $currentId,
+            ]);
+
+        return response()->json(['success' => true, 'data' => $devices]);
+    }
+
+    public function revokeDevice(Request $request, int $id): JsonResponse
+    {
+        $currentId = $request->user()->currentAccessToken()->id;
+
+        if ($id === $currentId) {
+            return response()->json(['success' => false, 'message' => 'Không thể thu hồi phiên đang sử dụng'], 422);
+        }
+
+        $token = $request->user()->tokens()->where('id', $id)->first();
+
+        if (!$token) {
+            return response()->json(['success' => false, 'message' => 'Không tìm thấy phiên đăng nhập'], 404);
+        }
+
+        $token->delete();
+
+        return response()->json(['success' => true, 'message' => 'Đã thu hồi phiên đăng nhập']);
+    }
+
+    public function revokeOtherDevices(Request $request): JsonResponse
+    {
+        $currentId = $request->user()->currentAccessToken()->id;
+        $request->user()->tokens()->where('id', '!=', $currentId)->delete();
+
+        return response()->json(['success' => true, 'message' => 'Đã thu hồi các phiên đăng nhập khác']);
+    }
+
     public function updateFcmToken(Request $request): JsonResponse
     {
         $request->validate(['fcm_token' => 'required|string']);
@@ -338,6 +391,20 @@ class AuthController extends Controller
             'city_name'          => $user->city?->name ?? '',
             'status'             => $user->status,
         ];
+    }
+
+    private function issueToken(User $user, string $tokenName, array $data): string
+    {
+        $newToken = $user->createToken($tokenName);
+
+        // Gán trực tiếp thay vì update() mảng — device_name/location không
+        // nằm trong $fillable gốc của Laravel\Sanctum\PersonalAccessToken
+        // (chỉ có name/token/abilities/expires_at), update() sẽ âm thầm bỏ qua.
+        $newToken->accessToken->device_name = $data['device_name'] ?? null;
+        $newToken->accessToken->location    = $data['location'] ?? null;
+        $newToken->accessToken->save();
+
+        return $newToken->plainTextToken;
     }
 
     private function normalizePhone(string $phone): string

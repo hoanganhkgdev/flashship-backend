@@ -29,6 +29,10 @@ Route::prefix('shop')->middleware(TrackShopEvent::class)->group(function () {
 
             Route::post('/change-phone/send-otp', [AuthController::class, 'changePhoneSendOtp']);
             Route::post('/change-phone/verify',   [AuthController::class, 'changePhoneVerify']);
+
+            Route::get('/devices',                [AuthController::class, 'devices']);
+            Route::delete('/devices/{id}',         [AuthController::class, 'revokeDevice']);
+            Route::post('/devices/revoke-others',  [AuthController::class, 'revokeOtherDevices']);
         });
     });
 
