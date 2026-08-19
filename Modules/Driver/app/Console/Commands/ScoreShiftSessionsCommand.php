@@ -102,13 +102,36 @@ class ScoreShiftSessionsCommand extends Command
         $sessions = DriverShiftSession::where('driver_id', $driverId)
             ->where('started_at', '<', $end)
             ->where(fn ($q) => $q->whereNull('ended_at')->orWhere('ended_at', '>', $start))
+            ->orderBy('started_at')
             ->get();
 
-        $onlineSeconds = 0;
+        // Gộp các khoảng [start, end] chồng lấp trước khi cộng dồn — nếu 2
+        // phiên online chồng nhau (race condition ở toggleOnline() khi 2
+        // request bật online gần như đồng thời trước đây tạo phiên trùng)
+        // thì cộng riêng từng phiên sẽ đếm trùng thời gian, có thể vượt cả
+        // thời lượng ca và bị min(1.0, ...) kẹp thành 100% online — che mất
+        // khoảng thời gian tài xế thực sự offline trong ca.
+        $intervals = [];
         foreach ($sessions as $session) {
             $sessionStart = $session->started_at->greaterThan($start) ? $session->started_at : $start;
             $sessionEnd   = $session->ended_at && $session->ended_at->lessThan($end) ? $session->ended_at : $end;
-            $onlineSeconds += max(0, $sessionStart->diffInSeconds($sessionEnd, false));
+            if ($sessionEnd->lessThanOrEqualTo($sessionStart)) {
+                continue;
+            }
+            $intervals[] = [$sessionStart->timestamp, $sessionEnd->timestamp];
+        }
+        usort($intervals, fn ($a, $b) => $a[0] <=> $b[0]);
+
+        $onlineSeconds = 0;
+        $mergedEnd     = null;
+        foreach ($intervals as [$intervalStart, $intervalEnd]) {
+            if ($mergedEnd === null || $intervalStart > $mergedEnd) {
+                $onlineSeconds += $intervalEnd - $intervalStart;
+                $mergedEnd = $intervalEnd;
+            } elseif ($intervalEnd > $mergedEnd) {
+                $onlineSeconds += $intervalEnd - $mergedEnd;
+                $mergedEnd = $intervalEnd;
+            }
         }
 
         $shiftDuration = max(1, $start->diffInSeconds($end));

@@ -9,6 +9,46 @@ mục vào đây TRƯỚC khi coi là xong việc.
 
 ---
 
+## 2026-08-19 — Backend: phiên online chồng lấp làm mất thời gian offline trong ca (thấy ở khu Rạch Giá test)
+
+**Triệu chứng**: Tài xế trong ca (đặc biệt thấy rõ ở tài khoản test khu "Rạch
+Giá (Test)") không bị tính thời gian offline dù thực tế có lúc tắt online
+giữa ca — hệ thống tính ra gần như 100% online.
+
+**Nguyên nhân gốc**: Hai lớp:
+1. `DriverController::toggleOnline()` đọc `is_online` hiện tại rồi đảo ngược,
+   không có lock — 2 request bật online gần như đồng thời (double-tap, app
+   gọi trùng do mạng chậm) có thể cùng đọc `is_online=false`, cùng tạo mới
+   `DriverShiftSession` thay vì đóng phiên cũ trước, sinh 2 phiên chồng lấp
+   thời gian nhau. Xác nhận thật trên VPS: driver_id 788 có 2 phiên
+   `driver_shift_sessions` mở đồng thời (22:28:04 và 22:53:30, cùng chưa
+   đóng).
+2. `ScoreShiftSessionsCommand::scoreDriverShift()` cộng dồn thời lượng từng
+   phiên riêng lẻ, KHÔNG gộp các phiên chồng lấp trước khi cộng — thời gian
+   online bị đếm trùng, tổng có thể vượt cả thời lượng ca rồi bị
+   `min(1.0, ...)` kẹp thành 100% online, che mất khoảng offline thật.
+
+**Cách sửa**:
+- `Modules/Driver/app/Http/Controllers/DriverController.php`: bọc phần đọc
+  `is_online` + tạo/đóng `DriverShiftSession` + save trong
+  `DB::transaction()` với `User::lockForUpdate()` — chỉ 1 request bật/tắt
+  online của đúng tài xế được xử lý tại 1 thời điểm, không còn tạo phiên
+  chồng lấp mới nữa.
+- `Modules/Driver/app/Console/Commands/ScoreShiftSessionsCommand.php`: gộp
+  (merge) các khoảng `[start, end]` chồng lấp trước khi cộng dồn
+  `onlineSeconds` — thuật toán quét theo thời gian bắt đầu, chỉ cộng phần
+  không trùng. Verify bằng script PHP độc lập với 3 case (chồng lấp, có
+  khoảng offline thật, dính liền nhau) — đều ra đúng kết quả.
+
+**Trạng thái**: Đã sửa, `php -l` sạch cả 2 file, verify thuật toán merge
+bằng script riêng. Chưa deploy lên VPS. Dữ liệu phiên chồng lấp cũ đã có sẵn
+trên production (driver_id 788) chưa được dọn — fix ở ScoreShiftSessionsCommand
+đã tự xử lý đúng cho các lần chấm điểm tiếp theo mà không cần dọn dữ liệu cũ,
+nhưng nếu muốn dữ liệu driver_shift_sessions sạch hoàn toàn thì cần xử lý
+riêng.
+
+---
+
 ## 2026-08-19 — Shop app: gõ số điện thoại có số 0 đầu bị báo sai tài khoản khi đăng nhập
 
 **Triệu chứng**: Đăng nhập/đăng ký/quên mật khẩu ở app shop, nếu người dùng
@@ -24,7 +64,8 @@ lên backend, không khớp số thật nào.
 **Cách sửa**: `_syncToController()` tự bóc số 0 đầu (nếu có) trong giá trị
 đang gõ trước khi prepend `'0'`, chuẩn hoá luôn ra đúng 1 số 0 dù người dùng
 gõ có hay không có số 0 đầu.
-**Trạng thái**: Đã sửa, chưa deploy/release app.
+**Trạng thái**: Đã sửa & verify (test trên simulator, đăng nhập với SĐT có
+số 0 đầu thành công), chưa deploy/release app.
 
 ---
 

@@ -5,6 +5,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 use Illuminate\Routing\Controller;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
 use Modules\Core\Services\OtpService;
@@ -85,40 +86,52 @@ class DriverController extends Controller
             }
         }
 
-        \Log::info("[Toggle] #{$user->id} PRE: is_online={$user->is_online} online_since={$user->online_since}");
+        // lockForUpdate() bên trong transaction: chỉ 1 request bật/tắt online
+        // của đúng tài xế này được xử lý tại 1 thời điểm — tránh 2 request gần
+        // như đồng thời (double-tap, app gọi trùng do mạng chậm...) cùng đọc
+        // is_online=false rồi cùng tạo phiên DriverShiftSession mới thay vì
+        // đóng phiên cũ, sinh 2 phiên chồng lấp. Phiên chồng lấp khiến
+        // ScoreShiftSessionsCommand cộng trùng thời gian online, có thể ra
+        // 100% online cho cả ca dù tài xế thật sự có lúc offline (thấy rõ ở
+        // tài khoản test khu Rạch Giá — bật/tắt online liên tục lúc test).
+        $user = DB::transaction(function () use ($user) {
+            $locked = User::where('id', $user->id)->lockForUpdate()->firstOrFail();
 
-        $user->is_online   = !$user->is_online;
-        $user->online_since = $user->is_online ? now() : null;
+            \Log::info("[Toggle] #{$locked->id} PRE: is_online={$locked->is_online} online_since={$locked->online_since}");
 
-        // Ghi log phiên online/offline — dùng để tính % online trong ca ở lệnh
-        // drivers:score-shift-sessions cuối mỗi ca (thay cho luật "8h/ngày" cũ,
-        // và thay cho phạt -15 real-time khi tắt giữa ca — giờ chỉ phạt nếu
-        // tắt hẳn không bật lại tới hết ca, đánh giá ở cuối ca).
-        if ($user->is_online) {
-            \Modules\Driver\Models\DriverShiftSession::create([
-                'driver_id'  => $user->id,
-                'started_at' => now(),
-            ]);
-        } else {
-            \Modules\Driver\Models\DriverShiftSession::where('driver_id', $user->id)
-                ->whereNull('ended_at')
-                ->latest('started_at')
-                ->first()?->update(['ended_at' => now()]);
-        }
+            $locked->is_online    = !$locked->is_online;
+            $locked->online_since = $locked->is_online ? now() : null;
 
-        if ($user->is_online) {
-            // Chỉ còn là mốc "lần cuối bật online" — không có gì cập nhật lại
-            // định kỳ nữa (cron sync GPS cũ đã bỏ). Không dùng để quyết định
-            // nghiệp vụ ở đâu; độ mới GPS thật đọc thẳng Firebase qua
-            // DriverLocationService.
-            $user->last_heartbeat_at = now();
-        }
+            // Ghi log phiên online/offline — dùng để tính % online trong ca ở
+            // lệnh drivers:score-shift-sessions cuối mỗi ca (thay cho luật
+            // "8h/ngày" cũ, và thay cho phạt -15 real-time khi tắt giữa ca —
+            // giờ chỉ phạt nếu tắt hẳn không bật lại tới hết ca, đánh giá ở
+            // cuối ca).
+            if ($locked->is_online) {
+                \Modules\Driver\Models\DriverShiftSession::create([
+                    'driver_id'  => $locked->id,
+                    'started_at' => now(),
+                ]);
+                // Chỉ còn là mốc "lần cuối bật online" — không có gì cập nhật
+                // lại định kỳ nữa (cron sync GPS cũ đã bỏ). Không dùng để
+                // quyết định nghiệp vụ ở đâu; độ mới GPS thật đọc thẳng
+                // Firebase qua DriverLocationService.
+                $locked->last_heartbeat_at = now();
+            } else {
+                \Modules\Driver\Models\DriverShiftSession::where('driver_id', $locked->id)
+                    ->whereNull('ended_at')
+                    ->latest('started_at')
+                    ->first()?->update(['ended_at' => now()]);
+            }
 
-        $user->save();
+            $locked->save();
+
+            \Log::info("[Toggle] #{$locked->id} → online={$locked->is_online} online_since={$locked->online_since}");
+
+            return $locked;
+        });
 
         RTDBService::setDriverOnlineStatus($user->id, (bool) $user->is_online);
-
-        \Log::info("[Toggle] #{$user->id} → online={$user->is_online} online_since={$user->online_since}");
 
         return response()->json([
             'success'      => true,
