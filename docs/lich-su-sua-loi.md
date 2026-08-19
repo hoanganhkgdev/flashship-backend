@@ -9,6 +9,25 @@ mục vào đây TRƯỚC khi coi là xong việc.
 
 ---
 
+## 2026-08-19 — Shop app: gõ số điện thoại có số 0 đầu bị báo sai tài khoản khi đăng nhập
+
+**Triệu chứng**: Đăng nhập/đăng ký/quên mật khẩu ở app shop, nếu người dùng
+gõ số điện thoại có số 0 ở đầu (VD "0912345678", thói quen phổ biến) thì bị
+báo sai tài khoản/mật khẩu dù số đúng.
+**Nguyên nhân gốc**: `PhoneField` (`app/shop/lib/core/widgets/app_form_widgets.dart`)
+dùng 1 `TextEditingController` nội bộ hiển thị phần số sau số 0, rồi
+`_syncToController()` LUÔN prepend cứng `'0'` vào giá trị hiển thị để ra số
+đầy đủ gửi lên. Trước đây ô có hiện "+84" ngay trước, ngầm báo người dùng
+không cần gõ số 0. Sau khi đổi "+84" thành icon phone (theo yêu cầu chỉ phục
+vụ VN), tín hiệu đó mất — người dùng gõ cả số 0, ra chuỗi "00912345678" gửi
+lên backend, không khớp số thật nào.
+**Cách sửa**: `_syncToController()` tự bóc số 0 đầu (nếu có) trong giá trị
+đang gõ trước khi prepend `'0'`, chuẩn hoá luôn ra đúng 1 số 0 dù người dùng
+gõ có hay không có số 0 đầu.
+**Trạng thái**: Đã sửa, chưa deploy/release app.
+
+---
+
 ## 2026-08-17 — Backend: đơn tạo qua tổng đài (CallCenterPage) không lưu breakdown night_surcharge
 
 **Triệu chứng**: phát hiện lúc soát các nơi tạo `Order` — cột `night_surcharge`
