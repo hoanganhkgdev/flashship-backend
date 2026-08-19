@@ -582,6 +582,7 @@ class OrderController extends Controller
             'stops'             => $order->stops ?? [],
             'scheduled_at'     => $order->scheduled_at?->toIso8601String(),
             'created_at'       => $order->created_at->toIso8601String(),
+            'completed_at'     => $order->completed_at?->toIso8601String(),
             // Toạ độ tài xế KHÔNG trả qua field này nữa — cột MySQL đã đông
             // cứng vĩnh viễn từ khi bỏ cron sync GPS. Nguồn duy nhất là
             // tracking.driver_location_path (Firebase), xem bên dưới.
