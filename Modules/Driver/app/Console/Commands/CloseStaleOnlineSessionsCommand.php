@@ -58,16 +58,25 @@ class CloseStaleOnlineSessionsCommand extends Command
                 : null;
 
             DB::transaction(function () use ($driver, $lastFreshAt) {
-                $session = DriverShiftSession::where('driver_id', $driver->id)
+                // Đóng TẤT CẢ phiên đang mở, không chỉ phiên gần nhất — nếu
+                // sót lại phiên chồng lấp nào (bug cũ, hoặc lỗi khác trong
+                // tương lai) mà chỉ đóng đúng 1 phiên thì phiên còn lại sẽ mở
+                // mãi mãi, ăn "online" vào mọi ca sau này vô thời hạn.
+                $sessions = DriverShiftSession::where('driver_id', $driver->id)
                     ->whereNull('ended_at')
-                    ->latest('started_at')
-                    ->first();
+                    ->get();
 
-                if ($session) {
+                foreach ($sessions as $session) {
                     // Chưa từng có 1 fix GPS nào trong suốt session này → không
                     // tính giây online nào cả, đóng ngay tại lúc mở (thay vì
-                    // "bây giờ", vốn sẽ vô tình hoàn lại toàn bộ thời gian farm).
-                    $session->update(['ended_at' => $lastFreshAt ?? $session->started_at]);
+                    // "bây giờ", vốn sẽ vô tình hoàn lại toàn bộ thời gian
+                    // farm). Kẹp tối thiểu về đúng lúc mở phiên — tránh đóng ở
+                    // 1 mốc trước cả started_at nếu $lastFreshAt thuộc về 1
+                    // phiên chồng lấp khác cũ hơn.
+                    $endAt = $lastFreshAt && $lastFreshAt->greaterThan($session->started_at)
+                        ? $lastFreshAt
+                        : $session->started_at;
+                    $session->update(['ended_at' => $endAt]);
                 }
 
                 User::where('id', $driver->id)->update([

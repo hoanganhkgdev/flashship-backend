@@ -118,10 +118,14 @@ class DriverController extends Controller
                 // Firebase qua DriverLocationService.
                 $locked->last_heartbeat_at = now();
             } else {
+                // Đóng TẤT CẢ phiên đang mở, không chỉ phiên gần nhất — nếu
+                // có sót lại phiên chồng lấp nào (bug cũ, hoặc lỗi khác trong
+                // tương lai) mà chỉ đóng đúng 1 phiên (->first()) thì phiên
+                // còn lại sẽ mở mãi mãi, ăn "online" vào mọi ca sau này vô
+                // thời hạn — nặng hơn cả lỗi chồng lấp ban đầu.
                 \Modules\Driver\Models\DriverShiftSession::where('driver_id', $locked->id)
                     ->whereNull('ended_at')
-                    ->latest('started_at')
-                    ->first()?->update(['ended_at' => now()]);
+                    ->update(['ended_at' => now()]);
             }
 
             $locked->save();

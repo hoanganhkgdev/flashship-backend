@@ -9,6 +9,90 @@ mục vào đây TRƯỚC khi coi là xong việc.
 
 ---
 
+## 2026-08-19 (c) — Backend: sửa nốt DriverScoreService::onShiftOnlineRate() không khoá + thêm test tự động chống race condition
+
+**Bối cảnh**: nốt lỗ hổng còn lại trong audit mục (b) dưới — `onShiftOnlineRate()`
+(gọi từ `ScoreShiftSessionsCommand` cuối mỗi ca) là hàm chấm điểm DUY NHẤT
+không khoá dòng driver trước khi cộng/trừ, khác với `onComplete`/`onDecline`/
+`onOfferUnviewed` đều có `lockForUpdate()`.
+
+**Cách sửa**: bọc `onShiftOnlineRate()` trong `DB::transaction()` +
+`lockForUpdate()` trên dòng driver trước khi gọi `adjust()` — cùng pattern
+với `adjustWithStreakReset()` đã có sẵn trong file.
+
+**Thêm test tự động** (`tests/Feature/Driver/ScoreAndWalletRaceConditionTest.php`,
+7 test) cho `DriverScoreService::onShiftOnlineRate()` và `DriverWalletService::adjust()`
+— 2 test race condition thật (dùng MySQL thật + tiến trình `proc_open` riêng
+để tái hiện đúng tình huống "giao dịch khác đổi giá trị nhưng chưa commit",
+kiểm tra giá trị cuối cùng không bị mất update) và 5 test đúng logic (bracket
+điểm, kẹp MIN_SCORE, cộng/trừ tiền tuần tự, chặn rút vượt số dư, idempotent
+theo reference). **Đã tự kiểm chứng cả 2 chiều**: revert code khoá thật →
+2 test race fail đúng với giá trị sai dự đoán được trước (90 thay vì 50,
+250000 thay vì 200000 — chứng minh test thật sự bắt được bug, không phải
+test giả); khôi phục code → cả 7 test pass.
+
+**Phát hiện thêm (chưa sửa, ngoài phạm vi)**: khi set up DB MySQL test riêng,
+`php artisan migrate` chạy trên DB rỗng bị lỗi thứ tự phụ thuộc —
+`2026_06_30_144531_add_shift_id_to_users_table.php` tham chiếu bảng `shifts`
+chưa tồn tại tại thời điểm đó trong thứ tự migrate. Đã né bằng cách clone
+schema từ DB dev thay vì chạy migrate từ đầu — nhưng nghĩa là **cài đặt mới
+hoàn toàn (fresh install) từ migrations hiện đang bị hỏng**, đáng sửa riêng
+trước khi cần setup môi trường mới (CI, máy dev mới, staging...).
+
+**Trạng thái**: Đã sửa `onShiftOnlineRate()`, `php -l` sạch. Test tự động đã
+chạy pass, cần DB MySQL test riêng (`flashship_backend_test`) — xem hướng
+dẫn setup trong docblock đầu file test. Chưa deploy lên VPS. Lỗi thứ tự
+migration nêu trên CHƯA sửa.
+
+---
+
+## 2026-08-19 (b) — Backend: audit chủ động, sửa 4 lỗi race condition trước khi mở khu Phú Quốc
+
+**Bối cảnh**: sau khi sửa bug phiên online chồng lấp (mục dưới), chủ động chạy
+audit tìm các bug cùng họ (race condition đọc-sửa-ghi không khoá, tổng hợp dữ
+liệu không gộp chồng lấp) trước deadline mở dịch vụ khu Phú Quốc cuối tháng
+8/2026. Tìm ra và sửa 4 lỗi mức cao/nối tiếp:
+
+**1-2. Ví tài xế không khoá khi cộng/trừ tiền (mức cao — liên quan tiền thật)**
+`DriverWalletService::adjust()` đọc `$wallet->balance` không khoá rồi ghi đè —
+đây là hàm dùng cho MỌI giao dịch (rút tiền, hoàn công nợ, thưởng, freeship...).
+2 giao dịch gần như đồng thời (double-tap rút tiền, hoặc đơn hoàn thành cộng
+tiền đúng lúc đang rút) có thể làm mất 1 giao dịch (lost update) hoặc rút vượt
+số dư thật. `WalletController::withdraw()` chỉ kiểm tra số dư 1 lần trước khi
+mở transaction (không phải nguồn xác thực chính).
+**Cách sửa**: `DriverWalletService::adjust()` dùng
+`DriverWallet::where(...)->lockForUpdate()->first()` thay vì `firstOrCreate()`
+không khoá. `WalletController::withdraw()` giữ kiểm tra nhanh (UX, phản hồi lỗi
+sớm) nhưng bọc `try/catch` quanh transaction để bắt đúng lỗi "Số dư không đủ"
+ném ra từ `adjust()` khi race xảy ra, trả JSON lỗi thay vì lỗi 500.
+
+**3-4. `toggleOnline()` và `CloseStaleOnlineSessionsCommand` chỉ đóng phiên
+online gần nhất, không đóng hết (mức cao — nối tiếp bug phiên chồng lấp)**
+Cả 2 nơi dùng `->whereNull('ended_at')->latest('started_at')->first()` để tìm
+phiên cần đóng — nếu driver có NHIỀU phiên đang mở cùng lúc (do bug chồng lấp
+cũ, hoặc bug khác trong tương lai), chỉ phiên gần nhất được đóng, phiên cũ hơn
+bị bỏ quên mở MÃI MÃI — ăn "online" vào mọi ca sau này vô thời hạn, nặng hơn cả
+lỗi chồng lấp ban đầu (lỗi chồng lấp còn giới hạn theo 1 ca, lỗi này thì không).
+**Cách sửa**: đổi `->first()?->update()` thành đóng TẤT CẢ phiên đang mở
+(`->get()` rồi update từng phiên, hoặc bulk `->update()`).
+`CloseStaleOnlineSessionsCommand` xử lý riêng từng phiên, kẹp thời điểm đóng
+tối thiểu về đúng `started_at` của phiên đó (tránh đóng ở mốc trước cả lúc mở
+nếu áp chung 1 mốc GPS-cuối-tươi cho nhiều phiên có started_at khác nhau).
+
+**Các lỗi khác tìm được nhưng CHƯA sửa** (mức trung bình/thấp, để sau theo
+quyết định user): `DriverScoreService::onShiftOnlineRate()` không khoá (các
+hàm chấm điểm khác đều có `lockForUpdate`); `OtpService::verify()` đọc-sửa
+không khoá (race cho phép dùng lại OTP); Shop tạo đơn — mã giảm giá có thể
+dùng vượt `per_user_limit` nếu double-tap submit; Shop huỷ đơn — race không
+atomic với tài xế nhận đơn có thể để đơn ở trạng thái sai. Audit app driver
+(cờ trạng thái kiểu `_offerVisible` bị kẹt) — không tìm thêm được lỗ hổng nào
+đáng kể, app đã được vá kỹ từ các sự cố trước.
+
+**Trạng thái**: Đã sửa 4 lỗi mức cao/nối tiếp, `php -l` sạch cả 4 file. Chưa
+deploy lên VPS.
+
+---
+
 ## 2026-08-19 — Backend: phiên online chồng lấp làm mất thời gian offline trong ca (thấy ở khu Rạch Giá test)
 
 **Triệu chứng**: Tài xế trong ca (đặc biệt thấy rõ ở tài khoản test khu "Rạch

@@ -15,7 +15,15 @@ class DriverWalletService
         bool $allowNegative = false
     ) {
         return DB::transaction(function () use ($driverId, $amount, $type, $desc, $ref, $allowNegative) {
-            $wallet = DriverWallet::firstOrCreate(['driver_id' => $driverId]);
+            // lockForUpdate() để khoá đúng dòng ví của tài xế này trong suốt
+            // transaction — tránh 2 lệnh cộng/trừ tiền gần như đồng thời (đơn
+            // hoàn thành cộng tiền, rút tiền, hoàn công nợ...) cùng đọc
+            // balance cũ rồi ghi đè nhau, làm mất 1 giao dịch (lost update).
+            $wallet = DriverWallet::where('driver_id', $driverId)->lockForUpdate()->first();
+            if (!$wallet) {
+                DriverWallet::firstOrCreate(['driver_id' => $driverId]);
+                $wallet = DriverWallet::where('driver_id', $driverId)->lockForUpdate()->first();
+            }
 
             if ($ref && $wallet->transactions()->where('reference', $ref)->exists()) {
                 return $wallet->transactions()->where('reference', $ref)->first();

@@ -95,7 +95,15 @@ class DriverScoreService
             default          => [-15, 'shift_online_critical'],
         };
 
-        self::adjust($driverId, $delta, $reason);
+        // Khoá dòng driver trước khi cộng/trừ điểm — các hàm chấm điểm khác
+        // (onComplete/onDecline/onOfferUnviewed, qua adjustWithStreakReset)
+        // đều khoá trước khi gọi adjust(), hàm này trước đây thiếu, có thể
+        // mất 1 lần cộng/trừ nếu trùng lúc cron chấm ca với 1 sự kiện chấm
+        // điểm real-time khác cho cùng tài xế.
+        DB::transaction(function () use ($driverId, $delta, $reason) {
+            DB::table('users')->where('id', $driverId)->lockForUpdate()->select('id')->first();
+            self::adjust($driverId, $delta, $reason);
+        });
     }
 
     /**
