@@ -53,11 +53,27 @@ class OrderController extends Controller
         $userId = $request->user()->id;
         $base   = Order::where('sender_platform_id', $userId)->where('platform', 'shop_app');
 
-        $total     = (clone $base)->count();
-        $active    = (clone $base)->whereIn('status', ['pending','assigned','processing','on_the_way'])->count();
-        $completed = (clone $base)->where('status', 'completed')->count();
-        $cancelled = (clone $base)->where('status', 'cancelled')->count();
-        $revenue   = (clone $base)->where('status', 'completed')->sum('shipping_fee');
+        $validated = $request->validate([
+            'period' => 'nullable|string|in:today,week,month',
+        ]);
+        $period = $validated['period'] ?? 'week';
+        $periodStart = match ($period) {
+            'today' => now()->startOfDay(),
+            'month' => now()->startOfMonth(),
+            default => now()->startOfWeek(), // week
+        };
+
+        // total/active/completed/cancelled/revenue/by_cargo_type lọc theo
+        // period — clone riêng từ $base thay vì gán where thẳng lên $base,
+        // vì $dailyOrders bên dưới cũng clone từ $base và PHẢI giữ nguyên
+        // không phụ thuộc period (biểu đồ xu hướng 7 ngày cố định).
+        $periodBase = (clone $base)->where('created_at', '>=', $periodStart);
+
+        $total     = (clone $periodBase)->count();
+        $active    = (clone $periodBase)->whereIn('status', ['pending','assigned','processing','on_the_way'])->count();
+        $completed = (clone $periodBase)->where('status', 'completed')->count();
+        $cancelled = (clone $periodBase)->where('status', 'cancelled')->count();
+        $revenue   = (clone $periodBase)->where('status', 'completed')->sum('shipping_fee');
 
         // Hôm nay
         $today          = now()->startOfDay();
@@ -67,12 +83,12 @@ class OrderController extends Controller
         $todayRevenue   = (clone $todayBase)->where('status', 'completed')->sum('shipping_fee');
 
         // Thống kê theo loại hàng
-        $byCargoType = (clone $base)->where('status', 'completed')
+        $byCargoType = (clone $periodBase)->where('status', 'completed')
             ->selectRaw('cargo_type, COUNT(*) as count')
             ->groupBy('cargo_type')
             ->pluck('count', 'cargo_type');
 
-        // 7 ngày gần nhất
+        // 7 ngày gần nhất — cố định, KHÔNG áp dụng period
         $dailyOrders = (clone $base)
             ->where('created_at', '>=', now()->subDays(7))
             ->selectRaw('DATE(created_at) as date, COUNT(*) as count, SUM(CASE WHEN status = \'completed\' THEN shipping_fee ELSE 0 END) as revenue')
@@ -83,6 +99,7 @@ class OrderController extends Controller
         return response()->json([
             'success' => true,
             'data'    => [
+                'period'        => $period,
                 'total'         => $total,
                 'active'        => $active,
                 'completed'     => $completed,
