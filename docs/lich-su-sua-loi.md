@@ -9,6 +9,25 @@ mục vào đây TRƯỚC khi coi là xong việc.
 
 ---
 
+## 2026-08-20 (e) — Backend: mở lại quyền xem bản đồ tài xế cho tổng đài (call_center)
+
+**Bối cảnh**: audit pass 2 Admin (mục (b) bên dưới) từng chặn hẳn
+`call_center` khỏi `DriverMapPage` do lo rò rỉ GPS ngoài khu vực. Sau đó gốc
+rễ rò rỉ (client gộp `allIds` từ cả `dbMeta` lẫn RTDB thô không lọc khu vực)
+đã được vá triệt để — `allIds` giờ CHỈ lấy từ `dbMeta` (đã lọc theo
+`$fixedCityId`). User yêu cầu cho tổng đài xem lại bản đồ để hỗ trợ điều
+phối/CSKH.
+
+**Cách sửa**: `DriverMapPage::canAccess()` trả `true` lại (bỏ chặn
+`call_center`). An toàn vì tài khoản tổng đài (`user_id=411`) đã có
+`city_id=2` sẵn trong DB — cơ chế tenant Filament (`User::getTenants()`) tự
+khoá họ đúng khu vực đó giống `city_manager`, không phụ thuộc vào
+`canAccess()` để chặn rò rỉ nữa (fix `allIds` đã xử lý tận gốc).
+**Trạng thái**: Đã sửa, đã verify `php -l` + đọc lại `allIds` trong blade
+vẫn đúng. Chưa deploy.
+
+---
+
 ## 2026-08-20 (d) — Backend: module Driver — 2 lỗi thấp OTP đổi mật khẩu (audit sâu, phần còn lại của module)
 
 **Bối cảnh**: audit sâu phần còn lại của module Driver (IDOR đơn/nợ, webhook

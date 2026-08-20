@@ -8,11 +8,13 @@ use Illuminate\Support\Facades\Storage;
 
 class DriverMapPage extends Page
 {
-    // Chặn call_center — đồng bộ mọi resource khác trong panel. city_manager
-    // vẫn được xem (đã tự lọc đúng khu vực mình qua $fixedCityId bên dưới).
+    // Cho cả call_center xem — cần để hỗ trợ điều phối/CSKH theo dõi tài xế
+    // trực tiếp. An toàn vì đã tự lọc đúng khu vực mình qua $fixedCityId
+    // (tenant Filament theo city_id, xem User::getTenants()) + allIds phía
+    // client chỉ lấy từ dbMeta đã lọc khu vực, không đọc thẳng toàn bộ RTDB.
     public static function canAccess(): bool
     {
-        return !auth()->user()?->isCallCenter();
+        return true;
     }
 
     protected static ?string $navigationIcon  = 'heroicon-o-map-pin';
