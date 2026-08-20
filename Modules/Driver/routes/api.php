@@ -12,7 +12,11 @@ use Modules\Driver\Http\Controllers\SupportController;
 // Webhook PayOS — public, không cần auth
 Route::post('/payment/webhook/payos', [PaymentController::class, 'webhook']);
 
-Route::middleware(['auth:sanctum', 'driver.active'])->group(function () {
+// auth:sanctum + driver.active KHÔNG kiểm tra user_type — 1 tài khoản
+// customer/shop đã đăng nhập vẫn gọi được nguyên vẹn API driver (ví, đơn,
+// điểm...) bằng chính token của họ. Cùng lỗ hổng đã sửa cho module Admin
+// (2026-08-20), dùng lại đúng middleware user_type đã tạo khi đó.
+Route::middleware(['auth:sanctum', 'user_type:driver', 'driver.active'])->group(function () {
 
     Route::prefix('driver')->group(function () {
         Route::get('/profile',                       [DriverController::class, 'profile']);

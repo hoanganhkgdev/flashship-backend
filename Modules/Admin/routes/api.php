@@ -8,7 +8,11 @@ use Modules\Admin\Http\Controllers\ZaloTokenController;
 Route::prefix('admin')->group(function () {
     Route::post('/login', [AdminController::class, 'login']);
 
-    Route::middleware('auth:sanctum')->group(function () {
+    // auth:sanctum chỉ xác thực token hợp lệ — KHÔNG tự chặn được 1 tài
+    // khoản driver/customer/shop đã đăng nhập gọi API admin bằng chính
+    // token của họ. user_type:admin,subadmin mới là chặn thật (đồng bộ
+    // đúng 2 loại được phép per AdminController::login()).
+    Route::middleware(['auth:sanctum', 'user_type:admin,subadmin'])->group(function () {
         Route::get('/me',                   [AdminController::class, 'me']);
         Route::get('/orders',               [AdminController::class, 'orders']);
         Route::get('/orders/{id}',          [AdminController::class, 'showOrder']);

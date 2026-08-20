@@ -49,13 +49,14 @@ class ShiftResource extends Resource
                     Forms\Components\TimePicker::make('start_time')
                         ->label('Bắt đầu')
                         ->seconds(false)
-                        ->required(),
+                        ->required()
+                        ->helperText('⚠️ Đổi giờ ca sau khi ca hôm nay đã/đang chạy có thể làm sai lệch % online tính điểm cuối ca — hệ thống chấm điểm luôn dùng giờ ca hiện tại, không lưu lại giờ lúc tài xế vào ca.'),
 
                     Forms\Components\TimePicker::make('end_time')
                         ->label('Kết thúc')
                         ->seconds(false)
                         ->required()
-                        ->helperText('Chọn 00:00 nếu ca kết thúc lúc nửa đêm'),
+                        ->helperText('Chọn 00:00 nếu ca kết thúc lúc nửa đêm. Cùng lưu ý như giờ bắt đầu — tránh đổi giữa/ngay sau khi ca hôm nay đang chạy.'),
 
                     Forms\Components\Toggle::make('is_active')
                         ->label('Kích hoạt')

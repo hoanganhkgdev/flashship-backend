@@ -7,6 +7,7 @@ use Illuminate\Validation\Rule;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Storage;
 use Modules\Core\Services\OtpService;
 use Modules\Core\Models\City;
@@ -252,18 +253,24 @@ class DriverController extends Controller
         return response()->json(['success' => true, 'message' => 'Cập nhật thành công', 'data' => ['user' => $userData]]);
     }
 
+    // Type riêng cho OTP đổi mật khẩu — tách khỏi mặc định 'register' để
+    // không bị luồng đăng ký khác (gửi OTP cùng type cho cùng SĐT) ghi đè/
+    // vô hiệu hoá lẫn nhau (OtpService::send() set used=true toàn bộ OTP cũ
+    // cùng phone+type mỗi lần gửi mới).
+    private const OTP_TYPE_CHANGE_PASSWORD = 'change_password';
+
     public function sendChangePasswordOtp(Request $request): JsonResponse
     {
         $user = $request->user();
 
-        if (OtpService::recentlySent($user->phone)) {
+        if (OtpService::recentlySent($user->phone, self::OTP_TYPE_CHANGE_PASSWORD)) {
             return response()->json([
                 'success' => false,
                 'message' => 'Vui lòng chờ 60 giây trước khi gửi lại',
             ], 429);
         }
 
-        OtpService::send($user->phone);
+        OtpService::send($user->phone, self::OTP_TYPE_CHANGE_PASSWORD);
 
         return response()->json([
             'success' => true,
@@ -281,10 +288,23 @@ class DriverController extends Controller
 
         $user = $request->user();
 
-        if (!OtpService::verify($user->phone, $data['otp'])) {
+        // Giới hạn thử sai OTP — endpoint yêu cầu token hợp lệ nên rủi ro
+        // thấp, nhưng nếu token cũ bị lộ (thiết bị chưa logout) thì không
+        // giới hạn sẽ cho brute-force hết 1 triệu mã trong 10 phút hiệu lực.
+        $rateLimitKey = 'driver-change-password-otp:' . $user->id;
+        if (RateLimiter::tooManyAttempts($rateLimitKey, 5)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Nhập sai OTP quá nhiều lần, vui lòng gửi lại mã mới sau ít phút',
+            ], 429);
+        }
+
+        if (!OtpService::verify($user->phone, $data['otp'], self::OTP_TYPE_CHANGE_PASSWORD)) {
+            RateLimiter::hit($rateLimitKey, 600);
             return response()->json(['success' => false, 'message' => 'Mã OTP không hợp lệ hoặc đã hết hạn'], 422);
         }
 
+        RateLimiter::clear($rateLimitKey);
         $user->update(['password' => Hash::make($data['new_password'])]);
         return response()->json(['success' => true, 'message' => 'Đổi mật khẩu thành công']);
     }

@@ -8,9 +8,11 @@ use Illuminate\Support\Facades\Storage;
 
 class DriverMapPage extends Page
 {
+    // Chặn call_center — đồng bộ mọi resource khác trong panel. city_manager
+    // vẫn được xem (đã tự lọc đúng khu vực mình qua $fixedCityId bên dưới).
     public static function canAccess(): bool
     {
-        return true;
+        return !auth()->user()?->isCallCenter();
     }
 
     protected static ?string $navigationIcon  = 'heroicon-o-map-pin';

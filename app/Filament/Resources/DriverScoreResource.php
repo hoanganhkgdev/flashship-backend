@@ -17,16 +17,11 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 use Modules\Core\Models\User;
 use Modules\Driver\Services\DriverScoreService;
-use App\Filament\Traits\HideFromCityManager;
+use App\Filament\Traits\RestrictToFullAdmin;
 
 class DriverScoreResource extends Resource
 {
-    public static function canAccess(): bool
-    {
-        return !auth()->user()?->isCallCenter() && static::canViewAny();
-    }
-
-    use HideFromCityManager;
+    use RestrictToFullAdmin;
 
     protected static ?string $model            = User::class;
     protected static ?string $navigationIcon   = 'heroicon-o-trophy';

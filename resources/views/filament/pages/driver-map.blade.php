@@ -177,9 +177,14 @@ if (!window._mapReady) {
         function renderMarkers() {
             if (!map) return;
 
-            var allIds = new Set(
-                Object.keys(dbMeta).map(Number).concat(Object.keys(rtdbGps).map(Number))
-            );
+            // CHỈ lấy id từ dbMeta (đã lọc đúng khu vực ở PHP) — rtdbGps đọc
+            // thẳng toàn bộ node "locations" trên Firebase, KHÔNG lọc theo
+            // khu vực. Trước đây gộp cả 2 nguồn (concat) khiến city_manager
+            // vẫn thấy được vị trí GPS thật (live, di chuyển) của tài xế
+            // ngoài khu vực mình — dbMeta rỗng cho id đó nên tên/SĐT trống,
+            // nhưng toạ độ là thật. Chỉ dùng dbMeta đảm bảo không bao giờ vẽ
+            // marker cho tài xế ngoài phạm vi được phép xem.
+            var allIds = new Set(Object.keys(dbMeta).map(Number));
 
             Object.keys(markers).forEach(function(id) {
                 if (!allIds.has(Number(id))) { markers[id].setMap(null); delete markers[id]; }

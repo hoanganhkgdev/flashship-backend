@@ -16,16 +16,11 @@ use Modules\Core\Models\City;
 use Modules\Core\Models\User;
 use Modules\Driver\Models\DriverDebt;
 use Modules\Driver\Services\DriverWalletService;
-use App\Filament\Traits\HideFromCityManager;
+use App\Filament\Traits\RestrictToFullAdmin;
 
 class DriverDebtResource extends Resource
 {
-    public static function canAccess(): bool
-    {
-        return !auth()->user()?->isCallCenter() && static::canViewAny();
-    }
-
-    use HideFromCityManager;
+    use RestrictToFullAdmin;
 
     // DriverDebt không có city_id trực tiếp — khu vực xác định qua driver_id -> users.city_id.
     public static function scopeEloquentQueryToTenant(\Illuminate\Database\Eloquent\Builder $query, ?\Illuminate\Database\Eloquent\Model $tenant): \Illuminate\Database\Eloquent\Builder
@@ -113,6 +108,16 @@ class DriverDebtResource extends Resource
                                 $set('amount_paid', $get('amount_due'));
                             }
                         }),
+
+                    // Sửa status trực tiếp ở đây KHÔNG đụng ví tài xế — chỉ
+                    // nút "Trừ ví" ở danh sách mới thật sự trừ tiền qua
+                    // DriverWalletService::adjust(). Cảnh báo rõ để admin
+                    // không tưởng nhầm sửa status=paid là đã thu được tiền.
+                    Forms\Components\Placeholder::make('wallet_warning')
+                        ->label('')
+                        ->columnSpanFull()
+                        ->visible(fn (callable $get) => $get('status') === 'paid')
+                        ->content('⚠️ Đổi trạng thái ở đây KHÔNG tự trừ tiền trong ví tài xế — chỉ dùng khi công nợ đã được thu ngoài hệ thống (tiền mặt, chuyển khoản tay...). Muốn trừ thẳng vào ví, dùng nút "Trừ ví" ở danh sách công nợ.'),
 
                     Forms\Components\Textarea::make('note')
                         ->label('Ghi chú')

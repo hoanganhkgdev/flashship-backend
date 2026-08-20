@@ -13,16 +13,14 @@ use Filament\Tables\Filters\TernaryFilter;
 use Filament\Tables\Table;
 use Modules\Core\Models\User;
 use Modules\Core\Models\Voucher;
-use App\Filament\Traits\HideFromCityManager;
+use App\Filament\Traits\RestrictToFullAdmin;
 
 class VoucherResource extends Resource
 {
-    public static function canAccess(): bool
-    {
-        return !auth()->user()?->isCallCenter() && static::canViewAny();
-    }
-
-    use HideFromCityManager;
+    // Voucher là trách nhiệm tiền thật (giảm giá không giới hạn mức/số lần
+    // dùng nếu admin không cẩn thận) — cùng nhóm rủi ro với ví/công nợ/giá
+    // cước, chỉ admin đầy đủ mới được tạo/sửa.
+    use RestrictToFullAdmin;
 
     // city_id = null nghĩa là áp dụng cho mọi khu vực — vẫn phải hiện ở mọi tenant.
     public static function scopeEloquentQueryToTenant(\Illuminate\Database\Eloquent\Builder $query, ?\Illuminate\Database\Eloquent\Model $tenant): \Illuminate\Database\Eloquent\Builder

@@ -11,16 +11,15 @@ use Filament\Tables\Table;
 use Filament\Tables\Filters\SelectFilter;
 use Illuminate\Database\Eloquent\Builder;
 use Modules\Core\Models\User;
-use App\Filament\Traits\HideFromCityManager;
+use App\Filament\Traits\RestrictToFullAdmin;
 
 class AdminUserResource extends Resource
 {
-    public static function canAccess(): bool
-    {
-        return !auth()->user()?->isCallCenter() && static::canViewAny();
-    }
-
-    use HideFromCityManager;
+    // Chỉ admin đầy đủ mới được quản lý tài khoản admin/subadmin — trước
+    // đây subadmin lọt qua (chỉ chặn call_center), có thể tự sửa tài khoản
+    // admin khác (đổi mật khẩu, chiếm quyền) hoặc tự nâng cấp user_type của
+    // chính mình lên 'admin' qua form bên dưới.
+    use RestrictToFullAdmin;
 
     // Quản lý tài khoản admin/city_manager/call_center là dữ liệu quản trị,
     // không phải dữ liệu nghiệp vụ theo khu vực — xem xuyên suốt mọi tenant.

@@ -224,7 +224,12 @@ class DriverResource extends Resource
                         ->icon('heroicon-o-check-circle')
                         ->color('success')
                         ->requiresConfirmation()
-                        ->action(fn ($records) => $records->each->update(['status' => 1])),
+                        ->action(function ($records) {
+                            \Illuminate\Support\Facades\DB::transaction(
+                                fn () => $records->each->update(['status' => 1])
+                            );
+                            Notification::make()->title('Đã duyệt ' . $records->count() . ' tài xế')->success()->send();
+                        }),
 
                     Tables\Actions\DeleteBulkAction::make(),
                 ]),

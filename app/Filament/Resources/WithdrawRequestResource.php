@@ -15,16 +15,11 @@ use Illuminate\Support\Facades\DB;
 use Modules\Driver\Models\WithdrawRequest;
 use Modules\Driver\Services\DriverWalletService;
 use App\Services\PayOSPayoutService;
-use App\Filament\Traits\HideFromCityManager;
+use App\Filament\Traits\RestrictToFullAdmin;
 
 class WithdrawRequestResource extends Resource
 {
-    public static function canAccess(): bool
-    {
-        return !auth()->user()?->isCallCenter() && static::canViewAny();
-    }
-
-    use HideFromCityManager;
+    use RestrictToFullAdmin;
 
     // WithdrawRequest không có city_id trực tiếp — khu vực xác định qua driver_id -> users.city_id.
     public static function scopeEloquentQueryToTenant(\Illuminate\Database\Eloquent\Builder $query, ?\Illuminate\Database\Eloquent\Model $tenant): \Illuminate\Database\Eloquent\Builder
@@ -161,7 +156,31 @@ class WithdrawRequestResource extends Resource
                             return;
                         }
 
-                        $refId  = 'WD' . $record->id . '_' . time();
+                        // "Chiếm" yêu cầu bằng UPDATE có điều kiện status='pending'
+                        // — atomic ở tầng DB, chỉ 1 trong nhiều lần bấm "Duyệt"
+                        // gần như đồng thời (mạng chậm, 2 tab) thắng được. Làm
+                        // TRƯỚC khi gọi PayOS (không phải sau) — tránh chuyển
+                        // khoản thật 2 lần cho cùng 1 yêu cầu.
+                        $claimed = WithdrawRequest::where('id', $record->id)
+                            ->where('status', 'pending')
+                            ->update([
+                                'status'       => 'approved',
+                                'processed_by' => Auth::id(),
+                                'processed_at' => now(),
+                            ]);
+
+                        if ($claimed === 0) {
+                            Notification::make()->warning()
+                                ->title('Yêu cầu này vừa được xử lý (có thể do bấm trùng) — không duyệt lại.')
+                                ->send();
+                            return;
+                        }
+
+                        // referenceId CỐ ĐỊNH theo id đơn (không có time()) —
+                        // nếu vẫn lỡ gọi PayOS 2 lần (không nên xảy ra sau khi
+                        // đã chiếm ở trên), PayOS tự dedupe theo đúng
+                        // referenceId thay vì tạo 2 giao dịch riêng.
+                        $refId  = 'WD' . $record->id;
                         $result = PayOSPayoutService::createPayout(
                             referenceId:   $refId,
                             amount:        (int) $record->amount,
@@ -171,6 +190,14 @@ class WithdrawRequestResource extends Resource
                         );
 
                         if (!$result['success']) {
+                            // Chuyển khoản thất bại — trả về pending để admin
+                            // duyệt lại được, không để đơn kẹt ở "approved" mà
+                            // tiền thực ra chưa hề đi.
+                            WithdrawRequest::where('id', $record->id)->update([
+                                'status'       => 'pending',
+                                'processed_by' => null,
+                                'processed_at' => null,
+                            ]);
                             Notification::make()->danger()
                                 ->title('Chuyển khoản thất bại')
                                 ->body($result['message'])
@@ -179,11 +206,8 @@ class WithdrawRequestResource extends Resource
                         }
 
                         $record->update([
-                            'status'           => 'approved',
                             'admin_note'       => $data['admin_note'] ?? null,
                             'payout_reference' => $refId,
-                            'processed_by'     => Auth::id(),
-                            'processed_at'     => now(),
                         ]);
                         Notification::make()->success()->title('Đã duyệt và chuyển khoản thành công.')->send();
                     }),

@@ -32,7 +32,11 @@ class DriverRatingResource extends Resource
 
     public static function getNavigationBadge(): ?string
     {
-        $count = static::getModel()::whereNotNull('driver_rating')->where('driver_rating', '<=', 2)->count();
+        // getEloquentQuery() (không phải static::getModel()::) để tự động
+        // lọc đúng theo khu vực (tenant) đang đứng — trước đây dùng thẳng
+        // model nên city_manager thấy số đơn bị đánh giá thấp CỦA TOÀN BỘ
+        // các khu vực khác, không riêng khu vực mình.
+        $count = static::getEloquentQuery()->where('driver_rating', '<=', 2)->count();
         return $count > 0 ? (string) $count : null;
     }
 

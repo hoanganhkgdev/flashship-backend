@@ -140,11 +140,19 @@ class UserResource extends Resource
             ])
             ->actions([
                 Tables\Actions\EditAction::make()->label(''),
-                Tables\Actions\DeleteAction::make()->label(''),
+                // users không dùng SoftDeletes — xoá thật, kèm cascade xoá
+                // luôn lịch sử thông báo + lượt dùng voucher (mất dấu chống
+                // dùng lại voucher 1 lần nếu đăng ký lại đúng SĐT), và
+                // orders.sender_platform_id/delivery_man_id bị set NULL (mất
+                // gán chủ đơn trong báo cáo lịch sử). Cảnh báo rõ ràng thay
+                // vì modal xác nhận chung chung mặc định.
+                Tables\Actions\DeleteAction::make()->label('')
+                    ->modalDescription('Xoá hẳn tài khoản này sẽ xoá luôn lịch sử thông báo, lượt dùng voucher (có thể dùng lại voucher 1 lần nếu đăng ký lại đúng SĐT), và làm mất gán chủ đơn ở các đơn hàng cũ. Không thể hoàn tác.'),
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([
-                    Tables\Actions\DeleteBulkAction::make(),
+                    Tables\Actions\DeleteBulkAction::make()
+                        ->modalDescription('Xoá hẳn các tài khoản này sẽ xoá luôn lịch sử thông báo, lượt dùng voucher, và làm mất gán chủ đơn ở các đơn hàng cũ. Không thể hoàn tác.'),
                 ]),
             ])
             ->defaultSort('created_at', 'desc');

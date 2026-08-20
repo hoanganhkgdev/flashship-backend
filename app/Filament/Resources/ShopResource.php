@@ -165,7 +165,12 @@ class ShopResource extends Resource
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([
-                    Tables\Actions\DeleteBulkAction::make(),
+                    // users không dùng SoftDeletes — xoá thật, kèm cascade xoá
+                    // lịch sử thông báo + lượt dùng voucher, và làm mất gán
+                    // chủ đơn ở các đơn hàng cũ (orders.sender_platform_id bị
+                    // set NULL). Cảnh báo rõ thay vì modal chung chung mặc định.
+                    Tables\Actions\DeleteBulkAction::make()
+                        ->modalDescription('Xoá hẳn các tài khoản shop này sẽ xoá luôn lịch sử thông báo, lượt dùng voucher, và làm mất gán chủ đơn ở các đơn hàng cũ. Không thể hoàn tác.'),
                 ]),
             ])
             ->defaultSort('created_at', 'desc');

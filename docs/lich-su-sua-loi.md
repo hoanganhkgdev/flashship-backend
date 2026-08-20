@@ -9,6 +9,216 @@ mục vào đây TRƯỚC khi coi là xong việc.
 
 ---
 
+## 2026-08-20 (d) — Backend: module Driver — 2 lỗi thấp OTP đổi mật khẩu (audit sâu, phần còn lại của module)
+
+**Bối cảnh**: audit sâu phần còn lại của module Driver (IDOR đơn/nợ, webhook
+PayOS, mass-assignment, upload file — đều sạch), chỉ còn 2 lỗi mức thấp ở
+`DriverController::sendChangePasswordOtp()`/`changePassword()`.
+
+**1. [Thấp] OTP đổi mật khẩu dùng chung type với OTP đăng ký**
+`OtpService::send()`/`verify()` không truyền `$type` → mặc định `'register'`,
+lẫn với luồng đăng ký cùng số điện thoại (mỗi lần `send()` set `used=true`
+toàn bộ OTP cũ cùng phone+type).
+**Cách sửa**: thêm hằng `OTP_TYPE_CHANGE_PASSWORD = 'change_password'`,
+truyền tường minh vào cả `send()`/`verify()`/`recentlySent()`.
+
+**2. [Thấp] Không giới hạn số lần thử sai OTP ở `changePassword()`**
+Endpoint yêu cầu `auth:sanctum` nên rủi ro thấp, nhưng nếu token cũ bị lộ thì
+brute-force được 6 số trong 10 phút hiệu lực, không bị khoá.
+**Cách sửa**: `RateLimiter` khoá 5 lần thử sai/10 phút theo `user->id`, xoá
+bộ đếm khi verify đúng.
+**Trạng thái**: Đã sửa, đã verify (`php -l` + tinker: rate-limit khoá đúng
+sau 5 lần, tách type OTP không còn lẫn giữa change_password/register). Chưa
+deploy.
+
+---
+
+## 2026-08-20 (c) — Backend: module Driver — lỗ hổng `user_type` giống hệt module Admin
+
+**Bối cảnh**: bắt đầu audit module Driver theo yêu cầu user ("module driver
+đi"), cùng pattern module-by-module đã làm với Admin.
+
+**1. [Cao] `Modules/Driver/routes/api.php` — mọi user đã đăng nhập gọi được API driver**
+Middleware group chỉ có `auth:sanctum` + `driver.active` — `auth:sanctum`
+chỉ xác thực token hợp lệ, KHÔNG kiểm tra `user_type`. Một tài khoản
+customer/shop đăng nhập bình thường vẫn gọi nguyên vẹn toàn bộ API driver
+(ví, đơn, điểm, rút tiền...) bằng token của chính họ, miễn qua được
+`driver.active` (thường fail sớm nhưng không phải lớp phòng thủ đáng tin —
+nhiều nhánh trong middleware đó không chặn non-driver một cách tường minh).
+Cùng lỗ hổng đã sửa cho `Modules/Admin/routes/api.php` (2026-08-20).
+**Cách sửa**: thêm `user_type:driver` vào group middleware, dùng lại
+`App\Http\Middleware\EnsureUserType` đã tạo khi sửa Admin — không cần code
+mới. Verify: `php -l`, `route:list --path=api/driver|api/wallet|api/orders`
+(routes vẫn đăng ký đủ), `route:list -v` xác nhận middleware stack đúng thứ
+tự, và test tinker giả lập request `user_type=customer` bị chặn đúng (403,
+`$next` không được gọi).
+**Trạng thái**: Đã sửa, đã verify bằng code-level check. Chưa deploy.
+
+---
+
+## 2026-08-20 (b) — Backend: audit pass 2 panel Admin — 6 lỗi còn sót (rà nốt phần chưa đọc kỹ ở pass 1)
+
+**Bối cảnh**: pass 1 (mục dưới) chưa đọc kỹ 9 resource + toàn bộ Pages/
+Widgets/RelationManagers còn lại. Audit tiếp theo yêu cầu user ("module admin
+cho xong hết đi"), tìm thêm 6 lỗi (2 cao, 3 trung bình, 1 thấp).
+
+**1. [Cao] `DriverMapPage` lộ GPS thật của tài xế ngoài khu vực**
+`canAccess()` cũ `return true` — không chặn cả `call_center` (khác mọi
+resource khác trong panel). Nghiêm trọng hơn: phía client
+(`driver-map.blade.php`) gộp `allIds` = union giữa `dbMeta` (đã lọc đúng
+khu vực ở PHP) VÀ `rtdbGps` (đọc thẳng toàn bộ node Firebase `locations`,
+KHÔNG lọc khu vực) — nên city_manager vẫn thấy được chấm GPS di chuyển thật
+của tài xế ngoài khu vực mình (tên/SĐT trống nhưng toạ độ thật).
+**Cách sửa**: `canAccess()` chặn `call_center` (đồng bộ resource khác).
+`allIds` đổi thành CHỈ lấy từ `dbMeta` — không bao giờ vẽ marker cho id
+ngoài phạm vi được phép xem, bất kể Firebase có dữ liệu hay không.
+
+**2. [Cao] `VoucherResource` — subadmin tạo được voucher không giới hạn**
+Cùng họ bug với PricingResource/DriverWalletResource... đã sửa ở pass 1
+nhưng sót resource này — subadmin tạo/sửa voucher toàn hệ thống, không giới
+hạn mức giảm/số lần dùng.
+**Cách sửa**: áp `RestrictToFullAdmin` (trait đã tạo ở pass 1).
+
+**3. [Trung bình] Badge "đánh giá thấp" ở `DriverRatingResource` không lọc khu vực**
+`getNavigationBadge()` dùng thẳng `static::getModel()::` thay vì
+`static::getEloquentQuery()` — bỏ qua tenant-scoping tự động của Filament,
+city_manager thấy số đơn bị đánh giá thấp của TẤT CẢ khu vực khác.
+**Cách sửa**: đổi sang `static::getEloquentQuery()`.
+
+**4. [Trung bình] Xoá tài khoản user/shop cứng, mất dữ liệu chống gian lận**
+`users` không dùng SoftDeletes — xoá cascade luôn `customer_notifications`
++ `voucher_usages` (mất dấu chống dùng lại voucher 1 lần nếu đăng ký lại
+đúng SĐT), và `orders.sender_platform_id`/`delivery_man_id` bị set NULL
+(mất gán chủ đơn trong báo cáo lịch sử). Modal xác nhận mặc định của
+Filament chung chung, không cảnh báo hệ quả cụ thể.
+**Cách sửa**: `UserResource`/`ShopResource` — `modalDescription()` tuỳ biến
+nêu rõ hệ quả cascade trên cả action xoá đơn lẻ lẫn bulk (không chặn hẳn vì
+xoá tài khoản spam/test là nhu cầu hợp lệ).
+
+**5. [Trung bình] `CallCenterPage` gán sai khu vực cho subadmin đặt đơn hộ**
+`isAdmin()` chỉ so `=== 'admin'` — subadmin (không có `city_id` cố định,
+thuộc `User::TENANT_UNRESTRICTED_TYPES`) bị coi là non-admin, nên
+`userCityId()` rơi về mốc mặc định cứng `2`, và `placeOrder()` GHI ĐÈ mất
+khu vực subadmin thật sự chọn trên form bằng con số cứng đó.
+**Cách sửa**: `isAdmin()` dùng `User::TENANT_UNRESTRICTED_TYPES` (gồm cả
+admin+subadmin) thay vì so cứng — subadmin giờ tự chọn khu vực được như
+admin, không còn bị ép về city 2.
+
+**6. [Thấp] `SendNotificationPage` gửi thông báo hàng loạt không xác nhận**
+Bấm gửi là gửi ngay tới toàn bộ người dùng khớp đối tượng, không giới hạn
+tốc độ, không xác nhận — bấm nhầm/bấm 2 lần đều gửi lại toàn bộ.
+**Cách sửa**: thêm `wire:confirm` trên form — hỏi xác nhận 1 lần trước khi
+thật sự gửi.
+
+**Verify**: `php -l` sạch toàn bộ file thay đổi; `php artisan test` 9 test
+vẫn pass; load thử `VoucherResource`/`DriverRatingResource`/`DriverMapPage`/
+`CallCenterPage`/`SendNotificationPage` qua tinker — class load OK,
+`canAccess()` đúng kỳ vọng.
+
+**Coverage panel Admin sau 2 pass**: đã đọc kỹ toàn bộ 22 Resource +
+Pages (DriverFinanceReportPage, DriverEarningsPage, RevenueReportPage,
+DispatchMonitorPage, CallCenterPage, DriverMapPage, SendNotificationPage) +
+Widgets + RelationManagers chính. Chưa kiểm tra được: quy tắc bảo mật
+(security rules) của chính Firebase RTDB — chỉ soát được code phía client
+đọc dữ liệu, không soát được RTDB có tự chặn theo khu vực ở tầng Firebase
+hay không (khuyến nghị xác nhận trực tiếp trong Firebase Console, liên quan
+finding #1 ở trên).
+
+**Trạng thái**: Đã sửa cả 6 lỗi (#1-6), verify kỹ. Chưa push/deploy.
+
+---
+
+## 2026-08-20 — Backend: audit + sửa 8 lỗi bảo mật/toàn vẹn dữ liệu ở panel Admin (Filament)
+
+**Bối cảnh**: audit chủ động panel Admin (Filament, `app/Filament/`) theo yêu
+cầu user, phát hiện 3 lỗ hổng **cực kỳ nghiêm trọng** đang khai thác được
+ngay trên production (không cần race condition/double-click gì cả), cộng
+5 lỗi mức trung bình/cao khác.
+
+**1. [CỰC KỲ NGHIÊM TRỌNG] `/api/admin/*` không kiểm tra loại tài khoản**
+`Modules/Admin/routes/api.php` chỉ yêu cầu `auth:sanctum` — bất kỳ tài
+khoản nào đã đăng nhập (tài xế/khách/shop dùng token của chính họ) đều gọi
+được API admin (gán tài xế cho đơn, sửa giá cước toàn hệ thống, duyệt bằng
+lái...), không cần là admin thật.
+**Cách sửa**: tạo middleware dùng chung `App\Http\Middleware\EnsureUserType`
+(alias `user_type:...`, nhận danh sách user_type được phép) — áp cho route
+group admin: `['auth:sanctum', 'user_type:admin,subadmin']`. Middleware này
+tái dùng được cho module khác nếu sau này cần (xem mục "chưa xử lý" bên
+dưới — Driver/Shop/Customer đang chỉ dùng `auth:sanctum` tương tự).
+
+**2. [CỰC KỲ NGHIÊM TRỌNG] Subadmin tự nâng cấp thành admin / chiếm tài khoản admin**
+`AdminUserResource` không chặn `subadmin` (chỉ chặn `call_center` qua
+`canAccess()` cũ) — subadmin sửa được tài khoản admin bất kỳ (đổi mật khẩu,
+đăng nhập thay) hoặc tự đổi `user_type` của mình thành `admin` qua form.
+
+**3. [CỰC KỲ NGHIÊM TRỌNG] Duyệt rút tiền không chống double-click — mất tiền thật**
+`WithdrawRequestResource` action "Duyệt": kiểm tra `status==='pending'` chỉ
+ở UI (`->visible()`), không kiểm tra lại phía server trước khi gọi PayOS
+chuyển tiền thật; `referenceId` gửi PayOS có `time()` nên đổi mỗi lần bấm,
+PayOS không tự dedupe được. 2 tab admin hoặc mạng chậm + bấm lại → chuyển
+khoản ngân hàng thật 2 lần cho cùng 1 yêu cầu.
+**Cách sửa**: atomic `UPDATE ... WHERE status='pending'` để "chiếm" yêu cầu
+TRƯỚC khi gọi PayOS (đếm số dòng ảnh hưởng, 0 dòng = đã bị xử lý, dừng ngay);
+`referenceId` đổi thành cố định `'WD' . $record->id` (không còn `time()`);
+PayOS thất bại thì trả lại `status=pending` để admin duyệt lại được, không
+kẹt ở "approved" mà tiền chưa đi.
+
+**4. [Cao, hệ thống] Subadmin có quyền y hệt admin ở khắp panel**
+Không riêng #2 — `WithdrawRequestResource`, `DriverWalletResource`,
+`DriverScoreResource`, `DriverDebtResource`, `BankListResource`,
+`PricingResource`, `ShopPricingResource` đều dùng chung 1 gate chỉ chặn
+`call_center`/`city_manager`, không chặn `subadmin` — mọi resource động tới
+tiền/điểm/giá cước thật.
+**Cách sửa**: trait dùng chung mới `App\Filament\Traits\RestrictToFullAdmin`
+(`canAccess()` chỉ true khi `user_type==='admin'`) — áp cho cả 8 resource
+trên (gồm AdminUserResource).
+
+**5. [Cao] Xoá City không kiểm tra tài xế/đơn phụ thuộc**
+`users.city_id`/`orders.city_id` là FK `SET NULL` — xoá 1 City xoá xong làm
+mồ côi âm thầm tài xế/đơn thuộc khu đó, không cảnh báo, không chặn.
+**Cách sửa**: `DeleteAction::before()` đếm số user/order còn thuộc city đó,
+chặn xoá (`$action->halt()`) kèm thông báo rõ số lượng nếu còn phụ thuộc.
+
+**6. [Trung bình] Sửa tay công nợ "đã trả" không thực sự trừ ví**
+`DriverDebtResource`'s form edit cho phép set `status=paid` trực tiếp,
+không đi qua `DriverWalletService::adjust()` như nút "Trừ ví" — công nợ
+được đánh dấu đã trả dù chưa hề thu tiền qua ví. Đây có thể là hành vi cố ý
+(ghi nhận đã thu ngoài hệ thống) nên KHÔNG chặn hẳn, chỉ thêm cảnh báo rõ
+ràng ngay trên form khi chọn "Đã thanh toán", tránh admin hiểu nhầm.
+
+**7. [Trung bình] Sửa giờ ca làm việc sau khi ca đã chạy làm sai điểm**
+`ScoreShiftSessionsCommand` tính cửa sổ chấm điểm live từ `Shift::start_time/
+end_time` hiện tại, không lưu snapshot lúc tài xế vào ca — sửa giờ ca sau khi
+ca hôm nay đã/đang chạy có thể làm sai % online tính điểm. Thêm helperText
+cảnh báo trên 2 field giờ, không chặn hẳn (chưa có cách xác định an toàn "ca
+này đã có ai chạy hôm nay chưa" mà không rủi ro chặn nhầm).
+
+**8. [Thấp] Bulk "Duyệt tất cả" tài xế không bọc transaction**
+`DriverResource`'s bulk action `approve_all` lặp update từng tài xế không
+transaction — lỗi giữa chừng để lại trạng thái duyệt dở dang, không rollback
+được, không có thông báo kết quả. Bọc `DB::transaction()` + thêm
+notification xác nhận số lượng đã duyệt.
+
+**Verify**: `php -l` sạch toàn bộ 15 file thay đổi; route:list xác nhận 16
+route admin vẫn map đúng; `php artisan test` 9 test pass (không ảnh hưởng
+bởi thay đổi); load thử cả 11 resource đã sửa qua tinker — class load OK,
+`canAccess()` trả về đúng (false khi chưa đăng nhập cho 8 resource giới hạn
+admin, đúng như kỳ vọng).
+
+**CHƯA xử lý — phát hiện thêm khi sửa #1, phạm vi RỘNG HƠN cả module Admin**:
+Driver/Shop/Customer module cũng CHỈ dùng `auth:sanctum` (Driver có thêm
+`driver.active` nhưng đó là check tài khoản bị khoá, KHÔNG phải check
+`user_type`) — về lý thuyết 1 tài khoản customer có thể gọi API driver/shop
+bằng chính token của họ nếu controller không tự kiểm tra `user_type` thủ
+công. Middleware `EnsureUserType` đã có sẵn, dùng lại được ngay — nhưng áp
+dụng cho 3 module còn lại là việc riêng, chưa làm, cần user xác nhận phạm
+vi trước (rủi ro động vào route đang chạy production của app driver/shop/
+customer thật).
+
+**Trạng thái**: Đã sửa cả 8 lỗi (#1-8), verify kỹ. Chưa push/deploy.
+
+---
+
 ## 2026-08-19 (c) — Backend: sửa nốt DriverScoreService::onShiftOnlineRate() không khoá + thêm test tự động chống race condition
 
 **Bối cảnh**: nốt lỗ hổng còn lại trong audit mục (b) dưới — `onShiftOnlineRate()`

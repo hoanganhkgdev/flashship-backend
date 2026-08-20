@@ -9,16 +9,11 @@ use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
 use Modules\Driver\Models\BankList;
-use App\Filament\Traits\HideFromCityManager;
+use App\Filament\Traits\RestrictToFullAdmin;
 
 class BankListResource extends Resource
 {
-    public static function canAccess(): bool
-    {
-        return !auth()->user()?->isCallCenter() && static::canViewAny();
-    }
-
-    use HideFromCityManager;
+    use RestrictToFullAdmin;
 
     // Danh mục ngân hàng dùng chung toàn hệ thống, không theo khu vực.
     protected static bool $isScopedToTenant = false;

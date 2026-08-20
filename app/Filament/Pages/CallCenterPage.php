@@ -90,20 +90,28 @@ class CallCenterPage extends Page implements HasForms
         return in_array($this->serviceType, ['bike', 'motor', 'car']);
     }
 
+    // Trước đây chỉ so === 'admin' — subadmin không có city_id cố định
+    // (Modules\Core\Models\User::TENANT_UNRESTRICTED_TYPES gồm cả 2), nên
+    // userCityId() bên dưới âm thầm rơi về mốc mặc định cứng (2) cho
+    // subadmin, ghi đè mất khu vực họ thật sự chọn trên form ở placeOrder().
+    // Coi subadmin như admin ở đây — cùng được tự chọn khu vực.
     public function isAdmin(): bool
     {
-        return auth()->user()?->user_type === 'admin';
+        return in_array(
+            auth()->user()?->user_type,
+            \Modules\Core\Models\User::TENANT_UNRESTRICTED_TYPES,
+            true
+        );
     }
 
     private function userCityId(): int
     {
-        $user = auth()->user();
-        if ($user?->user_type === 'admin') {
-            // Mặc định = khu vực (tenant) đang đứng, admin vẫn chọn được khu
-            // vực khác trên form (đặt đơn hộ cho khu vực khác qua tổng đài).
+        if ($this->isAdmin()) {
+            // Mặc định = khu vực (tenant) đang đứng, vẫn chọn được khu vực
+            // khác trên form (đặt đơn hộ cho khu vực khác qua tổng đài).
             return \Filament\Facades\Filament::getTenant()?->id ?? 2;
         }
-        return (int) ($user?->city_id ?? 2);
+        return (int) (auth()->user()?->city_id ?? 2);
     }
 
     // ─── Mount ───────────────────────────────────────────────────────────────

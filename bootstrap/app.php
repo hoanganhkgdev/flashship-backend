@@ -14,6 +14,7 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->alias([
             'driver.active' => \App\Http\Middleware\EnsureDriverAccountActive::class,
+            'user_type'     => \App\Http\Middleware\EnsureUserType::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

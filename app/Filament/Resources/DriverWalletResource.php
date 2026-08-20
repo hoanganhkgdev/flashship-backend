@@ -15,16 +15,11 @@ use Filament\Tables\Table;
 use Modules\Core\Models\City;
 use Modules\Driver\Models\DriverWallet;
 use Modules\Driver\Services\DriverWalletService;
-use App\Filament\Traits\HideFromCityManager;
+use App\Filament\Traits\RestrictToFullAdmin;
 
 class DriverWalletResource extends Resource
 {
-    public static function canAccess(): bool
-    {
-        return !auth()->user()?->isCallCenter() && static::canViewAny();
-    }
-
-    use HideFromCityManager;
+    use RestrictToFullAdmin;
 
     // DriverWallet không có city_id trực tiếp — khu vực xác định qua driver_id -> users.city_id.
     public static function scopeEloquentQueryToTenant(\Illuminate\Database\Eloquent\Builder $query, ?\Illuminate\Database\Eloquent\Model $tenant): \Illuminate\Database\Eloquent\Builder

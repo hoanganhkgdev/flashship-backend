@@ -263,7 +263,25 @@ class CityResource extends Resource
             ->actions([
                 Tables\Actions\ViewAction::make()->label(''),
                 Tables\Actions\EditAction::make()->label(''),
-                Tables\Actions\DeleteAction::make()->label(''),
+                Tables\Actions\DeleteAction::make()->label('')
+                    // users.city_id/orders.city_id đều là "set null" khi xoá
+                    // City — không lỗi, nhưng xoá xong sẽ làm mồ côi âm thầm
+                    // tài xế/đơn thuộc khu vực đó (mất luôn phạm vi lọc theo
+                    // tenant của city_manager/call_center, sai lệch báo cáo
+                    // lịch sử). Chặn hẳn nếu còn phụ thuộc, không cảnh báo
+                    // suông rồi vẫn cho xoá.
+                    ->before(function (\Modules\Core\Models\City $record, Tables\Actions\DeleteAction $action) {
+                        $userCount  = \Illuminate\Support\Facades\DB::table('users')->where('city_id', $record->id)->count();
+                        $orderCount = \Illuminate\Support\Facades\DB::table('orders')->where('city_id', $record->id)->count();
+
+                        if ($userCount > 0 || $orderCount > 0) {
+                            Notification::make()->danger()
+                                ->title('Không thể xoá khu vực này')
+                                ->body("Còn {$userCount} tài khoản và {$orderCount} đơn hàng thuộc khu vực này — chuyển/xoá hết trước khi xoá khu vực, tránh làm mồ côi dữ liệu.")
+                                ->send();
+                            $action->halt();
+                        }
+                    }),
             ])
 ;
     }
