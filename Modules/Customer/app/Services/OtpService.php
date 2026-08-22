@@ -11,8 +11,15 @@ class OtpService
 {
     private static array $testPhones = ['0909123456', '84909123456'];
 
+    // Chỉ nhận diện test-phone (OTP cố định 123456) ở local/testing — trước
+    // đây không rào theo môi trường, nếu 1 số thật trùng danh sách này (hoặc
+    // bị đăng ký để khai thác) thì production cũng nhận OTP cố định, bỏ qua
+    // hoàn toàn rate-limit vì có mã đúng ngay từ đầu.
     private static function isTestPhone(string $phone): bool
     {
+        if (!app()->environment(['local', 'testing'])) {
+            return false;
+        }
         return in_array(preg_replace('/\D/', '', $phone), self::$testPhones);
     }
 
@@ -32,7 +39,14 @@ class OtpService
             'expires_at' => now()->addMinutes(10),
         ]);
 
-        Log::info("[OTP] phone=$phone type=$type code=$code");
+        // Không log mã OTP thật ở production — log file/hệ thống log tập
+        // trung bị lộ là lấy được OTP hợp lệ, bỏ qua luôn rate-limit vì có
+        // mã đúng ngay từ đầu (không cần dò).
+        if (app()->environment(['local', 'testing'])) {
+            Log::info("[OTP] phone=$phone type=$type code=$code");
+        } else {
+            Log::info("[OTP] phone=$phone type=$type — đã gửi");
+        }
 
         self::dispatch($phone, $code);
 

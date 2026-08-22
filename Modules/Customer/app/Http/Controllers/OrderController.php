@@ -116,84 +116,67 @@ class OrderController extends Controller
 
             $nightSurcharge = (int) ($pricing['night_surcharge'] ?? 0);
 
-            // Apply voucher
-            $voucherCode    = null;
-            $discountAmount = 0;
-            $isFreeship     = false;
-            $shippingFee    = $pricing['fee'];
-
-            if (!empty($data['voucher_code'])) {
-                $voucher = Voucher::where('code', strtoupper($data['voucher_code']))->first();
-                if ($voucher && $voucher->is_active
-                    && in_array($voucher->audience, ['all', 'customer'])
-                    && (!$voucher->user_id || $voucher->user_id == $user->id)
-                    && (!$voucher->expires_at || $voucher->expires_at->isFuture())
-                    && (!$voucher->usage_limit || $voucher->used_count < $voucher->usage_limit)
-                    && (!$voucher->per_user_limit || $voucher->usageCountByUser($user->id) < $voucher->per_user_limit)
-                    && (!$voucher->service_types || in_array($data['service_type'], $voucher->service_types))
-                    && (!$voucher->city_id || $voucher->city_id == $user->city_id)
-                    && (!$voucher->min_order_value || $shippingFee >= $voucher->min_order_value)
-                ) {
-                    if ($voucher->type === 'freeship') {
-                        $discountAmount = $shippingFee;
-                        $isFreeship     = true;
-                    } elseif ($voucher->type === 'percent') {
-                        $discountAmount = (int) round($shippingFee * $voucher->value / 100);
-                    } else {
-                        $discountAmount = (int) $voucher->value;
-                    }
-                    if ($voucher->max_discount) {
-                        $discountAmount = min($discountAmount, $voucher->max_discount);
-                    }
-                    $discountAmount = min($discountAmount, $shippingFee);
-                    $shippingFee    = $shippingFee - $discountAmount;
-                    $voucherCode    = $voucher->code;
-                    $voucher->increment('used_count');
-                    $appliedVoucher = $voucher;
-                }
+            // Apply voucher — khoá + kiểm tra lại giới hạn bên trong transaction
+            // (xem tryApplyVoucher()) để 2 request gần như đồng thời không
+            // cùng pass điều kiện "còn lượt dùng" rồi cùng được áp voucher.
+            $applied        = $this->tryApplyVoucher($data['voucher_code'] ?? null, $user, $data['service_type'], $pricing['fee']);
+            $voucherCode    = $applied['code'] ?? null;
+            $discountAmount = $applied['discount_amount'] ?? 0;
+            $isFreeship     = $applied['is_freeship'] ?? false;
+            $shippingFee    = $pricing['fee'] - $discountAmount;
+            if ($applied) {
+                $appliedVoucher = $applied['voucher'];
             }
 
-            $order = Order::create([
-                'code'             => '',
-                'sender_name'      => $data['pickup_name'] ?? $data['store_name'] ?? '',
-                'pickup_phone'     => $data['pickup_phone'] ?? '',
-                'pickup_address'    => $data['pickup_address'],
-                'pickup_place_name' => $data['pickup_place_name'] ?? null,
-                'pickup_lat'        => $data['pickup_lat'] ?? null,
-                'pickup_lng'        => $data['pickup_lng'] ?? null,
-                'receiver_name'    => $data['delivery_name'] ?? '',
-                'delivery_phone'   => $data['delivery_phone'],
-                'delivery_address' => $data['delivery_address'],
-                'delivery_lat'     => $data['delivery_lat'] ?? null,
-                'delivery_lng'     => $data['delivery_lng'] ?? null,
-                'service_type'     => $data['service_type'],
-                'order_note'       => $data['order_note'] ?? '',
-                'store_name'       => $data['store_name'] ?? null,
-                'payment_method'   => 'cod',
-                'cod_amount'       => $data['service_type'] === 'topup'
-                    ? (int) ($data['topup_amount'] ?? 0)
-                    : ($data['service_type'] === 'shopping' ? ($data['cod_amount'] ?? null) : null),
-                'city_id'          => $user->city_id,
-                'shipping_fee'     => $shippingFee,
-                'night_surcharge'  => $nightSurcharge,
-                'distance'         => $pricing['distance_km'],
-                'voucher_code'     => $voucherCode,
-                'discount_amount'  => $discountAmount,
-                'bonus_fee'        => 0,
-                'is_freeship'      => $isFreeship,
-                'status'           => 'pending',
-                'platform'         => 'customer_app',
-                'sender_platform_id' => $user->id,
-            ]);
-
-            if (isset($appliedVoucher)) {
-                VoucherUsage::create([
-                    'voucher_id' => $appliedVoucher->id,
-                    'user_id'    => $user->id,
-                    'order_id'   => $order->id,
-                    'used_at'    => now(),
+            // Tạo đơn + ghi VoucherUsage trong cùng transaction — trước đây
+            // 2 bước tách rời, lỗi giữa chừng (sau khi đơn đã trừ used_count
+            // của voucher) có thể để lại đơn được giảm giá nhưng KHÔNG có
+            // VoucherUsage tương ứng, làm sai đếm per_user_limit thật.
+            $order = \DB::transaction(function () use ($data, $user, $shippingFee, $nightSurcharge, $pricing, $voucherCode, $discountAmount, $isFreeship, &$appliedVoucher) {
+                $order = Order::create([
+                    'code'             => '',
+                    'sender_name'      => $data['pickup_name'] ?? $data['store_name'] ?? '',
+                    'pickup_phone'     => $data['pickup_phone'] ?? '',
+                    'pickup_address'    => $data['pickup_address'],
+                    'pickup_place_name' => $data['pickup_place_name'] ?? null,
+                    'pickup_lat'        => $data['pickup_lat'] ?? null,
+                    'pickup_lng'        => $data['pickup_lng'] ?? null,
+                    'receiver_name'    => $data['delivery_name'] ?? '',
+                    'delivery_phone'   => $data['delivery_phone'],
+                    'delivery_address' => $data['delivery_address'],
+                    'delivery_lat'     => $data['delivery_lat'] ?? null,
+                    'delivery_lng'     => $data['delivery_lng'] ?? null,
+                    'service_type'     => $data['service_type'],
+                    'order_note'       => $data['order_note'] ?? '',
+                    'store_name'       => $data['store_name'] ?? null,
+                    'payment_method'   => 'cod',
+                    'cod_amount'       => $data['service_type'] === 'topup'
+                        ? (int) ($data['topup_amount'] ?? 0)
+                        : ($data['service_type'] === 'shopping' ? ($data['cod_amount'] ?? null) : null),
+                    'city_id'          => $user->city_id,
+                    'shipping_fee'     => $shippingFee,
+                    'night_surcharge'  => $nightSurcharge,
+                    'distance'         => $pricing['distance_km'],
+                    'voucher_code'     => $voucherCode,
+                    'discount_amount'  => $discountAmount,
+                    'bonus_fee'        => 0,
+                    'is_freeship'      => $isFreeship,
+                    'status'           => 'pending',
+                    'platform'         => 'customer_app',
+                    'sender_platform_id' => $user->id,
                 ]);
-            }
+
+                if ($appliedVoucher) {
+                    VoucherUsage::create([
+                        'voucher_id' => $appliedVoucher->id,
+                        'user_id'    => $user->id,
+                        'order_id'   => $order->id,
+                        'used_at'    => now(),
+                    ]);
+                }
+
+                return $order;
+            });
 
             // Auto-save địa chỉ có tên cửa hàng vào danh sách địa chỉ đã lưu
             if (!empty($data['pickup_place_name']) && !empty($data['pickup_address'])) {
@@ -223,6 +206,59 @@ class OrderController extends Controller
             Log::error('Customer createOrder: ' . $e->getMessage());
             return response()->json(['success' => false, 'message' => 'Có lỗi xảy ra, vui lòng thử lại'], 500);
         }
+    }
+
+    /**
+     * Khoá dòng voucher + kiểm tra lại toàn bộ điều kiện BÊN TRONG transaction
+     * trước khi increment used_count — nếu chỉ check-rồi-increment (như trước
+     * đây) thì 2 request gần như đồng thời có thể cùng pass điều kiện "còn
+     * lượt dùng" trước khi cái nào kịp tăng used_count, vượt usage_limit/
+     * per_user_limit. Cùng mẫu đã sửa cho Shop\OrderController::store().
+     *
+     * @return array{voucher: Voucher, code: string, discount_amount: int, is_freeship: bool}|null
+     */
+    private function tryApplyVoucher(?string $code, $user, string $serviceType, int $shippingFee): ?array
+    {
+        if (empty($code)) {
+            return null;
+        }
+
+        return \DB::transaction(function () use ($code, $user, $serviceType, $shippingFee) {
+            $voucher = Voucher::where('code', strtoupper($code))->lockForUpdate()->first();
+
+            if (!$voucher || !$voucher->is_active
+                || !in_array($voucher->audience, ['all', 'customer'])
+                || ($voucher->user_id && $voucher->user_id != $user->id)
+                || ($voucher->expires_at && !$voucher->expires_at->isFuture())
+                || ($voucher->usage_limit && $voucher->used_count >= $voucher->usage_limit)
+                || ($voucher->per_user_limit && $voucher->usageCountByUser($user->id) >= $voucher->per_user_limit)
+                || ($voucher->service_types && !in_array($serviceType, $voucher->service_types))
+                || ($voucher->city_id && $voucher->city_id != $user->city_id)
+                || ($voucher->min_order_value && $shippingFee < $voucher->min_order_value)
+            ) {
+                return null;
+            }
+
+            $isFreeship = $voucher->type === 'freeship';
+            $discountAmount = match ($voucher->type) {
+                'freeship' => $shippingFee,
+                'percent'  => (int) round($shippingFee * $voucher->value / 100),
+                default    => (int) $voucher->value,
+            };
+            if ($voucher->max_discount) {
+                $discountAmount = min($discountAmount, $voucher->max_discount);
+            }
+            $discountAmount = min($discountAmount, $shippingFee);
+
+            $voucher->increment('used_count');
+
+            return [
+                'voucher'         => $voucher,
+                'code'            => $voucher->code,
+                'discount_amount' => $discountAmount,
+                'is_freeship'     => $isFreeship,
+            ];
+        });
     }
 
     public function show(string $code, Request $request): JsonResponse

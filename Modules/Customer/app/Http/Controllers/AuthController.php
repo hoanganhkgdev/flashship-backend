@@ -114,17 +114,22 @@ class AuthController extends Controller
         $data  = $request->validate(['phone' => 'required|string']);
         $phone = $this->normalizePhone($data['phone']);
 
-        if (!User::where('phone', $phone)->where('user_type', 'customer')->exists()) {
-            return response()->json(['success' => false, 'message' => 'Số điện thoại chưa được đăng ký'], 422);
-        }
+        $exists = User::where('phone', $phone)->where('user_type', 'customer')->exists();
 
-        if (OtpService::recentlySent($phone, 'forgot_password')) {
+        // Không trả message khác biệt theo "số có tồn tại hay không" — trước
+        // đây 422 riêng cho số chưa đăng ký cho phép dò xem 1 SĐT có phải
+        // khách hàng FlashShip không (user enumeration). Vẫn chặn gửi lại
+        // 60s như cũ khi số CÓ tồn tại; số không tồn tại thì luôn trả cùng
+        // message thành công nhưng không thật sự gửi gì.
+        if ($exists && OtpService::recentlySent($phone, 'forgot_password')) {
             return response()->json(['success' => false, 'message' => 'Vui lòng chờ 60 giây trước khi gửi lại'], 429);
         }
 
-        OtpService::send($phone, 'forgot_password');
+        if ($exists) {
+            OtpService::send($phone, 'forgot_password');
+        }
 
-        return response()->json(['success' => true, 'message' => 'Mã OTP đã được gửi tới ' . $phone]);
+        return response()->json(['success' => true, 'message' => 'Nếu số điện thoại này đã đăng ký, mã OTP đã được gửi tới ' . $phone]);
     }
 
     public function resetPassword(Request $request): JsonResponse
@@ -206,6 +211,20 @@ class AuthController extends Controller
     public function deleteAccount(Request $request): JsonResponse
     {
         $user = $request->user();
+
+        // Chặn xoá khi còn đơn đang thực sự chạy (đã có tài xế) — trước đây
+        // chỉ huỷ đơn pending rồi xoá cứng user luôn, để lại
+        // sender_platform_id trỏ tới user không còn tồn tại giữa lúc tài xế
+        // đang giao, mất khả năng liên hệ khách qua hệ thống.
+        $hasActiveOrder = \Modules\Order\Models\Order::where('sender_platform_id', $user->id)
+            ->whereIn('status', ['assigned', 'processing', 'on_the_way'])
+            ->exists();
+        if ($hasActiveOrder) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Bạn đang có đơn hàng đang giao, vui lòng đợi hoàn thành trước khi xoá tài khoản.',
+            ], 422);
+        }
 
         // Huỷ các đơn đang chờ (pending) của khách trước khi xóa
         \Modules\Order\Models\Order::where('sender_platform_id', $user->id)

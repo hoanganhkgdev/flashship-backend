@@ -161,6 +161,50 @@ models chưa rà) — sẽ tiếp tục.
 
 ---
 
+## 2026-08-22 — Backend: sửa 6 lỗi audit module Customer
+
+**1. [Cao] Race condition voucher ở `Customer\OrderController::store`**
+Check-rồi-increment không khoá, cùng lỗi đã sửa ở Shop. **Cách sửa**: thêm
+`tryApplyVoucher()` — khoá `lockForUpdate()` + kiểm tra lại điều kiện trong
+transaction trước khi increment, cùng mẫu Shop. Không thêm unique constraint
+DB cho `voucher_usages(voucher_id,user_id)` như audit đề xuất — sẽ sai với
+voucher `per_user_limit > 1`; khoá ở tầng ứng dụng (đã verify hoạt động
+đúng) là đủ.
+
+**2. [Trung bình] Tạo đơn không bọc transaction**
+`Order::create` + `VoucherUsage::create` tách rời, lỗi giữa chừng có thể để
+đơn giảm giá nhưng không có usage record, sai đếm `per_user_limit`. **Cách
+sửa**: gộp cả 2 vào `DB::transaction()`.
+
+**3. [Trung bình] OTP code log plaintext ở mọi môi trường**
+`Modules/Customer/app/Services/OtpService.php` VÀ
+`Modules/Core/app/Services/OtpService.php` (cùng lỗi, sửa cả 2 — Core dùng
+bởi Driver + Core AuthController) — log lộ là lấy được OTP hợp lệ. **Cách
+sửa**: chỉ log code thật ở `local`/`testing`, production chỉ log "đã gửi".
+
+**4. [Trung bình] Backdoor OTP test-phone không rào theo môi trường**
+`isTestPhone()` ở cả 2 file OtpService trên luôn nhận `0909123456`/
+`84909123456` → OTP cố định `123456` kể cả production. **Cách sửa**: chỉ
+còn hiệu lực ở `local`/`testing`.
+
+**5. [Thấp] `forgotPassword` lộ số điện thoại đã đăng ký hay chưa**
+`Customer\AuthController::forgotPassword()` trả 422 riêng cho số chưa đăng
+ký (user enumeration). **Cách sửa**: luôn trả cùng message thành công dù số
+có tồn tại hay không, chỉ thực sự gửi OTP nếu số tồn tại — `resetPassword()`
+không đổi vì OTP không tồn tại thì `verify()` tự fail với message chung.
+
+**6. [Thấp] `deleteAccount` không chặn khi còn đơn đang chạy**
+Chỉ huỷ đơn `pending` rồi xoá cứng user, để lại `sender_platform_id` mồ côi
+giữa lúc đơn `assigned/processing/on_the_way` đang thật sự diễn ra. **Cách
+sửa**: chặn xoá (422) nếu còn đơn ở 3 trạng thái đó.
+
+**Trạng thái**: Đã sửa cả 6, verify `php -l` + `php artisan test` (9 pass) +
+test hành vi thật trên DB dev (voucher race bị chặn đúng lần 2, forgot-password
+số không tồn tại trả response giống hệt số tồn tại, xoá tài khoản còn đơn
+assigned bị chặn 422 và user không bị xoá oan). Chưa deploy.
+
+---
+
 ## 2026-08-20 (h) — Backend: xoá tính năng đơn đặt lịch (chưa từng dùng, phát hiện lúc audit module Order)
 
 **Bối cảnh**: audit module Order phát hiện cron `orders:dispatch-scheduled`
