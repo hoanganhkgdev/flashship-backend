@@ -137,7 +137,6 @@ class OrderController extends Controller
             'cargo_note'       => 'nullable|string|max:500',
             'cargo_weight'     => 'nullable|numeric|min:0.1|max:999',
             'cod_amount'       => 'nullable|integer|min:0',
-            'scheduled_at'     => 'nullable|date',
             'voucher_code'     => 'nullable|string',
         ]);
 
@@ -174,41 +173,16 @@ class OrderController extends Controller
 
             $nightSurcharge = (int) ($pricing['night_surcharge'] ?? 0);
 
-            // Apply voucher
-            $voucherCode    = null;
-            $discountAmount = 0;
-            $isFreeship     = false;
-            $shippingFee    = $pricing['fee'];
-
-            if (!empty($data['voucher_code'])) {
-                $voucher = Voucher::where('code', strtoupper($data['voucher_code']))->first();
-                if ($voucher && $voucher->is_active
-                    && in_array($voucher->audience, ['all', 'shop'])
-                    && (!$voucher->user_id || $voucher->user_id == $user->id)
-                    && (!$voucher->expires_at || $voucher->expires_at->isFuture())
-                    && (!$voucher->usage_limit || $voucher->used_count < $voucher->usage_limit)
-                    && (!$voucher->per_user_limit || $voucher->usageCountByUser($user->id) < $voucher->per_user_limit)
-                    && (!$voucher->service_types || in_array('delivery', $voucher->service_types))
-                    && (!$voucher->city_id || $voucher->city_id == $user->city_id)
-                    && (!$voucher->min_order_value || $shippingFee >= $voucher->min_order_value)
-                ) {
-                    if ($voucher->type === 'freeship') {
-                        $discountAmount = $shippingFee;
-                        $isFreeship     = true;
-                    } elseif ($voucher->type === 'percent') {
-                        $discountAmount = (int) round($shippingFee * $voucher->value / 100);
-                    } else {
-                        $discountAmount = (int) $voucher->value;
-                    }
-                    if ($voucher->max_discount) {
-                        $discountAmount = min($discountAmount, $voucher->max_discount);
-                    }
-                    $discountAmount = min($discountAmount, $shippingFee);
-                    $shippingFee    = $shippingFee - $discountAmount;
-                    $voucherCode    = $voucher->code;
-                    $voucher->increment('used_count');
-                    $appliedVoucher = $voucher;
-                }
+            // Apply voucher — khoá + kiểm tra lại giới hạn bên trong transaction
+            // (xem tryApplyVoucher()) để 2 request gần như đồng thời không
+            // cùng pass điều kiện "còn lượt dùng" rồi cùng được áp voucher.
+            $applied        = $this->tryApplyVoucher($data['voucher_code'] ?? null, $user, $pricing['fee']);
+            $voucherCode    = $applied['code'] ?? null;
+            $discountAmount = $applied['discount_amount'] ?? 0;
+            $isFreeship     = $applied['is_freeship'] ?? false;
+            $shippingFee    = $pricing['fee'] - $discountAmount;
+            if ($applied) {
+                $appliedVoucher = $applied['voucher'];
             }
 
             $order = Order::create([
@@ -245,7 +219,6 @@ class OrderController extends Controller
                 'status'           => 'pending',
                 'platform'         => 'shop_app',
                 'sender_platform_id' => $user->id,
-                'scheduled_at'     => $data['scheduled_at'] ?? null,
             ]);
 
             if (isset($appliedVoucher)) {
@@ -346,41 +319,14 @@ class OrderController extends Controller
                 $totalFee += $pricing['fee'];
             }
 
-            // Apply voucher trên tổng phí
-            $voucherCode    = null;
-            $discountAmount = 0;
-            $isFreeship     = false;
-            $shippingFee    = $totalFee;
-
-            if (!empty($data['voucher_code'])) {
-                $voucher = Voucher::where('code', strtoupper($data['voucher_code']))->first();
-                if ($voucher && $voucher->is_active
-                    && in_array($voucher->audience, ['all', 'shop'])
-                    && (!$voucher->user_id || $voucher->user_id == $user->id)
-                    && (!$voucher->expires_at || $voucher->expires_at->isFuture())
-                    && (!$voucher->usage_limit || $voucher->used_count < $voucher->usage_limit)
-                    && (!$voucher->per_user_limit || $voucher->usageCountByUser($user->id) < $voucher->per_user_limit)
-                    && (!$voucher->service_types || in_array('delivery', $voucher->service_types))
-                    && (!$voucher->city_id || $voucher->city_id == $user->city_id)
-                    && (!$voucher->min_order_value || $shippingFee >= $voucher->min_order_value)
-                ) {
-                    if ($voucher->type === 'freeship') {
-                        $discountAmount = $shippingFee;
-                        $isFreeship     = true;
-                    } elseif ($voucher->type === 'percent') {
-                        $discountAmount = (int) round($shippingFee * $voucher->value / 100);
-                    } else {
-                        $discountAmount = (int) $voucher->value;
-                    }
-                    if ($voucher->max_discount) {
-                        $discountAmount = min($discountAmount, $voucher->max_discount);
-                    }
-                    $discountAmount = min($discountAmount, $shippingFee);
-                    $shippingFee    = $shippingFee - $discountAmount;
-                    $voucherCode    = $voucher->code;
-                    $voucher->increment('used_count');
-                    $appliedVoucher = $voucher;
-                }
+            // Apply voucher trên tổng phí — cùng cơ chế khoá atomic với store().
+            $applied        = $this->tryApplyVoucher($data['voucher_code'] ?? null, $user, $totalFee);
+            $voucherCode    = $applied['code'] ?? null;
+            $discountAmount = $applied['discount_amount'] ?? 0;
+            $isFreeship     = $applied['is_freeship'] ?? false;
+            $shippingFee    = $totalFee - $discountAmount;
+            if ($applied) {
+                $appliedVoucher = $applied['voucher'];
             }
 
             $firstStop = $stops[0];
@@ -447,6 +393,59 @@ class OrderController extends Controller
         }
     }
 
+    /**
+     * Khoá dòng voucher + kiểm tra lại toàn bộ điều kiện BÊN TRONG transaction
+     * trước khi increment used_count — nếu chỉ check-rồi-increment (như trước
+     * đây) thì 2 request gần như đồng thời (bấm tạo đơn 2 lần liên tiếp) đều
+     * đọc thấy "còn lượt dùng" trước khi cái nào kịp tăng used_count, có thể
+     * vượt usage_limit/per_user_limit.
+     *
+     * @return array{voucher: Voucher, code: string, discount_amount: int, is_freeship: bool}|null
+     */
+    private function tryApplyVoucher(?string $code, $user, int $shippingFee): ?array
+    {
+        if (empty($code)) {
+            return null;
+        }
+
+        return \DB::transaction(function () use ($code, $user, $shippingFee) {
+            $voucher = Voucher::where('code', strtoupper($code))->lockForUpdate()->first();
+
+            if (!$voucher || !$voucher->is_active
+                || !in_array($voucher->audience, ['all', 'shop'])
+                || ($voucher->user_id && $voucher->user_id != $user->id)
+                || ($voucher->expires_at && !$voucher->expires_at->isFuture())
+                || ($voucher->usage_limit && $voucher->used_count >= $voucher->usage_limit)
+                || ($voucher->per_user_limit && $voucher->usageCountByUser($user->id) >= $voucher->per_user_limit)
+                || ($voucher->service_types && !in_array('delivery', $voucher->service_types))
+                || ($voucher->city_id && $voucher->city_id != $user->city_id)
+                || ($voucher->min_order_value && $shippingFee < $voucher->min_order_value)
+            ) {
+                return null;
+            }
+
+            $isFreeship = $voucher->type === 'freeship';
+            $discountAmount = match ($voucher->type) {
+                'freeship' => $shippingFee,
+                'percent'  => (int) round($shippingFee * $voucher->value / 100),
+                default    => (int) $voucher->value,
+            };
+            if ($voucher->max_discount) {
+                $discountAmount = min($discountAmount, $voucher->max_discount);
+            }
+            $discountAmount = min($discountAmount, $shippingFee);
+
+            $voucher->increment('used_count');
+
+            return [
+                'voucher'         => $voucher,
+                'code'            => $voucher->code,
+                'discount_amount' => $discountAmount,
+                'is_freeship'     => $isFreeship,
+            ];
+        });
+    }
+
     public function deliverStop(string $code, int $seq, Request $request): JsonResponse
     {
         $order = Order::where('code', $code)
@@ -502,13 +501,21 @@ class OrderController extends Controller
         if (!$order) {
             return response()->json(['success' => false, 'message' => 'Không tìm thấy đơn hàng'], 404);
         }
-        if ($order->status !== 'pending') {
-            return response()->json(['success' => false, 'message' => 'Chỉ có thể hủy đơn khi chưa có tài xế nhận'], 400);
-        }
 
         $dispatchingDriverId = $order->dispatching_to_driver_id;
 
-        $order->update(['status' => 'cancelled']);
+        // Compare-and-swap: kiểm tra + đổi status='cancelled' atomic ngay
+        // trong 1 câu UPDATE, không đọc-rồi-ghi — tránh race với lúc dispatch
+        // vừa gán tài xế (status pending → assigned) giữa lúc check và update.
+        $updated = \DB::table('orders')
+            ->where('id', $order->id)
+            ->where('status', 'pending')
+            ->update(['status' => 'cancelled', 'updated_at' => now()]);
+
+        if (!$updated) {
+            return response()->json(['success' => false, 'message' => 'Chỉ có thể hủy đơn khi chưa có tài xế nhận'], 400);
+        }
+
         RTDBService::clearOrder($order->code);
 
         if ($dispatchingDriverId) {
@@ -597,7 +604,6 @@ class OrderController extends Controller
             'is_batch'          => (bool) $order->is_batch,
             'shop_service_type' => $order->shop_service_type ?? null,
             'stops'             => $order->stops ?? [],
-            'scheduled_at'     => $order->scheduled_at?->toIso8601String(),
             'created_at'       => $order->created_at->toIso8601String(),
             'completed_at'     => $order->completed_at?->toIso8601String(),
             // Toạ độ tài xế KHÔNG trả qua field này nữa — cột MySQL đã đông

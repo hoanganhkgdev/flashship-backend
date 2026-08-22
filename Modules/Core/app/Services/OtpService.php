@@ -4,6 +4,7 @@ namespace Modules\Core\Services;
 use App\Services\EsmsService;
 use App\Services\ZaloTokenService;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\RateLimiter;
 use Modules\Core\Models\PhoneOtp;
 
 class OtpService
@@ -73,8 +74,17 @@ class OtpService
         }
     }
 
+    // Trước đây không giới hạn số lần thử sai — OTP 6 số + endpoint verify ở
+    // 1 số nơi (register, forgot-password) không cần đăng nhập, dò được toàn
+    // bộ trong 10 phút hiệu lực nếu không khoá. Khoá theo phone+type, không
+    // theo IP, để không bị đổi IP bypass.
     public static function verify(string $phone, string $code, string $type = 'register'): bool
     {
+        $rateLimitKey = "otp-verify:{$type}:{$phone}";
+        if (RateLimiter::tooManyAttempts($rateLimitKey, 5)) {
+            return false;
+        }
+
         $otp = PhoneOtp::where('phone', $phone)
             ->where('otp', $code)
             ->where('type', $type)
@@ -82,8 +92,12 @@ class OtpService
             ->where('expires_at', '>', now())
             ->first();
 
-        if (!$otp) return false;
+        if (!$otp) {
+            RateLimiter::hit($rateLimitKey, 600);
+            return false;
+        }
 
+        RateLimiter::clear($rateLimitKey);
         $otp->update(['used' => true]);
         return true;
     }

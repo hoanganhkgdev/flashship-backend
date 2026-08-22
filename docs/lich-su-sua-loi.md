@@ -9,6 +9,256 @@ mục vào đây TRƯỚC khi coi là xong việc.
 
 ---
 
+## 2026-08-20 (i) — Backend: module Order — sửa completeOrder() farm tiền + phát hiện khoá Redis NX/EX chưa từng hoạt động
+
+**Bối cảnh**: audit module Order tìm 2 lỗi (completeOrder + gán tay thiếu
+khoá). Lúc tự viết test chức năng thật để verify fix "gán tay thiếu khoá",
+phát hiện thêm 1 lỗi nghiêm trọng hơn nằm ngoài phạm vi báo cáo ban đầu:
+toàn bộ cơ chế khoá Redis NX/EX dùng trong dispatch **chưa từng hoạt động**.
+
+**1. [Cao] `OrderService::completeOrder()` — tài xế accept xong bấm "hoàn thành" ngay, farm tiền không cần chạy đơn thật**
+Chỉ chặn `status='cancelled'`/`'completed'`, không ép qua `processing`
+trước như `updateOrderStatus()` đã làm chặt. Đơn lẻ vừa accept
+(`status='assigned'`) gọi thẳng complete là hợp lệ, được cộng tiền (phí
+ship, bù voucher, `bonus_fee`, thưởng mưa) ngay lập tức, khách nhận thông
+báo "giao thành công" giả. Đơn batch không bị ảnh hưởng (đã có chặn riêng).
+**Cách sửa**: `Modules/Order/app/Services/OrderService.php` — thêm nhánh
+`elseif (!in_array($order->status, ['processing','on_the_way']))` từ chối.
+**Sửa lại lần 2 cùng ngày**: bản đầu chỉ chấp nhận đúng `on_the_way`
+(theo đúng map cũ của `updateOrderStatus()`), nhưng user xác nhận app
+driver hiện tại đã **bỏ bước `on_the_way`** — verify qua log production
+(13896 lần chuyển `processing`, chỉ 190 lần `on_the_way` còn sót từ trước)
+→ đổi điều kiện chấp nhận cả `processing` lẫn `on_the_way`, khớp đúng flow
+thật (assigned→processing→completed).
+
+**2. [CAO — phát hiện khi tự test, không có trong báo cáo audit ban đầu] Khoá Redis NX/EX dùng sai thứ tự tham số, KHÔNG khoá được gì cả**
+3 chỗ dùng `Redis::set($key, $val, 'NX', 'EX', $ttl)` — trực giác theo cú
+pháp Redis CLI (`SET key val NX EX seconds`) nhưng chữ ký thật của
+`Illuminate\Redis\Connections\PhpRedisConnection::set()` là
+`(key, value, $expireResolution, $expireTTL, $flag)`, phải gọi đúng thứ tự
+`'EX', $ttl, 'NX'`. Gọi sai thứ tự khiến `$expireResolution='NX'` (truthy)
+→ build option `[$flag=$ttl, 'NX'=>'EX']` — mảng rác, phpredis không hiểu,
+âm thầm hạ cấp thành `SET key value` thường: KHÔNG NX (luôn ghi đè thành
+công dù key đã tồn tại), KHÔNG TTL (khoá dính vĩnh viễn nếu có TTL thật).
+Test trực tiếp xác nhận: gọi lần 2 với key đã tồn tại vẫn trả `true` (đè
+mất giá trị + TTL cũ) — khoá hoàn toàn vô tác dụng từ khi các dòng này
+được viết. Ảnh hưởng: `DispatchOfferSender::send()` (khoá tài xế khỏi bị
+2 dispatch offer cùng lúc), `DispatchService::scheduleRetryOrGiveUp()`
+(chống tích luỹ nhiều RetryJob cho cùng 1 đơn), và khoá mới viết ở
+`DispatchManualAssignment::assign()` — cả 3 đều không khoá thật. Tiền vẫn
+an toàn nhờ compare-and-swap ở tầng UPDATE đơn hàng (lớp phòng thủ độc
+lập), nhưng lớp chống double-offer/double-retry-job này đã vô hiệu từ đầu.
+**Cách sửa**: đổi cả 3 chỗ sang đúng thứ tự `'EX', $ttl, 'NX'`
+(`Modules/Order/app/Services/DispatchOfferSender.php`,
+`DispatchService.php`, `DispatchManualAssignment.php`).
+**Bài học**: audit đọc code không đủ để xác nhận 1 cơ chế khoá — PHẢI test
+hành vi thật (giữ khoá rồi gọi lại xem có bị chặn không), như cách đã làm
+với `lockForUpdate()` MySQL trước đó trong session. Sẽ rà thêm các chỗ
+khác trong codebase có dùng Redis lock NX/EX qua Laravel facade.
+
+**3. [Thấp] `DispatchManualAssignment::assign()` — đếm "tối đa 2 đơn active" thiếu khoá (đã gộp fix cùng lúc sửa lỗi #2)**
+Đếm rồi mới UPDATE, không khoá giữa 2 bước — tổng đài gán liên tiếp rất
+nhanh 2 đơn cho cùng tài xế có thể vượt giới hạn. **Cách sửa**: bọc trong
+lock Redis theo driver (chung key với luồng offer bình thường, dùng đúng
+thứ tự tham số đã sửa ở mục 2), release trong `finally`.
+
+**Trạng thái**: Đã sửa cả 3, verify `php -l` + `php artisan test` (9 pass)
++ test chức năng thật trên DB dev local (complete ngay sau accept bị từ
+chối đúng, complete khi on_the_way thành công; gán đơn khi lock đang giữ
+bị từ chối đúng, gán được sau khi lock giải phóng, lock tự giải phóng sau
+khi xong). Chưa deploy.
+
+**Bổ sung cùng ngày — dọn hẳn bước `on_the_way` khỏi flow (user xác nhận
+không dùng nữa)**:
+- `OrderService::updateOrderStatus()` — bỏ nhánh `'processing'=>'on_the_way'`
+  khỏi map `$allowed`, giờ chỉ còn `assigned=>processing`.
+- `Driver/OrderController::updateStatus()` — validate `status` thu hẹp còn
+  `in:processing` (trước đó `in:processing,on_the_way`).
+- `RemindDelayedDeliveryCommand` — **phát hiện thêm 1 tính năng đã âm thầm
+  chết**: lệnh nhắc tài xế sau 15 phút "đang giao" check `status='on_the_way'`,
+  nhưng vì không đơn nào còn đạt trạng thái đó nữa (đã bỏ bước này), lệnh
+  chưa từng nhắc được ai kể từ khi đổi flow. Sửa lại check `'processing'`
+  theo yêu cầu user (giữ tính năng nhắc, đổi đúng trạng thái cần theo dõi).
+- CHƯA đụng: ~9 chỗ khác liệt kê `on_the_way` trong danh sách "đơn đang bận"
+  (`whereIn('status', [...])` ở DispatchCandidateFinder, DispatchOfferSender,
+  DispatchManualAssignment, thống kê Shop, NearbyDriversController, vài
+  trang panel Admin) — vô hại vì không đơn nào còn khớp giá trị đó, chỉ là
+  liệt kê thừa, không cần dọn ngay.
+- Verify: `php -l` + `php artisan test` (9 pass) + test chức năng thật
+  (assigned→processing OK, processing→on_the_way bị từ chối đúng, complete
+  từ processing thành công).
+
+---
+
+## 2026-08-20 (j) — Backend: module Pricing — subadmin sửa được bảng giá toàn hệ thống qua API (bỏ sót khi audit Admin)
+
+**Bối cảnh**: audit Admin (2026-08-20 (b), mục 2) đã chặn subadmin sửa giá
+qua Filament (`PricingResource`/`ShopPricingResource`, trait
+`RestrictToFullAdmin`) nhưng bỏ sót 1 cửa vào khác: `Modules\Admin\Http\
+Controllers\PricingAdminController` — bộ API REST riêng, không qua Filament,
+route trong group `user_type:admin,subadmin` → subadmin vẫn `PUT
+/admin/pricing/{serviceType}`/`PATCH .../toggle` sửa/bật-tắt giá bất kỳ
+dịch vụ/thành phố nào, bypass hoàn toàn giới hạn vừa thêm.
+
+**Cách sửa**: `Modules/Admin/routes/api.php` — bọc riêng 2 route
+`update`/`toggle` trong `Route::middleware('user_type:admin')`, lồng bên
+trong group `user_type:admin,subadmin` đã có (đọc — index/preview/show —
+vẫn cho cả 2 loại, chỉ SỬA mới chặn subadmin).
+**Trạng thái**: Đã sửa, verify `php -l` + `route:list -v` (middleware stack
+đúng 2 lớp) + test tinker gọi trực tiếp `EnsureUserType::handle()` (subadmin
+403, admin qua được). Chưa deploy.
+
+**Đã hỏi user 2 việc còn lại**:
+- `GET /api/pricing/configs` public không cần đăng nhập — **giữ nguyên**,
+  chủ ý (app cần hiện giá tham khảo trước khi đăng nhập/onboarding, không
+  phải dữ liệu nhạy cảm).
+- `Modules/Pricing/routes/web.php` (scaffold chết) — **đã xoá**, thay bằng
+  comment giải thích. Verify `php -l` + `route:list --path=pricings` (chỉ
+  còn route Filament thật) + `php artisan test` (9 pass).
+
+---
+
+## 2026-08-20 (k) — Backend: module Customer — lỗ hổng `user_type` giống Admin/Driver/Shop
+
+**Bối cảnh**: bắt đầu audit module Customer theo yêu cầu user ("module
+customer đi"), cùng pattern module-by-module đã làm với Admin/Driver/Shop.
+
+**1. [Cao] `Modules/Customer/routes/api.php` — mọi user đã đăng nhập gọi được API customer**
+2 group middleware (`/auth` con — profile/logout/đổi mật khẩu..., và group
+chính — pricing/địa chỉ/đơn hàng/voucher/thông báo) chỉ có `auth:sanctum`.
+Driver/shop đăng nhập vẫn gọi được nguyên vẹn API customer bằng token của
+họ. Cùng lỗ hổng đã sửa cho 3 module trước.
+**Cách sửa**: thêm `user_type:customer` vào cả 2 group. Verify: `php -l`,
+`route:list --path=api/customer` (33 route vẫn đủ), `route:list -v` xác
+nhận middleware stack đúng thứ tự.
+**Trạng thái**: Đã sửa, đã verify code-level. Chưa deploy.
+
+---
+
+## 2026-08-20 (l) — Backend: module Core — lỗ hổng `user_type` ở endpoint /auth/* gốc (khác Modules/Driver), có thể giả mạo Firebase UID driver
+
+**Bối cảnh**: bắt đầu audit module Core song song lúc chờ audit Customer.
+`Modules/Core/routes/api.php` hoá ra là entry-point auth GỐC của app driver
+(`/api/auth/login`, `/me`, `/logout`, `/firebase-token`) — khác hẳn
+`Modules/Driver/routes/api.php` (`/api/driver/*`) đã sửa trước đó, không
+trùng file, chưa từng được rà.
+
+**[Cao] `/auth/me`, `/auth/logout`, `/auth/firebase-token` chỉ có `auth:sanctum`+`driver.active`, không kiểm tra `user_type`**
+`EnsureDriverAccountActive` chỉ check `status`/`delete_requested_at`, không
+check loại tài khoản. `/auth/firebase-token` cấp Firebase custom auth token
+với UID `"driver_{id_của_caller}_{device_id}"` — 1 tài khoản customer/shop
+đăng nhập gọi được endpoint này, lấy ra token Firebase hợp lệ đứng tên UID
+`driver_{id_của_chính_họ}`. Vì customer/driver/shop dùng chung 1 bảng
+`users` (chung dải id), nếu id đó trùng với 1 driver thật, Security Rules
+Firebase (thường cho phép UID `driver_{id}` ghi `/locations/driver_{id}`)
+có thể bị lợi dụng để ghi đè GPS của driver thật đó.
+**Cách sửa**: thêm `user_type:driver` vào group middleware (cùng
+`EnsureUserType` đã tạo, cùng lỗ hổng hệ thống đã sửa cho 4 module khác).
+**Trạng thái**: Đã sửa, verify `php -l` + `route:list -v` (middleware đúng)
++ `php artisan test` (9 pass). Chưa deploy. Chưa audit hết Core (còn
+FCMService/RTDBService/GoogleMapService/RainModeAutoOffCommand/CoreController/
+models chưa rà) — sẽ tiếp tục.
+
+---
+
+## 2026-08-20 (h) — Backend: xoá tính năng đơn đặt lịch (chưa từng dùng, phát hiện lúc audit module Order)
+
+**Bối cảnh**: audit module Order phát hiện cron `orders:dispatch-scheduled`
+thiếu `withoutOverlapping()` (có thể double-offer nếu chồng cron). Hỏi lại
+thì user xác nhận tính năng đặt lịch hiện KHÔNG dùng → xoá hẳn thay vì vá,
+đỡ phải bảo trì code chết. Kiểm tra DB prod trước khi xoá: 16543 đơn, 0 đơn
+có `scheduled_at` — xác nhận chưa từng dùng thật.
+
+**Đã xoá**: file lệnh `Modules/Order/app/Console/Commands/DispatchScheduledOrders.php`,
+đăng ký lệnh + lịch chạy trong `OrderServiceProvider.php`, field `scheduled_at`
+ở validate/create/format của `Shop\OrderController::store()` và
+`Customer\OrderController::store()`.
+
+**CHƯA xoá (cố ý)**: cột `orders.scheduled_at` trong DB — giữ lại, không
+drop migration, vì thao tác đổi schema production khó đảo ngược hơn nhiều
+so với lợi ích (cột NULL không dùng không tốn gì đáng kể). Cân nhắc drop
+sau nếu cần dọn hẳn.
+
+**Trạng thái**: Đã sửa, verify `php -l` + `php artisan test` (9 pass) +
+`module:list` (module Order vẫn boot bình thường). Chưa deploy.
+
+---
+
+## 2026-08-20 (g) — Backend: vá lỗ hổng chiếm tài khoản qua brute-force OTP + toàn hệ thống không rate-limit + 2 lỗi race Shop
+
+**Bối cảnh**: audit module Shop phát hiện `resetPassword` (API công khai,
+không cần đăng nhập) không giới hạn số lần thử sai OTP 6 số — kiểm tra sâu
+hơn phát hiện gốc rễ rộng hơn: **toàn bộ API mọi module không có rate-limit
+theo request nào cả** (kể cả login mật khẩu).
+
+**1. [Cao] Không rate-limit API — brute-force login/OTP không giới hạn tốc độ**
+`bootstrap/app.php` chưa từng gọi `throttleApi()`, `RateLimiter::for('api', ...)`
+cũng chưa đăng ký ở đâu → middleware group `api` không có `throttle:` nào.
+**Cách sửa**: đăng ký limiter `'api'` (120 req/phút theo user hoặc IP) ở
+`AppServiceProvider::boot()`, bật `$middleware->throttleApi()` ở
+`bootstrap/app.php`. Áp dụng cho MỌI route mọi module (Admin/Driver/Shop/
+Customer), không chỉ Shop.
+
+**2. [Cao] OTP không giới hạn số lần thử sai — chiếm tài khoản shop/customer bất kỳ chỉ cần biết SĐT**
+`Modules/Core/app/Services/OtpService::verify()` (dùng bởi Driver +
+`Core\AuthController`) và `Modules/Customer/app/Services/OtpService::verify()`
+(dùng bởi Shop + Customer) chỉ so khớp mã, không đếm/khoá số lần sai. OTP 6
+số × không giới hạn thử × không throttle request = brute-force được trong
+10 phút hiệu lực. Nghiêm trọng hơn lỗi OTP Thấp đã sửa ở Driver hôm nay vì
+`resetPassword`/`verifyOtpAndRegister` là API **công khai, không cần token**.
+**Cách sửa**: `RateLimiter` khoá 5 lần sai/10 phút theo `phone+type` (không
+theo IP, tránh bị bypass bằng đổi IP) ở CẢ 2 file `OtpService::verify()`.
+
+**3. [Trung bình] `Shop\OrderController::store()`/`storeBatch()` — voucher vượt giới hạn dùng khi bấm 2 lần liên tiếp**
+Check `usageCountByUser < per_user_limit` rồi mới `increment('used_count')`
+— không khoá, 2 request gần như đồng thời cùng pass điều kiện trước khi cái
+nào kịp tăng. **Cách sửa**: gộp thành `tryApplyVoucher()` — khoá dòng voucher
+(`lockForUpdate`) + kiểm tra lại toàn bộ điều kiện bên trong transaction
+trước khi increment, dùng chung cho cả `store()` và `storeBatch()`.
+
+**4. [Trung bình] `Shop\OrderController::cancel()` — race với lúc tài xế vừa nhận đơn**
+Đọc `status !== 'pending'` rồi mới update, không khoá — có thể race với
+dispatch job đang gán tài xế đúng lúc đó. **Cách sửa**: đổi thành
+compare-and-swap 1 câu `UPDATE ... WHERE status='pending'`, đọc số dòng ảnh
+hưởng thay vì đọc-rồi-ghi.
+
+**5. [Thấp] `Shop\VoucherController::index()` lọc voucher sai logic so với `validate()`**
+Dùng exact-match `where('city_id', ...)`/`where('user_id', ...)` — ẩn mất
+voucher broadcast (`city_id`/`user_id` NULL = áp dụng mọi nơi/mọi người),
+lệch với `validate()` vốn chấp nhận NULL. **Cách sửa**: đổi sang scope có
+sẵn trên model (`forCity`/`forAudience`/`forUser`, đã NULL-inclusive đúng).
+
+**6. [Thấp] `Shop\ShopAddressController::update()` — UPDATE cuối thiếu `where shop_user_id` (chưa khai thác được, chỉ là footgun)**
+Có SELECT xác minh chủ sở hữu trước nên hiện KHÔNG phải IDOR thật, nhưng
+câu UPDATE cuối không tự đứng vững nếu code sau này tách rời 2 bước. **Cách
+sửa**: thêm lại `where('shop_user_id', ...)` vào chính câu UPDATE.
+
+**Trạng thái**: Đã sửa cả 6, verify `php -l` + `php artisan test` (9 test
+pass) + tinker (limiter `api` 120/phút đã đăng ký, khoá OTP đúng sau 5 lần
+sai, verify đúng mã vẫn qua bình thường khi chưa khoá). Chưa deploy.
+
+---
+
+## 2026-08-20 (f) — Backend: module Shop — lỗ hổng `user_type` giống Admin/Driver
+
+**Bối cảnh**: bắt đầu audit module Shop theo yêu cầu user ("làm shop đi"),
+đã ghi nhận nghi vấn từ lúc audit Admin (Shop/Customer khả năng dính cùng lỗ
+hổng, chưa xác nhận).
+
+**1. [Cao] `Modules/Shop/routes/api.php` — mọi user đã đăng nhập gọi được API shop**
+2 group middleware (`/auth` con — profile/logout/đổi mật khẩu/thiết bị...,
+và group chính — pricing/địa chỉ/thông báo/voucher/đơn hàng) chỉ có
+`auth:sanctum`, không kiểm tra `user_type`. Driver/customer đăng nhập vẫn
+gọi được nguyên vẹn API shop (tạo đơn, xem đơn, đổi mật khẩu shop...) bằng
+token của chính họ. Xác nhận đúng cùng lỗ hổng đã sửa cho Admin/Driver.
+**Cách sửa**: thêm `user_type:shop` vào cả 2 group, dùng lại
+`EnsureUserType` đã tạo trước đó. Verify: `php -l`, `route:list --path=api/shop`
+(38 route vẫn đăng ký đủ), `route:list -v` xác nhận middleware stack đúng
+thứ tự (`TrackShopEvent` → `Authenticate:sanctum` → `EnsureUserType:shop`).
+**Trạng thái**: Đã sửa, đã verify code-level. Chưa deploy.
+
+---
+
 ## 2026-08-20 (e) — Backend: mở lại quyền xem bản đồ tài xế cho tổng đài (call_center)
 
 **Bối cảnh**: audit pass 2 Admin (mục (b) bên dưới) từng chặn hẳn

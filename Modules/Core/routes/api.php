@@ -21,7 +21,14 @@ Route::prefix('auth')->group(function () {
     Route::post('/forgot-password',       [AuthController::class, 'forgotPassword']);
     Route::post('/reset-password',        [AuthController::class, 'resetPassword']);
 
-    Route::middleware(['auth:sanctum', 'driver.active'])->group(function () {
+    // auth:sanctum + driver.active KHÔNG kiểm tra user_type — customer/shop
+    // đăng nhập vẫn gọi được /auth/firebase-token bằng token của họ, lấy ra
+    // 1 Firebase custom auth token hợp lệ với UID "driver_{id_của_họ}_..."
+    // — nếu id đó trùng với 1 driver thật (cùng bảng users, id share chung
+    // dải số), Firebase Security Rules (cho phép UID driver_{id} ghi vào
+    // /locations/driver_{id}) có thể bị lợi dụng để ghi đè GPS của driver
+    // thật. Cùng lỗ hổng hệ thống đã sửa cho 4 module khác (2026-08-20).
+    Route::middleware(['auth:sanctum', 'driver.active', 'user_type:driver'])->group(function () {
         Route::get('/me',             [AuthController::class, 'me']);
         Route::post('/logout',        [AuthController::class, 'logout']);
         Route::post('/firebase-token', [AuthController::class, 'firebaseToken']);

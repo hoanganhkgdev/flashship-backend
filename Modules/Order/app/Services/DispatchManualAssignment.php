@@ -43,26 +43,40 @@ class DispatchManualAssignment
             return ['success' => false, 'message' => "Tài xế {$driver->name} chưa có bằng lái ô tô."];
         }
 
-        $activeCount = Order::where('delivery_man_id', $driver->id)
-            ->whereIn('status', ['assigned', 'processing', 'on_the_way'])
-            ->count();
-        if ($activeCount >= 2) {
-            return ['success' => false, 'message' => "Tài xế {$driver->name} đang chạy {$activeCount} đơn, không nhận thêm được."];
+        // Khoá theo driver (chung key với luồng offer bình thường,
+        // DispatchOfferSender::send()) trong lúc đếm + gán — nếu không, 2
+        // tổng đài (hoặc bấm 2 lần rất nhanh) gán liên tiếp 2 đơn khác nhau
+        // cho cùng 1 tài xế có thể cùng đọc thấy activeCount cũ (chưa thấy
+        // đơn kia) và cùng pass, vượt quá giới hạn 2 đơn active.
+        $lockKey = "dispatch:lock:driver:{$driver->id}";
+        if (!Redis::set($lockKey, $order->id, 'EX', 10, 'NX')) {
+            return ['success' => false, 'message' => "Tài xế {$driver->name} đang được xử lý gán đơn khác, thử lại sau."];
         }
 
-        $now      = now();
-        $affected = DB::table('orders')
-            ->where('id', $order->id)
-            ->where('status', 'pending')
-            ->update([
-                'status'                   => 'assigned',
-                'delivery_man_id'          => $driver->id,
-                'dispatching_to_driver_id' => null,
-                'updated_at'               => $now,
-            ]);
+        try {
+            $activeCount = Order::where('delivery_man_id', $driver->id)
+                ->whereIn('status', ['assigned', 'processing', 'on_the_way'])
+                ->count();
+            if ($activeCount >= 2) {
+                return ['success' => false, 'message' => "Tài xế {$driver->name} đang chạy {$activeCount} đơn, không nhận thêm được."];
+            }
 
-        if (!$affected) {
-            return ['success' => false, 'message' => 'Đơn không còn ở trạng thái chờ (có thể vừa được xử lý).'];
+            $now      = now();
+            $affected = DB::table('orders')
+                ->where('id', $order->id)
+                ->where('status', 'pending')
+                ->update([
+                    'status'                   => 'assigned',
+                    'delivery_man_id'          => $driver->id,
+                    'dispatching_to_driver_id' => null,
+                    'updated_at'               => $now,
+                ]);
+
+            if (!$affected) {
+                return ['success' => false, 'message' => 'Đơn không còn ở trạng thái chờ (có thể vừa được xử lý).'];
+            }
+        } finally {
+            Redis::del($lockKey);
         }
 
         // Chụp lại NGAY LÚC GÁN xem thành phố có đang bật chế độ trời mưa
@@ -84,7 +98,6 @@ class DispatchManualAssignment
             'updated_at'   => $now,
         ]);
 
-        Redis::del("dispatch:lock:driver:{$driver->id}");
         DB::table('users')->where('id', $driver->id)->update([
             'last_order_accepted_at' => $now,
         ]);

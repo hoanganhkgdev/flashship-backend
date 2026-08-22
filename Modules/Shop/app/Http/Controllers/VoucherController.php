@@ -12,10 +12,14 @@ class VoucherController extends Controller
     {
         $user = $request->user();
 
+        // Trước đây where('city_id', ...)/('user_id', ...) exact-match làm ẩn
+        // mất voucher broadcast (city_id/user_id NULL = áp dụng mọi nơi/mọi
+        // người) — lệch với logic thật ở validate() bên dưới (chấp nhận NULL).
+        // Dùng lại đúng scope NULL-inclusive có sẵn trên model.
         $vouchers = Voucher::available()
-            ->where('city_id', $user->city_id)
-            ->where('audience', 'shop')
-            ->where('user_id', $user->id)
+            ->forCity($user->city_id)
+            ->forAudience('shop')
+            ->forUser($user->id)
             ->orderBy('expires_at')
             ->get()
             ->map(fn (Voucher $v) => [

@@ -16,6 +16,10 @@ return Application::configure(basePath: dirname(__DIR__))
             'driver.active' => \App\Http\Middleware\EnsureDriverAccountActive::class,
             'user_type'     => \App\Http\Middleware\EnsureUserType::class,
         ]);
+
+        // Trước đây toàn bộ API không throttle theo request — bật lại giới
+        // hạn mặc định của Laravel (limiter 'api' đăng ký ở AppServiceProvider).
+        $middleware->throttleApi();
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         //

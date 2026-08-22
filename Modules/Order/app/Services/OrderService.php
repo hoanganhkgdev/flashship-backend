@@ -250,7 +250,9 @@ class OrderService
 
     public function updateOrderStatus(Order $order, User $user, string $status): array
     {
-        $allowed = ['assigned' => 'processing', 'processing' => 'on_the_way'];
+        // Đã bỏ bước on_the_way — flow giờ chỉ còn assigned→processing rồi
+        // hoàn thành thẳng qua completeOrder() (xem điều kiện ở đó).
+        $allowed = ['assigned' => 'processing'];
 
         if ((int) $order->delivery_man_id !== (int) $user->id) {
             return ['success' => false, 'message' => 'Bạn không có quyền cập nhật đơn này.', 'status' => 403];
@@ -312,6 +314,17 @@ class OrderService
             if (!$allDelivered) {
                 return ['success' => false, 'message' => 'Đơn gộp cần giao hết các điểm trước khi hoàn thành.', 'status' => 400];
             }
+        } elseif (!in_array($order->status, ['processing', 'on_the_way'], true)) {
+            // Trước đây chỉ chặn cancelled/completed — tài xế accept xong
+            // (status='assigned') gọi thẳng complete là hợp lệ, bỏ qua hẳn
+            // bước lấy hàng (processing) mà vẫn được cộng tiền (phí ship, bù
+            // voucher, bonus_fee, thưởng mưa) ngay lập tức — farm tiền không
+            // cần chạy đơn thật. Chấp nhận cả 'processing' lẫn 'on_the_way':
+            // flow thật hiện tại của app driver dừng ở processing rồi hoàn
+            // thành thẳng, không còn dùng bước on_the_way nữa (xác nhận qua
+            // log production 2026-08-20 — 13896 lần chuyển processing, chỉ
+            // 190 lần on_the_way, còn sót từ trước khi bỏ bước này).
+            return ['success' => false, 'message' => 'Đơn hàng cần đang lấy/giao hàng mới hoàn thành được.', 'status' => 400];
         }
 
         // Atomic update — chỉ tiếp tục nếu row thực sự được update (tránh race condition)

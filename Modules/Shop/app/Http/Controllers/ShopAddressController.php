@@ -100,8 +100,12 @@ class ShopAddressController extends Controller
             'lng'     => 'nullable|numeric',
         ]);
 
+        // where shop_user_id lại lần nữa dù đã SELECT xác minh chủ sở hữu ở
+        // trên — không phụ thuộc 2 bước luôn đi liền nhau, tránh IDOR nếu
+        // code sau này refactor tách rời việc kiểm tra quyền khỏi câu UPDATE.
         DB::table('shop_addresses')
             ->where('id', $id)
+            ->where('shop_user_id', $request->user()->id)
             ->update(array_merge($data, ['updated_at' => now()]));
 
         return response()->json(['success' => true, 'message' => 'Đã cập nhật địa chỉ']);

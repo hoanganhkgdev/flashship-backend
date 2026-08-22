@@ -18,7 +18,9 @@ Route::prefix('shop')->middleware(TrackShopEvent::class)->group(function () {
         Route::post('/reset-password',      [AuthController::class, 'resetPassword']);
         Route::post('/login',               [AuthController::class, 'login']);
 
-        Route::middleware('auth:sanctum')->group(function () {
+        // auth:sanctum không tự kiểm tra user_type — cùng lỗ hổng đã sửa cho
+        // module Admin/Driver (2026-08-20), dùng lại middleware user_type.
+        Route::middleware(['auth:sanctum', 'user_type:shop'])->group(function () {
             Route::get('/me',           [AuthController::class, 'me']);
             Route::post('/logout',      [AuthController::class, 'logout']);
             Route::patch('/profile',    [AuthController::class, 'updateProfile']);
@@ -36,7 +38,7 @@ Route::prefix('shop')->middleware(TrackShopEvent::class)->group(function () {
         });
     });
 
-    Route::middleware('auth:sanctum')->group(function () {
+    Route::middleware(['auth:sanctum', 'user_type:shop'])->group(function () {
         Route::get('/pricing/estimate',       [PricingController::class, 'estimate']);
         Route::post('/pricing/estimate-batch', [PricingController::class, 'estimateBatch']);
 

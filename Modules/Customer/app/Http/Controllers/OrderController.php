@@ -49,7 +49,6 @@ class OrderController extends Controller
             'order_note'       => 'nullable|string',
             'store_name'       => 'nullable|string',
             'cod_amount'       => 'nullable|integer|min:0',
-            'scheduled_at'     => 'nullable|date',
             'topup_amount'     => 'nullable|integer|min:1000',
             'stop_count'       => 'nullable|integer|min:1|max:5',
             'voucher_code'        => 'nullable|string|max:32',
@@ -185,7 +184,6 @@ class OrderController extends Controller
                 'status'           => 'pending',
                 'platform'         => 'customer_app',
                 'sender_platform_id' => $user->id,
-                'scheduled_at'     => $data['scheduled_at'] ?? null,
             ]);
 
             if (isset($appliedVoucher)) {
@@ -322,7 +320,6 @@ class OrderController extends Controller
             'discount_amount'  => $order->discount_amount,
             'night_surcharge'  => $order->night_surcharge ?? 0,
             'driver_rating'    => $order->driver_rating,
-            'scheduled_at'     => $order->scheduled_at?->toIso8601String(),
             'created_at'       => $order->created_at->toIso8601String(),
             // Toạ độ tài xế KHÔNG trả qua field này nữa — cột MySQL đã đông
             // cứng vĩnh viễn từ khi bỏ cron sync GPS. Nguồn duy nhất là

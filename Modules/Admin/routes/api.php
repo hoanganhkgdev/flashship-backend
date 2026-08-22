@@ -19,12 +19,17 @@ Route::prefix('admin')->group(function () {
         Route::post('/orders/{id}/assign',  [AdminController::class, 'assignDriver']);
         Route::get('/drivers',              [AdminController::class, 'drivers']);
 
-        // Bảng giá
+        // Bảng giá — xem thì admin+subadmin đều được, nhưng SỬA/BẬT-TẮT chỉ
+        // admin-full (đồng bộ đúng giới hạn đã áp cho PricingResource/
+        // ShopPricingResource ở panel Filament — subadmin phá giá toàn hệ
+        // thống qua API này trước đây bị bỏ sót, không đồng bộ với fix đó).
         Route::get('/pricing',                              [PricingAdminController::class, 'index']);
         Route::get('/pricing/preview',                      [PricingAdminController::class, 'preview']);
         Route::get('/pricing/{serviceType}',                [PricingAdminController::class, 'show']);
-        Route::put('/pricing/{serviceType}',                [PricingAdminController::class, 'update']);
-        Route::patch('/pricing/{serviceType}/toggle',       [PricingAdminController::class, 'toggle']);
+        Route::middleware('user_type:admin')->group(function () {
+            Route::put('/pricing/{serviceType}',            [PricingAdminController::class, 'update']);
+            Route::patch('/pricing/{serviceType}/toggle',   [PricingAdminController::class, 'toggle']);
+        });
 
         // Bằng lái ô tô
         Route::get('/car-licenses',                          [PricingAdminController::class, 'carLicenses']);

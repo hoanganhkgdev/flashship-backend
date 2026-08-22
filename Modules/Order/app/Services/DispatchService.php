@@ -256,8 +256,11 @@ class DispatchService
             }
         }
 
-        // Chống tích lũy RetryJob: chỉ schedule 1 retry tại 1 thời điểm
-        if (!Redis::set($this->retryKey($order->id), 1, 'NX', 'EX', 20)) {
+        // Chống tích lũy RetryJob: chỉ schedule 1 retry tại 1 thời điểm. Thứ
+        // tự tham số 'EX', giây, 'NX' — xem chú thích chi tiết ở
+        // DispatchOfferSender::send() (thứ tự 'NX','EX',giây trực giác nhưng
+        // sai chữ ký thật, khoá không hoạt động).
+        if (!Redis::set($this->retryKey($order->id), 1, 'EX', 20, 'NX')) {
             Log::debug("╟── [Dispatch] Đơn #{$order->id}: Retry đã được lên lịch, bỏ qua");
             return;
         }

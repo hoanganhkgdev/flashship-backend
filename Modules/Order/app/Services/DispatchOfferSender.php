@@ -39,9 +39,16 @@ class DispatchOfferSender
      */
     public function send(Order $order, User $driver): bool
     {
-        // Lock tài xế — chặn 2 dispatch gán cùng lúc
+        // Lock tài xế — chặn 2 dispatch gán cùng lúc. LƯU Ý thứ tự tham số:
+        // chữ ký thật của Illuminate\Redis\Connections\PhpRedisConnection::set()
+        // là (key, value, $expireResolution, $expireTTL, $flag) — phải truyền
+        // 'EX', giây, 'NX' ĐÚNG THỨ TỰ NÀY. Gọi 'NX','EX',giây (thứ tự trực
+        // giác theo cú pháp Redis CLI) bị hiểu sai thành $expireResolution='NX'/
+        // $expireTTL='EX'/$flag=giây → build options rác, lock KHÔNG khoá được
+        // gì cả (mọi request đều "acquire" thành công, ghi đè, mất luôn TTL) —
+        // phát hiện khi tự verify chức năng thật (không phải chỉ đọc code).
         $lockKey = "dispatch:lock:driver:{$driver->id}";
-        if (!Redis::set($lockKey, $order->id, 'NX', 'EX', 60)) {
+        if (!Redis::set($lockKey, $order->id, 'EX', 60, 'NX')) {
             Log::debug("│  Skip #{$driver->id} {$driver->name}: đang nhận offer từ dispatch khác");
             return false;
         }
