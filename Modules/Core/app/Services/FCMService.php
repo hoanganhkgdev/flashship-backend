@@ -104,6 +104,15 @@ class FCMService
                         ],
                         'sound'             => 'order_offer.aiff',
                         'content-available' => 1,
+                        // App (bản 10.0.12) đã có entitlement Time Sensitive
+                        // nhưng entitlement không TỰ áp dụng — mỗi payload
+                        // APNs phải tự khai interruption-level thì iOS mới
+                        // thực sự vượt Chế độ Tập trung/Lái xe. Thiếu key
+                        // này (bỏ sót lúc sửa đợt 12/08, chỉ set phía Dart
+                        // cho thông báo hiển thị lúc app đang mở) khiến
+                        // thông báo lúc app nền/bị tắt — đúng lúc cần Time
+                        // Sensitive nhất — vẫn bị chặn như thông báo thường.
+                        'interruption-level' => 'time-sensitive',
                     ]],
                 ]));
             $this->sendWithRetry(fn (self $fcm) => $fcm->messaging->send($message));

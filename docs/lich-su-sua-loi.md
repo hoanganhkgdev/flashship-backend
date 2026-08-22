@@ -205,6 +205,42 @@ assigned bị chặn 422 và user không bị xoá oan). Chưa deploy.
 
 ---
 
+## 2026-08-22 (b) — Backend: thiếu `interruption-level` trong payload APNs — Time Sensitive không thực sự hoạt động khi app nền/tắt
+
+**Bối cảnh**: tài xế Huỳnh Vỉnh Xuyên (#542, iOS, bản 10.0.12 — đã có fix
+đợt 12/08) báo mất 3 offer liên tiếp, bị trừ điểm `offer_unviewed_x3`.
+Backend xác nhận FCM + RTDB đều gửi thành công cho cả 3 lần — không phải
+bug dispatch. Đối chiếu code app driver hiện tại: cả 5 fix đợt 12/08 (flag
+kẹt, entitlement Time Sensitive, điều hướng khi bấm thông báo...) đều có
+mặt đầy đủ trong bản đang chạy. Đào sâu thêm phát hiện lỗ hổng KHÁC, sót
+lại từ chính đợt fix đó.
+
+**Nguyên nhân gốc**: `Runner.entitlements` có đúng key
+`com.apple.developer.usernotifications.time-sensitive` (cấp QUYỀN dùng Time
+Sensitive), và Dart code (`notification_service.dart:180`) có set
+`interruptionLevel: timeSensitive` — nhưng chỉ áp dụng cho thông báo hiển
+thị bằng `flutter_local_notifications` lúc app đang MỞ (`onMessage`
+listener). Lúc app **nền hoặc bị hệ điều hành tắt hẳn** — đúng lúc tài xế
+khoá màn hình lái xe, cần Time Sensitive nhất để vượt Chế độ Tập
+trung/Lái xe — iOS hiển thị thẳng từ payload APNs thô do BACKEND gửi, không
+qua Dart nữa. `Modules/Core/app/Services/FCMService.php::sendDriverWakeUp()`
+(payload `aps` gửi cho thông báo "Có đơn hàng mới!") **chưa từng có key
+`interruption-level: time-sensitive`** — có entitlement không tự động áp
+dụng, mỗi payload phải tự khai. Thiếu key này, APNs coi là thông báo thường,
+bị Chế độ Tập trung/Lái xe/Không làm phiền chặn im lặng — tài xế mất thông
+báo dù app "còn sống" theo GPS, giống hệt triệu chứng tưởng đã sửa hồi
+12/08 nhưng thực ra do 1 nguyên nhân khác trong cùng nhóm bug.
+
+**Cách sửa**: thêm `'interruption-level' => 'time-sensitive'` vào payload
+`aps` của `sendDriverWakeUp()`.
+**Trạng thái**: Đã sửa, verify `php -l` + `php artisan test` (9 pass) + xây
+thử `CloudMessage` qua Kreait SDK xác nhận payload JSON đúng key. Chưa
+deploy. **CHƯA xử lý**: 2 điểm bị trừ oan của Vĩnh Xuyên hôm nay — chờ
+quyết định user (đã từng có tiền lệ 172 điểm oan hồi 12/08 cũng chưa xử
+lý, có thể gộp chung 1 lần).
+
+---
+
 ## 2026-08-20 (h) — Backend: xoá tính năng đơn đặt lịch (chưa từng dùng, phát hiện lúc audit module Order)
 
 **Bối cảnh**: audit module Order phát hiện cron `orders:dispatch-scheduled`
