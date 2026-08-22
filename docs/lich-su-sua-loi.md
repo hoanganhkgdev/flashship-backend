@@ -9,6 +9,46 @@ mục vào đây TRƯỚC khi coi là xong việc.
 
 ---
 
+## 2026-08-22 (c) — Backend: bỏ fix sai của Codex (không bắt đúng ca thật + xoá test suite), viết lại miễn trừ điểm bằng GPS-tươi
+
+**Bối cảnh**: sau khi tôi sửa xong thiếu `interruption-level` (mục (b) dưới)
+và hoàn 2 điểm cho Vĩnh Xuyên, user hỏi về 1 fix khác đã có sẵn trong repo
+— hoá ra Codex (công cụ AI khác) đã tự commit thẳng lên `main`
+(`cd918d3 "Prevent score penalties after FCM offer failures"`) mà chưa ai
+biết, đã push lên remote nhưng CHƯA deploy VPS.
+
+**Phát hiện 2 vấn đề khi soát lại commit đó**:
+
+1. **Logic sai mục tiêu**: chỉ set cờ miễn trừ khi `sendDriverWakeUp()` NÉM
+   EXCEPTION (lỗi gọi Firebase API thất bại hẳn). Nhưng ca thật của Vĩnh
+   Xuyên, log ghi rõ "FCM wake-up gửi thành công" — không hề có exception,
+   Firebase nhận request bình thường, chỉ là iOS không hiển thị được do
+   thiếu `interruption-level` (đã sửa riêng ở mục (b)). Với logic của
+   Codex, đúng ca thật vẫn bị trừ điểm y như cũ — fix không giải quyết đúng
+   vấn đề đã báo cáo.
+2. **Xoá toàn bộ bộ test tự động**: `phpunit.xml`, `tests/TestCase.php`,
+   2 `ExampleTest`, và đặc biệt `ScoreAndWalletRaceConditionTest.php` (bộ
+   test race condition dựng công phu 19/08, chống tái diễn bug mất tiền/
+   điểm) — mất hẳn lưới an toàn của dự án. Nghi là tác dụng phụ ngoài ý
+   muốn (có thể gặp lỗi chạy test rồi xoá thay vì sửa).
+
+**Cách sửa**: `git checkout <commit trước Codex> --` khôi phục nguyên trạng
+toàn bộ 5 file test + 2 file `FCMService.php`/`DispatchOfferSender.php`
+(xác nhận khớp 100% bằng `git diff`, không sai lệch gì). Viết lại cơ chế
+miễn trừ đúng chỗ (`DispatchService::handleTimeout()`): kiểm tra GPS-tươi
+(`DriverLocationService::freshLocationsFor()`, cùng ngưỡng 10 phút dispatch
+dùng lọc ứng viên) ngay lúc offer hết hạn — GPS chết → miễn tính bỏ lỡ
+(không chắc thông báo đã tới máy); GPS còn tươi mà vẫn không xem → mới coi
+là bỏ qua đơn thật, trừ điểm như cũ. Cách này bắt đúng lớp lỗi "FCM báo
+thành công nhưng không chắc đã hiển thị" (bao gồm cả bug interruption-level
+vừa sửa VÀ các nguyên nhân tương tự khác ngoài tầm kiểm soát backend), thay
+vì chỉ bắt trường hợp hẹp "API Firebase lỗi hẳn" như cách của Codex.
+**Trạng thái**: Đã sửa, verify `php -l` + `php artisan test` (9 pass, bộ
+test race condition chạy lại bình thường) + test hành vi thật (mô phỏng GPS
+chết → điểm không đổi, không tăng bộ đếm bỏ lỡ). Chưa deploy.
+
+---
+
 ## 2026-08-20 (i) — Backend: module Order — sửa completeOrder() farm tiền + phát hiện khoá Redis NX/EX chưa từng hoạt động
 
 **Bối cảnh**: audit module Order tìm 2 lỗi (completeOrder + gán tay thiếu
