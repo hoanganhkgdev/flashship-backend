@@ -63,7 +63,7 @@ class FCMService
     /**
      * Wake-up signal để app resume và đọc RTDB offer.
      */
-    public function sendDriverWakeUp(string $fcmToken, int $orderId, string $orderCode = '', string $pickupAddress = '', ?int $expiresAt = null): bool
+    public function sendDriverWakeUp(string $fcmToken, int $orderId, string $orderCode = '', string $pickupAddress = '', ?int $expiresAt = null): void
     {
         // Kèm "notification" (không chỉ "data" như trước) — nếu app bị hệ
         // điều hành kill nền (hay gặp trên Xiaomi/Oppo/Vivo ở VN), OS tự hiển
@@ -114,12 +114,10 @@ class FCMService
                         // Sensitive nhất — vẫn bị chặn như thông báo thường.
                         'interruption-level' => 'time-sensitive',
                     ]],
-            ]));
+                ]));
             $this->sendWithRetry(fn (self $fcm) => $fcm->messaging->send($message));
-            return true;
         } catch (\Throwable $e) {
             Log::error('[FCM] sendDriverWakeUp failed: ' . $e->getMessage());
-            return false;
         }
     }
 

@@ -1,6 +1,7 @@
 <?php
 namespace Modules\Order\Services;
 
+use Modules\Driver\Services\DriverLocationService;
 use Modules\Driver\Services\DriverScoreService;
 use Modules\Order\Jobs\DispatchOrderRetryJob;
 use Modules\Order\Models\Order;
@@ -112,17 +113,23 @@ class DispatchService
             ->where('dispatching_to_driver_id', $driverId)
             ->update(['dispatching_to_driver_id' => null, 'updated_at' => now()]);
 
-        $fcmFailedKey = "dispatch:offer:fcm_failed:{$order->id}:{$driverId}";
-        $fcmFailed    = (bool) Redis::get($fcmFailedKey);
-        Redis::del($fcmFailedKey);
-
         if ($order->offer_viewed_at) {
             DriverScoreService::onViewedTimeout($driverId);
             Log::info("⏱  [Dispatch] Đơn #{$order->id}: Tài xế {$name} xem đơn nhưng không nhận → " . DriverScoreService::SCORE_VIEWED_TIMEOUT . " điểm, pop tiếp");
-        } elseif ($fcmFailed) {
-            Log::warning("⏱  [Dispatch] Đơn #{$order->id}: FCM gửi cho tài xế {$name} thất bại → miễn tính bỏ lỡ, pop tiếp");
         } elseif (\Modules\Core\Models\City::where('id', $order->city_id)->value('is_rain_mode')) {
             Log::info("⏱  [Dispatch] Đơn #{$order->id}: Tài xế {$name} không xem đơn lúc trời mưa → miễn tính, pop tiếp");
+        } elseif (empty(app(DriverLocationService::class)->freshLocationsFor([$driverId]))) {
+            // Backend không có cách nào biết chắc thông báo có thực sự tới
+            // máy tài xế hay không (FCM "gửi thành công" chỉ nghĩa là Firebase
+            // nhận yêu cầu, không đảm bảo hiển thị được — vd thiếu
+            // interruption-level trên iOS, mất mạng, app bị hệ điều hành
+            // đóng...). Dùng lại đúng ngưỡng GPS-tươi 10 phút mà dispatch
+            // dùng để lọc ứng viên (DriverLocationService::POS_MAX_AGE_SECS)
+            // làm tín hiệu gián tiếp: GPS đã chết ngay lúc offer hết hạn thì
+            // rất có thể app/kết nối cũng đã chết trước hoặc trong lúc gửi
+            // offer — miễn tính thay vì trừ oan. GPS còn tươi mà vẫn không
+            // xem thì mới coi là bỏ qua đơn thật.
+            Log::info("⏱  [Dispatch] Đơn #{$order->id}: Tài xế {$name} không xem đơn, GPS đã chết lúc hết hạn → miễn tính (không chắc đã nhận được thông báo), pop tiếp");
         } else {
             DriverScoreService::onOfferUnviewed($driverId);
             Log::info("⏱  [Dispatch] Đơn #{$order->id}: Tài xế {$name} không xem đơn → cộng dồn bộ đếm (đủ 3 lần trừ 1 điểm), pop tiếp");
