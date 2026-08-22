@@ -26,6 +26,7 @@ class DispatchOfferSender
     const DRIVER_OFFER_SECS  = 25;   // giây để mở app (trước khi offer_viewed_at set)
     const APP_DECISION_SECS  = 30;   // giây để đọc & quyết định SAU KHI mở app (như ShopeeFood)
     const FCM_TTL_SECS       = 25;
+    const FCM_FAILURE_GRACE_SECS = 120;
 
     public function __construct(
         private readonly DispatchScoringCalculator $scoringCalculator,
@@ -196,11 +197,26 @@ class DispatchOfferSender
         $order->offer_viewed_at = null;
 
         if ($driver->fcm_token) {
-            try {
-                FCMService::getInstance()->sendDriverWakeUp($driver->fcm_token, $order->id, $order->code, $order->pickup_address ?? '', $expiresAt);
+            $fcmDelivered = FCMService::getInstance()->sendDriverWakeUp(
+                $driver->fcm_token,
+                $order->id,
+                $order->code,
+                $order->pickup_address ?? '',
+                $expiresAt,
+            );
+
+            if ($fcmDelivered) {
                 Log::debug("     → FCM wake-up gửi thành công");
-            } catch (\Throwable $e) {
-                Log::error("[Dispatch] FCM failed for driver #{$driver->id}: " . $e->getMessage());
+            } else {
+                // Không thể kết luận tài xế đã nhận được offer khi FCM lỗi
+                // (đặc biệt lỗi APNs trên iOS). Giữ cờ ngắn hạn qua lúc job
+                // timeout chạy để không cộng/trừ điểm oan cho offer này.
+                Redis::setex(
+                    "dispatch:offer:fcm_failed:{$order->id}:{$driver->id}",
+                    self::FCM_FAILURE_GRACE_SECS,
+                    '1',
+                );
+                Log::warning("[Dispatch] FCM wake-up failed for driver #{$driver->id}; offer timeout will not affect score.");
             }
         }
 

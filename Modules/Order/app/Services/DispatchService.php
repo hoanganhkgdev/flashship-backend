@@ -112,9 +112,15 @@ class DispatchService
             ->where('dispatching_to_driver_id', $driverId)
             ->update(['dispatching_to_driver_id' => null, 'updated_at' => now()]);
 
+        $fcmFailedKey = "dispatch:offer:fcm_failed:{$order->id}:{$driverId}";
+        $fcmFailed    = (bool) Redis::get($fcmFailedKey);
+        Redis::del($fcmFailedKey);
+
         if ($order->offer_viewed_at) {
             DriverScoreService::onViewedTimeout($driverId);
             Log::info("⏱  [Dispatch] Đơn #{$order->id}: Tài xế {$name} xem đơn nhưng không nhận → " . DriverScoreService::SCORE_VIEWED_TIMEOUT . " điểm, pop tiếp");
+        } elseif ($fcmFailed) {
+            Log::warning("⏱  [Dispatch] Đơn #{$order->id}: FCM gửi cho tài xế {$name} thất bại → miễn tính bỏ lỡ, pop tiếp");
         } elseif (\Modules\Core\Models\City::where('id', $order->city_id)->value('is_rain_mode')) {
             Log::info("⏱  [Dispatch] Đơn #{$order->id}: Tài xế {$name} không xem đơn lúc trời mưa → miễn tính, pop tiếp");
         } else {
