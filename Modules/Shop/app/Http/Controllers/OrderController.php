@@ -82,6 +82,7 @@ class OrderController extends Controller
         $todayBase = (clone $base)->whereDate('created_at', $today);
         $todayOrders = (clone $todayBase)->count();
         $todayActive = (clone $todayBase)->whereIn('status', ['pending', 'assigned', 'processing', 'on_the_way'])->count();
+        $todayCompleted = (clone $todayBase)->where('status', 'completed')->count();
         $todayRevenue = (clone $todayBase)->where('status', 'completed')->sum('shipping_fee');
 
         // Thống kê theo loại hàng
@@ -110,6 +111,7 @@ class OrderController extends Controller
                 'today' => [
                     'orders' => $todayOrders,
                     'active' => $todayActive,
+                    'completed' => $todayCompleted,
                     'revenue' => (int) $todayRevenue,
                 ],
                 'by_cargo_type' => $byCargoType,
