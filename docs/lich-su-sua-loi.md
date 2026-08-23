@@ -9,6 +9,82 @@ mục vào đây TRƯỚC khi coi là xong việc.
 
 ---
 
+## 2026-08-23 (b) — Backend Shop module: voucher tăng lượt dùng mồ côi khi tạo đơn lỗi giữa chừng + deleteAccount hủy nhầm đơn app khác
+
+**Bối cảnh**: soát lại phần thay đổi backend Shop (`Modules/Shop`) đang nằm sẵn
+trong working tree, đi kèm refactor app shop, trước khi deploy VPS. Đã có
+sẵn 2 test mới `tests/Feature/Shop/ShopOrderDataIntegrityTest.php` chứng
+minh đúng 2 lỗi bên dưới.
+
+**1. `OrderController::store()`/`storeBatch()` — tăng `used_count` của
+voucher xong mới tạo Order, không cùng 1 transaction**
+`tryApplyVoucher()` tự mở `\DB::transaction()` riêng để `lockForUpdate()`
++ `increment('used_count')`, rồi COMMIT ngay khi trả về — tách biệt với
+`Order::create()`/`VoucherUsage::create()` chạy sau đó. Nếu `Order::create()`
+ném exception (DB timeout, cột thiếu...), voucher đã bị trừ 1 lượt dùng
+vĩnh viễn dù không có đơn nào được tạo — đúng lớp lỗi "mất tiền/mất lượt"
+đã từng gặp ở dispatch (xem mục 2026-08-20 (i) bên dưới).
+**Cách sửa**: gộp toàn bộ `tryApplyVoucher()` + `Order::create()` +
+`VoucherUsage::create()` vào chung 1 `\DB::transaction()` ở `store()` và
+`storeBatch()`; bỏ transaction lồng bên trong `tryApplyVoucher()` (vẫn giữ
+`lockForUpdate()`, giờ lock trong transaction ngoài).
+
+**2. `AuthController::deleteAccount()` — thiếu lọc `platform` khi hủy đơn
+pending lúc xoá tài khoản shop**
+Query chỉ lọc `sender_platform_id = $user->id` + `status = pending`, thiếu
+`->where('platform', 'shop_app')` — trong khi mọi query khác trong
+`OrderController` đều lọc kèm `platform` (đơn `customer_app`/`shop_app`
+dùng chung cột `sender_platform_id`). Xoá tài khoản shop có thể hủy nhầm
+đơn `pending` phía app khách nếu trùng `sender_platform_id`.
+**Cách sửa**: thêm `->where('platform', 'shop_app')` vào query hủy đơn
+trong `deleteAccount()`.
+
+**Trạng thái**: Đã sửa, `php artisan test` 11/11 pass (bao gồm 2 test mới +
+bộ race-condition cũ `ScoreAndWalletRaceConditionTest` không bị ảnh hưởng).
+Chuẩn bị deploy VPS.
+
+---
+
+## 2026-08-23 (a) — Shop app: 2 bug lọt qua khi Codex refactor sang repository pattern
+
+**Bối cảnh**: Codex (công cụ AI khác) vừa refactor lớn `app/shop` (26 file,
+chuyển từ gọi API/Dio trực tiếp trong provider/screen sang layer
+repository + validator riêng), chưa commit. Review đa-agent (`/code-review
+high`) trên diff phát hiện 2 bug thật lọt trong lúc "bê nguyên" logic cũ
+sang chỗ mới.
+
+**1. `lib/features/notification/providers/notification_provider.dart` —
+`unreadCountProvider` mất tác dụng try/catch vì thiếu `await`**
+Code cũ await lệnh gọi API bên trong try nên lỗi mạng/401/500 rơi vào catch,
+trả về `0` êm ái. Sau refactor, `return
+ref.read(notificationRepositoryProvider).unreadCount();` trả thẳng Future
+chưa await — try block kết thúc trước khi Future settle nên catch không
+bao giờ chạy, lỗi propagate ra AsyncError thay vì AsyncData(0) như comment
+gốc dự định (đang bị các nơi gọi `.valueOrNull ?? 0` che tạm triệu chứng).
+**Cách sửa**: thêm `await` trước lệnh gọi `unreadCount()`.
+
+**2. `lib/features/version/version_repository.dart` — mất timeout riêng 8s
+của check version, request đi qua interceptor auth ngoài ý muốn**
+Code cũ dùng `Dio()` riêng với `receiveTimeout: 8s` vì call này gate màn
+splash/redirect force-update, cố tình tách biệt khỏi `ApiClient` dùng
+chung (timeout 15s) và khỏi auth. Sau refactor gọi qua
+`ApiClient.get()` dùng timeout chung 15s (mạng chập chờn có thể chờ tới
+~30s mới quyết định redirect), và `/app-version` không nằm trong
+`_sessionExemptPaths` nên nếu backend trả 401 ở endpoint này sẽ vô tình
+trigger `SessionExpiredNotifier` — trước refactor không thể xảy ra vì
+hoàn toàn tách biệt khỏi auth.
+**Cách sửa**: thêm tham số `options` cho `ApiClient.get()` (
+`lib/core/api/api_client.dart`) để cho phép override `receiveTimeout` theo
+từng request; `version_repository.dart` truyền
+`Options(receiveTimeout: Duration(seconds: 8))`. Thêm `/app-version` vào
+`_sessionExemptPaths`.
+
+**Trạng thái**: Đã sửa, `flutter analyze` sạch trên 3 file liên quan. Chưa
+chạy app thật để verify hành vi (theo yêu cầu không tự test UI trừ khi được
+hỏi). Toàn bộ diff refactor của Codex vẫn đang ở working tree, chưa commit.
+
+---
+
 ## 2026-08-22 (c) — Backend: bỏ fix sai của Codex (không bắt đúng ca thật + xoá test suite), viết lại miễn trừ điểm bằng GPS-tươi
 
 **Bối cảnh**: sau khi tôi sửa xong thiếu `interruption-level` (mục (b) dưới)

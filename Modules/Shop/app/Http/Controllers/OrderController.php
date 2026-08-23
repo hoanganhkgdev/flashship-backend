@@ -11,6 +11,8 @@ use Modules\Core\Models\VoucherUsage;
 use Modules\Core\Services\RTDBService;
 use Modules\Order\Models\Order;
 use Modules\Order\Services\OrderService;
+use Modules\Shop\Http\Requests\StoreBatchOrderRequest;
+use Modules\Shop\Http\Requests\StoreOrderRequest;
 use Modules\Shop\Services\ShopPricingService;
 
 class OrderController extends Controller
@@ -27,11 +29,11 @@ class OrderController extends Controller
         if ($q = trim((string) $request->query('q', ''))) {
             $query->where(function ($w) use ($q) {
                 $w->where('code', 'like', "%{$q}%")
-                  ->orWhere('delivery_phone', 'like', "%{$q}%")
-                  ->orWhere('receiver_name', 'like', "%{$q}%")
-                  ->orWhere('sender_name', 'like', "%{$q}%")
-                  ->orWhere('pickup_phone', 'like', "%{$q}%")
-                  ->orWhere('delivery_address', 'like', "%{$q}%");
+                    ->orWhere('delivery_phone', 'like', "%{$q}%")
+                    ->orWhere('receiver_name', 'like', "%{$q}%")
+                    ->orWhere('sender_name', 'like', "%{$q}%")
+                    ->orWhere('pickup_phone', 'like', "%{$q}%")
+                    ->orWhere('delivery_address', 'like', "%{$q}%");
             });
         }
 
@@ -39,11 +41,11 @@ class OrderController extends Controller
 
         return response()->json([
             'success' => true,
-            'data'    => $orders->map(fn($o) => $this->formatOrder($o)),
-            'meta'    => [
+            'data' => $orders->map(fn ($o) => $this->formatOrder($o)),
+            'meta' => [
                 'current_page' => $orders->currentPage(),
-                'has_more'     => $orders->hasMorePages(),
-                'total'        => $orders->total(),
+                'has_more' => $orders->hasMorePages(),
+                'total' => $orders->total(),
             ],
         ]);
     }
@@ -51,7 +53,7 @@ class OrderController extends Controller
     public function stats(Request $request): JsonResponse
     {
         $userId = $request->user()->id;
-        $base   = Order::where('sender_platform_id', $userId)->where('platform', 'shop_app');
+        $base = Order::where('sender_platform_id', $userId)->where('platform', 'shop_app');
 
         $validated = $request->validate([
             'period' => 'nullable|string|in:today,week,month',
@@ -69,18 +71,18 @@ class OrderController extends Controller
         // không phụ thuộc period (biểu đồ xu hướng 7 ngày cố định).
         $periodBase = (clone $base)->where('created_at', '>=', $periodStart);
 
-        $total     = (clone $periodBase)->count();
-        $active    = (clone $periodBase)->whereIn('status', ['pending','assigned','processing','on_the_way'])->count();
+        $total = (clone $periodBase)->count();
+        $active = (clone $periodBase)->whereIn('status', ['pending', 'assigned', 'processing', 'on_the_way'])->count();
         $completed = (clone $periodBase)->where('status', 'completed')->count();
         $cancelled = (clone $periodBase)->where('status', 'cancelled')->count();
-        $revenue   = (clone $periodBase)->where('status', 'completed')->sum('shipping_fee');
+        $revenue = (clone $periodBase)->where('status', 'completed')->sum('shipping_fee');
 
         // Hôm nay
-        $today          = now()->startOfDay();
-        $todayBase      = (clone $base)->whereDate('created_at', $today);
-        $todayOrders    = (clone $todayBase)->count();
-        $todayActive    = (clone $todayBase)->whereIn('status', ['pending','assigned','processing','on_the_way'])->count();
-        $todayRevenue   = (clone $todayBase)->where('status', 'completed')->sum('shipping_fee');
+        $today = now()->startOfDay();
+        $todayBase = (clone $base)->whereDate('created_at', $today);
+        $todayOrders = (clone $todayBase)->count();
+        $todayActive = (clone $todayBase)->whereIn('status', ['pending', 'assigned', 'processing', 'on_the_way'])->count();
+        $todayRevenue = (clone $todayBase)->where('status', 'completed')->sum('shipping_fee');
 
         // Thống kê theo loại hàng
         $byCargoType = (clone $periodBase)->where('status', 'completed')
@@ -98,51 +100,31 @@ class OrderController extends Controller
 
         return response()->json([
             'success' => true,
-            'data'    => [
-                'period'        => $period,
-                'total'         => $total,
-                'active'        => $active,
-                'completed'     => $completed,
-                'cancelled'     => $cancelled,
-                'revenue'       => (int) $revenue,
-                'today'         => [
-                    'orders'  => $todayOrders,
-                    'active'  => $todayActive,
+            'data' => [
+                'period' => $period,
+                'total' => $total,
+                'active' => $active,
+                'completed' => $completed,
+                'cancelled' => $cancelled,
+                'revenue' => (int) $revenue,
+                'today' => [
+                    'orders' => $todayOrders,
+                    'active' => $todayActive,
                     'revenue' => (int) $todayRevenue,
                 ],
                 'by_cargo_type' => $byCargoType,
-                'daily'         => $dailyOrders,
+                'daily' => $dailyOrders,
             ],
         ]);
     }
 
-    public function store(Request $request): JsonResponse
+    public function store(StoreOrderRequest $request): JsonResponse
     {
-        $data = $request->validate([
-            'is_outbound'      => 'nullable|boolean',
-            'pickup_address'      => 'required|string',
-            'pickup_lat'          => 'nullable|numeric',
-            'pickup_lng'          => 'nullable|numeric',
-            'pickup_phone'        => 'nullable|string',
-            'pickup_name'         => 'nullable|string',
-            'pickup_place_name'   => 'nullable|string|max:100',
-            'delivery_address'    => 'required|string',
-            'delivery_lat'        => 'nullable|numeric',
-            'delivery_lng'        => 'nullable|numeric',
-            'delivery_phone'      => 'required|string',
-            'delivery_name'       => 'nullable|string',
-            'delivery_place_name' => 'nullable|string|max:100',
-            'order_note'       => 'nullable|string',
-            'cargo_type'       => 'nullable|in:food,flowers,parcel',
-            'cargo_note'       => 'nullable|string|max:500',
-            'cargo_weight'     => 'nullable|numeric|min:0.1|max:999',
-            'cod_amount'       => 'nullable|integer|min:0',
-            'voucher_code'     => 'nullable|string',
-        ]);
+        $data = $request->validated();
 
         $user = $request->user();
 
-        if (!$user->city_id) {
+        if (! $user->city_id) {
             return response()->json([
                 'success' => false,
                 'message' => 'Tài khoản chưa được gán thành phố. Vui lòng liên hệ hỗ trợ.',
@@ -151,7 +133,7 @@ class OrderController extends Controller
 
         try {
             $cargoType = $data['cargo_type'] ?? 'food';
-            $weightKg  = isset($data['cargo_weight']) ? (float) $data['cargo_weight'] : null;
+            $weightKg = isset($data['cargo_weight']) ? (float) $data['cargo_weight'] : null;
 
             if (isset($data['pickup_lat'], $data['pickup_lng'], $data['delivery_lat'], $data['delivery_lng'])) {
                 $pricing = ShopPricingService::estimateFromCoords(
@@ -173,62 +155,63 @@ class OrderController extends Controller
 
             $nightSurcharge = (int) ($pricing['night_surcharge'] ?? 0);
 
-            // Apply voucher — khoá + kiểm tra lại giới hạn bên trong transaction
-            // (xem tryApplyVoucher()) để 2 request gần như đồng thời không
-            // cùng pass điều kiện "còn lượt dùng" rồi cùng được áp voucher.
-            $applied        = $this->tryApplyVoucher($data['voucher_code'] ?? null, $user, $pricing['fee']);
-            $voucherCode    = $applied['code'] ?? null;
-            $discountAmount = $applied['discount_amount'] ?? 0;
-            $isFreeship     = $applied['is_freeship'] ?? false;
-            $shippingFee    = $pricing['fee'] - $discountAmount;
-            if ($applied) {
-                $appliedVoucher = $applied['voucher'];
-            }
+            // Voucher, order và usage phải commit/rollback cùng nhau. Nếu
+            // Order::create() hoặc VoucherUsage::create() lỗi thì used_count
+            // cũng được rollback, không làm mất lượt voucher của shop.
+            $order = \DB::transaction(function () use ($data, $user, $pricing, $nightSurcharge) {
+                $applied = $this->tryApplyVoucher($data['voucher_code'] ?? null, $user, $pricing['fee']);
+                $voucherCode = $applied['code'] ?? null;
+                $discountAmount = $applied['discount_amount'] ?? 0;
+                $isFreeship = $applied['is_freeship'] ?? false;
+                $shippingFee = $pricing['fee'] - $discountAmount;
 
-            $order = Order::create([
-                'code'             => '',
-                'sender_name'          => !empty($data['pickup_name']) ? $data['pickup_name'] : null,
-                'store_name'           => $user->name,
-                'pickup_phone'         => !empty($data['pickup_phone']) ? $data['pickup_phone'] : null,
-                'pickup_address'       => $data['pickup_address'],
-                'pickup_place_name'    => $data['pickup_place_name'] ?? null,
-                'pickup_lat'           => $data['pickup_lat'] ?? null,
-                'pickup_lng'           => $data['pickup_lng'] ?? null,
-                'receiver_name'        => $data['delivery_name'] ?? '',
-                'delivery_phone'       => $data['delivery_phone'],
-                'delivery_address'     => $data['delivery_address'],
-                'delivery_place_name'  => $data['delivery_place_name'] ?? null,
-                'delivery_lat'         => $data['delivery_lat'] ?? null,
-                'delivery_lng'         => $data['delivery_lng'] ?? null,
-                'service_type'      => 'delivery',
-                'shop_service_type' => filter_var($data['is_outbound'] ?? 1, FILTER_VALIDATE_BOOLEAN) ? 'shop_delivery' : 'shop_pickup',
-                'order_note'        => $data['order_note'] ?? '',
-                'cargo_type'        => $data['cargo_type'] ?? 'food',
-                'cargo_note'        => $data['cargo_note'] ?? null,
-                'cargo_weight'     => isset($data['cargo_weight']) ? (float) $data['cargo_weight'] : null,
-                'payment_method'   => 'cod',
-                'cod_amount'       => $data['cod_amount'] ?? null,
-                'city_id'          => $user->city_id,
-                'shipping_fee'     => $shippingFee,
-                'night_surcharge'  => $nightSurcharge,
-                'distance'         => $pricing['distance_km'],
-                'voucher_code'     => $voucherCode,
-                'discount_amount'  => $discountAmount,
-                'bonus_fee'        => 0,
-                'is_freeship'      => $isFreeship,
-                'status'           => 'pending',
-                'platform'         => 'shop_app',
-                'sender_platform_id' => $user->id,
-            ]);
-
-            if (isset($appliedVoucher)) {
-                VoucherUsage::create([
-                    'voucher_id' => $appliedVoucher->id,
-                    'user_id'    => $user->id,
-                    'order_id'   => $order->id,
-                    'used_at'    => now(),
+                $order = Order::create([
+                    'code' => '',
+                    'sender_name' => ! empty($data['pickup_name']) ? $data['pickup_name'] : null,
+                    'store_name' => $user->name,
+                    'pickup_phone' => ! empty($data['pickup_phone']) ? $data['pickup_phone'] : null,
+                    'pickup_address' => $data['pickup_address'],
+                    'pickup_place_name' => $data['pickup_place_name'] ?? null,
+                    'pickup_lat' => $data['pickup_lat'] ?? null,
+                    'pickup_lng' => $data['pickup_lng'] ?? null,
+                    'receiver_name' => $data['delivery_name'] ?? '',
+                    'delivery_phone' => $data['delivery_phone'],
+                    'delivery_address' => $data['delivery_address'],
+                    'delivery_place_name' => $data['delivery_place_name'] ?? null,
+                    'delivery_lat' => $data['delivery_lat'] ?? null,
+                    'delivery_lng' => $data['delivery_lng'] ?? null,
+                    'service_type' => 'delivery',
+                    'shop_service_type' => filter_var($data['is_outbound'] ?? 1, FILTER_VALIDATE_BOOLEAN) ? 'shop_delivery' : 'shop_pickup',
+                    'order_note' => $data['order_note'] ?? '',
+                    'cargo_type' => $data['cargo_type'] ?? 'food',
+                    'cargo_note' => $data['cargo_note'] ?? null,
+                    'cargo_weight' => isset($data['cargo_weight']) ? (float) $data['cargo_weight'] : null,
+                    'payment_method' => 'cod',
+                    'cod_amount' => $data['cod_amount'] ?? null,
+                    'city_id' => $user->city_id,
+                    'shipping_fee' => $shippingFee,
+                    'night_surcharge' => $nightSurcharge,
+                    'distance' => $pricing['distance_km'],
+                    'voucher_code' => $voucherCode,
+                    'discount_amount' => $discountAmount,
+                    'bonus_fee' => 0,
+                    'is_freeship' => $isFreeship,
+                    'status' => 'pending',
+                    'platform' => 'shop_app',
+                    'sender_platform_id' => $user->id,
                 ]);
-            }
+
+                if ($applied) {
+                    VoucherUsage::create([
+                        'voucher_id' => $applied['voucher']->id,
+                        'user_id' => $user->id,
+                        'order_id' => $order->id,
+                        'used_at' => now(),
+                    ]);
+                }
+
+                return $order;
+            });
 
             $orderId = $order->id;
             dispatch(function () use ($orderId) {
@@ -238,40 +221,23 @@ class OrderController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => 'Tạo đơn thành công',
-                'data'    => $this->formatOrder($order),
+                'data' => $this->formatOrder($order),
             ], 201);
         } catch (\Throwable $e) {
-            Log::error('Shop createOrder: ' . $e->getMessage());
+            Log::error('Shop createOrder: '.$e->getMessage());
+
             return response()->json(['success' => false, 'message' => 'Có lỗi xảy ra, vui lòng thử lại'], 500);
         }
     }
 
     // ── Đơn gộp nhiều điểm ────────────────────────────────────────────────────
 
-    public function storeBatch(Request $request): JsonResponse
+    public function storeBatch(StoreBatchOrderRequest $request): JsonResponse
     {
-        $data = $request->validate([
-            'pickup_address'     => 'required|string',
-            'pickup_lat'         => 'nullable|numeric',
-            'pickup_lng'         => 'nullable|numeric',
-            'pickup_phone'       => 'nullable|string',
-            'pickup_name'        => 'nullable|string',
-            'cargo_type'         => 'nullable|in:food,flowers,parcel',
-            'cargo_weight'       => 'nullable|numeric|min:0',
-            'order_note'         => 'nullable|string',
-            'voucher_code'       => 'nullable|string',
-            'stops'              => 'required|array|min:1|max:10',
-            'stops.*.address'    => 'required|string',
-            'stops.*.lat'        => 'nullable|numeric',
-            'stops.*.lng'        => 'nullable|numeric',
-            'stops.*.phone'      => 'required|string',
-            'stops.*.name'       => 'nullable|string',
-            'stops.*.cod_amount' => 'nullable|integer|min:0',
-            'stops.*.note'       => 'nullable|string',
-        ]);
+        $data = $request->validated();
 
         $user = $request->user();
-        if (!$user->city_id) {
+        if (! $user->city_id) {
             return response()->json([
                 'success' => false,
                 'message' => 'Tài khoản chưa được gán thành phố.',
@@ -280,12 +246,12 @@ class OrderController extends Controller
 
         try {
             $cargoType = $data['cargo_type'] ?? 'food';
-            $weightKg  = isset($data['cargo_weight']) ? (float) $data['cargo_weight'] : null;
+            $weightKg = isset($data['cargo_weight']) ? (float) $data['cargo_weight'] : null;
             $pickupLat = $data['pickup_lat'] ?? null;
             $pickupLng = $data['pickup_lng'] ?? null;
 
             // Tính phí từng stop độc lập (shop → stop)
-            $stops    = [];
+            $stops = [];
             $totalFee = 0;
 
             foreach ($data['stops'] as $i => $stop) {
@@ -304,78 +270,78 @@ class OrderController extends Controller
                 }
 
                 $stops[] = [
-                    'seq'          => $i + 1,
-                    'address'      => $stop['address'],
-                    'lat'          => $stop['lat'] ?? null,
-                    'lng'          => $stop['lng'] ?? null,
-                    'phone'        => $stop['phone'],
-                    'name'         => $stop['name'] ?? '',
-                    'cod_amount'   => $stop['cod_amount'] ?? null,
-                    'note'         => $stop['note'] ?? '',
-                    'fee'          => $pricing['fee'],
-                    'distance_km'  => $pricing['distance_km'],
+                    'seq' => $i + 1,
+                    'address' => $stop['address'],
+                    'lat' => $stop['lat'] ?? null,
+                    'lng' => $stop['lng'] ?? null,
+                    'phone' => $stop['phone'],
+                    'name' => $stop['name'] ?? '',
+                    'cod_amount' => $stop['cod_amount'] ?? null,
+                    'note' => $stop['note'] ?? '',
+                    'fee' => $pricing['fee'],
+                    'distance_km' => $pricing['distance_km'],
                     'delivered_at' => null,
                 ];
                 $totalFee += $pricing['fee'];
             }
 
-            // Apply voucher trên tổng phí — cùng cơ chế khoá atomic với store().
-            $applied        = $this->tryApplyVoucher($data['voucher_code'] ?? null, $user, $totalFee);
-            $voucherCode    = $applied['code'] ?? null;
-            $discountAmount = $applied['discount_amount'] ?? 0;
-            $isFreeship     = $applied['is_freeship'] ?? false;
-            $shippingFee    = $totalFee - $discountAmount;
-            if ($applied) {
-                $appliedVoucher = $applied['voucher'];
-            }
-
             $firstStop = $stops[0];
 
-            $order = Order::create([
-                'code'             => '',
-                'sender_name'      => $data['pickup_name'] ?? $user->name,
-                'store_name'       => $user->name,
-                'pickup_phone'     => $data['pickup_phone'] ?? $user->phone,
-                'pickup_address'   => $data['pickup_address'],
-                'pickup_lat'       => $pickupLat,
-                'pickup_lng'       => $pickupLng,
-                // Điểm giao chính = stop đầu tiên
-                'receiver_name'    => $firstStop['name'],
-                'delivery_phone'   => $firstStop['phone'],
-                'delivery_address' => $firstStop['address'],
-                'delivery_lat'     => $firstStop['lat'],
-                'delivery_lng'     => $firstStop['lng'],
-                'service_type'      => 'delivery',
-                'shop_service_type' => filter_var($data['is_outbound'] ?? 1, FILTER_VALIDATE_BOOLEAN) ? 'shop_delivery' : 'shop_pickup',
-                'order_note'        => $data['order_note'] ?? '',
-                'cargo_type'        => $cargoType,
-                'cargo_weight'     => $weightKg,
-                'is_batch'          => true,
-                'shop_service_type' => 'shop_batch',
-                'stops'            => $stops,
-                'payment_method'   => 'cod',
-                'cod_amount'       => array_sum(array_column($stops, 'cod_amount')),
-                'city_id'          => $user->city_id,
-                'shipping_fee'     => $shippingFee,
-                'night_surcharge'  => 0,
-                'distance'         => $stops[0]['distance_km'],
-                'voucher_code'     => $voucherCode,
-                'discount_amount'  => $discountAmount,
-                'bonus_fee'        => 0,
-                'is_freeship'      => $isFreeship,
-                'status'           => 'pending',
-                'platform'         => 'shop_app',
-                'sender_platform_id' => $user->id,
-            ]);
+            $order = \DB::transaction(function () use ($data, $user, $totalFee, $firstStop, $stops, $pickupLat, $pickupLng, $cargoType, $weightKg) {
+                $applied = $this->tryApplyVoucher($data['voucher_code'] ?? null, $user, $totalFee);
+                $voucherCode = $applied['code'] ?? null;
+                $discountAmount = $applied['discount_amount'] ?? 0;
+                $isFreeship = $applied['is_freeship'] ?? false;
+                $shippingFee = $totalFee - $discountAmount;
 
-            if (isset($appliedVoucher)) {
-                VoucherUsage::create([
-                    'voucher_id' => $appliedVoucher->id,
-                    'user_id'    => $user->id,
-                    'order_id'   => $order->id,
-                    'used_at'    => now(),
+                $order = Order::create([
+                    'code' => '',
+                    'sender_name' => $data['pickup_name'] ?? $user->name,
+                    'store_name' => $user->name,
+                    'pickup_phone' => $data['pickup_phone'] ?? $user->phone,
+                    'pickup_address' => $data['pickup_address'],
+                    'pickup_lat' => $pickupLat,
+                    'pickup_lng' => $pickupLng,
+                    // Điểm giao chính = stop đầu tiên
+                    'receiver_name' => $firstStop['name'],
+                    'delivery_phone' => $firstStop['phone'],
+                    'delivery_address' => $firstStop['address'],
+                    'delivery_lat' => $firstStop['lat'],
+                    'delivery_lng' => $firstStop['lng'],
+                    'service_type' => 'delivery',
+                    'shop_service_type' => filter_var($data['is_outbound'] ?? 1, FILTER_VALIDATE_BOOLEAN) ? 'shop_delivery' : 'shop_pickup',
+                    'order_note' => $data['order_note'] ?? '',
+                    'cargo_type' => $cargoType,
+                    'cargo_weight' => $weightKg,
+                    'is_batch' => true,
+                    'shop_service_type' => 'shop_batch',
+                    'stops' => $stops,
+                    'payment_method' => 'cod',
+                    'cod_amount' => array_sum(array_column($stops, 'cod_amount')),
+                    'city_id' => $user->city_id,
+                    'shipping_fee' => $shippingFee,
+                    'night_surcharge' => 0,
+                    'distance' => $stops[0]['distance_km'],
+                    'voucher_code' => $voucherCode,
+                    'discount_amount' => $discountAmount,
+                    'bonus_fee' => 0,
+                    'is_freeship' => $isFreeship,
+                    'status' => 'pending',
+                    'platform' => 'shop_app',
+                    'sender_platform_id' => $user->id,
                 ]);
-            }
+
+                if ($applied) {
+                    VoucherUsage::create([
+                        'voucher_id' => $applied['voucher']->id,
+                        'user_id' => $user->id,
+                        'order_id' => $order->id,
+                        'used_at' => now(),
+                    ]);
+                }
+
+                return $order;
+            });
 
             $orderId = $order->id;
             dispatch(function () use ($orderId) {
@@ -385,10 +351,11 @@ class OrderController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => 'Tạo đơn gộp thành công',
-                'data'    => $this->formatOrder($order),
+                'data' => $this->formatOrder($order),
             ], 201);
         } catch (\Throwable $e) {
-            Log::error('Shop storeBatch: ' . $e->getMessage());
+            Log::error('Shop storeBatch: '.$e->getMessage());
+
             return response()->json(['success' => false, 'message' => 'Có lỗi xảy ra'], 500);
         }
     }
@@ -408,42 +375,40 @@ class OrderController extends Controller
             return null;
         }
 
-        return \DB::transaction(function () use ($code, $user, $shippingFee) {
-            $voucher = Voucher::where('code', strtoupper($code))->lockForUpdate()->first();
+        $voucher = Voucher::where('code', strtoupper(trim($code)))->lockForUpdate()->first();
 
-            if (!$voucher || !$voucher->is_active
-                || !in_array($voucher->audience, ['all', 'shop'])
-                || ($voucher->user_id && $voucher->user_id != $user->id)
-                || ($voucher->expires_at && !$voucher->expires_at->isFuture())
-                || ($voucher->usage_limit && $voucher->used_count >= $voucher->usage_limit)
-                || ($voucher->per_user_limit && $voucher->usageCountByUser($user->id) >= $voucher->per_user_limit)
-                || ($voucher->service_types && !in_array('delivery', $voucher->service_types))
-                || ($voucher->city_id && $voucher->city_id != $user->city_id)
-                || ($voucher->min_order_value && $shippingFee < $voucher->min_order_value)
-            ) {
-                return null;
-            }
+        if (! $voucher || ! $voucher->is_active
+            || ! in_array($voucher->audience, ['all', 'shop'])
+            || ($voucher->user_id && $voucher->user_id != $user->id)
+            || ($voucher->expires_at && ! $voucher->expires_at->isFuture())
+            || ($voucher->usage_limit && $voucher->used_count >= $voucher->usage_limit)
+            || ($voucher->per_user_limit && $voucher->usageCountByUser($user->id) >= $voucher->per_user_limit)
+            || ($voucher->service_types && ! in_array('delivery', $voucher->service_types))
+            || ($voucher->city_id && $voucher->city_id != $user->city_id)
+            || ($voucher->min_order_value && $shippingFee < $voucher->min_order_value)
+        ) {
+            return null;
+        }
 
-            $isFreeship = $voucher->type === 'freeship';
-            $discountAmount = match ($voucher->type) {
-                'freeship' => $shippingFee,
-                'percent'  => (int) round($shippingFee * $voucher->value / 100),
-                default    => (int) $voucher->value,
-            };
-            if ($voucher->max_discount) {
-                $discountAmount = min($discountAmount, $voucher->max_discount);
-            }
-            $discountAmount = min($discountAmount, $shippingFee);
+        $isFreeship = $voucher->type === 'freeship';
+        $discountAmount = match ($voucher->type) {
+            'freeship' => $shippingFee,
+            'percent' => (int) round($shippingFee * $voucher->value / 100),
+            default => (int) $voucher->value,
+        };
+        if ($voucher->max_discount) {
+            $discountAmount = min($discountAmount, $voucher->max_discount);
+        }
+        $discountAmount = min($discountAmount, $shippingFee);
 
-            $voucher->increment('used_count');
+        $voucher->increment('used_count');
 
-            return [
-                'voucher'         => $voucher,
-                'code'            => $voucher->code,
-                'discount_amount' => $discountAmount,
-                'is_freeship'     => $isFreeship,
-            ];
-        });
+        return [
+            'voucher' => $voucher,
+            'code' => $voucher->code,
+            'discount_amount' => $discountAmount,
+            'is_freeship' => $isFreeship,
+        ];
     }
 
     public function deliverStop(string $code, int $seq, Request $request): JsonResponse
@@ -454,7 +419,7 @@ class OrderController extends Controller
             ->where('is_batch', true)
             ->first();
 
-        if (!$order) {
+        if (! $order) {
             return response()->json(['success' => false, 'message' => 'Không tìm thấy đơn hàng'], 404);
         }
 
@@ -467,7 +432,7 @@ class OrderController extends Controller
                 break;
             }
         }
-        if (!$found) {
+        if (! $found) {
             return response()->json(['success' => false, 'message' => 'Không tìm thấy điểm giao'], 404);
         }
 
@@ -484,7 +449,7 @@ class OrderController extends Controller
             ->with('driver:id,name,phone,latitude,longitude,profile_photo_path')
             ->first();
 
-        if (!$order) {
+        if (! $order) {
             return response()->json(['success' => false, 'message' => 'Không tìm thấy đơn hàng'], 404);
         }
 
@@ -498,34 +463,48 @@ class OrderController extends Controller
             ->where('platform', 'shop_app')
             ->first();
 
-        if (!$order) {
+        if (! $order) {
             return response()->json(['success' => false, 'message' => 'Không tìm thấy đơn hàng'], 404);
         }
 
-        $dispatchingDriverId = $order->dispatching_to_driver_id;
+        // Trạng thái order và lượt voucher phải thay đổi cùng nhau.
+        // Compare-and-swap vẫn ngăn race với lúc dispatch gán tài xế.
+        $updated = \DB::transaction(function () use ($order) {
+            $updated = \DB::table('orders')
+                ->where('id', $order->id)
+                ->where('status', 'pending')
+                ->update(['status' => 'cancelled', 'updated_at' => now()]);
 
-        // Compare-and-swap: kiểm tra + đổi status='cancelled' atomic ngay
-        // trong 1 câu UPDATE, không đọc-rồi-ghi — tránh race với lúc dispatch
-        // vừa gán tài xế (status pending → assigned) giữa lúc check và update.
-        $updated = \DB::table('orders')
-            ->where('id', $order->id)
-            ->where('status', 'pending')
-            ->update(['status' => 'cancelled', 'updated_at' => now()]);
+            if (! $updated || ! $order->voucher_code) {
+                return $updated;
+            }
 
-        if (!$updated) {
+            $usageDeleted = VoucherUsage::where('order_id', $order->id)->delete();
+            if ($usageDeleted) {
+                Voucher::where('code', $order->voucher_code)
+                    ->where('used_count', '>', 0)
+                    ->decrement('used_count');
+            }
+
+            return $updated;
+        });
+
+        if (! $updated) {
             return response()->json(['success' => false, 'message' => 'Chỉ có thể hủy đơn khi chưa có tài xế nhận'], 400);
         }
 
-        RTDBService::clearOrder($order->code);
-
-        if ($dispatchingDriverId) {
-            RTDBService::clearDriverOffer($dispatchingDriverId);
-        }
-
-        // Hoàn lại lượt dùng voucher khi shop chủ động hủy đơn
-        if ($order->voucher_code) {
-            Voucher::where('code', $order->voucher_code)->decrement('used_count');
-            VoucherUsage::where('order_id', $order->id)->delete();
+        try {
+            RTDBService::clearOrder($order->code);
+            if ($order->dispatching_to_driver_id) {
+                RTDBService::clearDriverOffer($order->dispatching_to_driver_id);
+            }
+        } catch (\Throwable $e) {
+            // DB là nguồn sự thật; lỗi cleanup realtime không được
+            // biến một lần hủy đã commit thành response thất bại.
+            Log::warning('Shop cancelOrder RTDB cleanup failed', [
+                'order_id' => $order->id,
+                'message' => $e->getMessage(),
+            ]);
         }
 
         return response()->json(['success' => true, 'message' => 'Đã hủy đơn hàng']);
@@ -535,7 +514,7 @@ class OrderController extends Controller
     {
         $data = $request->validate([
             'rating' => 'required|integer|min:1|max:5',
-            'note'   => 'nullable|string|max:500',
+            'note' => 'nullable|string|max:500',
         ]);
 
         $order = Order::where('code', $code)
@@ -543,7 +522,7 @@ class OrderController extends Controller
             ->where('status', 'completed')
             ->first();
 
-        if (!$order) {
+        if (! $order) {
             return response()->json(['success' => false, 'message' => 'Không tìm thấy đơn hàng'], 404);
         }
         if ($order->driver_rating) {
@@ -560,9 +539,9 @@ class OrderController extends Controller
             ->where('id', $order->id)
             ->whereNull('driver_rating')
             ->update([
-                'driver_rating'      => $data['rating'],
+                'driver_rating' => $data['rating'],
                 'driver_rating_note' => $data['note'] ?? null,
-                'updated_at'         => now(),
+                'updated_at' => now(),
             ]);
 
         return response()->json(['success' => true, 'message' => 'Cảm ơn đánh giá của bạn']);
@@ -571,58 +550,58 @@ class OrderController extends Controller
     private function formatOrder(Order $order, bool $withTracking = false): array
     {
         $result = [
-            'id'               => $order->id,
-            'code'             => $order->code,
-            'status'           => $order->status,
-            'cancel_reason'    => $order->cancel_reason,
-            'service_type'     => $order->service_type,
-            'pickup_address'      => $order->pickup_address,
-            'pickup_place_name'   => $order->pickup_place_name,
-            'pickup_lat'          => $order->pickup_lat    ? (float) $order->pickup_lat    : null,
-            'pickup_lng'          => $order->pickup_lng    ? (float) $order->pickup_lng    : null,
-            'pickup_phone'        => $order->pickup_phone,
-            'sender_name'         => $order->sender_name,
-            'store_name'          => $order->store_name,
-            'delivery_address'    => $order->delivery_address,
+            'id' => $order->id,
+            'code' => $order->code,
+            'status' => $order->status,
+            'cancel_reason' => $order->cancel_reason,
+            'service_type' => $order->service_type,
+            'pickup_address' => $order->pickup_address,
+            'pickup_place_name' => $order->pickup_place_name,
+            'pickup_lat' => $order->pickup_lat ? (float) $order->pickup_lat : null,
+            'pickup_lng' => $order->pickup_lng ? (float) $order->pickup_lng : null,
+            'pickup_phone' => $order->pickup_phone,
+            'sender_name' => $order->sender_name,
+            'store_name' => $order->store_name,
+            'delivery_address' => $order->delivery_address,
             'delivery_place_name' => $order->delivery_place_name,
-            'delivery_lat'        => $order->delivery_lat  ? (float) $order->delivery_lat  : null,
-            'delivery_lng'        => $order->delivery_lng  ? (float) $order->delivery_lng  : null,
-            'delivery_phone'      => $order->delivery_phone,
-            'receiver_name'       => $order->receiver_name,
-            'shipping_fee'     => $order->shipping_fee,
-            'voucher_code'     => $order->voucher_code,
-            'discount_amount'  => $order->discount_amount ?? 0,
-            'distance_km'      => $order->distance ? (float) $order->distance : null,
-            'order_note'       => $order->order_note,
-            'cargo_type'       => $order->cargo_type ?? 'food',
-            'cargo_note'       => $order->cargo_note,
-            'cargo_weight'     => $order->cargo_weight ? (float) $order->cargo_weight : null,
-            'payment_method'   => $order->payment_method,
-            'cod_amount'       => $order->cod_amount,
-            'night_surcharge'  => $order->night_surcharge ?? 0,
-            'driver_rating'    => $order->driver_rating,
-            'is_batch'          => (bool) $order->is_batch,
+            'delivery_lat' => $order->delivery_lat ? (float) $order->delivery_lat : null,
+            'delivery_lng' => $order->delivery_lng ? (float) $order->delivery_lng : null,
+            'delivery_phone' => $order->delivery_phone,
+            'receiver_name' => $order->receiver_name,
+            'shipping_fee' => $order->shipping_fee,
+            'voucher_code' => $order->voucher_code,
+            'discount_amount' => $order->discount_amount ?? 0,
+            'distance_km' => $order->distance ? (float) $order->distance : null,
+            'order_note' => $order->order_note,
+            'cargo_type' => $order->cargo_type ?? 'food',
+            'cargo_note' => $order->cargo_note,
+            'cargo_weight' => $order->cargo_weight ? (float) $order->cargo_weight : null,
+            'payment_method' => $order->payment_method,
+            'cod_amount' => $order->cod_amount,
+            'night_surcharge' => $order->night_surcharge ?? 0,
+            'driver_rating' => $order->driver_rating,
+            'is_batch' => (bool) $order->is_batch,
             'shop_service_type' => $order->shop_service_type ?? null,
-            'stops'             => $order->stops ?? [],
-            'created_at'       => $order->created_at->toIso8601String(),
-            'completed_at'     => $order->completed_at?->toIso8601String(),
+            'stops' => $order->stops ?? [],
+            'created_at' => $order->created_at->toIso8601String(),
+            'completed_at' => $order->completed_at?->toIso8601String(),
             // Toạ độ tài xế KHÔNG trả qua field này nữa — cột MySQL đã đông
             // cứng vĩnh viễn từ khi bỏ cron sync GPS. Nguồn duy nhất là
             // tracking.driver_location_path (Firebase), xem bên dưới.
-            'driver'           => $order->driver ? [
-                'id'         => $order->driver->id,
-                'name'       => $order->driver->name,
-                'phone'      => $order->driver->phone,
+            'driver' => $order->driver ? [
+                'id' => $order->driver->id,
+                'name' => $order->driver->name,
+                'phone' => $order->driver->phone,
                 'avatar_url' => $order->driver->profile_photo_path
-                    ? asset('storage/' . $order->driver->profile_photo_path)
+                    ? asset('storage/'.$order->driver->profile_photo_path)
                     : null,
             ] : null,
         ];
 
         if ($withTracking) {
             $result['tracking'] = [
-                'firebase_db_url'      => config('services.firebase.database_url'),
-                'rtdb_path'            => "/orders/{$order->code}",
+                'firebase_db_url' => config('services.firebase.database_url'),
+                'rtdb_path' => "/orders/{$order->code}",
                 'driver_location_path' => $order->delivery_man_id ? "/locations/driver_{$order->delivery_man_id}" : null,
             ];
         }
