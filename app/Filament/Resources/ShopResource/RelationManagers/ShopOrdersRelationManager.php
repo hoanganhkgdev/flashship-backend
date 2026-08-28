@@ -55,15 +55,14 @@ class ShopOrdersRelationManager extends RelationManager
                     ->formatStateUsing(fn ($state) => match ($state) {
                         'pending'    => 'Đang tìm tài xế',
                         'assigned'   => 'Tài xế đã nhận',
-                        'processing' => 'Đang lấy hàng',
-                        'on_the_way' => 'Đang giao',
+                        'processing' => 'Đã lấy hàng',
                         'completed'  => 'Hoàn thành',
                         'cancelled'  => 'Đã huỷ',
                         default      => $state,
                     })
                     ->color(fn ($state) => match ($state) {
                         'pending'                          => 'warning',
-                        'assigned','processing','on_the_way' => 'info',
+                        'assigned', 'processing' => 'info',
                         'completed'                        => 'success',
                         'cancelled'                        => 'danger',
                         default                            => 'gray',
@@ -80,8 +79,7 @@ class ShopOrdersRelationManager extends RelationManager
                     ->options([
                         'pending'    => 'Đang tìm tài xế',
                         'assigned'   => 'Tài xế đã nhận',
-                        'processing' => 'Đang lấy hàng',
-                        'on_the_way' => 'Đang giao',
+                        'processing' => 'Đã lấy hàng',
                         'completed'  => 'Hoàn thành',
                         'cancelled'  => 'Đã huỷ',
                     ]),

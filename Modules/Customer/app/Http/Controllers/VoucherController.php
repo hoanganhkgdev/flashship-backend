@@ -13,13 +13,28 @@ class VoucherController extends Controller
     {
         $cityId = $request->user()->city_id ?? null;
 
-        $vouchers = Voucher::available()
+        $userId = $request->user()->id;
+
+        // Trả cả lịch sử voucher để app có thể hiển thị đủ 3 nhóm:
+        // khả dụng, đã dùng và hết hạn. Việc kiểm tra áp dụng voucher vẫn
+        // được bảo vệ riêng trong validate().
+        $vouchers = Voucher::query()
             ->forCity($cityId)
             ->forAudience('customer')
-            ->forUser($request->user()->id)
+            ->forUser($userId)
+            ->with(['usages' => fn ($query) => $query
+                ->where('user_id', $userId)
+                ->latest('used_at')])
             ->orderBy('expires_at')
             ->get()
-            ->map(fn (Voucher $v) => [
+            ->map(function (Voucher $v) {
+                $usage = $v->usages->first();
+                $isExpired = !$v->is_active
+                    || ($v->expires_at && $v->expires_at->isPast())
+                    || ($v->usage_limit && $v->used_count >= $v->usage_limit);
+                $status = $usage ? 'used' : ($isExpired ? 'expired' : 'available');
+
+                return [
                 'id'               => $v->id,
                 'code'             => $v->code,
                 'type'             => $v->type,
@@ -30,7 +45,10 @@ class VoucherController extends Controller
                 'max_discount'     => $v->max_discount,
                 'service_types'    => $v->service_types,
                 'expires_at'       => $v->expires_at?->toIso8601String(),
-            ]);
+                'used_at'          => $usage?->used_at?->toIso8601String(),
+                'status'           => $status,
+                ];
+            });
 
         return response()->json(['data' => $vouchers]);
     }

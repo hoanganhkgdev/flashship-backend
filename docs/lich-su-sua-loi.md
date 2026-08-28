@@ -9,6 +9,36 @@ mục vào đây TRƯỚC khi coi là xong việc.
 
 ---
 
+## 2026-08-28 (a) — App tài xế: bấm "Nhận đơn" trên màn hình offer có thể accept nhầm đơn khác đơn đang hiện
+
+**Triệu chứng**: tài xế báo "hiện 1 đơn mà bấm nhận thì qua đơn khác, nhận
+đơn lung tung" — nghi vấn do 2 offer đơn đến gần nhau.
+
+**Nguyên nhân gốc**: route `/order/offer/:id` trong `app_router.dart` build
+`OrderOfferScreen` KHÔNG gán `key` riêng theo `orderId`. go_router 14.8.1
+tính `pageKey` theo PATTERN của route (`/order/offer/:id`), không theo giá
+trị `:id` thật (xem `match.dart` — `newMatchedPath` dùng `route.path`, chuỗi
+mẫu). Khi offer đơn B tới trong lúc màn hình offer đơn A còn đang hiện,
+`OfferListenerService._navigateToOffer()` gọi `router.go('/order/offer/$B')`
+— vì pageKey của A và B giống hệt nhau, Flutter Navigator coi đây là "cùng 1
+page", KHÔNG tạo `State` mới (chỉ gọi `didUpdateWidget`, không `initState`).
+Biến `_order` (dữ liệu hiển thị header + nội dung đơn) chỉ được gán 1 lần
+trong `initState()` nên vẫn giữ dữ liệu đơn A cũ trên màn hình, trong khi
+`widget.orderId` đã đổi thành B. Bấm "Nhận đơn ngay" gọi
+`activeOrderProvider.notifier.accept(widget.orderId, ...)` dùng `orderId`
+MỚI (B) → tài xế đang nhìn đơn A nhưng thực chất accept đơn B.
+
+**Cách sửa**: thêm `key: ValueKey(orderId)` cho `OrderOfferScreen` trong
+builder của route `/order/offer/:id` — buộc Flutter tạo `State` mới (chạy
+lại `initState()`) mỗi khi `orderId` khác nhau.
+
+**File**: `app/driver/lib/core/router/app_router.dart`.
+
+**Trạng thái**: Đã sửa, `flutter analyze` sạch. Chưa deploy/test tay trên
+thiết bị thật.
+
+---
+
 ## 2026-08-23 (b) — Backend Shop module: voucher tăng lượt dùng mồ côi khi tạo đơn lỗi giữa chừng + deleteAccount hủy nhầm đơn app khác
 
 **Bối cảnh**: soát lại phần thay đổi backend Shop (`Modules/Shop`) đang nằm sẵn

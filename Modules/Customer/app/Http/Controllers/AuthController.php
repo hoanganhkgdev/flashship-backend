@@ -217,7 +217,7 @@ class AuthController extends Controller
         // sender_platform_id trỏ tới user không còn tồn tại giữa lúc tài xế
         // đang giao, mất khả năng liên hệ khách qua hệ thống.
         $hasActiveOrder = \Modules\Order\Models\Order::where('sender_platform_id', $user->id)
-            ->whereIn('status', ['assigned', 'processing', 'on_the_way'])
+            ->whereIn('status', ['assigned', 'processing'])
             ->exists();
         if ($hasActiveOrder) {
             return response()->json([

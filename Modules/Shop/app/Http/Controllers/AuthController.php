@@ -167,6 +167,61 @@ class AuthController extends Controller
         ]);
     }
 
+    public function sendLoginOtp(Request $request): JsonResponse
+    {
+        $data = $request->validate(['phone' => 'required|string']);
+        $phone = $this->normalizePhone($data['phone']);
+
+        $user = User::where('phone', $phone)->where('user_type', 'shop')->first();
+        if (! $user) {
+            return response()->json(['success' => false, 'message' => 'Số điện thoại chưa được đăng ký'], 422);
+        }
+        if ($user->status == 2) {
+            return response()->json(['success' => false, 'message' => 'Tài khoản bị khóa'], 403);
+        }
+        if (OtpService::recentlySent($phone, 'login')) {
+            return response()->json(['success' => false, 'message' => 'Vui lòng chờ 60 giây trước khi gửi lại'], 429);
+        }
+
+        OtpService::send($phone, 'login');
+
+        return response()->json(['success' => true, 'message' => 'Mã OTP đã được gửi tới '.$phone]);
+    }
+
+    public function verifyLoginOtp(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'phone' => 'required|string',
+            'otp' => 'required|string|size:6',
+            'device_id' => 'nullable|string',
+            'device_name' => 'sometimes|nullable|string|max:255',
+            'location' => 'sometimes|nullable|string|max:255',
+        ]);
+        $phone = $this->normalizePhone($data['phone']);
+
+        if (! OtpService::verify($phone, $data['otp'], 'login')) {
+            return response()->json(['success' => false, 'message' => 'Mã OTP không hợp lệ hoặc đã hết hạn'], 422);
+        }
+
+        $user = User::where('phone', $phone)->where('user_type', 'shop')->first();
+        if (! $user) {
+            return response()->json(['success' => false, 'message' => 'Tài khoản không tồn tại'], 422);
+        }
+        if ($user->status == 2) {
+            return response()->json(['success' => false, 'message' => 'Tài khoản bị khóa'], 403);
+        }
+
+        $tokenName = ! empty($data['device_id']) ? "shop_token_{$data['device_id']}" : 'shop_token';
+        $user->tokens()->where('name', $tokenName)->delete();
+        $token = $this->issueToken($user, $tokenName, $data);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Đăng nhập thành công',
+            'data' => ['token' => $token, 'user' => $this->formatUser($user)],
+        ]);
+    }
+
     public function me(Request $request): JsonResponse
     {
         return response()->json(['success' => true, 'data' => $this->formatUser($request->user())]);

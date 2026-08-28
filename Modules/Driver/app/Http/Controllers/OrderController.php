@@ -116,7 +116,7 @@ class OrderController extends Controller
 
     public function updateStatus(Request $request, Order $order): JsonResponse
     {
-        // Đã bỏ bước on_the_way — chỉ còn 'processing' là giá trị hợp lệ.
+        // Mốc cập nhật duy nhất trước khi hoàn thành là processing (đã lấy hàng).
         $data   = $request->validate(['status' => 'required|in:processing']);
         $result = $this->orderService->updateOrderStatus($order, $request->user(), $data['status']);
         $status = $result['status'];

@@ -38,8 +38,7 @@ class OrderResource extends Resource
     private static array $statusLabels = [
         'pending'    => 'Chờ tài xế',
         'assigned'   => 'Đã phân công',
-        'processing' => 'Đang lấy hàng',
-        'on_the_way' => 'Đang giao',
+        'processing' => 'Đã lấy hàng',
         'completed'  => 'Hoàn thành',
         'cancelled'  => 'Đã huỷ',
     ];
@@ -48,7 +47,6 @@ class OrderResource extends Resource
         'pending'    => 'warning',
         'assigned'   => 'info',
         'processing' => 'primary',
-        'on_the_way' => 'primary',
         'completed'  => 'success',
         'cancelled'  => 'danger',
     ];
@@ -57,7 +55,6 @@ class OrderResource extends Resource
         'pending'    => '#f59e0b',
         'assigned'   => '#3b82f6',
         'processing' => '#f97316',
-        'on_the_way' => '#8b5cf6',
         'completed'  => '#22c55e',
         'cancelled'  => '#ef4444',
     ];
@@ -314,8 +311,8 @@ class OrderResource extends Resource
                             . ($record->status === 'pending' && $record->cancel_reason === 'no_driver'
                                 ? '<br><span style="color:#ef4444;font-size:11px;font-weight:600">⚠ Không tìm được tài xế — cần xử lý</span>'
                                 : '')
-                            . ($record->status === 'on_the_way' && $record->updated_at?->lt(now()->subMinutes(30))
-                                ? '<br><span style="color:#ef4444;font-size:11px;font-weight:600">⚠ Đang giao ' . $record->updated_at->diffInMinutes(now()) . ' phút — chưa hoàn thành</span>'
+                            . ($record->status === 'processing' && $record->updated_at?->lt(now()->subMinutes(30))
+                                ? '<br><span style="color:#ef4444;font-size:11px;font-weight:600">⚠ Đã lấy hàng ' . $record->updated_at->diffInMinutes(now()) . ' phút — chưa hoàn thành</span>'
                                 : '')
                         )
                         ->html()

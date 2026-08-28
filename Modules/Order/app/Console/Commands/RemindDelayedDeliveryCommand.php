@@ -13,9 +13,7 @@ class RemindDelayedDeliveryCommand extends Command
 
     public function handle(): void
     {
-        // Đã bỏ bước on_the_way — check 'processing' (lấy hàng/đang giao gộp
-        // chung) thay vì on_the_way, vốn không đơn nào còn đạt tới nữa khiến
-        // lệnh này âm thầm không nhắc được ai từ lúc bỏ bước đó.
+        // processing là mốc đã lấy hàng và đang thực hiện đơn.
         $orders = DB::table('orders')
             ->join('users', 'orders.delivery_man_id', '=', 'users.id')
             ->where('orders.status', 'processing')

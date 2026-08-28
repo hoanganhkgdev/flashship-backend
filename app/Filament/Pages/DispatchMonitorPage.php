@@ -118,10 +118,10 @@ class DispatchMonitorPage extends Page
         // kỳ từ khi bỏ cron sync GPS).
         $freshLocations = app(DriverLocationService::class)->freshLocationsFor($ids->all());
 
-        // Số đơn active theo tài xế (assigned/processing/on_the_way)
+        // Số đơn active theo tài xế (assigned/processing)
         $activeCounts = DB::table('orders')
             ->whereIn('delivery_man_id', $ids)
-            ->whereIn('status', ['assigned', 'processing', 'on_the_way'])
+            ->whereIn('status', ['assigned', 'processing'])
             ->groupBy('delivery_man_id')
             ->selectRaw('delivery_man_id, COUNT(*) as cnt')
             ->pluck('cnt', 'delivery_man_id');

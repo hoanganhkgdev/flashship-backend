@@ -27,7 +27,7 @@ class OrderService
     {
         $assigned = Order::with('city')
             ->where('delivery_man_id', $user->id)
-            ->whereIn('status', ['assigned', 'processing', 'on_the_way'])
+            ->whereIn('status', ['assigned', 'processing'])
             ->orderByDesc('id')->get();
 
         $completed = Order::with('city')
@@ -130,7 +130,7 @@ class OrderService
             return ['success' => false, 'message' => 'Đơn này không được phát cho bạn.', 'status' => 403];
         }
 
-        $activeOrders = Order::where('delivery_man_id', $user->id)->whereIn('status', ['assigned', 'processing', 'on_the_way'])->count();
+        $activeOrders = Order::where('delivery_man_id', $user->id)->whereIn('status', ['assigned', 'processing'])->count();
         if ($activeOrders >= 2) {
             OrderDispatchLog::where('order_id', $order->id)
                 ->where('driver_id', $user->id)
@@ -250,8 +250,7 @@ class OrderService
 
     public function updateOrderStatus(Order $order, User $user, string $status): array
     {
-        // Đã bỏ bước on_the_way — flow giờ chỉ còn assigned→processing rồi
-        // hoàn thành thẳng qua completeOrder() (xem điều kiện ở đó).
+        // Flow vận hành: assigned → processing → completed.
         $allowed = ['assigned' => 'processing'];
 
         if ((int) $order->delivery_man_id !== (int) $user->id) {
@@ -272,8 +271,7 @@ class OrderService
         }
         if ($customer) {
             $statusLabel = match ($status) {
-                'processing' => 'Tài xế đang lấy hàng',
-                'on_the_way' => 'Đơn hàng đang được giao',
+                'processing' => 'Tài xế đã lấy hàng',
                 'cancelled'  => 'Đơn hàng đã bị hủy',
                 default      => "Đơn hàng cập nhật trạng thái",
             };
@@ -314,17 +312,13 @@ class OrderService
             if (!$allDelivered) {
                 return ['success' => false, 'message' => 'Đơn gộp cần giao hết các điểm trước khi hoàn thành.', 'status' => 400];
             }
-        } elseif (!in_array($order->status, ['processing', 'on_the_way'], true)) {
+        } elseif (!in_array($order->status, ['processing'], true)) {
             // Trước đây chỉ chặn cancelled/completed — tài xế accept xong
             // (status='assigned') gọi thẳng complete là hợp lệ, bỏ qua hẳn
             // bước lấy hàng (processing) mà vẫn được cộng tiền (phí ship, bù
             // voucher, bonus_fee, thưởng mưa) ngay lập tức — farm tiền không
-            // cần chạy đơn thật. Chấp nhận cả 'processing' lẫn 'on_the_way':
-            // flow thật hiện tại của app driver dừng ở processing rồi hoàn
-            // thành thẳng, không còn dùng bước on_the_way nữa (xác nhận qua
-            // log production 2026-08-20 — 13896 lần chuyển processing, chỉ
-            // 190 lần on_the_way, còn sót từ trước khi bỏ bước này).
-            return ['success' => false, 'message' => 'Đơn hàng cần đang lấy/giao hàng mới hoàn thành được.', 'status' => 400];
+            // cần chạy đơn thật.
+            return ['success' => false, 'message' => 'Đơn hàng cần ở trạng thái đã lấy hàng mới hoàn thành được.', 'status' => 400];
         }
 
         // Atomic update — chỉ tiếp tục nếu row thực sự được update (tránh race condition)

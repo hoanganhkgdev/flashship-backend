@@ -19,7 +19,7 @@ class NearbyDriversController extends Controller
             return response()->json(['data' => []]);
         }
 
-        $busyIds = Order::whereIn('status', ['assigned', 'processing', 'on_the_way'])
+        $busyIds = Order::whereIn('status', ['assigned', 'processing'])
             ->whereNotNull('delivery_man_id')
             ->pluck('delivery_man_id');
 

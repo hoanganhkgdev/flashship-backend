@@ -28,7 +28,7 @@ class EditOrder extends EditRecord
         // Giải pháp: reload status mới nhất từ DB, nếu đơn đang active thì giữ nguyên.
         $fresh = Order::find($this->record->id);
 
-        if ($fresh && in_array($fresh->status, ['assigned', 'processing', 'on_the_way'])) {
+        if ($fresh && in_array($fresh->status, ['assigned', 'processing'])) {
             if ($data['status'] === 'pending') {
                 // Tổng đài chưa đổi status thủ công — giữ trạng thái DB hiện tại
                 $data['status'] = $fresh->status;
@@ -36,11 +36,11 @@ class EditOrder extends EditRecord
             }
         }
 
-        // Chặn đổi thẳng status sang assigned/processing/on_the_way mà không qua
+        // Chặn đổi thẳng status sang assigned/processing mà không qua
         // "Gán tài xế" — form này không có ô chọn tài xế, đổi tay kiểu này để lại
         // đơn "ma" (status active nhưng delivery_man_id NULL) mà dispatch tự động
         // lẫn cảnh báo "không tìm được tài xế" đều bỏ qua vì không còn pending.
-        if (in_array($data['status'], ['assigned', 'processing', 'on_the_way']) && !$fresh?->delivery_man_id) {
+        if (in_array($data['status'], ['assigned', 'processing']) && !$fresh?->delivery_man_id) {
             Notification::make()
                 ->title('Không thể lưu')
                 ->body('Đơn chưa có tài xế nào được gán. Dùng chức năng "Gán tài xế" thay vì đổi trạng thái trực tiếp.')

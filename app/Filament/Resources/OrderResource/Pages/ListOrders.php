@@ -27,7 +27,7 @@ class ListOrders extends ListRecords
 
             'processing' => Tab::make('Đang xử lý')
                 ->icon('heroicon-m-clock')
-                ->modifyQueryUsing(fn (Builder $query) => $query->whereIn('status', ['assigned', 'processing', 'on_the_way'])),
+                ->modifyQueryUsing(fn (Builder $query) => $query->whereIn('status', ['assigned', 'processing'])),
 
             'completed' => Tab::make('Hoàn thành')
                 ->icon('heroicon-m-check-circle')

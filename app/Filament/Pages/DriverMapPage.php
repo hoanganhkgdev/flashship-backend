@@ -59,7 +59,7 @@ class DriverMapPage extends Page
         // Đang đi đơn = có ít nhất 1 đơn ở trạng thái đang xử lý — cùng danh
         // sách trạng thái "active" dùng chung trong OrderService/DispatchService.
         $busyDriverIds = DB::table('orders')
-            ->whereIn('status', ['assigned', 'processing', 'on_the_way'])
+            ->whereIn('status', ['assigned', 'processing'])
             ->whereNotNull('delivery_man_id')
             ->pluck('delivery_man_id')
             ->unique()

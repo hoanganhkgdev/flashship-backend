@@ -49,7 +49,7 @@ class DispatchCandidateFinder
 
         // ── 1. Loại tài xế bận / đang nhận offer khác ────────────────────────────
         $busyDriverIds = Order::selectRaw('delivery_man_id, COUNT(*) as cnt')
-            ->whereIn('status', ['assigned', 'processing', 'on_the_way'])
+            ->whereIn('status', ['assigned', 'processing'])
             ->whereNotNull('delivery_man_id')
             ->groupBy('delivery_man_id')
             ->havingRaw('cnt >= 2')
@@ -116,7 +116,7 @@ class DispatchCandidateFinder
         // ── 4. Ghép đơn: giữ tài xế rảnh HOẶC có 1 đơn mà đơn đang chạy "cùng
         // tuyến" với đơn mới — điểm lấy 2 đơn ≤ BATCH_MAX_PICKUP_KM VÀ điểm
         // giao 2 đơn ≤ BATCH_MAX_DELIVERY_KM (cả 2 điều kiện, không phải 1).
-        $activeOrders = Order::whereIn('status', ['assigned', 'processing', 'on_the_way'])
+        $activeOrders = Order::whereIn('status', ['assigned', 'processing'])
             ->whereIn('delivery_man_id', $afterLicense->pluck('id'))
             ->get(['delivery_man_id', 'pickup_lat', 'pickup_lng', 'delivery_lat', 'delivery_lng'])
             ->keyBy('delivery_man_id');

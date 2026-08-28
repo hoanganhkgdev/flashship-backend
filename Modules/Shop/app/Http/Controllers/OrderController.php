@@ -72,7 +72,7 @@ class OrderController extends Controller
         $periodBase = (clone $base)->where('created_at', '>=', $periodStart);
 
         $total = (clone $periodBase)->count();
-        $active = (clone $periodBase)->whereIn('status', ['pending', 'assigned', 'processing', 'on_the_way'])->count();
+        $active = (clone $periodBase)->whereIn('status', ['pending', 'assigned', 'processing'])->count();
         $completed = (clone $periodBase)->where('status', 'completed')->count();
         $cancelled = (clone $periodBase)->where('status', 'cancelled')->count();
         $revenue = (clone $periodBase)->where('status', 'completed')->sum('shipping_fee');
@@ -81,7 +81,7 @@ class OrderController extends Controller
         $today = now()->startOfDay();
         $todayBase = (clone $base)->whereDate('created_at', $today);
         $todayOrders = (clone $todayBase)->count();
-        $todayActive = (clone $todayBase)->whereIn('status', ['pending', 'assigned', 'processing', 'on_the_way'])->count();
+        $todayActive = (clone $todayBase)->whereIn('status', ['pending', 'assigned', 'processing'])->count();
         $todayCompleted = (clone $todayBase)->where('status', 'completed')->count();
         $todayRevenue = (clone $todayBase)->where('status', 'completed')->sum('shipping_fee');
 

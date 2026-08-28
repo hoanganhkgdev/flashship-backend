@@ -17,6 +17,8 @@ Route::prefix('shop')->middleware(TrackShopEvent::class)->group(function () {
         Route::post('/forgot-password',     [AuthController::class, 'forgotPassword']);
         Route::post('/reset-password',      [AuthController::class, 'resetPassword']);
         Route::post('/login',               [AuthController::class, 'login']);
+        Route::post('/login/send-otp',      [AuthController::class, 'sendLoginOtp']);
+        Route::post('/login/verify-otp',    [AuthController::class, 'verifyLoginOtp']);
 
         // auth:sanctum không tự kiểm tra user_type — cùng lỗ hổng đã sửa cho
         // module Admin/Driver (2026-08-20), dùng lại middleware user_type.

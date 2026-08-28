@@ -55,7 +55,7 @@ class DispatchOfferSender
 
         // Verify lại lần cuối — tài xế có thể nhận đơn giữa lúc pop và lock
         $activeCount = Order::where('delivery_man_id', $driver->id)
-            ->whereIn('status', ['assigned', 'processing', 'on_the_way'])
+            ->whereIn('status', ['assigned', 'processing'])
             ->count();
         if ($activeCount >= 2) {
             Redis::del($lockKey);

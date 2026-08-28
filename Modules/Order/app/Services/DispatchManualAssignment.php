@@ -55,7 +55,7 @@ class DispatchManualAssignment
 
         try {
             $activeCount = Order::where('delivery_man_id', $driver->id)
-                ->whereIn('status', ['assigned', 'processing', 'on_the_way'])
+                ->whereIn('status', ['assigned', 'processing'])
                 ->count();
             if ($activeCount >= 2) {
                 return ['success' => false, 'message' => "Tài xế {$driver->name} đang chạy {$activeCount} đơn, không nhận thêm được."];

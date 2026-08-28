@@ -73,7 +73,7 @@ class ViewShop extends ViewRecord
                         ->label('Đang chạy')
                         ->state(fn ($record) => Order::where('sender_platform_id', $record->id)
                             ->where('platform', 'shop_app')
-                            ->whereIn('status', ['pending','assigned','processing','on_the_way'])
+                            ->whereIn('status', ['pending', 'assigned', 'processing'])
                             ->count())
                         ->badge()->color('info'),
 

@@ -185,8 +185,7 @@ class FCMService
     {
         $statusLabel = match ($status) {
             'assigned'   => 'Tài xế đã nhận đơn',
-            'processing' => 'Tài xế đang lấy hàng',
-            'on_the_way' => 'Đơn hàng đang được giao',
+            'processing' => 'Tài xế đã lấy hàng',
             'completed'  => 'Đơn hàng đã giao thành công',
             'cancelled'  => 'Đơn hàng đã bị hủy',
             default      => 'Cập nhật đơn hàng',
