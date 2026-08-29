@@ -306,6 +306,12 @@ class OrderService
         }
 
         $log = DB::transaction(function () use ($order, $user) {
+            $fresh = Order::whereKey($order->id)->lockForUpdate()->first();
+            if (!$fresh || $fresh->status !== 'pending'
+                || (int) $fresh->dispatching_to_driver_id !== (int) $user->id) {
+                return null;
+            }
+
             $log = OrderDispatchLog::where('order_id', $order->id)
                 ->where('driver_id', $user->id)
                 ->where('result', 'pending')
@@ -315,6 +321,11 @@ class OrderService
             if (!$log) return null;
 
             $log->update(['result' => 'declined', 'responded_at' => now()]);
+            $fresh->update([
+                'dispatching_to_driver_id' => null,
+                'offer_viewed_at' => null,
+                'updated_at' => now(),
+            ]);
             return $log;
         });
 
@@ -323,13 +334,6 @@ class OrderService
         }
 
         \Illuminate\Support\Facades\Redis::del("dispatch:lock:driver:{$user->id}");
-
-        // Offer kết thúc vì từ chối — xoá con trỏ "đang hỏi ai" ngay (guard theo
-        // driver để không đè nếu đã trỏ sang người mới), tránh con trỏ ôi khoá
-        // tài xế này khỏi các đơn khác khi đơn hiện tại không tìm được ai kế.
-        DB::table('orders')->where('id', $order->id)
-            ->where('dispatching_to_driver_id', $user->id)
-            ->update(['dispatching_to_driver_id' => null, 'updated_at' => now()]);
 
         DriverScoreService::onDecline($user->id);
 

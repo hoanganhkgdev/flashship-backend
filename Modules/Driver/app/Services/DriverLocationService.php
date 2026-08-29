@@ -21,7 +21,10 @@ class DriverLocationService
      */
     public function freshLocationsFor(array $driverIds): array
     {
-        $raw = RTDBService::getDriverLocations();
+        // Khi Firebase lỗi, fail closed cho dispatch: không phát đơn dựa trên
+        // vị trí không xác minh được. Cron chấm giờ xử lý null theo cách khác
+        // (bỏ qua vòng quan sát), xem TrackGpsEligibleSessionsCommand.
+        $raw = RTDBService::getDriverLocations() ?? [];
         $now = time();
         $out = [];
 

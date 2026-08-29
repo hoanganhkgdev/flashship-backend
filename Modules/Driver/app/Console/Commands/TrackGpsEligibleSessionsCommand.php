@@ -24,6 +24,10 @@ class TrackGpsEligibleSessionsCommand extends Command
     {
         $now = Carbon::now();
         $locations = RTDBService::getDriverLocations();
+        if ($locations === null) {
+            $this->warn('Không đọc được Firebase; bỏ qua vòng theo dõi để không ghi nhận mất GPS giả.');
+            return;
+        }
         $online = User::where('user_type', 'driver')
             ->where('is_online', true)
             ->get(['id', 'online_since']);

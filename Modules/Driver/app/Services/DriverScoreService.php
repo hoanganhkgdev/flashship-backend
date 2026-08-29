@@ -12,7 +12,8 @@ class DriverScoreService
     const MAX_SCORE            = 140;
 
     const SCORE_DECLINE        = -2;
-    const SCORE_VIEWED_TIMEOUT = -3;
+    const SCORE_VIEWED_TIMEOUT = -2;
+    const SCORE_UNVIEWED_X3    = -1;
 
     const STREAK_MILESTONES    = [3 => 1, 6 => 2, 10 => 4];
     const STREAK_RESET_AT      = 10;
@@ -121,7 +122,7 @@ class DriverScoreService
 
             if ($count >= 3) {
                 DB::table('users')->where('id', $driverId)->update(['unviewed_offer_count' => 0]);
-                self::adjust($driverId, -2, 'offer_unviewed_x3');
+                self::adjust($driverId, self::SCORE_UNVIEWED_X3, 'offer_unviewed_x3');
             } else {
                 DB::table('users')->where('id', $driverId)->update(['unviewed_offer_count' => $count]);
             }

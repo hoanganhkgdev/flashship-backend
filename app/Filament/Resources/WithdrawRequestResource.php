@@ -151,7 +151,7 @@ class WithdrawRequestResource extends Resource
                             ->rows(2),
                     ])
                     ->action(function (WithdrawRequest $record, array $data) {
-                        $lock = Cache::lock("withdraw:payout:{$record->id}", 60);
+                        $lock = Cache::lock("withdraw:payout:{$record->id}", 300);
                         if (!$lock->get()) {
                             Notification::make()->warning()->title('Yêu cầu đang được xử lý ở một phiên khác.')->send();
                             return;
@@ -213,6 +213,18 @@ class WithdrawRequestResource extends Resource
                             ->rows(2),
                     ])
                     ->action(function (WithdrawRequest $record, array $data) {
+                        // Dùng cùng khóa với luồng duyệt. Nếu không, admin A
+                        // có thể đang chờ PayOS chuyển khoản trong khi admin B
+                        // từ chối và hoàn hold vào ví: tài xế vừa nhận tiền
+                        // ngân hàng vừa được hoàn số dư.
+                        $lock = Cache::lock("withdraw:payout:{$record->id}", 300);
+                        if (!$lock->get()) {
+                            Notification::make()->warning()
+                                ->title('Yêu cầu đang được xử lý ở một phiên khác.')
+                                ->send();
+                            return;
+                        }
+
                         try {
                             $rejected = DB::transaction(function () use ($record, $data) {
                                 $locked = WithdrawRequest::where('id', $record->id)
@@ -245,6 +257,8 @@ class WithdrawRequestResource extends Resource
                             Notification::make()->success()->title('Đã từ chối và hoàn tiền cho tài xế.')->send();
                         } catch (\Exception $e) {
                             Notification::make()->danger()->title('Lỗi: ' . $e->getMessage())->send();
+                        } finally {
+                            $lock->release();
                         }
                     }),
             ]);

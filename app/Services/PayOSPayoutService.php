@@ -45,7 +45,9 @@ class PayOSPayoutService
         $signature = self::sign($body);
 
         try {
-            $response = Http::withHeaders(self::headers($referenceId, $signature))
+            $response = Http::connectTimeout(10)
+                ->timeout(45)
+                ->withHeaders(self::headers($referenceId, $signature))
                 ->post(self::BASE_URL . '/v1/payouts', $body);
 
             $result = $response->json();
@@ -66,7 +68,7 @@ class PayOSPayoutService
     public static function getBalance(): ?array
     {
         try {
-            $response = Http::withHeaders([
+            $response = Http::connectTimeout(10)->timeout(30)->withHeaders([
                 'x-client-id' => config('services.payos_payout.client_id'),
                 'x-api-key'   => config('services.payos_payout.api_key'),
             ])->get(self::BASE_URL . '/v1/payouts-account/balance');

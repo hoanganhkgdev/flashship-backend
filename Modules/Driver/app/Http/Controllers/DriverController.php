@@ -87,7 +87,7 @@ class DriverController extends Controller
 
             // Idempotent: retry cùng một request không được đảo trạng thái
             // lần thứ hai hoặc tạo/đóng thêm phiên chấm công.
-            if ((bool) $locked->is_online === $targetOnline) {
+            if ((bool) $locked->is_online === $targetOnline && $targetOnline) {
                 return ['user' => $locked];
             }
 
@@ -125,6 +125,7 @@ class DriverController extends Controller
             // "8h/ngày" cũ, và thay cho phạt -15 real-time khi tắt giữa ca —
             // giờ chỉ phạt nếu tắt hẳn không bật lại tới hết ca, đánh giá ở
             // cuối ca).
+            $offers = collect();
             if ($locked->is_online) {
                 \Modules\Driver\Models\DriverShiftSession::create([
                     'driver_id'  => $locked->id,
@@ -136,6 +137,17 @@ class DriverController extends Controller
                 // Firebase qua DriverLocationService.
                 $locked->last_heartbeat_at = now();
             } else {
+                $offers = Order::where('status', 'pending')
+                    ->where('dispatching_to_driver_id', $locked->id)
+                    ->lockForUpdate()
+                    ->get();
+                foreach ($offers as $offer) {
+                    $offer->update(['dispatching_to_driver_id' => null, 'offer_viewed_at' => null]);
+                    OrderDispatchLog::where('order_id', $offer->id)
+                        ->where('driver_id', $locked->id)
+                        ->where('result', 'pending')
+                        ->update(['result' => 'expired', 'responded_at' => now()]);
+                }
                 // Đóng TẤT CẢ phiên đang mở, không chỉ phiên gần nhất — nếu
                 // có sót lại phiên chồng lấp nào (bug cũ, hoặc lỗi khác trong
                 // tương lai) mà chỉ đóng đúng 1 phiên (->first()) thì phiên
@@ -160,7 +172,7 @@ class DriverController extends Controller
 
             \Log::info("[Toggle] #{$locked->id} → online={$locked->is_online} online_since={$locked->online_since}");
 
-            return ['user' => $locked];
+            return ['user' => $locked, 'offers' => $offers];
         });
 
         if (isset($result['error'])) {
@@ -176,6 +188,24 @@ class DriverController extends Controller
         $user = $result['user'];
 
         RTDBService::setDriverOnlineStatus($user->id, (bool) $user->is_online);
+        foreach ($result['offers'] ?? [] as $offer) {
+            RTDBService::clearDriverOffer($user->id, $offer->id);
+            try {
+                \Illuminate\Support\Facades\Redis::eval(
+                    "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
+                    1,
+                    "dispatch:lock:driver:{$user->id}",
+                    (string) $offer->id,
+                );
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::warning('[Toggle] Không xóa được dispatch lock khi offline', [
+                    'driver_id' => $user->id, 'order_id' => $offer->id, 'message' => $e->getMessage(),
+                ]);
+            }
+            dispatch(function () use ($offer) {
+                app(\Modules\Order\Services\DispatchService::class)->sendToNextDriver($offer->fresh());
+            })->afterResponse();
+        }
 
         return response()->json([
             'success'      => true,
@@ -799,7 +829,13 @@ class DriverController extends Controller
         }
 
         RTDBService::removeDriverLocation($user->id);
-        \Illuminate\Support\Facades\Redis::del("dispatch:lock:driver:{$user->id}");
+        try {
+            \Illuminate\Support\Facades\Redis::del("dispatch:lock:driver:{$user->id}");
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('[DeleteAccount] Không xóa được Redis lock', [
+                'driver_id' => $user->id, 'message' => $e->getMessage(),
+            ]);
+        }
         foreach ($result['offers'] as $offer) {
             RTDBService::clearDriverOffer($user->id, $offer->id);
             app(\Modules\Order\Services\DispatchService::class)->sendToNextDriver($offer->fresh());

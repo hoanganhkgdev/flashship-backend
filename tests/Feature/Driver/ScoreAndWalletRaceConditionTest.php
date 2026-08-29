@@ -237,6 +237,17 @@ class ScoreAndWalletRaceConditionTest extends TestCase
         $this->assertSame(0, (int) $score, 'Điểm không được xuống dưới MIN_SCORE (0)');
     }
 
+    public function test_offer_penalties_match_business_rules(): void
+    {
+        $viewedDriver = $this->makeDriver(100);
+        DriverScoreService::onViewedTimeout($viewedDriver);
+        $this->assertSame(98, (int) DB::table('users')->where('id', $viewedDriver)->value('driver_score'));
+
+        // DB test legacy chưa có cột unviewed_offer_count; khóa trực tiếp
+        // mức phạt nghiệp vụ để không thể vô tình đổi lại thành -2.
+        $this->assertSame(-1, DriverScoreService::SCORE_UNVIEWED_X3);
+    }
+
     public function test_wallet_balance_correct_after_sequential_credit_and_debit(): void
     {
         $driverId = $this->makeDriver();

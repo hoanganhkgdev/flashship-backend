@@ -95,21 +95,27 @@ class RTDBService
      */
     public static function updateDriverOfferExpiry(int $driverId, int $orderId, int $expiresAt): bool
     {
-        try {
-            $ref = self::db()->getReference("dispatch/driver_{$driverId}/offer");
-            return self::db()->runTransaction(function (Transaction $transaction) use ($ref, $orderId, $expiresAt) {
-                $offer = $transaction->snapshot($ref)->getValue();
-                if (!is_array($offer) || (int) ($offer['order_id'] ?? 0) !== $orderId) {
+        for ($attempt = 1; $attempt <= 3; $attempt++) {
+            try {
+                $ref = self::db()->getReference("dispatch/driver_{$driverId}/offer");
+                return self::db()->runTransaction(function (Transaction $transaction) use ($ref, $orderId, $expiresAt) {
+                    $offer = $transaction->snapshot($ref)->getValue();
+                    if (!is_array($offer) || (int) ($offer['order_id'] ?? 0) !== $orderId) {
+                        return false;
+                    }
+                    $offer['expires_at'] = $expiresAt;
+                    $transaction->set($ref, $offer);
+                    return true;
+                });
+            } catch (\Throwable $e) {
+                if ($attempt === 3) {
+                    Log::error('[RTDB] updateDriverOfferExpiry failed: ' . $e->getMessage());
                     return false;
                 }
-                $offer['expires_at'] = $expiresAt;
-                $transaction->set($ref, $offer);
-                return true;
-            });
-        } catch (\Throwable $e) {
-            Log::error('[RTDB] updateDriverOfferExpiry failed: ' . $e->getMessage());
-            return false;
+                usleep($attempt * 100_000);
+            }
         }
+        return false;
     }
 
     /**
@@ -117,20 +123,26 @@ class RTDBService
      */
     public static function clearDriverOffer(int $driverId, int $orderId): bool
     {
-        try {
-            $ref = self::db()->getReference("dispatch/driver_{$driverId}/offer");
-            return self::db()->runTransaction(function (Transaction $transaction) use ($ref, $orderId) {
-                $offer = $transaction->snapshot($ref)->getValue();
-                if (!is_array($offer) || (int) ($offer['order_id'] ?? 0) !== $orderId) {
+        for ($attempt = 1; $attempt <= 3; $attempt++) {
+            try {
+                $ref = self::db()->getReference("dispatch/driver_{$driverId}/offer");
+                return self::db()->runTransaction(function (Transaction $transaction) use ($ref, $orderId) {
+                    $offer = $transaction->snapshot($ref)->getValue();
+                    if (!is_array($offer) || (int) ($offer['order_id'] ?? 0) !== $orderId) {
+                        return false;
+                    }
+                    $transaction->remove($ref);
+                    return true;
+                });
+            } catch (\Throwable $e) {
+                if ($attempt === 3) {
+                    Log::error('[RTDB] clearDriverOffer failed: ' . $e->getMessage());
                     return false;
                 }
-                $transaction->remove($ref);
-                return true;
-            });
-        } catch (\Throwable $e) {
-            Log::error('[RTDB] clearDriverOffer failed: ' . $e->getMessage());
-            return false;
+                usleep($attempt * 100_000);
+            }
         }
+        return false;
     }
 
     /**
@@ -211,13 +223,16 @@ class RTDBService
      * gọi — dùng bởi các nơi cần quét toạ độ tài xế tại thời điểm xử lý
      * (dispatch, tìm tài xế gần) thay vì đọc qua bản sao MySQL đã lỗi thời.
      */
-    public static function getDriverLocations(): array
+    public static function getDriverLocations(): ?array
     {
         try {
             return self::db()->getReference('locations')->getValue() ?? [];
         } catch (\Throwable $e) {
             Log::error('[RTDB] getDriverLocations failed: ' . $e->getMessage());
-            return [];
+            // null = không đọc được Firebase; [] = đọc thành công và thật sự
+            // không có node nào. Cron GPS cần phân biệt để không đóng phiên
+            // của toàn bộ tài xế chỉ vì một phút lỗi mạng.
+            return null;
         }
     }
 

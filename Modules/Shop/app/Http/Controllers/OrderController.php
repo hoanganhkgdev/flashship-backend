@@ -414,32 +414,13 @@ class OrderController extends Controller
 
     public function deliverStop(string $code, int $seq, Request $request): JsonResponse
     {
-        $order = Order::where('code', $code)
-            ->where('sender_platform_id', $request->user()->id)
-            ->where('platform', 'shop_app')
-            ->where('is_batch', true)
-            ->first();
-
-        if (! $order) {
-            return response()->json(['success' => false, 'message' => 'Không tìm thấy đơn hàng'], 404);
-        }
-
-        $stops = $order->stops ?? [];
-        $found = false;
-        foreach ($stops as &$stop) {
-            if ((int) $stop['seq'] === $seq) {
-                $stop['delivered_at'] = now()->toIso8601String();
-                $found = true;
-                break;
-            }
-        }
-        if (! $found) {
-            return response()->json(['success' => false, 'message' => 'Không tìm thấy điểm giao'], 404);
-        }
-
-        $order->update(['stops' => $stops]);
-
-        return response()->json(['success' => true, 'message' => "Đã giao điểm $seq"]);
+        // Shop là bên gửi hàng, không có quyền xác nhận nghiệp vụ giao hàng.
+        // Chỉ endpoint có auth tài xế mới được đánh dấu stop, sau khi đã lấy
+        // hàng, đúng thứ tự và trong transaction chống ghi đè đồng thời.
+        return response()->json([
+            'success' => false,
+            'message' => 'Chỉ tài xế đang thực hiện đơn mới được xác nhận điểm giao.',
+        ], 403);
     }
 
     public function show(string $code, Request $request): JsonResponse
