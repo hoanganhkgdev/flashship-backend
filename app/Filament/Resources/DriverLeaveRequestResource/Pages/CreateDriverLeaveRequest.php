@@ -6,6 +6,7 @@ use App\Filament\Resources\DriverLeaveRequestResource;
 use Filament\Resources\Pages\CreateRecord;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Modules\Order\Models\Order;
 use Modules\Core\Models\User;
@@ -29,7 +30,22 @@ class CreateDriverLeaveRequest extends CreateRecord
     protected function afterCreate(): void
     {
         if (!$this->record->leave_date->isToday()) return;
-        User::whereKey($this->record->driver_id)->update(['is_online' => false, 'online_since' => null]);
+        DB::transaction(function () {
+            User::whereKey($this->record->driver_id)->update(['is_online' => false, 'online_since' => null]);
+            \Modules\Driver\Models\DriverShiftSession::where('driver_id', $this->record->driver_id)
+                ->whereNull('ended_at')
+                ->update(['ended_at' => now()]);
+            $gpsSessions = \Modules\Driver\Models\DriverGpsEligibleSession::where('driver_id', $this->record->driver_id)
+                ->whereNull('ended_at')
+                ->lockForUpdate()
+                ->get();
+            foreach ($gpsSessions as $gpsSession) {
+                $endedAt = $gpsSession->last_gps_at->copy()
+                    ->addSeconds(\Modules\Driver\Services\DriverLocationService::POS_MAX_AGE_SECS)
+                    ->min(now());
+                $gpsSession->update(['ended_at' => $endedAt]);
+            }
+        });
         RTDBService::removeDriverLocation($this->record->driver_id);
     }
 

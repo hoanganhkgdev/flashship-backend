@@ -166,7 +166,22 @@ class AuthController extends Controller
         // API báo offline được nữa (401) — xử lý luôn ở đây, lúc chắc chắn
         // biết phiên cũ đang bị thay thế, thay vì trông cậy máy cũ tự báo.
         if ($user->is_online) {
-            $user->update(['is_online' => false, 'online_since' => null]);
+            DB::transaction(function () use ($user) {
+                $user->update(['is_online' => false, 'online_since' => null]);
+                \Modules\Driver\Models\DriverShiftSession::where('driver_id', $user->id)
+                    ->whereNull('ended_at')
+                    ->update(['ended_at' => now()]);
+                $gpsSessions = \Modules\Driver\Models\DriverGpsEligibleSession::where('driver_id', $user->id)
+                    ->whereNull('ended_at')
+                    ->lockForUpdate()
+                    ->get();
+                foreach ($gpsSessions as $gpsSession) {
+                    $endedAt = $gpsSession->last_gps_at->copy()
+                        ->addSeconds(\Modules\Driver\Services\DriverLocationService::POS_MAX_AGE_SECS)
+                        ->min(now());
+                    $gpsSession->update(['ended_at' => $endedAt]);
+                }
+            });
             RTDBService::removeDriverLocation($user->id);
             \Illuminate\Support\Facades\Log::info("[Auth] Driver #{$user->id} tự động chuyển offline do đăng nhập thiết bị mới.");
         }

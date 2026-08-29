@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\DB;
 use Modules\Core\Models\User;
 use Modules\Core\Services\RTDBService;
 use Modules\Driver\Models\DriverGpsEligibleSession;
+use Modules\Driver\Models\DriverShiftSession;
 use Modules\Driver\Services\DriverLocationService;
 
 /**
@@ -27,6 +28,14 @@ class TrackGpsEligibleSessionsCommand extends Command
             ->where('is_online', true)
             ->get(['id', 'online_since']);
         $onlineIds = $online->pluck('id');
+
+        // Tự chữa các phiên online kiểu cũ bị bỏ mở khi một luồng khác
+        // (đăng nhập thiết bị mới, nghỉ phép, khoá tài khoản...) đã chuyển
+        // user sang Offline mà không đi qua toggleOnline(). Các phiên này
+        // không còn dùng để chấm điểm, nhưng không được để treo vô hạn.
+        DriverShiftSession::whereNull('ended_at')
+            ->whereNotIn('driver_id', $onlineIds)
+            ->update(['ended_at' => $now]);
 
         // Tài xế chủ động Offline: không cộng tới thời điểm Offline nếu GPS
         // đã chết từ trước; chỉ giữ tối đa vùng tươi sau fix cuối.
