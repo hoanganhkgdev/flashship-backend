@@ -151,7 +151,14 @@ class OrderController extends Controller
                     'payment_method'   => 'cod',
                     'cod_amount'       => $data['service_type'] === 'topup'
                         ? (int) ($data['topup_amount'] ?? 0)
-                        : ($data['service_type'] === 'shopping' ? ($data['cod_amount'] ?? null) : null),
+                        // Tiền thu hộ áp dụng cho cả giao hàng thường, không
+                        // chỉ riêng dịch vụ shopping. App đã gửi cod_amount
+                        // nhưng backend cũ âm thầm bỏ thành null với delivery,
+                        // khiến tài xế không thấy tiền cần thu và khi hoàn
+                        // thành cũng không phát sinh công nợ đối soát.
+                        : ((int) ($data['cod_amount'] ?? 0) > 0
+                            ? (int) $data['cod_amount']
+                            : null),
                     'city_id'          => $user->city_id,
                     'shipping_fee'     => $shippingFee,
                     'night_surcharge'  => $nightSurcharge,
