@@ -12,6 +12,13 @@ use Modules\Driver\Http\Controllers\SupportController;
 // Webhook PayOS — public, không cần auth
 Route::post('/payment/webhook/payos', [PaymentController::class, 'webhook']);
 
+// ACK do iOS Notification Service Extension / Android background handler
+// gửi trước khi banner hiển. URL có chữ ký + hết hạn ngắn, không
+// dùng auth token của tài xế trong tiến trình extension.
+Route::post('/dispatch/offers/{dispatchLog}/received', [OrderController::class, 'receiveSignedOffer'])
+    ->middleware('signed')
+    ->name('dispatch.offer.received');
+
 // auth:sanctum + driver.active KHÔNG kiểm tra user_type — 1 tài khoản
 // customer/shop đã đăng nhập vẫn gọi được nguyên vẹn API driver (ví, đơn,
 // điểm...) bằng chính token của họ. Cùng lỗ hổng đã sửa cho module Admin

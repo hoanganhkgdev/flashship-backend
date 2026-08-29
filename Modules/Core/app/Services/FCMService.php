@@ -63,7 +63,7 @@ class FCMService
     /**
      * Wake-up signal để app resume và đọc RTDB offer.
      */
-    public function sendDriverWakeUp(string $fcmToken, int $orderId, string $orderCode = '', string $pickupAddress = '', ?int $expiresAt = null): void
+    public function sendDriverWakeUp(string $fcmToken, int $orderId, string $orderCode = '', string $pickupAddress = '', ?int $expiresAt = null, ?string $receiptUrl = null): void
     {
         // Kèm "notification" (không chỉ "data" như trước) — nếu app bị hệ
         // điều hành kill nền (hay gặp trên Xiaomi/Oppo/Vivo ở VN), OS tự hiển
@@ -80,6 +80,7 @@ class FCMService
                 'order_id'   => (string) $orderId,
                 'order_code' => (string) $orderCode,
                 'expires_at' => (string) ($expiresAt ?? (time() + 25)),
+                'receipt_url'=> (string) ($receiptUrl ?? ''),
             ];
 
             // iOS không bảo đảm chạy Dart background handler cho push
@@ -124,6 +125,9 @@ class FCMService
                         ],
                         'sound'             => 'order_offer.aiff',
                         'content-available' => 1,
+                        // Bắt Notification Service Extension: extension ACK
+                        // URL ký số ngay trước khi iOS hiển banner.
+                        'mutable-content'   => 1,
                         // App (bản 10.0.12) đã có entitlement Time Sensitive
                         // nhưng entitlement không TỰ áp dụng — mỗi payload
                         // APNs phải tự khai interruption-level thì iOS mới

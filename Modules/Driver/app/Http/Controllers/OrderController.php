@@ -51,6 +51,22 @@ class OrderController extends Controller
         return response()->json(['success' => true, 'data' => ['order' => $order]]);
     }
 
+    public function receiveSignedOffer(OrderDispatchLog $dispatchLog): JsonResponse
+    {
+        $updated = DB::table('order_dispatch_logs')
+            ->where('id', $dispatchLog->id)
+            ->where('result', 'pending')
+            ->whereNull('received_at')
+            ->update(['received_at' => now(), 'updated_at' => now()]);
+
+        $received = $updated > 0 || DB::table('order_dispatch_logs')
+            ->where('id', $dispatchLog->id)
+            ->whereNotNull('received_at')
+            ->exists();
+
+        return response()->json(['success' => $received], $received ? 200 : 409);
+    }
+
     public function myOrders(Request $request): JsonResponse
     {
         $data = $this->orderService->getDriverOrders($request->user());

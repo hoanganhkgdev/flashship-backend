@@ -4,6 +4,7 @@ namespace Modules\Order\Services;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Facades\Redis;
 use Modules\Core\Models\User;
 use Modules\Core\Services\FCMService;
@@ -138,6 +139,11 @@ class DispatchOfferSender
 
         $offeredAt = $now->timestamp;
         $expiresAt = $offeredAt + self::DRIVER_OFFER_SECS;
+        $receiptUrl = URL::temporarySignedRoute(
+            'api.dispatch.offer.received',
+            now()->addSeconds(self::DRIVER_OFFER_SECS + 10),
+            ['dispatchLog' => $dispatchLog->id],
+        );
 
         // Xem trước cho tài xế lúc đang cân nhắc — đọc LIVE trạng thái mưa
         // tại đúng lúc gửi offer, không phải giá trị đã khoá. Giá trị áp
@@ -181,6 +187,7 @@ class DispatchOfferSender
             'cod_amount'        => (int) ($order->cod_amount ?? 0),
             'customer_phone'    => $order->sender?->phone    ?? '',
             'is_rain_mode'      => $isRainMode,
+            'receipt_url'       => $receiptUrl,
             ...($isRainMode ? ['rain_bonus_amount' => OrderService::RAIN_BONUS_AMOUNT] : []),
         ]);
 
@@ -206,7 +213,7 @@ class DispatchOfferSender
 
         if ($driver->fcm_token) {
             try {
-                FCMService::getInstance()->sendDriverWakeUp($driver->fcm_token, $order->id, $order->code, $order->pickup_address ?? '', $expiresAt);
+                FCMService::getInstance()->sendDriverWakeUp($driver->fcm_token, $order->id, $order->code, $order->pickup_address ?? '', $expiresAt, $receiptUrl);
                 Log::debug("     → FCM wake-up gửi thành công");
             } catch (\Throwable $e) {
                 Log::error("[Dispatch] FCM failed for driver #{$driver->id}: " . $e->getMessage());
