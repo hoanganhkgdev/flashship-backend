@@ -56,7 +56,9 @@ class PaymentController extends Controller
             if ($amount <= 0) {
                 return response()->json(['success' => false, 'message' => 'Khoản công nợ đã được thanh toán'], 409);
             }
-            $description = 'Phi tuan ' . date('dmy', strtotime($debt->week_start));
+            $description = $debt->debt_type === 'cod'
+                ? 'Thanh toan COD ' . date('dmy', strtotime($debt->date ?? now()))
+                : 'Phi tuan ' . date('dmy', strtotime($debt->week_start));
             $refId       = $debt->id;
 
         // Huỷ các QR cũ còn "pending" cho cùng loại/khoản — không thì QR cũ
