@@ -106,7 +106,10 @@ class OrderController extends Controller
                 ->where('driver_id', $driver->id)
                 ->where('result', 'pending')
                 ->whereNull('viewed_at')
-                ->update(['viewed_at' => $viewedAt]);
+                ->update(['received_at' => DB::raw('COALESCE(received_at, CURRENT_TIMESTAMP)'), 'viewed_at' => $viewedAt]);
+
+            // Đã thật sự mở xem thì chuỗi "nhận nhưng không xem" bị ngắt.
+            DB::table('users')->where('id', $driver->id)->update(['unviewed_offer_count' => 0]);
 
             // Reset đồng hồ RTDB về APP_DECISION_SECS — giống ShopeeFood
             RTDBService::updateDriverOfferExpiry($driver->id, $order->id, $expiresAt->timestamp);
@@ -133,6 +136,35 @@ class OrderController extends Controller
             'success' => true,
             'data' => ['expires_at' => $effectiveExpiresAt],
         ], 200);
+    }
+
+    /** App xác nhận thiết bị đã nhận và xử lý thông báo offer. */
+    public function receiveOffer(Request $request, Order $order): JsonResponse
+    {
+        $driverId = (int) $request->user()->id;
+
+        $updated = DB::table('order_dispatch_logs')
+            ->where('order_id', $order->id)
+            ->where('driver_id', $driverId)
+            ->where('result', 'pending')
+            ->whereNull('received_at')
+            ->whereExists(fn ($query) => $query
+                ->selectRaw('1')
+                ->from('orders')
+                ->whereColumn('orders.id', 'order_dispatch_logs.order_id')
+                ->where('orders.status', 'pending')
+                ->where('orders.dispatching_to_driver_id', $driverId))
+            ->update(['received_at' => now(), 'updated_at' => now()]);
+
+        // Idempotent: retry sau ACK đầu vẫn thành công nếu offer còn hiệu lực.
+        $active = $updated > 0 || DB::table('order_dispatch_logs')
+            ->where('order_id', $order->id)
+            ->where('driver_id', $driverId)
+            ->where('result', 'pending')
+            ->whereNotNull('received_at')
+            ->exists();
+
+        return response()->json(['success' => $active], $active ? 200 : 409);
     }
 
     public function accept(Request $request, Order $order): JsonResponse

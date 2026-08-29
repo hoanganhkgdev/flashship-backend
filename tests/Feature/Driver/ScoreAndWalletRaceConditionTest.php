@@ -243,9 +243,9 @@ class ScoreAndWalletRaceConditionTest extends TestCase
         DriverScoreService::onViewedTimeout($viewedDriver);
         $this->assertSame(98, (int) DB::table('users')->where('id', $viewedDriver)->value('driver_score'));
 
-        // DB test legacy chưa có cột unviewed_offer_count; khóa trực tiếp
-        // mức phạt nghiệp vụ để không thể vô tình đổi lại thành -2.
-        $this->assertSame(-1, DriverScoreService::SCORE_UNVIEWED_X3);
+        // DB test legacy chưa có cột unviewed_offer_count; khóa mức
+        // phạt. DispatchService chỉ gọi khi có received_at ACK.
+        $this->assertSame(-2, DriverScoreService::SCORE_UNVIEWED_X3);
     }
 
     public function test_wallet_balance_correct_after_sequential_credit_and_debit(): void

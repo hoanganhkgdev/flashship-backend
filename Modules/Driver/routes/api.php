@@ -48,6 +48,7 @@ Route::middleware(['auth:sanctum', 'user_type:driver', 'driver.active'])->group(
         Route::get('/dashboard',              [OrderController::class, 'dashboard']);
         Route::get('/recent',                 [EarningController::class, 'recentOrders']);
         Route::post('/{order}/view-offer',    [OrderController::class, 'viewOffer']);
+        Route::post('/{order}/receive-offer', [OrderController::class, 'receiveOffer']);
         Route::post('/{order}/accept',        [OrderController::class, 'accept']);
         Route::post('/{order}/decline',       [OrderController::class, 'decline']);
         Route::post('/{order}/update-status',        [OrderController::class, 'updateStatus']);

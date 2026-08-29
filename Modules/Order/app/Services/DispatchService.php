@@ -1,7 +1,6 @@
 <?php
 namespace Modules\Order\Services;
 
-use Modules\Driver\Services\DriverLocationService;
 use Modules\Driver\Services\DriverScoreService;
 use Modules\Order\Jobs\DispatchOrderRetryJob;
 use Modules\Order\Models\Order;
@@ -105,15 +104,19 @@ class DispatchService
         $driver = User::find($driverId);
         $name   = $driver?->name ?? "#{$driverId}";
 
-        $updated = DB::transaction(function () use ($order, $driverId) {
-            return OrderDispatchLog::where('order_id', $order->id)
+        $timedOutLog = DB::transaction(function () use ($order, $driverId) {
+            $log = OrderDispatchLog::where('order_id', $order->id)
                 ->where('driver_id', $driverId)
                 ->where('result', 'pending')
                 ->lockForUpdate()
-                ->update(['result' => 'expired', 'responded_at' => now()]);
+                ->first();
+            if (!$log) return null;
+
+            $log->update(['result' => 'expired', 'responded_at' => now()]);
+            return $log;
         });
 
-        if (!$updated) {
+        if (!$timedOutLog) {
             Log::info("⏱  [Dispatch] Đơn #{$order->id}: Tài xế {$name} đã xử lý trước (decline/accept) → bỏ qua timeout");
             return;
         }
@@ -129,26 +132,19 @@ class DispatchService
             ->where('dispatching_to_driver_id', $driverId)
             ->update(['dispatching_to_driver_id' => null, 'updated_at' => now()]);
 
-        if ($order->offer_viewed_at) {
+        if ($timedOutLog->viewed_at || $order->offer_viewed_at) {
             DriverScoreService::onViewedTimeout($driverId);
             Log::info("⏱  [Dispatch] Đơn #{$order->id}: Tài xế {$name} xem đơn nhưng không nhận → " . DriverScoreService::SCORE_VIEWED_TIMEOUT . " điểm, pop tiếp");
-        } elseif (\Modules\Core\Models\City::where('id', $order->city_id)->value('is_rain_mode')) {
-            Log::info("⏱  [Dispatch] Đơn #{$order->id}: Tài xế {$name} không xem đơn lúc trời mưa → miễn tính, pop tiếp");
-        } elseif (empty(app(DriverLocationService::class)->freshLocationsFor([$driverId]))) {
-            // Backend không có cách nào biết chắc thông báo có thực sự tới
-            // máy tài xế hay không (FCM "gửi thành công" chỉ nghĩa là Firebase
-            // nhận yêu cầu, không đảm bảo hiển thị được — vd thiếu
-            // interruption-level trên iOS, mất mạng, app bị hệ điều hành
-            // đóng...). Dùng lại đúng ngưỡng GPS-tươi 10 phút mà dispatch
-            // dùng để lọc ứng viên (DriverLocationService::POS_MAX_AGE_SECS)
-            // làm tín hiệu gián tiếp: GPS đã chết ngay lúc offer hết hạn thì
-            // rất có thể app/kết nối cũng đã chết trước hoặc trong lúc gửi
-            // offer — miễn tính thay vì trừ oan. GPS còn tươi mà vẫn không
-            // xem thì mới coi là bỏ qua đơn thật.
-            Log::info("⏱  [Dispatch] Đơn #{$order->id}: Tài xế {$name} không xem đơn, GPS đã chết lúc hết hạn → miễn tính (không chắc đã nhận được thông báo), pop tiếp");
-        } else {
+        } elseif ($timedOutLog->received_at) {
             DriverScoreService::onOfferUnviewed($driverId);
-            Log::info("⏱  [Dispatch] Đơn #{$order->id}: Tài xế {$name} không xem đơn → cộng dồn bộ đếm (đủ 3 lần trừ 1 điểm), pop tiếp");
+            Log::info("⏱  [Dispatch] Đơn #{$order->id}: app tài xế {$name} đã ACK nhận nhưng không mở → cộng chuỗi bỏ lỡ (3 lần trừ 2 điểm), pop tiếp");
+        } else {
+            // RTDB/FCM chỉ xác nhận backend đã gửi, không chứng minh
+            // điện thoại đã hiển offer hay phát chuông. GPS/heartbeat tươi
+            // cũng không phải bằng chứng giao thông báo. Chỉ phạt khi app
+            // đã gọi view-offer (nhánh trên) hoặc tài xế chủ động
+            // decline; offer không có ACK luôn được miễn để tránh trừ oan.
+            Log::info("⏱  [Dispatch] Đơn #{$order->id}: Tài xế {$name} không có ACK xem offer → miễn tính, pop tiếp");
         }
 
         RTDBService::clearDriverOffer($driverId, $order->id);

@@ -13,7 +13,7 @@ class DriverScoreService
 
     const SCORE_DECLINE        = -2;
     const SCORE_VIEWED_TIMEOUT = -2;
-    const SCORE_UNVIEWED_X3    = -1;
+    const SCORE_UNVIEWED_X3    = -2;
 
     const STREAK_MILESTONES    = [3 => 1, 6 => 2, 10 => 4];
     const STREAK_RESET_AT      = 10;
@@ -108,12 +108,9 @@ class DriverScoreService
     }
 
     /**
-     * Offer bị bỏ lỡ KHÔNG xem (khác viewed_timeout — trường hợp này chưa hề
-     * mở app xem đơn) — đếm dồn liên tục, cứ đủ 3 lần thì trừ 1 điểm rồi
-     * reset bộ đếm về 0. Thay hẳn luật % bỏ lỡ tính cuối ca cũ
-     * (onMissedOfferRate, đã bỏ). Gọi từ DispatchService::handleTimeout(),
-     * bỏ qua nếu thành phố đang bật chế độ trời mưa (miễn chấm hoàn toàn,
-     * không tăng bộ đếm).
+     * Chỉ gọi khi app đã ACK `received_at` nhưng tài xế không
+     * mở offer. Ba lần liên tiếp trừ 2 điểm. Offer chỉ được
+     * backend/FCM gửi mà không có ACK tuyệt đối không gọi hàm này.
      */
     public static function onOfferUnviewed(int $driverId): void
     {
