@@ -75,15 +75,35 @@ class FCMService
         // thêm nên không bị trùng 2 thông báo. channel_id trỏ đúng kênh đã
         // tạo sẵn trong app (kèm chuông/rung riêng) để OS tự hiển thị đúng.
         try {
+            $data = [
+                'type'       => 'order_offer',
+                'order_id'   => (string) $orderId,
+                'order_code' => (string) $orderCode,
+                'expires_at' => (string) ($expiresAt ?? (time() + 25)),
+            ];
+
+            // iOS không bảo đảm chạy Dart background handler cho push
+            // alert+data (OS có thể tự hiển banner mà không đánh thức
+            // app). Gửi thêm silent wake-up riêng: handler chạy được thì
+            // app ACK received_at; không chạy được thì backend không phạt.
+            $silent = CloudMessage::withTarget('token', $fcmToken)
+                ->withData($data + ['ack_only' => '1'])
+                ->withAndroidConfig(AndroidConfig::fromArray([
+                    'priority' => 'high',
+                    'ttl'      => '25s',
+                ]))
+                ->withApnsConfig(ApnsConfig::fromArray([
+                    'headers' => [
+                        'apns-priority'  => '5',
+                        'apns-push-type' => 'background',
+                    ],
+                    'payload' => ['aps' => ['content-available' => 1]],
+                ]));
+            $this->sendWithRetry(fn (self $fcm) => $fcm->messaging->send($silent));
+
             $message = CloudMessage::withTarget('token', $fcmToken)
                 ->withNotification(Notification::create('Có đơn hàng mới!', 'Nhấn để xem và nhận đơn hàng'))
-                ->withData([
-                    'type'       => 'order_offer',
-                    'order_id'   => (string) $orderId,
-                    'order_code' => (string) $orderCode,
-                    // App dùng để tự tắt banner đúng lúc offer hết hạn
-                    'expires_at' => (string) ($expiresAt ?? (time() + 25)),
-                ])
+                ->withData($data)
                 ->withAndroidConfig(AndroidConfig::fromArray([
                     'priority'     => 'high',
                     'ttl'          => '25s',
