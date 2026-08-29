@@ -50,6 +50,7 @@ class User extends Authenticatable implements FilamentUser, HasTenants, HasDefau
         'fcm_token',
         'last_notification_seen',
         'is_online',
+        'online_since',
         'has_car_license',
         'driver_score',
         'consecutive_completed',
