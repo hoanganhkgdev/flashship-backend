@@ -77,6 +77,16 @@ class ScoreShiftSessionsCommand extends Command
 
     private function scoreDriverShift(int $driverId, Carbon $start, Carbon $end): void
     {
+        // Không chấm ca nếu bộ theo dõi GPS chỉ được khởi tạo sau khi ca đã
+        // bắt đầu (rollout hệ thống, tài xế mới, dữ liệu state bị mất). Khi
+        // đó backend không có lịch sử phần đầu ca; coi 0 phút sẽ trừ oan.
+        $trackingStartedAt = DB::table('driver_gps_eligibility_states')
+            ->where('driver_id', $driverId)->value('initialized_at');
+        if (!$trackingStartedAt || Carbon::parse($trackingStartedAt)->greaterThan($start)) {
+            Log::info("[ScoreShiftSessions] Bỏ qua driver #{$driverId}: chưa có dữ liệu GPS từ đầu ca {$start}.");
+            return;
+        }
+
         // Đã xin nghỉ phép trước (admin ghi nhận qua DriverLeaveRequestResource)
         // → miễn chấm hoàn toàn cho ca rơi vào ngày nghỉ đó, không bị tính
         // -15 vì không online.
