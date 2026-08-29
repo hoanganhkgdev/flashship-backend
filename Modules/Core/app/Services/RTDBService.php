@@ -2,6 +2,7 @@
 namespace Modules\Core\Services;
 
 use Kreait\Firebase\Factory;
+use Kreait\Firebase\Database\Transaction;
 use Illuminate\Support\Facades\Log;
 
 class RTDBService
@@ -92,26 +93,43 @@ class RTDBService
     /**
      * Cập nhật expires_at khi driver mở app — đồng hồ đếm ngược reset về APP_DECISION_SECS.
      */
-    public static function updateDriverOfferExpiry(int $driverId, int $expiresAt): void
+    public static function updateDriverOfferExpiry(int $driverId, int $orderId, int $expiresAt): bool
     {
         try {
-            self::db()->getReference("dispatch/driver_{$driverId}/offer")->update([
-                'expires_at' => $expiresAt,
-            ]);
+            $ref = self::db()->getReference("dispatch/driver_{$driverId}/offer");
+            return self::db()->runTransaction(function (Transaction $transaction) use ($ref, $orderId, $expiresAt) {
+                $offer = $transaction->snapshot($ref)->getValue();
+                if (!is_array($offer) || (int) ($offer['order_id'] ?? 0) !== $orderId) {
+                    return false;
+                }
+                $offer['expires_at'] = $expiresAt;
+                $transaction->set($ref, $offer);
+                return true;
+            });
         } catch (\Throwable $e) {
             Log::error('[RTDB] updateDriverOfferExpiry failed: ' . $e->getMessage());
+            return false;
         }
     }
 
     /**
      * Xóa offer (timeout, accept, decline, customer cancel).
      */
-    public static function clearDriverOffer(int $driverId): void
+    public static function clearDriverOffer(int $driverId, int $orderId): bool
     {
         try {
-            self::db()->getReference("dispatch/driver_{$driverId}/offer")->remove();
+            $ref = self::db()->getReference("dispatch/driver_{$driverId}/offer");
+            return self::db()->runTransaction(function (Transaction $transaction) use ($ref, $orderId) {
+                $offer = $transaction->snapshot($ref)->getValue();
+                if (!is_array($offer) || (int) ($offer['order_id'] ?? 0) !== $orderId) {
+                    return false;
+                }
+                $transaction->remove($ref);
+                return true;
+            });
         } catch (\Throwable $e) {
             Log::error('[RTDB] clearDriverOffer failed: ' . $e->getMessage());
+            return false;
         }
     }
 
@@ -139,6 +157,18 @@ class RTDBService
             self::db()->getReference("dispatch/driver_{$driverId}/session_device")->set($deviceId);
         } catch (\Throwable $e) {
             Log::error('[RTDB] writeSessionDevice failed: ' . $e->getMessage());
+        }
+    }
+
+    /** Đọc thiết bị đang sở hữu phiên để backend không cấp token Firebase cho máy cũ. */
+    public static function getSessionDevice(int $driverId): ?string
+    {
+        try {
+            $value = self::db()->getReference("dispatch/driver_{$driverId}/session_device")->getValue();
+            return is_string($value) && $value !== '' ? $value : null;
+        } catch (\Throwable $e) {
+            Log::error('[RTDB] getSessionDevice failed: ' . $e->getMessage());
+            return null;
         }
     }
 

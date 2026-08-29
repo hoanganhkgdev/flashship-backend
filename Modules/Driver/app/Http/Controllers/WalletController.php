@@ -52,9 +52,22 @@ class WalletController extends Controller
 
         try {
             DB::transaction(function () use ($user, $data) {
+                // Khóa tài xế trước để cùng thứ tự với updateBank(); snapshot
+                // không thể bị đổi giữa lúc kiểm tra và tạo yêu cầu.
+                \Modules\Core\Models\User::whereKey($user->id)->lockForUpdate()->firstOrFail();
+                $bank = \Modules\Driver\Models\Bank::where('user_id', $user->id)
+                    ->lockForUpdate()->first();
+                if (!$bank || !$bank->bank_code || !$bank->account_number || !$bank->account_name) {
+                    throw new \DomainException('bank_missing');
+                }
+
                 $req = WithdrawRequest::create([
                     'driver_id' => $user->id,
                     'amount'    => $data['amount'],
+                    'bank_code' => $bank->bank_code,
+                    'bank_name' => $bank->bank_name,
+                    'account_number' => $bank->account_number,
+                    'account_name' => $bank->account_name,
                     'status'    => 'pending',
                 ]);
 
@@ -66,6 +79,8 @@ class WalletController extends Controller
                     'withdraw_hold_' . $req->id
                 );
             });
+        } catch (\DomainException $e) {
+            return response()->json(['success' => false, 'message' => 'Vui lòng cập nhật đầy đủ tài khoản ngân hàng trước khi rút tiền'], 422);
         } catch (\Exception $e) {
             // Số dư thật (đọc có khoá trong adjust()) không đủ — vd 2 request
             // rút tiền gần như đồng thời, request thứ 2 chỉ phát hiện ra khi

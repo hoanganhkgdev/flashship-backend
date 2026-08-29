@@ -62,30 +62,12 @@ class DriverController extends Controller
     {
         $user = $request->user();
 
-        // Chỉ cho phép bật online nếu CCCD đã được duyệt
-        if (!$user->is_online) {
-            $approved = DriverCccdImage::where('user_id', $user->id)
-                ->where('status', 'approved')
-                ->exists();
-
-            if (!$approved) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Bạn cần tải lên và được duyệt CCCD trước khi có thể hoạt động.',
-                ], 403);
-            }
-
-            // Chặn bật online khi có công nợ quá hạn
-            $overdueDebt = $user->debts()->where('status', 'overdue')->first();
-            if ($overdueDebt) {
-                $remaining = $overdueDebt->amount_due - $overdueDebt->amount_paid;
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Bạn có công nợ quá hạn ' . number_format($remaining, 0, ',', '.') . '₫. Vui lòng thanh toán trước khi hoạt động.',
-                    'code'    => 'debt_overdue',
-                ], 403);
-            }
-        }
+        $data = $request->validate([
+            // Không bắt buộc để app cũ vẫn dùng được cơ chế toggle trong giai
+            // đoạn chuyển tiếp. App mới luôn gửi boolean đích rõ ràng.
+            'is_online' => 'sometimes|required|boolean',
+        ]);
+        $hasExplicitState = array_key_exists('is_online', $data);
 
         // lockForUpdate() bên trong transaction: chỉ 1 request bật/tắt online
         // của đúng tài xế này được xử lý tại 1 thời điểm — tránh 2 request gần
@@ -95,12 +77,47 @@ class DriverController extends Controller
         // ScoreShiftSessionsCommand cộng trùng thời gian online, có thể ra
         // 100% online cho cả ca dù tài xế thật sự có lúc offline (thấy rõ ở
         // tài khoản test khu Rạch Giá — bật/tắt online liên tục lúc test).
-        $user = DB::transaction(function () use ($user) {
+        $result = DB::transaction(function () use ($user, $data, $hasExplicitState) {
             $locked = User::where('id', $user->id)->lockForUpdate()->firstOrFail();
+            $targetOnline = $hasExplicitState
+                ? (bool) $data['is_online']
+                : !(bool) $locked->is_online;
 
             \Log::info("[Toggle] #{$locked->id} PRE: is_online={$locked->is_online} online_since={$locked->online_since}");
 
-            $locked->is_online    = !$locked->is_online;
+            // Idempotent: retry cùng một request không được đảo trạng thái
+            // lần thứ hai hoặc tạo/đóng thêm phiên chấm công.
+            if ((bool) $locked->is_online === $targetOnline) {
+                return ['user' => $locked];
+            }
+
+            if ($targetOnline) {
+                if (\Modules\Driver\Models\DriverLeaveRequest::where('driver_id', $locked->id)
+                    ->whereDate('leave_date', today())->exists()) {
+                    return ['error' => ['message' => 'Bạn đang được ghi nhận nghỉ phép hôm nay nên không thể bật online.', 'status' => 403]];
+                }
+                $approved = DriverCccdImage::where('user_id', $locked->id)
+                    ->where('status', 'approved')
+                    ->exists();
+                if (!$approved) {
+                    return ['error' => [
+                        'message' => 'Bạn cần tải lên và được duyệt CCCD trước khi có thể hoạt động.',
+                        'status' => 403,
+                    ]];
+                }
+
+                $overdueDebt = $locked->debts()->where('status', 'overdue')->first();
+                if ($overdueDebt) {
+                    $remaining = $overdueDebt->amount_due - $overdueDebt->amount_paid;
+                    return ['error' => [
+                        'message' => 'Bạn có công nợ quá hạn ' . number_format($remaining, 0, ',', '.') . '₫. Vui lòng thanh toán trước khi hoạt động.',
+                        'code' => 'debt_overdue',
+                        'status' => 403,
+                    ]];
+                }
+            }
+
+            $locked->is_online    = $targetOnline;
             $locked->online_since = $locked->is_online ? now() : null;
 
             // Ghi log phiên online/offline — dùng để tính % online trong ca ở
@@ -127,14 +144,36 @@ class DriverController extends Controller
                 \Modules\Driver\Models\DriverShiftSession::where('driver_id', $locked->id)
                     ->whereNull('ended_at')
                     ->update(['ended_at' => now()]);
+                $gpsSessions = \Modules\Driver\Models\DriverGpsEligibleSession::where('driver_id', $locked->id)
+                    ->whereNull('ended_at')
+                    ->lockForUpdate()
+                    ->get();
+                foreach ($gpsSessions as $gpsSession) {
+                    $endedAt = $gpsSession->last_gps_at->copy()
+                        ->addSeconds(\Modules\Driver\Services\DriverLocationService::POS_MAX_AGE_SECS)
+                        ->min(now());
+                    $gpsSession->update(['ended_at' => $endedAt]);
+                }
             }
 
             $locked->save();
 
             \Log::info("[Toggle] #{$locked->id} → online={$locked->is_online} online_since={$locked->online_since}");
 
-            return $locked;
+            return ['user' => $locked];
         });
+
+        if (isset($result['error'])) {
+            $error = $result['error'];
+            return response()->json([
+                'success' => false,
+                'message' => $error['message'],
+                ...(isset($error['code']) ? ['code' => $error['code']] : []),
+            ], $error['status']);
+        }
+
+        /** @var User $user */
+        $user = $result['user'];
 
         RTDBService::setDriverOnlineStatus($user->id, (bool) $user->is_online);
 
@@ -190,10 +229,17 @@ class DriverController extends Controller
             'fcm_token' => 'required|string',
             'platform'  => 'nullable|in:ios,android',
         ]);
-        $request->user()->update([
-            'fcm_token' => $data['fcm_token'],
-            ...(isset($data['platform']) ? ['platform' => $data['platform']] : []),
-        ]);
+        DB::transaction(function () use ($request, $data) {
+            $user = User::whereKey($request->user()->id)->lockForUpdate()->firstOrFail();
+            // Một token thiết bị chỉ thuộc một tài khoản; nếu không logout
+            // tài khoản A rồi login B trên cùng máy sẽ nhận thông báo chéo.
+            User::where('fcm_token', $data['fcm_token'])
+                ->where('id', '!=', $user->id)->update(['fcm_token' => null]);
+            $user->update([
+                'fcm_token' => $data['fcm_token'],
+                ...(isset($data['platform']) ? ['platform' => $data['platform']] : []),
+            ]);
+        });
         return response()->json(['success' => true, 'message' => 'FCM Token đã cập nhật']);
     }
 
@@ -202,25 +248,23 @@ class DriverController extends Controller
         $data = $request->validate([
             'name'          => 'nullable|string|max:255',
             'email'         => ['nullable', 'email', 'max:255', Rule::unique('users', 'email')->ignore($request->user()->id)],
-            'city_id'       => 'nullable|integer|exists:cities,id',
             'avatar'        => 'nullable|image|mimes:jpg,jpeg,png,webp|max:2048',
             'vehicle_type'  => 'nullable|in:motorbike,car',
             'license_plate' => 'nullable|string|max:20',
         ]);
 
         $user = $request->user();
-
-        // Tên chỉ được đổi 1 lần
-        if (isset($data['name']) && $data['name'] !== $user->name) {
-            if ($user->name_updated_at) {
-                return response()->json([
-                    'success' => false,
-                    'message' => 'Tên chỉ được thay đổi một lần.',
-                ], 403);
+        if (isset($data['vehicle_type']) || isset($data['license_plate'])) {
+            if ($user->is_online || Order::where('delivery_man_id', $user->id)
+                ->whereIn('status', ['assigned', 'processing'])->exists()) {
+                return response()->json(['success' => false, 'message' => 'Hãy offline và hoàn thành các đơn đang giao trước khi đổi thông tin xe.'], 422);
             }
-            $data['name_updated_at'] = now();
-        } else {
-            unset($data['name']);
+            $targetVehicle = $data['vehicle_type'] ?? $user->vehicle_type;
+            $targetPlate = trim($data['license_plate'] ?? $user->license_plate ?? '');
+            if ($targetVehicle === 'car' && (!$user->has_car_license || $targetPlate === '')) {
+                return response()->json(['success' => false, 'message' => 'Xe ô tô cần bằng lái đã duyệt và biển số hợp lệ.'], 422);
+            }
+            if (isset($data['license_plate'])) $data['license_plate'] = mb_strtoupper($targetPlate);
         }
 
         // Avatar chỉ được upload 1 lần
@@ -234,15 +278,30 @@ class DriverController extends Controller
                     'message' => "Ảnh đại diện chỉ được thay đổi 1 tháng 1 lần. Còn {$daysLeft} ngày nữa.",
                 ], 403);
             }
-            if ($user->profile_photo_path) {
-                Storage::disk('public')->delete($user->profile_photo_path);
-            }
             $data['profile_photo_path'] = $request->file('avatar')->store('profile-photos', 'public');
             $data['avatar_updated_at']  = now();
         }
         unset($data['avatar']);
 
-        $user->update(array_filter($data, fn($v) => $v !== null));
+        $newAvatar = $data['profile_photo_path'] ?? null;
+        $oldAvatar = null;
+        try {
+            DB::transaction(function () use ($user, &$data, &$oldAvatar) {
+                $locked = User::whereKey($user->id)->lockForUpdate()->firstOrFail();
+                if (isset($data['name']) && $data['name'] !== $locked->name) {
+                    if ($locked->name_updated_at) abort(response()->json(['success' => false, 'message' => 'Tên chỉ được thay đổi một lần.'], 403));
+                    $data['name_updated_at'] = now();
+                } else {
+                    unset($data['name']);
+                }
+                if (isset($data['profile_photo_path'])) $oldAvatar = $locked->profile_photo_path;
+                $locked->update(array_filter($data, fn($v) => $v !== null));
+            });
+        } catch (\Throwable $e) {
+            if ($newAvatar) Storage::disk('public')->delete($newAvatar);
+            throw $e;
+        }
+        if ($oldAvatar && $oldAvatar !== $newAvatar) Storage::disk('public')->delete($oldAvatar);
         $user->refresh();
 
         $userData = $user->toArray();
@@ -263,14 +322,12 @@ class DriverController extends Controller
     {
         $user = $request->user();
 
-        if (OtpService::recentlySent($user->phone, self::OTP_TYPE_CHANGE_PASSWORD)) {
+        if (!OtpService::sendThrottled($user->phone, self::OTP_TYPE_CHANGE_PASSWORD)) {
             return response()->json([
                 'success' => false,
                 'message' => 'Vui lòng chờ 60 giây trước khi gửi lại',
             ], 429);
         }
-
-        OtpService::send($user->phone, self::OTP_TYPE_CHANGE_PASSWORD);
 
         return response()->json([
             'success' => true,
@@ -305,7 +362,18 @@ class DriverController extends Controller
         }
 
         RateLimiter::clear($rateLimitKey);
-        $user->update(['password' => Hash::make($data['new_password'])]);
+        DB::transaction(function () use ($user, $data, $request) {
+            $locked = User::whereKey($user->id)->lockForUpdate()->firstOrFail();
+            $locked->update(['password' => Hash::make($data['new_password'])]);
+
+            // Giữ phiên đang chủ động đổi mật khẩu, thu hồi mọi token còn
+            // lại (token cũ/thiết bị khác) để mật khẩu mới có hiệu lực bảo
+            // mật ngay, không đợi các phiên đó tự hết hạn.
+            $currentTokenId = $request->user()->currentAccessToken()?->id;
+            $tokens = $locked->tokens();
+            if ($currentTokenId) $tokens->where('id', '!=', $currentTokenId);
+            $tokens->delete();
+        });
         return response()->json(['success' => true, 'message' => 'Đổi mật khẩu thành công']);
     }
 
@@ -321,6 +389,11 @@ class DriverController extends Controller
 
         $dispatch = OrderDispatchLog::where('driver_id', $user->id)
             ->where('created_at', '>=', $since)
+            // Chỉ tính offer mà tài xế đã thực sự tương tác: accept, decline,
+            // hoặc đã mở nhưng để hết giờ. Offer chưa từng mở có thể do FCM,
+            // mạng/GPS chết và không được dùng làm mẫu số tỷ lệ nhận.
+            ->where(fn ($q) => $q->whereIn('result', ['accepted', 'declined'])
+                ->orWhereNotNull('viewed_at'))
             ->selectRaw("COUNT(*) as offered, SUM(result='accepted') as accepted")
             ->first();
 
@@ -377,44 +450,74 @@ class DriverController extends Controller
     public function updateBank(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'bank_code'      => 'required|string|max:50',
-            'bank_name'      => 'required|string|max:255',
-            'account_number' => 'required|string|max:50',
+            'bank_code'      => ['required', 'string', 'max:50', Rule::exists('bank_lists', 'code')->where('is_active', true)],
+            'account_number' => ['required', 'string', 'max:50', 'regex:/^[0-9]+$/'],
             'account_name'   => 'required|string|max:255',
         ]);
 
         $user = $request->user();
-        Bank::updateOrCreate(
-            ['user_id' => $user->id],
-            array_merge($data, ['user_id' => $user->id]),
-        );
+        $bankName = DB::table('bank_lists')->where('code', $data['bank_code'])->value('name');
+        DB::transaction(function () use ($user, $data, $bankName) {
+            User::whereKey($user->id)->lockForUpdate()->firstOrFail();
+            Bank::updateOrCreate(
+                ['user_id' => $user->id],
+                [
+                    'user_id' => $user->id,
+                    'bank_code' => $data['bank_code'],
+                    'bank_name' => $bankName,
+                    'account_number' => $data['account_number'],
+                    'account_name' => mb_strtoupper(trim($data['account_name'])),
+                ],
+            );
+        });
 
         return response()->json(['success' => true, 'message' => 'Cập nhật tài khoản ngân hàng thành công']);
     }
 
     public function uploadLicense(Request $request): JsonResponse
     {
-        $approved = DriverLicense::where('user_id', $request->user()->id)
-            ->where('status', 'approved')->exists();
-        if ($approved) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Bằng lái đã được xác minh, không thể tải lên lại.',
-            ], 422);
-        }
-
         $request->validate([
             'image' => 'required|image|mimes:jpg,jpeg,png,webp|max:5120',
         ]);
 
         $user = $request->user();
         $path = $request->file('image')->store('driver-licenses', 'public');
+        $oldPath = null;
 
-        DriverLicense::create([
-            'user_id'    => $user->id,
-            'image_path' => $path,
-            'status'     => 'pending',
-        ]);
+        try {
+            DB::transaction(function () use ($user, $path, &$oldPath) {
+                User::whereKey($user->id)->lockForUpdate()->firstOrFail();
+                if (DriverLicense::where('user_id', $user->id)
+                    ->where('status', DriverLicense::STATUS_APPROVED)->lockForUpdate()->exists()) {
+                    abort(response()->json([
+                        'success' => false,
+                        'message' => 'Bằng lái đã được xác minh, không thể tải lên lại.',
+                    ], 422));
+                }
+                $document = DriverLicense::where('user_id', $user->id)
+                    ->latest('id')->lockForUpdate()->first();
+
+                if ($document) {
+                    $oldPath = $document->image_path;
+                    $document->update([
+                        'image_path' => $path,
+                        'status' => DriverLicense::STATUS_PENDING,
+                        'rejection_reason' => null,
+                    ]);
+                    DriverLicense::where('user_id', $user->id)
+                        ->where('id', '!=', $document->id)
+                        ->where('status', DriverLicense::STATUS_PENDING)
+                        ->update(['status' => DriverLicense::STATUS_REJECTED, 'rejection_reason' => 'Đã được thay thế bằng hồ sơ mới']);
+                } else {
+                    DriverLicense::create(['user_id' => $user->id, 'image_path' => $path, 'status' => DriverLicense::STATUS_PENDING]);
+                }
+            });
+        } catch (\Throwable $e) {
+            Storage::disk('public')->delete($path);
+            throw $e;
+        }
+
+        if ($oldPath && $oldPath !== $path) Storage::disk('public')->delete($oldPath);
 
         return response()->json([
             'success'   => true,
@@ -425,26 +528,48 @@ class DriverController extends Controller
 
     public function uploadCccdImage(Request $request): JsonResponse
     {
-        $approved = DriverCccdImage::where('user_id', $request->user()->id)
-            ->where('status', 'approved')->exists();
-        if ($approved) {
-            return response()->json([
-                'success' => false,
-                'message' => 'CCCD đã được xác minh, không thể tải lên lại.',
-            ], 422);
-        }
-
         $request->validate([
             'image' => 'required|image|mimes:jpg,jpeg,png,webp|max:5120',
         ]);
 
+        $user = $request->user();
         $path = $request->file('image')->store('driver-cccd', 'public');
+        $oldPath = null;
 
-        DriverCccdImage::create([
-            'user_id'    => $request->user()->id,
-            'image_path' => $path,
-            'status'     => 'pending',
-        ]);
+        try {
+            DB::transaction(function () use ($user, $path, &$oldPath) {
+                User::whereKey($user->id)->lockForUpdate()->firstOrFail();
+                if (DriverCccdImage::where('user_id', $user->id)
+                    ->where('status', DriverCccdImage::STATUS_APPROVED)->lockForUpdate()->exists()) {
+                    abort(response()->json([
+                        'success' => false,
+                        'message' => 'CCCD đã được xác minh, không thể tải lên lại.',
+                    ], 422));
+                }
+                $document = DriverCccdImage::where('user_id', $user->id)
+                    ->latest('id')->lockForUpdate()->first();
+
+                if ($document) {
+                    $oldPath = $document->image_path;
+                    $document->update([
+                        'image_path' => $path,
+                        'status' => DriverCccdImage::STATUS_PENDING,
+                        'rejection_reason' => null,
+                    ]);
+                    DriverCccdImage::where('user_id', $user->id)
+                        ->where('id', '!=', $document->id)
+                        ->where('status', DriverCccdImage::STATUS_PENDING)
+                        ->update(['status' => DriverCccdImage::STATUS_REJECTED, 'rejection_reason' => 'Đã được thay thế bằng hồ sơ mới']);
+                } else {
+                    DriverCccdImage::create(['user_id' => $user->id, 'image_path' => $path, 'status' => DriverCccdImage::STATUS_PENDING]);
+                }
+            });
+        } catch (\Throwable $e) {
+            Storage::disk('public')->delete($path);
+            throw $e;
+        }
+
+        if ($oldPath && $oldPath !== $path) Storage::disk('public')->delete($oldPath);
 
         return response()->json([
             'success'   => true,
@@ -474,7 +599,7 @@ class DriverController extends Controller
     {
         $data = $request->validate([
             'shift_ids'   => 'required|array|min:1',
-            'shift_ids.*' => 'integer|exists:shifts,id',
+            'shift_ids.*' => 'integer|distinct|exists:shifts,id',
         ]);
 
         $shifts = \Modules\Core\Models\Shift::whereIn('id', $data['shift_ids'])->get();
@@ -486,18 +611,28 @@ class DriverController extends Controller
             ], 422));
         }
 
-        // So le từng cặp — coi khung giờ là nửa-mở [start, end), 2 ca sát nhau
-        // (giờ kết thúc ca này = giờ bắt đầu ca kia) KHÔNG tính là trùng.
-        foreach ($shifts as $i => $a) {
-            $aStart = \Carbon\Carbon::parse($a->start_time);
-            $aEnd   = \Carbon\Carbon::parse($a->end_time)->lessThanOrEqualTo($aStart) ? \Carbon\Carbon::parse($a->end_time)->addDay() : \Carbon\Carbon::parse($a->end_time);
+        // Biểu diễn ca trên vòng 24h thành 1-2 đoạn phút. Ca qua đêm
+        // 22:00-06:00 thành [22:00,24:00) + [00:00,06:00), nhờ vậy phát hiện
+        // đúng nó trùng ca 05:00-10:00. Hai ca sát mép vẫn không coi là trùng.
+        $segments = function ($shift): array {
+            [$startHour, $startMinute] = array_map('intval', explode(':', $shift->start_time));
+            [$endHour, $endMinute] = array_map('intval', explode(':', $shift->end_time));
+            $start = $startHour * 60 + $startMinute;
+            $end = $endHour * 60 + $endMinute;
+            if ($end > $start) return [[$start, $end]];
+            return [[$start, 1440], [0, $end]];
+        };
 
+        foreach ($shifts as $i => $a) {
             foreach ($shifts as $j => $b) {
                 if ($i >= $j) continue;
-                $bStart = \Carbon\Carbon::parse($b->start_time);
-                $bEnd   = \Carbon\Carbon::parse($b->end_time)->lessThanOrEqualTo($bStart) ? \Carbon\Carbon::parse($b->end_time)->addDay() : \Carbon\Carbon::parse($b->end_time);
 
-                if ($aStart->lessThan($bEnd) && $bStart->lessThan($aEnd)) {
+                $overlaps = collect($segments($a))->contains(function ($aPart) use ($segments, $b) {
+                    return collect($segments($b))->contains(
+                        fn ($bPart) => $aPart[0] < $bPart[1] && $bPart[0] < $aPart[1]
+                    );
+                });
+                if ($overlaps) {
                     abort(response()->json([
                         'success' => false,
                         'message' => "Ca \"{$a->name}\" và \"{$b->name}\" bị trùng giờ nhau",
@@ -512,18 +647,22 @@ class DriverController extends Controller
     public function selectShift(Request $request): JsonResponse
     {
         $user = $request->user();
+        $shiftIds = $this->validateShiftSelection($request, $user);
 
-        if ($user->registeredShifts()->exists()) {
+        $registered = \DB::transaction(function () use ($user, $shiftIds) {
+            User::where('id', $user->id)->lockForUpdate()->firstOrFail();
+            if ($user->registeredShifts()->exists()) return false;
+            $user->registeredShifts()->sync($shiftIds);
+            return true;
+        });
+
+        if (!$registered) {
             return response()->json([
                 'success' => false,
                 'message' => 'Bạn đã đăng ký ca rồi. Muốn đổi ca vui lòng gửi yêu cầu để admin duyệt.',
                 'code'    => 'already_registered',
             ], 422);
         }
-
-        $shiftIds = $this->validateShiftSelection($request, $user);
-
-        $user->registeredShifts()->sync($shiftIds);
 
         return response()->json([
             'success' => true,
@@ -601,20 +740,84 @@ class DriverController extends Controller
     public function requestDeleteAccount(Request $request): JsonResponse
     {
         $user = $request->user();
-        if ($user->delete_requested_at) {
-            return response()->json(['success' => false, 'message' => 'Bạn đã gửi yêu cầu xóa tài khoản'], 422);
+        $result = DB::transaction(function () use ($user) {
+            $driver = User::whereKey($user->id)->lockForUpdate()->firstOrFail();
+            if ($driver->delete_requested_at) return ['error' => 'Bạn đã gửi yêu cầu xóa tài khoản'];
+
+            if (Order::where('delivery_man_id', $driver->id)
+                ->whereIn('status', ['assigned', 'processing'])->lockForUpdate()->exists()) {
+                return ['error' => 'Bạn đang có đơn chưa hoàn thành'];
+            }
+
+            $debt = \Modules\Driver\Models\DriverDebt::where('driver_id', $driver->id)
+                ->whereIn('status', ['pending', 'overdue'])
+                ->whereRaw('amount_due > amount_paid')->lockForUpdate()->exists();
+            if ($debt) return ['error' => 'Bạn cần thanh toán hết công nợ trước khi yêu cầu xóa tài khoản'];
+
+            $wallet = \Modules\Driver\Models\DriverWallet::where('driver_id', $driver->id)
+                ->lockForUpdate()->first();
+            if ($wallet && (float) $wallet->balance != 0.0) {
+                return ['error' => 'Số dư ví phải bằng 0 trước khi yêu cầu xóa tài khoản'];
+            }
+
+            if (\Modules\Driver\Models\WithdrawRequest::where('driver_id', $driver->id)
+                ->where('status', 'pending')->lockForUpdate()->exists()) {
+                return ['error' => 'Bạn đang có yêu cầu rút tiền chờ xử lý'];
+            }
+
+            $offers = Order::where('dispatching_to_driver_id', $driver->id)
+                ->where('status', 'pending')->lockForUpdate()->get();
+            foreach ($offers as $offer) {
+                $offer->update(['dispatching_to_driver_id' => null, 'offer_viewed_at' => null]);
+                OrderDispatchLog::where('order_id', $offer->id)
+                    ->where('driver_id', $driver->id)->where('result', 'pending')
+                    ->update(['result' => 'expired', 'responded_at' => now()]);
+            }
+
+            \Modules\Driver\Models\DriverShiftSession::where('driver_id', $driver->id)
+                ->whereNull('ended_at')->lockForUpdate()->update(['ended_at' => now()]);
+            $gpsSessions = \Modules\Driver\Models\DriverGpsEligibleSession::where('driver_id', $driver->id)
+                ->whereNull('ended_at')->lockForUpdate()->get();
+            foreach ($gpsSessions as $session) {
+                $endedAt = $session->last_gps_at->copy()
+                    ->addSeconds(\Modules\Driver\Services\DriverLocationService::POS_MAX_AGE_SECS)
+                    ->min(now());
+                $session->update(['ended_at' => $endedAt]);
+            }
+
+            $driver->update([
+                'delete_requested_at' => now(),
+                'is_online' => false,
+                'online_since' => null,
+                'fcm_token' => null,
+            ]);
+            return ['offers' => $offers];
+        });
+
+        if (isset($result['error'])) {
+            return response()->json(['success' => false, 'message' => $result['error']], 422);
         }
-        $user->update(['delete_requested_at' => now()]);
-        return response()->json(['success' => true, 'message' => 'Đã gửi yêu cầu xóa tài khoản']);
+
+        RTDBService::removeDriverLocation($user->id);
+        \Illuminate\Support\Facades\Redis::del("dispatch:lock:driver:{$user->id}");
+        foreach ($result['offers'] as $offer) {
+            RTDBService::clearDriverOffer($user->id, $offer->id);
+            app(\Modules\Order\Services\DispatchService::class)->sendToNextDriver($offer->fresh());
+        }
+
+        return response()->json(['success' => true, 'message' => 'Đã gửi yêu cầu xóa tài khoản. Bạn có thể hủy yêu cầu trong thời gian chờ xử lý.']);
     }
 
     public function cancelDeleteAccount(Request $request): JsonResponse
     {
         $user = $request->user();
-        if (!$user->delete_requested_at) {
-            return response()->json(['success' => false, 'message' => 'Không có yêu cầu xóa tài khoản'], 422);
-        }
-        $user->update(['delete_requested_at' => null]);
+        $cancelled = DB::transaction(function () use ($user) {
+            $driver = User::whereKey($user->id)->lockForUpdate()->firstOrFail();
+            if (!$driver->delete_requested_at) return false;
+            $driver->update(['delete_requested_at' => null, 'is_online' => false, 'online_since' => null]);
+            return true;
+        });
+        if (!$cancelled) return response()->json(['success' => false, 'message' => 'Không có yêu cầu xóa tài khoản'], 422);
         return response()->json(['success' => true, 'message' => 'Đã hủy yêu cầu xóa tài khoản']);
     }
 

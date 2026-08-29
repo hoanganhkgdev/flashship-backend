@@ -9,6 +9,7 @@ use Filament\Resources\RelationManagers\RelationManager;
 use Filament\Tables;
 use Filament\Tables\Table;
 use Illuminate\Support\HtmlString;
+use Illuminate\Support\Facades\DB;
 use Modules\Driver\Models\DriverLicense;
 
 class DriverLicensesRelationManager extends RelationManager
@@ -64,6 +65,8 @@ class DriverLicensesRelationManager extends RelationManager
                     ->label('Xem & Duyệt')
                     ->icon('heroicon-o-magnifying-glass-plus')
                     ->color('primary')
+                    ->visible(fn (DriverLicense $record) => $record->status !== DriverLicense::STATUS_APPROVED
+                        && $record->id === DriverLicense::where('user_id', $record->user_id)->max('id'))
                     ->modalHeading('Xét duyệt bằng lái xe')
                     ->modalWidth('2xl')
                     ->modalContent(fn (DriverLicense $record): HtmlString => new HtmlString(
@@ -95,12 +98,23 @@ class DriverLicensesRelationManager extends RelationManager
                     ])
                     ->modalSubmitActionLabel('Lưu quyết định')
                     ->action(function (DriverLicense $record, array $data) {
-                        $record->update([
-                            'status'           => $data['status'],
-                            'rejection_reason' => $data['status'] === 'rejected'
-                                ? ($data['rejection_reason'] ?? null)
-                                : null,
-                        ]);
+                        $updated = DB::transaction(function () use ($record, $data) {
+                            $latest = DriverLicense::where('user_id', $record->user_id)
+                                ->latest('id')->lockForUpdate()->first();
+                            if (!$latest || $latest->id !== $record->id) return false;
+
+                            $latest->update([
+                                'status' => $data['status'],
+                                'rejection_reason' => $data['status'] === 'rejected'
+                                    ? ($data['rejection_reason'] ?? null)
+                                    : null,
+                            ]);
+                            return true;
+                        });
+                        if (!$updated) {
+                            Notification::make()->title('Hồ sơ đã được thay bằng ảnh mới, vui lòng mở lại')->danger()->send();
+                            return;
+                        }
                         Notification::make()
                             ->title($data['status'] === 'approved' ? 'Đã duyệt bằng lái' : 'Đã từ chối bằng lái')
                             ->color($data['status'] === 'approved' ? 'success' : 'warning')

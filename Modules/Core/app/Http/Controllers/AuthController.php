@@ -24,11 +24,9 @@ class AuthController extends Controller
             return response()->json(['success' => false, 'message' => 'Số điện thoại đã được đăng ký. Vui lòng đăng nhập hoặc dùng Quên mật khẩu.'], 422);
         }
 
-        if (OtpService::recentlySent($data['phone'])) {
+        if (!OtpService::sendThrottled($data['phone'])) {
             return response()->json(['success' => false, 'message' => 'Vui lòng chờ 60 giây trước khi gửi lại'], 429);
         }
-
-        OtpService::send($data['phone']);
 
         return response()->json(['success' => true, 'message' => 'Mã OTP đã được gửi đến ' . $data['phone']]);
     }
@@ -42,7 +40,7 @@ class AuthController extends Controller
             'password'  => 'required|string|min:6',
             'city_id'   => 'required|integer|exists:cities,id',
             'fcm_token' => 'nullable|string',
-            'device_id' => 'nullable|string',
+            'device_id' => 'required|string|max:191',
         ]);
 
         if (!OtpService::verify($data['phone'], $data['otp'])) {
@@ -100,11 +98,9 @@ class AuthController extends Controller
             return response()->json(['success' => false, 'message' => 'Số điện thoại chưa được đăng ký'], 422);
         }
 
-        if (OtpService::recentlySent($phone, 'forgot_password')) {
+        if (!OtpService::sendThrottled($phone, 'forgot_password')) {
             return response()->json(['success' => false, 'message' => 'Vui lòng chờ 60 giây trước khi gửi lại'], 429);
         }
-
-        OtpService::send($phone, 'forgot_password');
 
         return response()->json(['success' => true, 'message' => 'Mã OTP đã được gửi tới ' . $phone]);
     }
@@ -139,7 +135,7 @@ class AuthController extends Controller
             'login'     => 'required|string',
             'password'  => 'required|string',
             'fcm_token' => 'nullable|string',
-            'device_id' => 'nullable|string',
+            'device_id' => 'required|string|max:191',
         ]);
 
         $field = filter_var($data['login'], FILTER_VALIDATE_EMAIL) ? 'email' : 'phone';
@@ -152,15 +148,7 @@ class AuthController extends Controller
         if (!in_array($user->user_type, ['driver'])) {
             return response()->json(['success' => false, 'message' => 'Tài khoản không hợp lệ'], 403);
         }
-        if ($user->status == 0) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Tài khoản đang chờ admin duyệt. Vui lòng liên hệ để được hỗ trợ.',
-                'code'    => 'account_pending',
-            ], 403);
-        }
         if ($user->status == 2) return response()->json(['success' => false, 'message' => 'Tài khoản bị khóa'], 403);
-        if ($user->delete_requested_at) return response()->json(['success' => false, 'message' => 'Tài khoản đang chờ xóa'], 403);
 
         $newFcmToken = $data['fcm_token'] ?? null;
         if ($newFcmToken) {
@@ -191,7 +179,11 @@ class AuthController extends Controller
         $firebaseToken = null;
         if ($deviceId) {
             RTDBService::writeSessionDevice($user->id, $deviceId);
-            $firebaseToken = RTDBService::createCustomAuthToken("driver_{$user->id}_{$deviceId}");
+            // Phiên chờ xóa chỉ được xem hồ sơ/hủy yêu cầu, không cấp quyền
+            // Firebase để app tiếp tục ghi GPS trực tiếp ngoài API.
+            if (!$user->delete_requested_at) {
+                $firebaseToken = RTDBService::createCustomAuthToken("driver_{$user->id}_{$deviceId}");
+            }
         }
 
         return response()->json([
@@ -224,7 +216,18 @@ class AuthController extends Controller
      */
     public function firebaseToken(Request $request): JsonResponse
     {
-        $data = $request->validate(['device_id' => 'required|string']);
+        $data = $request->validate(['device_id' => 'required|string|max:191']);
+
+        $currentDeviceId = RTDBService::getSessionDevice($request->user()->id);
+        if (!$currentDeviceId || !hash_equals($currentDeviceId, $data['device_id'])) {
+            $request->user()->currentAccessToken()?->delete();
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Phiên đăng nhập đã được thay thế bởi thiết bị khác',
+                'code'    => 'session_replaced',
+            ], 401);
+        }
 
         $firebaseToken = RTDBService::createCustomAuthToken(
             "driver_{$request->user()->id}_{$data['device_id']}"

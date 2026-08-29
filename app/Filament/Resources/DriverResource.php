@@ -11,8 +11,16 @@ use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Redis;
 use Modules\Core\Models\User;
 use Modules\Core\Services\RTDBService;
+use Modules\Driver\Models\DriverGpsEligibleSession;
+use Modules\Driver\Models\DriverShiftSession;
+use Modules\Driver\Services\DriverLocationService;
+use Modules\Order\Models\Order;
+use Modules\Order\Models\OrderDispatchLog;
+use Modules\Order\Services\DispatchService;
 use App\Filament\Traits\HideFromCityManager;
 
 class DriverResource extends Resource
@@ -88,10 +96,6 @@ class DriverResource extends Resource
                     ->helperText('Gán trực tiếp ca làm việc cho tài xế — bỏ qua luồng gửi yêu cầu đổi ca chờ duyệt. Chỉ hiện ca đang kích hoạt của thành phố đã chọn ở trên.'),
             ]),
 
-            Forms\Components\Section::make('Trạng thái')->schema([
-                Forms\Components\Toggle::make('is_online')
-                    ->label('Đang trực tuyến'),
-            ])->columns(2),
         ]);
     }
 
@@ -197,9 +201,77 @@ class DriverResource extends Resource
                             ->rows(2),
                     ])
                     ->action(function (User $record, array $data) {
-                        $record->update(['status' => 2]);
+                        $result = DB::transaction(function () use ($record) {
+                            $driver = User::whereKey($record->id)->lockForUpdate()->firstOrFail();
+
+                            $activeOrder = Order::where('delivery_man_id', $driver->id)
+                                ->whereIn('status', ['assigned', 'processing'])
+                                ->lockForUpdate()
+                                ->first(['id', 'code']);
+
+                            if ($activeOrder) {
+                                return ['blocked' => false, 'active_order' => $activeOrder];
+                            }
+
+                            $offers = Order::where('dispatching_to_driver_id', $driver->id)
+                                ->where('status', 'pending')
+                                ->lockForUpdate()
+                                ->get();
+
+                            foreach ($offers as $offer) {
+                                $offer->update([
+                                    'dispatching_to_driver_id' => null,
+                                    'offer_viewed_at' => null,
+                                ]);
+                                OrderDispatchLog::where('order_id', $offer->id)
+                                    ->where('driver_id', $driver->id)
+                                    ->where('result', 'pending')
+                                    ->update(['result' => 'expired', 'responded_at' => now()]);
+                            }
+
+                            DriverShiftSession::where('driver_id', $driver->id)
+                                ->whereNull('ended_at')
+                                ->lockForUpdate()
+                                ->update(['ended_at' => now()]);
+
+                            $gpsSessions = DriverGpsEligibleSession::where('driver_id', $driver->id)
+                                ->whereNull('ended_at')->lockForUpdate()->get();
+                            foreach ($gpsSessions as $session) {
+                                $endedAt = $session->last_gps_at->copy()
+                                    ->addSeconds(DriverLocationService::POS_MAX_AGE_SECS)
+                                    ->min(now());
+                                $session->update(['ended_at' => $endedAt]);
+                            }
+
+                            $driver->update([
+                                'status' => 2,
+                                'is_online' => false,
+                                'online_since' => null,
+                                'fcm_token' => null,
+                            ]);
+
+                            return ['blocked' => true, 'offers' => $offers];
+                        });
+
+                        if (!$result['blocked']) {
+                            $order = $result['active_order'];
+                            Notification::make()
+                                ->title("Không thể khóa: tài xế đang giữ đơn #{$order->code}")
+                                ->body('Hãy hoàn tất hoặc điều phối đơn đang chạy trước khi khóa tài khoản.')
+                                ->danger()->send();
+                            return;
+                        }
+
                         $record->tokens()->delete();
+                        RTDBService::removeDriverLocation($record->id);
                         RTDBService::setAccountLocked($record->id, true);
+                        Redis::del("dispatch:lock:driver:{$record->id}");
+
+                        foreach ($result['offers'] as $offer) {
+                            RTDBService::clearDriverOffer($record->id, $offer->id);
+                            app(DispatchService::class)->sendToNextDriver($offer->fresh());
+                        }
+
                         Notification::make()->title('Đã khóa tài xế ' . $record->name)->warning()->send();
                     }),
 
@@ -210,7 +282,13 @@ class DriverResource extends Resource
                     ->visible(fn (User $record) => $record->status == 2)
                     ->requiresConfirmation()
                     ->action(function (User $record) {
-                        $record->update(['status' => 1]);
+                        DB::transaction(function () use ($record) {
+                            User::whereKey($record->id)->lockForUpdate()->update([
+                                'status' => 1,
+                                'is_online' => false,
+                                'online_since' => null,
+                            ]);
+                        });
                         RTDBService::setAccountLocked($record->id, false);
                         Notification::make()->title('Đã mở khóa tài xế ' . $record->name)->success()->send();
                     }),
@@ -225,13 +303,13 @@ class DriverResource extends Resource
                         ->color('success')
                         ->requiresConfirmation()
                         ->action(function ($records) {
-                            \Illuminate\Support\Facades\DB::transaction(
-                                fn () => $records->each->update(['status' => 1])
-                            );
-                            Notification::make()->title('Đã duyệt ' . $records->count() . ' tài xế')->success()->send();
+                            $pendingIds = $records->where('status', 0)->pluck('id');
+                            DB::transaction(fn () => User::whereIn('id', $pendingIds)
+                                ->where('user_type', 'driver')
+                                ->where('status', 0)
+                                ->update(['status' => 1]));
+                            Notification::make()->title('Đã duyệt ' . $pendingIds->count() . ' tài xế đang chờ')->success()->send();
                         }),
-
-                    Tables\Actions\DeleteBulkAction::make(),
                 ]),
             ])
             ->defaultSort('created_at', 'desc')

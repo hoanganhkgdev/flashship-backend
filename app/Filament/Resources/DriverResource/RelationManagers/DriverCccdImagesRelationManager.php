@@ -9,6 +9,7 @@ use Filament\Resources\RelationManagers\RelationManager;
 use Filament\Tables;
 use Filament\Tables\Table;
 use Illuminate\Support\HtmlString;
+use Illuminate\Support\Facades\DB;
 use Modules\Driver\Models\DriverCccdImage;
 
 class DriverCccdImagesRelationManager extends RelationManager
@@ -64,6 +65,8 @@ class DriverCccdImagesRelationManager extends RelationManager
                     ->label('Xem & Duyệt')
                     ->icon('heroicon-o-magnifying-glass-plus')
                     ->color('primary')
+                    ->visible(fn (DriverCccdImage $record) => $record->status !== DriverCccdImage::STATUS_APPROVED
+                        && $record->id === DriverCccdImage::where('user_id', $record->user_id)->max('id'))
                     ->modalHeading('Xét duyệt CCCD / CMND')
                     ->modalWidth('2xl')
                     ->modalContent(fn (DriverCccdImage $record): HtmlString => new HtmlString(
@@ -95,13 +98,23 @@ class DriverCccdImagesRelationManager extends RelationManager
                     ])
                     ->modalSubmitActionLabel('Lưu quyết định')
                     ->action(function (DriverCccdImage $record, array $data) {
-                        $record->update([
-                            'status'           => $data['status'],
-                            // Duyệt lại thì xoá lý do từ chối cũ đi
-                            'rejection_reason' => $data['status'] === 'rejected'
-                                ? ($data['rejection_reason'] ?? null)
-                                : null,
-                        ]);
+                        $updated = DB::transaction(function () use ($record, $data) {
+                            $latest = DriverCccdImage::where('user_id', $record->user_id)
+                                ->latest('id')->lockForUpdate()->first();
+                            if (!$latest || $latest->id !== $record->id) return false;
+
+                            $latest->update([
+                                'status' => $data['status'],
+                                'rejection_reason' => $data['status'] === 'rejected'
+                                    ? ($data['rejection_reason'] ?? null)
+                                    : null,
+                            ]);
+                            return true;
+                        });
+                        if (!$updated) {
+                            Notification::make()->title('Hồ sơ đã được thay bằng ảnh mới, vui lòng mở lại')->danger()->send();
+                            return;
+                        }
                         Notification::make()
                             ->title($data['status'] === 'approved' ? 'Đã duyệt CCCD' : 'Đã từ chối CCCD')
                             ->color($data['status'] === 'approved' ? 'success' : 'warning')

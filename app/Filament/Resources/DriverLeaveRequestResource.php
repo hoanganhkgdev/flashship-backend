@@ -52,6 +52,7 @@ class DriverLeaveRequestResource extends Resource
                         ->label('Ngày nghỉ')
                         ->native(false)
                         ->displayFormat('d/m/Y')
+                        ->minDate(today())
                         ->required(),
 
                     Forms\Components\Textarea::make('note')

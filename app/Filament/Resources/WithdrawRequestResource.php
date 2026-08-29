@@ -12,6 +12,7 @@ use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Cache;
 use Modules\Driver\Models\WithdrawRequest;
 use Modules\Driver\Services\DriverWalletService;
 use App\Services\PayOSPayoutService;
@@ -95,11 +96,11 @@ class WithdrawRequestResource extends Resource
                         default    => 'gray',
                     }),
 
-                Tables\Columns\TextColumn::make('driverBank.bank_name')
+                Tables\Columns\TextColumn::make('bank_name')
                     ->label('Ngân hàng')
                     ->default('—'),
 
-                Tables\Columns\TextColumn::make('driverBank.account_number')
+                Tables\Columns\TextColumn::make('account_number')
                     ->label('STK')
                     ->default('—'),
 
@@ -150,66 +151,53 @@ class WithdrawRequestResource extends Resource
                             ->rows(2),
                     ])
                     ->action(function (WithdrawRequest $record, array $data) {
-                        $bank = DB::table('banks')->where('user_id', $record->driver_id)->first();
-                        if (!$bank) {
-                            Notification::make()->danger()->title('Tài xế chưa có thông tin ngân hàng.')->send();
+                        $lock = Cache::lock("withdraw:payout:{$record->id}", 60);
+                        if (!$lock->get()) {
+                            Notification::make()->warning()->title('Yêu cầu đang được xử lý ở một phiên khác.')->send();
                             return;
                         }
 
-                        // "Chiếm" yêu cầu bằng UPDATE có điều kiện status='pending'
-                        // — atomic ở tầng DB, chỉ 1 trong nhiều lần bấm "Duyệt"
-                        // gần như đồng thời (mạng chậm, 2 tab) thắng được. Làm
-                        // TRƯỚC khi gọi PayOS (không phải sau) — tránh chuyển
-                        // khoản thật 2 lần cho cùng 1 yêu cầu.
-                        $claimed = WithdrawRequest::where('id', $record->id)
-                            ->where('status', 'pending')
-                            ->update([
-                                'status'       => 'approved',
+                        try {
+                            $fresh = WithdrawRequest::find($record->id);
+                            if (!$fresh || $fresh->status !== 'pending') {
+                                Notification::make()->warning()->title('Yêu cầu này đã được xử lý.')->send();
+                                return;
+                            }
+                            if (!$fresh->bank_code || !$fresh->account_number) {
+                                Notification::make()->danger()->title('Yêu cầu cũ chưa có bản lưu tài khoản ngân hàng.')->send();
+                                return;
+                            }
+
+                            // Không ghi approved trước khi gọi ra ngoài. Nếu
+                            // process chết sau khi PayOS nhận lệnh, lần thử lại
+                            // dùng cùng referenceId và PayOS trả cùng giao dịch.
+                            $refId = 'WD' . $fresh->id;
+                            $result = PayOSPayoutService::createPayout(
+                                referenceId: $refId,
+                                amount: (int) $fresh->amount,
+                                description: 'Rut tien TX ' . ($fresh->driver?->name ?? $fresh->driver_id),
+                                bankCode: $fresh->bank_code,
+                                accountNumber: $fresh->account_number,
+                            );
+
+                            if (!$result['success']) {
+                                Notification::make()->danger()->title('Chuyển khoản thất bại')->body($result['message'])->send();
+                                return;
+                            }
+
+                            $approved = WithdrawRequest::whereKey($fresh->id)->where('status', 'pending')->update([
+                                'status' => 'approved',
+                                'admin_note' => $data['admin_note'] ?? null,
+                                'payout_reference' => $refId,
                                 'processed_by' => Auth::id(),
                                 'processed_at' => now(),
                             ]);
-
-                        if ($claimed === 0) {
-                            Notification::make()->warning()
-                                ->title('Yêu cầu này vừa được xử lý (có thể do bấm trùng) — không duyệt lại.')
+                            Notification::make()->{$approved ? 'success' : 'warning'}()
+                                ->title($approved ? 'Đã duyệt và chuyển khoản thành công.' : 'Giao dịch đã được phiên khác cập nhật.')
                                 ->send();
-                            return;
+                        } finally {
+                            $lock->release();
                         }
-
-                        // referenceId CỐ ĐỊNH theo id đơn (không có time()) —
-                        // nếu vẫn lỡ gọi PayOS 2 lần (không nên xảy ra sau khi
-                        // đã chiếm ở trên), PayOS tự dedupe theo đúng
-                        // referenceId thay vì tạo 2 giao dịch riêng.
-                        $refId  = 'WD' . $record->id;
-                        $result = PayOSPayoutService::createPayout(
-                            referenceId:   $refId,
-                            amount:        (int) $record->amount,
-                            description:   'Rut tien TX ' . ($record->driver?->name ?? $record->driver_id),
-                            bankCode:      $bank->bank_code,
-                            accountNumber: $bank->account_number,
-                        );
-
-                        if (!$result['success']) {
-                            // Chuyển khoản thất bại — trả về pending để admin
-                            // duyệt lại được, không để đơn kẹt ở "approved" mà
-                            // tiền thực ra chưa hề đi.
-                            WithdrawRequest::where('id', $record->id)->update([
-                                'status'       => 'pending',
-                                'processed_by' => null,
-                                'processed_at' => null,
-                            ]);
-                            Notification::make()->danger()
-                                ->title('Chuyển khoản thất bại')
-                                ->body($result['message'])
-                                ->send();
-                            return;
-                        }
-
-                        $record->update([
-                            'admin_note'       => $data['admin_note'] ?? null,
-                            'payout_reference' => $refId,
-                        ]);
-                        Notification::make()->success()->title('Đã duyệt và chuyển khoản thành công.')->send();
                     }),
 
                 Tables\Actions\Action::make('reject')
@@ -226,22 +214,34 @@ class WithdrawRequestResource extends Resource
                     ])
                     ->action(function (WithdrawRequest $record, array $data) {
                         try {
-                            DB::transaction(function () use ($record, $data) {
+                            $rejected = DB::transaction(function () use ($record, $data) {
+                                $locked = WithdrawRequest::where('id', $record->id)
+                                    ->lockForUpdate()
+                                    ->firstOrFail();
+                                if ($locked->status !== 'pending') return false;
+
                                 // Refund the held balance
                                 DriverWalletService::adjust(
-                                    $record->driver_id,
-                                    $record->amount,
+                                    $locked->driver_id,
+                                    $locked->amount,
                                     'credit',
-                                    'Hoàn tiền yêu cầu rút #' . $record->id,
-                                    'withdraw_refund_' . $record->id
+                                    'Hoàn tiền yêu cầu rút #' . $locked->id,
+                                    'withdraw_refund_' . $locked->id
                                 );
-                                $record->update([
+                                $locked->update([
                                     'status'       => 'rejected',
                                     'admin_note'   => $data['admin_note'],
                                     'processed_by' => Auth::id(),
                                     'processed_at' => now(),
                                 ]);
+                                return true;
                             });
+                            if (!$rejected) {
+                                Notification::make()->warning()
+                                    ->title('Yêu cầu đã được xử lý, không hoàn tiền lại.')
+                                    ->send();
+                                return;
+                            }
                             Notification::make()->success()->title('Đã từ chối và hoàn tiền cho tài xế.')->send();
                         } catch (\Exception $e) {
                             Notification::make()->danger()->title('Lỗi: ' . $e->getMessage())->send();

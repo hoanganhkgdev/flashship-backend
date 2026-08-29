@@ -69,14 +69,24 @@ class OrderController extends Controller
             return response()->json(['success' => false], 200);
         }
 
-        // Đặt offer_viewed_at để callkit-timeout job biết driver đã mở app
-        if ($order->offer_viewed_at === null) {
-            $expiresAt = now()->addSeconds(DispatchOfferSender::APP_DECISION_SECS);
-
-            DB::table('orders')->where('id', $order->id)->update([
+        // Cập nhật có điều kiện trong một câu SQL: request xem cũ đến
+        // muộn không được reset offer của tài xế mới; hai request trùng
+        // cũng chỉ có đúng một request được gia hạn 30 giây.
+        $viewedAt = now();
+        $updated = DB::table('orders')
+            ->where('id', $order->id)
+            ->where('status', 'pending')
+            ->where('dispatching_to_driver_id', $driver->id)
+            ->whereNull('offer_viewed_at')
+            ->update([
                 'offer_viewed_at' => now(),
-                'updated_at'      => now(),
+                'updated_at'      => $viewedAt,
             ]);
+
+        $effectiveExpiresAt = null;
+        if ($updated) {
+            $expiresAt = $viewedAt->copy()->addSeconds(DispatchOfferSender::APP_DECISION_SECS);
+            $effectiveExpiresAt = $expiresAt->timestamp;
 
             // Ghi thêm vào đúng dòng log offer này (khác cột chung ở trên) —
             // hạ tầng tính % offer bị bỏ lỡ (không mở xem) mỗi ca sau này.
@@ -85,17 +95,33 @@ class OrderController extends Controller
                 ->where('driver_id', $driver->id)
                 ->where('result', 'pending')
                 ->whereNull('viewed_at')
-                ->update(['viewed_at' => now()]);
+                ->update(['viewed_at' => $viewedAt]);
 
             // Reset đồng hồ RTDB về APP_DECISION_SECS — giống ShopeeFood
-            RTDBService::updateDriverOfferExpiry($driver->id, $expiresAt->timestamp);
+            RTDBService::updateDriverOfferExpiry($driver->id, $order->id, $expiresAt->timestamp);
 
             // Job timeout tính từ lúc driver MỞ APP, dùng APP_DECISION_SECS (30s)
             DispatchOrderJob::dispatch($order->id, $driver->id, true)
                 ->delay($expiresAt);
+        } else {
+            // Request retry: trả lại đúng deadline đã cấp ở request đầu,
+            // không tự cộng thêm 30 giây lần nữa.
+            $fresh = Order::where('id', $order->id)
+                ->where('status', 'pending')
+                ->where('dispatching_to_driver_id', $driver->id)
+                ->first();
+            if ($fresh?->offer_viewed_at) {
+                $effectiveExpiresAt = $fresh->offer_viewed_at
+                    ->copy()
+                    ->addSeconds(DispatchOfferSender::APP_DECISION_SECS)
+                    ->timestamp;
+            }
         }
 
-        return response()->json(['success' => true], 200);
+        return response()->json([
+            'success' => true,
+            'data' => ['expires_at' => $effectiveExpiresAt],
+        ], 200);
     }
 
     public function accept(Request $request, Order $order): JsonResponse
@@ -156,12 +182,22 @@ class OrderController extends Controller
         $stops = [];
         DB::transaction(function () use ($order, $seq, &$error, &$fresh, &$stops) {
             $fresh = Order::where('id', $order->id)->lockForUpdate()->first();
+            if ($fresh->status !== 'processing') {
+                $error = ['status' => 400, 'message' => 'Bạn cần xác nhận đã lấy hàng trước khi giao các điểm.'];
+                return;
+            }
             $stops = $fresh->stops ?? [];
             $found = false;
-            foreach ($stops as &$stop) {
+            foreach ($stops as $index => &$stop) {
                 if ((int) $stop['seq'] === $seq) {
-                    if ($stop['delivered_at'] !== null) {
+                    if (($stop['delivered_at'] ?? null) !== null) {
                         $error = ['status' => 400, 'message' => 'Điểm này đã được giao rồi'];
+                        return;
+                    }
+                    $hasUndeliveredBefore = collect(array_slice($stops, 0, $index))
+                        ->contains(fn ($previous) => ($previous['delivered_at'] ?? null) === null);
+                    if ($hasUndeliveredBefore) {
+                        $error = ['status' => 409, 'message' => 'Bạn cần giao các điểm trước theo đúng thứ tự.'];
                         return;
                     }
                     $stop['delivered_at'] = now()->toIso8601String();
@@ -182,7 +218,7 @@ class OrderController extends Controller
         }
 
         // Nếu tất cả stops đã delivered → hoàn thành đơn
-        $allDone = collect($stops)->every(fn($s) => $s['delivered_at'] !== null);
+        $allDone = count($stops) > 0 && collect($stops)->every(fn($s) => ($s['delivered_at'] ?? null) !== null);
         if ($allDone) {
             $this->orderService->completeOrder($fresh, $driver);
             return response()->json([
@@ -193,7 +229,7 @@ class OrderController extends Controller
             ]);
         }
 
-        $remaining = collect($stops)->filter(fn($s) => $s['delivered_at'] === null)->count();
+        $remaining = collect($stops)->filter(fn($s) => ($s['delivered_at'] ?? null) === null)->count();
         return response()->json([
             'success'   => true,
             'message'   => "Đã giao điểm $seq — còn $remaining điểm",

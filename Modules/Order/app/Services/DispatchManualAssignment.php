@@ -54,29 +54,79 @@ class DispatchManualAssignment
         }
 
         try {
-            $activeCount = Order::where('delivery_man_id', $driver->id)
-                ->whereIn('status', ['assigned', 'processing'])
-                ->count();
-            if ($activeCount >= 2) {
-                return ['success' => false, 'message' => "Tài xế {$driver->name} đang chạy {$activeCount} đơn, không nhận thêm được."];
-            }
-
             $now      = now();
-            $affected = DB::table('orders')
-                ->where('id', $order->id)
-                ->where('status', 'pending')
-                ->update([
+            $assignment = DB::transaction(function () use ($driver, $order, $now) {
+                User::where('id', $driver->id)->lockForUpdate()->firstOrFail();
+
+                $freshOrder = Order::where('id', $order->id)
+                    ->lockForUpdate()
+                    ->firstOrFail();
+                if ($freshOrder->status !== 'pending') {
+                    return ['busy' => null, 'affected' => 0, 'previous_driver_id' => null, 'reused_log' => false];
+                }
+
+                $activeCount = Order::where('delivery_man_id', $driver->id)
+                    ->whereIn('status', ['assigned', 'processing'])
+                    ->count();
+                if ($activeCount >= 2) {
+                    return ['busy' => $activeCount, 'affected' => 0, 'previous_driver_id' => null, 'reused_log' => false];
+                }
+
+                $previousDriverId = $freshOrder->dispatching_to_driver_id;
+                $freshOrder->update([
                     'status'                   => 'assigned',
                     'delivery_man_id'          => $driver->id,
                     'dispatching_to_driver_id' => null,
                     'updated_at'               => $now,
                 ]);
 
-            if (!$affected) {
+                // Đóng mọi offer pending của đơn. Nếu tổng đài gán đúng người
+                // đang cầm offer thì tái dùng chính log đó thành accepted;
+                // các offer khác là offer bị thu hồi, đánh expired để không
+                // tính như tài xế chủ động từ chối.
+                $reusedLog = OrderDispatchLog::where('order_id', $order->id)
+                    ->where('driver_id', $driver->id)
+                    ->where('result', 'pending')
+                    ->update(['result' => 'accepted', 'responded_at' => $now]);
+                OrderDispatchLog::where('order_id', $order->id)
+                    ->where('result', 'pending')
+                    ->update(['result' => 'expired', 'responded_at' => $now]);
+
+                return [
+                    'busy' => null,
+                    'affected' => 1,
+                    'previous_driver_id' => $previousDriverId ? (int) $previousDriverId : null,
+                    'reused_log' => $reusedLog > 0,
+                ];
+            });
+
+            if ($assignment['busy'] !== null) {
+                return ['success' => false, 'message' => "Tài xế {$driver->name} đang chạy {$assignment['busy']} đơn, không nhận thêm được."];
+            }
+
+            if (!$assignment['affected']) {
                 return ['success' => false, 'message' => 'Đơn không còn ở trạng thái chờ (có thể vừa được xử lý).'];
             }
         } finally {
-            Redis::del($lockKey);
+            Redis::eval(
+                "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
+                1,
+                $lockKey,
+                (string) $order->id,
+            );
+        }
+
+        // Nếu đơn đang hiện offer trên máy một tài xế, gán tay phải thu hồi
+        // đúng offer đó. Compare-by-orderId ngăn cleanup trễ xóa offer mới.
+        $previousDriverId = $assignment['previous_driver_id'];
+        if ($previousDriverId) {
+            RTDBService::clearDriverOffer($previousDriverId, $order->id);
+            Redis::eval(
+                "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
+                1,
+                "dispatch:lock:driver:{$previousDriverId}",
+                (string) $order->id,
+            );
         }
 
         // Chụp lại NGAY LÚC GÁN xem thành phố có đang bật chế độ trời mưa
@@ -88,15 +138,17 @@ class DispatchManualAssignment
 
         // Ghi lại như 1 dòng "accepted" bình thường — để lên báo cáo/lịch sử
         // dispatch không bị thiếu, dù đây là gán tay bỏ qua bước offer.
-        OrderDispatchLog::create([
-            'order_id'     => $order->id,
-            'driver_id'    => $driver->id,
-            'offered_at'   => $now,
-            'responded_at' => $now,
-            'result'       => 'accepted',
-            'created_at'   => $now,
-            'updated_at'   => $now,
-        ]);
+        if (!$assignment['reused_log']) {
+            OrderDispatchLog::create([
+                'order_id'     => $order->id,
+                'driver_id'    => $driver->id,
+                'offered_at'   => $now,
+                'responded_at' => $now,
+                'result'       => 'accepted',
+                'created_at'   => $now,
+                'updated_at'   => $now,
+            ]);
+        }
 
         DB::table('users')->where('id', $driver->id)->update([
             'last_order_accepted_at' => $now,

@@ -4,7 +4,11 @@ use Illuminate\Database\Eloquent\Model;
 
 class WithdrawRequest extends Model
 {
-    protected $fillable = ['driver_id', 'amount', 'status', 'admin_note', 'payout_reference', 'processed_by', 'processed_at'];
+    protected $fillable = [
+        'driver_id', 'amount', 'bank_code', 'bank_name', 'account_number',
+        'account_name', 'status', 'admin_note', 'payout_reference',
+        'processed_by', 'processed_at',
+    ];
 
     protected $casts = [
         'amount'       => 'float',

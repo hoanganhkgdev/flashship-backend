@@ -5,7 +5,7 @@ use Illuminate\Database\Eloquent\Model;
 class DriverDebt extends Model
 {
     protected $fillable = [
-        'driver_id', 'status', 'amount_due', 'amount_paid',
+        'driver_id', 'debt_type', 'status', 'amount_due', 'amount_paid',
         'week_start', 'week_end', 'date', 'ref_id', 'note',
     ];
 

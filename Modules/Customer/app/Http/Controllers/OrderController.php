@@ -8,7 +8,6 @@ use Illuminate\Support\Facades\Log;
 use Modules\Order\Models\Order;
 use Modules\Core\Models\Voucher;
 use Modules\Core\Models\VoucherUsage;
-use Modules\Core\Services\RTDBService;
 use Modules\Customer\Models\CustomerAddress;
 use Modules\Order\Services\OrderService;
 use Modules\Pricing\Services\PricingService;
@@ -280,19 +279,8 @@ class OrderController extends Controller
             ->where('platform', 'customer_app')->first();
 
         if (!$order) return response()->json(['success' => false, 'message' => 'Không tìm thấy đơn hàng'], 404);
-        if ($order->status !== 'pending') return response()->json(['success' => false, 'message' => 'Chỉ có thể hủy đơn khi chưa có tài xế nhận'], 400);
-
-        $dispatchingDriverId = $order->dispatching_to_driver_id;
-
-        $order->update(['status' => 'cancelled']);
-        RTDBService::clearOrder($order->code);
-
-        // Xóa offer RTDB — driver app tự dismiss màn hình offer ngay lập tức
-        if ($dispatchingDriverId) {
-            RTDBService::clearDriverOffer($dispatchingDriverId);
-        }
-
-        return response()->json(['success' => true, 'message' => 'Đã hủy đơn hàng']);
+        $result = $this->orderService->cancelPendingOrder($order);
+        return response()->json($result, $result['success'] ? 200 : 400);
     }
 
     public function rate(string $code, Request $request): JsonResponse

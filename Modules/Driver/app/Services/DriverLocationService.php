@@ -10,11 +10,10 @@ use Modules\Core\Services\RTDBService;
  */
 class DriverLocationService
 {
-    // Kế thừa ngưỡng "GPS mới hơn 10 phút" trước đây dùng bởi
-    // SyncDriverLocationCommand. App tự làm mới updated_at tối đa mỗi 20s kể
-    // cả lúc đứng yên (xem LocationPushService bên app), nên quá 10 phút
-    // không có gì nghĩa là app đã chết/mất mạng hẳn.
-    const POS_MAX_AGE_SECS = 600;
+    // App làm mới updated_at tối đa mỗi 20s kể cả khi đứng yên.
+    // Cho vùng đệm 3 phút để không loại oan khi mạng/GPS chập chờn;
+    // quá mốc này thì không thể phát đơn và không cộng giờ ca.
+    const POS_MAX_AGE_SECS = 180;
 
     /**
      * @param  array<int> $driverIds

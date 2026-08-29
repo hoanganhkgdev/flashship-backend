@@ -11,6 +11,7 @@ use Filament\Tables;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Modules\Core\Models\Shift;
 use Modules\Driver\Models\DriverShiftChangeRequest;
 
@@ -55,6 +56,43 @@ class DriverShiftChangeRequestResource extends Resource
     private static function shiftNames(array $ids): string
     {
         return Shift::whereIn('id', $ids)->orderBy('start_time')->pluck('name')->implode(', ');
+    }
+
+    private static function shiftsOverlap($shifts): bool
+    {
+        $segments = function ($shift): array {
+            [$sh, $sm] = array_map('intval', explode(':', $shift->start_time));
+            [$eh, $em] = array_map('intval', explode(':', $shift->end_time));
+            $start = $sh * 60 + $sm;
+            $end = $eh * 60 + $em;
+            return $end > $start ? [[$start, $end]] : [[$start, 1440], [0, $end]];
+        };
+
+        foreach ($shifts->values() as $i => $a) {
+            foreach ($shifts->values() as $j => $b) {
+                if ($i >= $j) continue;
+                foreach ($segments($a) as $ap) {
+                    foreach ($segments($b) as $bp) {
+                        if ($ap[0] < $bp[1] && $bp[0] < $ap[1]) return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    private static function hasShiftRunningNow($shifts): bool
+    {
+        $minute = now()->hour * 60 + now()->minute;
+        return $shifts->contains(function ($shift) use ($minute) {
+            [$sh, $sm] = array_map('intval', explode(':', $shift->start_time));
+            [$eh, $em] = array_map('intval', explode(':', $shift->end_time));
+            $start = $sh * 60 + $sm;
+            $end = $eh * 60 + $em;
+            return $end > $start
+                ? $minute >= $start && $minute < $end
+                : $minute >= $start || $minute < $end;
+        });
     }
 
     public static function table(Table $table): Table
@@ -138,13 +176,47 @@ class DriverShiftChangeRequestResource extends Resource
                         'Đổi ca của tài xế ' . $record->driver?->name . ' sang: ' . static::shiftNames($record->shift_ids) . '?'
                     )
                     ->action(function (DriverShiftChangeRequest $record) {
-                        $record->driver?->registeredShifts()->sync($record->shift_ids);
+                        $result = DB::transaction(function () use ($record) {
+                            $locked = DriverShiftChangeRequest::where('id', $record->id)
+                                ->lockForUpdate()->firstOrFail();
+                            if ($locked->status !== 'pending') return 'handled';
 
-                        $record->update([
-                            'status'       => 'approved',
-                            'processed_by' => Auth::id(),
-                            'processed_at' => now(),
-                        ]);
+                            $driver = $locked->driver()->lockForUpdate()->first();
+                            $ids = array_values(array_unique(array_map('intval', $locked->shift_ids ?? [])));
+                            $shifts = Shift::whereIn('id', $ids)
+                                ->where('is_active', true)
+                                ->where('city_id', $driver?->city_id)
+                                ->get();
+                            if (!$driver || count($ids) === 0 || $shifts->count() !== count($ids)
+                                || self::shiftsOverlap($shifts)) {
+                                return 'invalid';
+                            }
+
+                            $currentShifts = $driver->registeredShifts()->get();
+                            if ($driver->is_online || self::hasShiftRunningNow($currentShifts)
+                                || self::hasShiftRunningNow($shifts)) {
+                                return 'active_shift';
+                            }
+
+                            $driver->registeredShifts()->sync($ids);
+                            $locked->update([
+                                'status'       => 'approved',
+                                'processed_by' => Auth::id(),
+                                'processed_at' => now(),
+                            ]);
+                            return 'approved';
+                        });
+
+                        if ($result !== 'approved') {
+                            Notification::make()->danger()->title(
+                                match ($result) {
+                                    'handled' => 'Yêu cầu đã được người khác xử lý.',
+                                    'active_shift' => 'Không thể đổi ca khi tài xế đang online hoặc ca cũ/ca mới đang diễn ra.',
+                                    default => 'Ca yêu cầu không còn hợp lệ hoặc bị trùng giờ.',
+                                }
+                            )->send();
+                            return;
+                        }
                         Notification::make()->success()->title('Đã duyệt đổi ca.')->send();
                     }),
 
@@ -161,12 +233,22 @@ class DriverShiftChangeRequestResource extends Resource
                             ->rows(2),
                     ])
                     ->action(function (DriverShiftChangeRequest $record, array $data) {
-                        $record->update([
-                            'status'       => 'rejected',
-                            'admin_note'   => $data['admin_note'],
-                            'processed_by' => Auth::id(),
-                            'processed_at' => now(),
-                        ]);
+                        $updated = DB::transaction(function () use ($record, $data) {
+                            $locked = DriverShiftChangeRequest::where('id', $record->id)
+                                ->lockForUpdate()->firstOrFail();
+                            if ($locked->status !== 'pending') return false;
+                            $locked->update([
+                                'status'       => 'rejected',
+                                'admin_note'   => $data['admin_note'],
+                                'processed_by' => Auth::id(),
+                                'processed_at' => now(),
+                            ]);
+                            return true;
+                        });
+                        if (!$updated) {
+                            Notification::make()->danger()->title('Yêu cầu đã được người khác xử lý.')->send();
+                            return;
+                        }
                         Notification::make()->success()->title('Đã từ chối yêu cầu đổi ca.')->send();
                     }),
             ]);

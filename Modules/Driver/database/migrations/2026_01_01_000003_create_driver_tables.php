@@ -43,7 +43,7 @@ return new class extends Migration
         Schema::create('driver_debts', function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('driver_id');
-            $table->enum('debt_type', ['weekly', 'commission'])->default('weekly');
+            $table->enum('debt_type', ['weekly', 'commission', 'cod'])->default('weekly');
             $table->enum('status', ['pending', 'paid', 'overdue'])->default('pending');
             $table->decimal('amount_due', 10, 0);
             $table->decimal('amount_paid', 10, 0)->default(0);

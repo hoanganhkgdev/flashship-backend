@@ -5,6 +5,8 @@ use App\Services\EsmsService;
 use App\Services\ZaloTokenService;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Cache;
 use Modules\Core\Models\PhoneOtp;
 
 class OtpService
@@ -49,6 +51,21 @@ class OtpService
         self::dispatch($phone, $code);
 
         return $code;
+    }
+
+    /** Gửi tối đa một mã trong 60 giây, kể cả hai request tới đồng thời. */
+    public static function sendThrottled(string $phone, string $type = 'register'): ?string
+    {
+        $key = 'otp-send-lock:' . hash('sha256', $type . '|' . $phone);
+        $lock = Cache::lock($key, 10);
+
+        if (!$lock->get()) return null;
+        try {
+            if (self::recentlySent($phone, $type)) return null;
+            return self::send($phone, $type);
+        } finally {
+            $lock->release();
+        }
     }
 
     /**
@@ -97,20 +114,29 @@ class OtpService
             return false;
         }
 
-        $otp = PhoneOtp::where('phone', $phone)
-            ->where('otp', $code)
-            ->where('type', $type)
-            ->where('used', false)
-            ->where('expires_at', '>', now())
-            ->first();
+        // Tiêu thụ OTP trong transaction có row lock. Hai request dùng cùng
+        // mã đến đồng thời thì request sau chỉ đọc được sau khi request đầu
+        // commit used=true và bắt buộc thất bại.
+        $consumed = DB::transaction(function () use ($phone, $code, $type) {
+            $otp = PhoneOtp::where('phone', $phone)
+                ->where('otp', $code)
+                ->where('type', $type)
+                ->where('used', false)
+                ->where('expires_at', '>', now())
+                ->lockForUpdate()
+                ->first();
 
-        if (!$otp) {
+            if (!$otp) return false;
+            $otp->update(['used' => true]);
+            return true;
+        });
+
+        if (!$consumed) {
             RateLimiter::hit($rateLimitKey, 600);
             return false;
         }
 
         RateLimiter::clear($rateLimitKey);
-        $otp->update(['used' => true]);
         return true;
     }
 

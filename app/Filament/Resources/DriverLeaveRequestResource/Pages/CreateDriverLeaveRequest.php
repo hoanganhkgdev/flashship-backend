@@ -6,6 +6,10 @@ use App\Filament\Resources\DriverLeaveRequestResource;
 use Filament\Resources\Pages\CreateRecord;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Validation\ValidationException;
+use Modules\Order\Models\Order;
+use Modules\Core\Models\User;
+use Modules\Core\Services\RTDBService;
 
 class CreateDriverLeaveRequest extends CreateRecord
 {
@@ -13,9 +17,20 @@ class CreateDriverLeaveRequest extends CreateRecord
 
     protected function mutateFormDataBeforeCreate(array $data): array
     {
+        if (Order::where('delivery_man_id', $data['driver_id'])
+            ->whereIn('status', ['assigned', 'processing'])->exists()) {
+            throw ValidationException::withMessages(['data.driver_id' => 'Tài xế đang có đơn chưa hoàn thành, không thể ghi nghỉ phép.']);
+        }
         $data['created_by'] = Auth::id();
 
         return $data;
+    }
+
+    protected function afterCreate(): void
+    {
+        if (!$this->record->leave_date->isToday()) return;
+        User::whereKey($this->record->driver_id)->update(['is_online' => false, 'online_since' => null]);
+        RTDBService::removeDriverLocation($this->record->driver_id);
     }
 
     /**

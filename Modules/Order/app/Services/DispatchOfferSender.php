@@ -76,9 +76,10 @@ class DispatchOfferSender
 
         $scoreScore = round($this->scoringCalculator->scoreComponent($driver), 1);
         $waitScore  = round($this->scoringCalculator->waitTimeScore($driver), 1);
+        $distanceCap = (float) ($driver->_distance_cap_km ?? DispatchCandidateFinder::MAX_ROAD_DISTANCE_KM);
         $distScore  = round($this->scoringCalculator->distanceComponent(
-            $driver->_road_km ?? DispatchCandidateFinder::MAX_ROAD_DISTANCE_KM,
-            DispatchCandidateFinder::MAX_ROAD_DISTANCE_KM
+            $driver->_road_km ?? $distanceCap,
+            $distanceCap
         ), 1);
         $total      = round($scoreScore + $waitScore + $distScore, 1);
 
@@ -102,11 +103,39 @@ class DispatchOfferSender
 
     private function commitOffer(Order $order, User $driver, Carbon $now): bool
     {
-        // Ghi RTDB TRƯỚC khi cam kết gán offer cho tài xế này (tạo log/cập
-        // nhật đơn) — RTDB là kênh CHÍNH để app đọc offer, ghi thất bại thì
-        // tài xế không hề nhận được gì dù hệ thống tưởng đã gửi. Kiểm tra kết
-        // quả thật (không nuốt lỗi âm thầm như trước) để có thể xử lý ngay,
-        // không bắt tài xế "ôm" offer ma rồi đợi hết 25s hệ thống mới nhận ra.
+        // Giữ chỗ nguyên tử trong DB trước khi ghi Firebase. Đơn vừa
+        // bị huỷ/được luồng khác xử lý sẽ không hiện thành offer ma.
+        // Log pending được tạo cùng transaction để lúc app nhìn thấy
+        // offer, API accept đã có đủ con trỏ và log để xác thực.
+        $dispatchLog = DB::transaction(function () use ($order, $driver, $now) {
+            $reserved = DB::table('orders')
+                ->where('id', $order->id)
+                ->where('status', 'pending')
+                ->whereNull('dispatching_to_driver_id')
+                ->update([
+                    'dispatching_to_driver_id' => $driver->id,
+                    'dispatch_attempts'        => DB::raw('dispatch_attempts + 1'),
+                    'offer_viewed_at'          => null,
+                    'updated_at'               => $now,
+                ]);
+
+            if (!$reserved) return null;
+
+            return OrderDispatchLog::create([
+                'order_id'   => $order->id,
+                'driver_id'  => $driver->id,
+                'offered_at' => $now,
+                'result'     => 'pending',
+                'created_at' => $now,
+                'updated_at' => $now,
+            ]);
+        });
+
+        if (!$dispatchLog) {
+            Log::debug("│  Skip #{$driver->id}: đơn #{$order->id} không còn trống để giữ offer");
+            return false;
+        }
+
         $offeredAt = $now->timestamp;
         $expiresAt = $offeredAt + self::DRIVER_OFFER_SECS;
 
@@ -156,43 +185,23 @@ class DispatchOfferSender
         ]);
 
         if (!$rtdbOk) {
-            // QUAN TRỌNG: phải ghi nhận đã "hỏi" driver này trước khi trả về
-            // — nếu không, DispatchCandidateFinder::find() ở lượt sau vẫn coi
-            // driver này là ứng viên hợp lệ và có thể chọn lại chính họ, gây
-            // đệ quy vô hạn nếu Firebase sập hẳn và họ là ứng viên duy nhất
-            // (đúng lỗi đã gặp và sửa ở Chặn B trước đây). Tái dùng 'expired'
-            // vì ENUM chỉ có 4 giá trị cố định — không gọi handleTimeout() nên
-            // không phạt điểm/tính bỏ lỡ cho tài xế, đúng tinh thần sửa lỗi này.
-            $failedAt = now();
-            OrderDispatchLog::create([
-                'order_id'     => $order->id,
-                'driver_id'    => $driver->id,
-                'offered_at'   => $failedAt,
-                'responded_at' => $failedAt,
-                'result'       => 'expired',
-                'created_at'   => $failedAt,
-                'updated_at'   => $failedAt,
-            ]);
+            // Hoàn tác con trỏ; giữ log expired để không chọn lại ngay
+            // cùng tài xế và không tính lỗi hạ tầng là bỏ lỡ đơn.
+            DB::transaction(function () use ($order, $driver, $dispatchLog) {
+                $failedAt = now();
+                OrderDispatchLog::where('id', $dispatchLog->id)
+                    ->where('result', 'pending')
+                    ->update(['result' => 'expired', 'responded_at' => $failedAt, 'updated_at' => $failedAt]);
+                DB::table('orders')->where('id', $order->id)
+                    ->where('status', 'pending')
+                    ->where('dispatching_to_driver_id', $driver->id)
+                    ->update(['dispatching_to_driver_id' => null, 'updated_at' => $failedAt]);
+            });
             return false;
         }
 
         Log::debug("     → RTDB offer ghi thành công (expires_at: {$expiresAt})");
 
-        OrderDispatchLog::create([
-            'order_id'   => $order->id,
-            'driver_id'  => $driver->id,
-            'offered_at' => $now,
-            'result'     => 'pending',
-            'created_at' => $now,
-            'updated_at' => $now,
-        ]);
-
-        DB::table('orders')->where('id', $order->id)->update([
-            'dispatching_to_driver_id' => $driver->id,
-            'dispatch_attempts'        => DB::raw('dispatch_attempts + 1'),
-            'offer_viewed_at'          => null,
-            'updated_at'               => $now,
-        ]);
         $order->offer_viewed_at = null;
 
         if ($driver->fcm_token) {

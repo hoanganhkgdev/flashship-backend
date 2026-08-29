@@ -7,8 +7,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Modules\Core\Models\Shift;
 use Modules\Driver\Models\DriverLeaveRequest;
-use Modules\Driver\Models\DriverScoreLog;
-use Modules\Driver\Models\DriverShiftSession;
+use Modules\Driver\Models\DriverGpsEligibleSession;
 use Modules\Driver\Services\DriverScoreService;
 
 class ScoreShiftSessionsCommand extends Command
@@ -16,38 +15,34 @@ class ScoreShiftSessionsCommand extends Command
     protected $signature   = 'drivers:score-shift-sessions';
     protected $description = 'Chấm điểm % thời gian online cuối mỗi ca vừa kết thúc';
 
-    // Dùng để nhận diện ca đã chấm điểm rồi (alreadyScored) — giữ cả reason
-    // cũ trước đợt đổi ngưỡng lẫn 5 reason hiện hành, để không chấm trùng
-    // nếu có log cũ còn rơi vào cửa sổ kiểm tra ngay sau khi đổi.
-    private const SCORE_REASONS = [
-        'shift_online_normal', 'shift_online_reduced', 'shift_online_mid', 'shift_online_low', 'shift_online_critical',
-        'shift_online_high', 'shift_online_neutral', 'shift_never_online',
-    ];
-
     public function handle(): void
     {
         $now = Carbon::now();
         $scored = 0;
 
         foreach (Shift::active()->get() as $shift) {
-            $window = $this->recentlyEndedWindow($shift, $now);
-            if (!$window) {
-                continue;
-            }
-            [$start, $end] = $window;
+            foreach ($this->recentlyEndedWindows($shift, $now) as [$start, $end]) {
+                $driverIds = $shift->users()->pluck('users.id');
+                foreach ($driverIds as $driverId) {
+                    // Claim nằm cùng transaction với chấm điểm. Unique key
+                    // chặn hai scheduler chấm cùng ca; nếu chấm lỗi thì cả
+                    // claim rollback để cron sau có thể thử lại.
+                    $claimed = DB::transaction(function () use ($shift, $driverId, $start, $end) {
+                        $inserted = DB::table('driver_shift_score_runs')->insertOrIgnore([
+                            'driver_id' => $driverId,
+                            'shift_id' => $shift->id,
+                            'shift_started_at' => $start,
+                            'shift_ended_at' => $end,
+                            'created_at' => now(),
+                            'updated_at' => now(),
+                        ]);
+                        if (!$inserted) return false;
 
-            $driverIds = $shift->users()->pluck('users.id');
-            foreach ($driverIds as $driverId) {
-                if ($this->alreadyScored($driverId, $start, $end)) {
-                    continue;
+                        $this->scoreDriverShift($driverId, $start, $end);
+                        return true;
+                    });
+                    if ($claimed) $scored++;
                 }
-
-                // BẬT LẠI (2026-08-06): chấp nhận rủi ro dữ liệu ca "ảo" còn sót
-                // (một số tài xế chưa tự sửa lại đúng ca thật sau đợt backfill
-                // an toàn 2026-08-03) — quyết định chủ động, không chờ 100% tài
-                // xế tự sửa nữa.
-                $this->scoreDriverShift($driverId, $start, $end);
-                $scored++;
             }
         }
 
@@ -59,33 +54,25 @@ class ScoreShiftSessionsCommand extends Command
      * Thử 2 mốc neo — "ca bắt đầu hôm nay" và "ca bắt đầu hôm qua" (cho ca vắt
      * qua nửa đêm vừa kết thúc sáng sớm hôm nay) — trả về cửa sổ [start, end)
      * nào có mốc kết thúc rơi đúng vào 5 phút gần đây, nếu không cái nào khớp
-     * thì ca này chưa vừa kết thúc, bỏ qua.
-     * @return array{0: Carbon, 1: Carbon}|null
+     * thì ca này chưa kết thúc trong cửa sổ bù 24 giờ, bỏ qua.
+     * @return array<int, array{0: Carbon, 1: Carbon}>
      */
-    private function recentlyEndedWindow(Shift $shift, Carbon $now): ?array
+    private function recentlyEndedWindows(Shift $shift, Carbon $now): array
     {
-        foreach ([0, -1] as $dayOffset) {
+        $windows = [];
+        foreach ([0, -1, -2] as $dayOffset) {
             $start = Carbon::today()->addDays($dayOffset)->setTimeFromTimeString($shift->start_time);
             $end   = Carbon::today()->addDays($dayOffset)->setTimeFromTimeString($shift->end_time);
             if ($end->lessThanOrEqualTo($start)) {
                 $end->addDay();
             }
 
-            if ($end->lessThanOrEqualTo($now) && $end->greaterThan($now->copy()->subMinutes(5))) {
-                return [$start, $end];
+            if ($end->lessThanOrEqualTo($now) && $end->greaterThan($now->copy()->subDay())) {
+                $windows[] = [$start, $end];
             }
         }
 
-        return null;
-    }
-
-    private function alreadyScored(int $driverId, Carbon $start, Carbon $end): bool
-    {
-        return DriverScoreLog::where('driver_id', $driverId)
-            ->whereIn('reason', self::SCORE_REASONS)
-            ->where('created_at', '>=', $start)
-            ->where('created_at', '<', $end->copy()->addMinutes(10))
-            ->exists();
+        return $windows;
     }
 
     private function scoreDriverShift(int $driverId, Carbon $start, Carbon $end): void
@@ -99,7 +86,10 @@ class ScoreShiftSessionsCommand extends Command
             return;
         }
 
-        $sessions = DriverShiftSession::where('driver_id', $driverId)
+        // Chỉ cộng các khoảng Online có GPS tươi, không dùng trực
+        // tiếp "ý định Online". Vì vậy tắt GPS để né đơn không
+        // được tính giờ; mất GPS rồi có lại chỉ loại đúng khoảng mất.
+        $sessions = DriverGpsEligibleSession::where('driver_id', $driverId)
             ->where('started_at', '<', $end)
             ->where(fn ($q) => $q->whereNull('ended_at')->orWhere('ended_at', '>', $start))
             ->orderBy('started_at')

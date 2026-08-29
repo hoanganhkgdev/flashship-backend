@@ -19,6 +19,7 @@ class OrderServiceProvider extends ModuleServiceProvider
 
     protected array $commands = [
         \Modules\Order\Console\Commands\RemindDelayedDeliveryCommand::class,
+        \Modules\Order\Console\Commands\DispatchScheduledOrdersCommand::class,
     ];
 
     protected array $providers = [
@@ -29,5 +30,6 @@ class OrderServiceProvider extends ModuleServiceProvider
     protected function configureSchedules(Schedule $schedule): void
     {
         $schedule->command('order:remind-delayed-delivery')->everyMinute();
+        $schedule->command('orders:dispatch-scheduled')->everyMinute()->withoutOverlapping();
     }
 }

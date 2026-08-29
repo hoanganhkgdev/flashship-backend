@@ -8,6 +8,7 @@ use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Cache;
 use Modules\Driver\Models\DriverDebt;
 use Modules\Driver\Services\DriverWalletService;
 
@@ -28,43 +29,61 @@ class PaymentController extends Controller
 
         $driver = $request->user();
 
-        $debt = DriverDebt::where('driver_id', $driver->id)
-            ->whereIn('status', ['pending', 'overdue'])
-            ->find($data['debt_id']);
-
-        if (!$debt) {
-            return response()->json(['success' => false, 'message' => 'Không tìm thấy công nợ'], 404);
+        $createLock = Cache::lock(
+            "payment:create:debt:{$driver->id}:{$data['debt_id']}",
+            60
+        );
+        if (!$createLock->get()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Khoản thanh toán đang được tạo QR, vui lòng chờ vài giây.',
+            ], 409);
         }
 
-        $amount      = (int) ($debt->amount_due - $debt->amount_paid);
-        $description = 'Phi tuan ' . date('dmy', strtotime($debt->week_start));
-        $refId       = $debt->id;
+        try {
+
+            // Đọc lại SAU khi có khóa; request trước có thể vừa thanh toán
+            // xong hoặc vừa tạo QR mới trong lúc request này chờ.
+            $debt = DriverDebt::where('driver_id', $driver->id)
+                ->whereIn('status', ['pending', 'overdue'])
+                ->find($data['debt_id']);
+
+            if (!$debt) {
+                return response()->json(['success' => false, 'message' => 'Không tìm thấy công nợ'], 404);
+            }
+
+            $amount      = (int) ($debt->amount_due - $debt->amount_paid);
+            if ($amount <= 0) {
+                return response()->json(['success' => false, 'message' => 'Khoản công nợ đã được thanh toán'], 409);
+            }
+            $description = 'Phi tuan ' . date('dmy', strtotime($debt->week_start));
+            $refId       = $debt->id;
 
         // Huỷ các QR cũ còn "pending" cho cùng loại/khoản — không thì QR cũ
         // (ảnh chụp màn hình, tab cũ...) vẫn quét trả tiền được nhưng tiền
         // không được cộng vào đâu vì hệ thống chỉ áp dụng cho QR mới nhất.
-        $oldPending = DB::table('payment_orders')
+            $oldPending = DB::table('payment_orders')
             ->where('driver_id', $driver->id)
             ->where('type', $data['type'])
             ->where('status', 'pending')
             ->when($refId !== null, fn ($q) => $q->where('ref_id', $refId))
             ->get(['id', 'order_code']);
-        foreach ($oldPending as $old) {
-            PayOSService::cancelPayment((int) $old->order_code);
-            DB::table('payment_orders')->where('id', $old->id)
-                ->update(['status' => 'cancelled', 'updated_at' => now()]);
-        }
+            foreach ($oldPending as $old) {
+                PayOSService::cancelPayment((int) $old->order_code);
+                DB::table('payment_orders')->where('id', $old->id)
+                    ->update(['status' => 'cancelled', 'updated_at' => now()]);
+            }
 
         // Tạo order code duy nhất (9 chữ số đầu timestamp + 3 chữ số random)
-        $orderCode = (int) (substr((string) time(), -7) . str_pad(random_int(0, 999), 3, '0', STR_PAD_LEFT));
+            $orderCode = (int) (substr((string) time(), -7) . str_pad(random_int(0, 999), 3, '0', STR_PAD_LEFT));
 
-        $result = PayOSService::createPayment($orderCode, $amount, $description, $data['type']);
+            $result = PayOSService::createPayment($orderCode, $amount, $description, $data['type']);
 
-        if (!$result) {
-            return response()->json(['success' => false, 'message' => 'Không tạo được link thanh toán'], 500);
-        }
+            if (!$result) {
+                return response()->json(['success' => false, 'message' => 'Không tạo được link thanh toán'], 500);
+            }
 
-        DB::table('payment_orders')->insert([
+            DB::table('payment_orders')->insert([
             'driver_id'       => $driver->id,
             'type'            => $data['type'],
             'ref_id'          => $refId,
@@ -76,17 +95,20 @@ class PaymentController extends Controller
             'qr_code'         => $result['qr_code'],
             'created_at'      => now(),
             'updated_at'      => now(),
-        ]);
+            ]);
 
-        return response()->json([
-            'success' => true,
-            'data'    => [
-                'order_code'   => $orderCode,
-                'amount'       => $amount,
-                'qr_code'      => $result['qr_code'],
-                'checkout_url' => $result['checkout_url'],
-            ],
-        ]);
+            return response()->json([
+                'success' => true,
+                'data'    => [
+                    'order_code'   => $orderCode,
+                    'amount'       => $amount,
+                    'qr_code'      => $result['qr_code'],
+                    'checkout_url' => $result['checkout_url'],
+                ],
+            ]);
+        } finally {
+            $createLock->release();
+        }
     }
 
     /**
@@ -142,14 +164,14 @@ class PaymentController extends Controller
 
         $order = DB::table('payment_orders')->where('order_code', $code)->first();
 
-        if (!$order || $order->status !== 'pending') {
+        if (!$order || $order->status === 'paid') {
             return response()->json(['success' => true]);
         }
 
         if ($status === '00') {
             $this->handlePaid($order);
             Log::info("[PayOS] Webhook PAID orderCode={$code} driver={$order->driver_id}");
-        } elseif ($status === 'CANCELLED') {
+        } elseif ($status === 'CANCELLED' && $order->status === 'pending') {
             DB::table('payment_orders')->where('id', $order->id)->update(['status' => 'cancelled', 'updated_at' => now()]);
         }
 
@@ -159,13 +181,15 @@ class PaymentController extends Controller
     private function handlePaid(object $order): void
     {
         DB::transaction(function () use ($order) {
-            // Compare-and-swap: WHERE status='pending' + lockForUpdate() đảm bảo
+            // PAID có chữ ký hợp lệ phải được ghi nhận kể cả QR vừa bị app
+            // thay thế và đánh dấu cancelled trong lúc ngân hàng đã trừ tiền.
+            // Compare-and-swap đảm bảo poll/webhook/retry chỉ xử lý một lần.
             // chỉ đúng 1 trong các lệnh gọi đồng thời (app poll vs webhook, hoặc
             // webhook tự retry) có $updated > 0 — bên thua cuộc thấy 0 dòng bị
             // ảnh hưởng và tự return sớm, không cộng tiền/công nợ lần 2.
             $updated = DB::table('payment_orders')
                 ->where('id', $order->id)
-                ->where('status', 'pending')
+                ->whereIn('status', ['pending', 'cancelled'])
                 ->lockForUpdate()
                 ->update(['status' => 'paid', 'updated_at' => now()]);
 
@@ -186,10 +210,38 @@ class PaymentController extends Controller
                 );
             } elseif ($order->type === 'debt_payment' && $order->ref_id) {
                 $debt = DriverDebt::where('id', $order->ref_id)->lockForUpdate()->first();
-                if ($debt && in_array($debt->status, ['pending', 'overdue'])) {
-                    $newPaid = $debt->amount_paid + $order->amount;
-                    $status  = $newPaid >= $debt->amount_due ? 'paid' : $debt->status;
-                    $debt->update(['amount_paid' => $newPaid, 'status' => $status]);
+                if ($debt) {
+                    $remaining = max(0, (float) $debt->amount_due - (float) $debt->amount_paid);
+                    $applied = min($remaining, (float) $order->amount);
+                    $excess = (float) $order->amount - $applied;
+
+                    if ($applied > 0) {
+                        $newPaid = min((float) $debt->amount_due, (float) $debt->amount_paid + $applied);
+                        $debt->update([
+                            'amount_paid' => $newPaid,
+                            'status' => $newPaid >= (float) $debt->amount_due ? 'paid' : $debt->status,
+                        ]);
+                    }
+
+                    if ($excess > 0) {
+                        DriverWalletService::adjust(
+                            $order->driver_id,
+                            $excess,
+                            'credit',
+                            'Hoàn tiền thanh toán công nợ dư',
+                            "payos_debt_excess_{$order->order_code}"
+                        );
+                    }
+                } else {
+                    // Khoản nợ bị admin xóa sau lúc tạo QR nhưng tiền đã thu:
+                    // không được nuốt tiền, hoàn toàn bộ vào ví tài xế.
+                    DriverWalletService::adjust(
+                        $order->driver_id,
+                        $order->amount,
+                        'credit',
+                        'Hoàn tiền QR công nợ không còn tồn tại',
+                        "payos_debt_excess_{$order->order_code}"
+                    );
                 }
             }
         });

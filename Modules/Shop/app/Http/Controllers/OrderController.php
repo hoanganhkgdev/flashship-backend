@@ -8,7 +8,6 @@ use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Log;
 use Modules\Core\Models\Voucher;
 use Modules\Core\Models\VoucherUsage;
-use Modules\Core\Services\RTDBService;
 use Modules\Order\Models\Order;
 use Modules\Order\Services\OrderService;
 use Modules\Shop\Http\Requests\StoreBatchOrderRequest;
@@ -469,47 +468,8 @@ class OrderController extends Controller
             return response()->json(['success' => false, 'message' => 'Không tìm thấy đơn hàng'], 404);
         }
 
-        // Trạng thái order và lượt voucher phải thay đổi cùng nhau.
-        // Compare-and-swap vẫn ngăn race với lúc dispatch gán tài xế.
-        $updated = \DB::transaction(function () use ($order) {
-            $updated = \DB::table('orders')
-                ->where('id', $order->id)
-                ->where('status', 'pending')
-                ->update(['status' => 'cancelled', 'updated_at' => now()]);
-
-            if (! $updated || ! $order->voucher_code) {
-                return $updated;
-            }
-
-            $usageDeleted = VoucherUsage::where('order_id', $order->id)->delete();
-            if ($usageDeleted) {
-                Voucher::where('code', $order->voucher_code)
-                    ->where('used_count', '>', 0)
-                    ->decrement('used_count');
-            }
-
-            return $updated;
-        });
-
-        if (! $updated) {
-            return response()->json(['success' => false, 'message' => 'Chỉ có thể hủy đơn khi chưa có tài xế nhận'], 400);
-        }
-
-        try {
-            RTDBService::clearOrder($order->code);
-            if ($order->dispatching_to_driver_id) {
-                RTDBService::clearDriverOffer($order->dispatching_to_driver_id);
-            }
-        } catch (\Throwable $e) {
-            // DB là nguồn sự thật; lỗi cleanup realtime không được
-            // biến một lần hủy đã commit thành response thất bại.
-            Log::warning('Shop cancelOrder RTDB cleanup failed', [
-                'order_id' => $order->id,
-                'message' => $e->getMessage(),
-            ]);
-        }
-
-        return response()->json(['success' => true, 'message' => 'Đã hủy đơn hàng']);
+        $result = $this->orderService->cancelPendingOrder($order);
+        return response()->json($result, $result['success'] ? 200 : 400);
     }
 
     public function rate(string $code, Request $request): JsonResponse

@@ -5,6 +5,8 @@ use Modules\Order\Models\Order;
 use Modules\Order\Models\OrderDispatchLog;
 use Modules\Order\Services\DispatchService;
 use Modules\Core\Models\User;
+use Modules\Core\Models\Voucher;
+use Modules\Core\Models\VoucherUsage;
 use Modules\Core\Services\FCMService;
 use Modules\Customer\Http\Controllers\CustomerNotificationController;
 use Modules\Core\Services\RTDBService;
@@ -14,6 +16,7 @@ use Carbon\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Redis;
 
 class OrderService
 {
@@ -22,6 +25,82 @@ class OrderService
     // tiền cộng thật (completeOrder()) lẫn số tiền xem trước gửi kèm offer
     // (DispatchOfferSender::commitOffer()), tránh lệch nếu sau này đổi giá trị.
     const RAIN_BONUS_AMOUNT = 5000;
+
+    /**
+     * Hủy một đơn còn pending theo một quy tắc duy nhất cho customer/shop.
+     * Trạng thái đơn, dispatch log và hoàn lượt voucher commit cùng nhau.
+     *
+     * @return array{success: bool, message: string}
+     */
+    public function cancelPendingOrder(Order $order): array
+    {
+        $result = DB::transaction(function () use ($order) {
+            $fresh = Order::where('id', $order->id)->lockForUpdate()->firstOrFail();
+            if ($fresh->status !== 'pending') {
+                return ['success' => false, 'driver_id' => null, 'order' => $fresh];
+            }
+
+            $driverId = $fresh->dispatching_to_driver_id
+                ? (int) $fresh->dispatching_to_driver_id
+                : null;
+
+            $fresh->update([
+                'status' => 'cancelled',
+                'dispatching_to_driver_id' => null,
+                'updated_at' => now(),
+            ]);
+
+            OrderDispatchLog::where('order_id', $fresh->id)
+                ->where('result', 'pending')
+                ->update(['result' => 'expired', 'responded_at' => now()]);
+
+            // Hoàn đúng usage của đơn; chỉ giảm used_count nếu thật sự xóa
+            // được usage, nên request hủy lặp không thể hoàn voucher hai lần.
+            $usage = VoucherUsage::where('order_id', $fresh->id)
+                ->lockForUpdate()
+                ->first();
+            if ($usage) {
+                $voucherId = $usage->voucher_id;
+                $usage->delete();
+                Voucher::where('id', $voucherId)
+                    ->where('used_count', '>', 0)
+                    ->decrement('used_count');
+            }
+
+            return ['success' => true, 'driver_id' => $driverId, 'order' => $fresh];
+        });
+
+        if (!$result['success']) {
+            return ['success' => false, 'message' => 'Chỉ có thể hủy đơn khi chưa có tài xế nhận'];
+        }
+
+        /** @var Order $cancelled */
+        $cancelled = $result['order'];
+        try {
+            RTDBService::clearOrder($cancelled->code);
+
+            $driverId = $result['driver_id'];
+            if ($driverId) {
+                RTDBService::clearDriverOffer($driverId, $cancelled->id);
+                Redis::eval(
+                    "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
+                    1,
+                    "dispatch:lock:driver:{$driverId}",
+                    (string) $cancelled->id,
+                );
+            }
+            Redis::del("dispatch:retry_pending:{$cancelled->id}");
+        } catch (\Throwable $e) {
+            // DB đã commit là nguồn sự thật; lỗi cleanup realtime/cache không
+            // được biến lần hủy thành HTTP 500 khiến client thử hủy lặp.
+            Log::warning('[OrderCancel] realtime cleanup failed', [
+                'order_id' => $cancelled->id,
+                'message' => $e->getMessage(),
+            ]);
+        }
+
+        return ['success' => true, 'message' => 'Đã hủy đơn hàng'];
+    }
 
     public function getDriverOrders(User $user): array
     {
@@ -130,30 +209,50 @@ class OrderService
             return ['success' => false, 'message' => 'Đơn này không được phát cho bạn.', 'status' => 403];
         }
 
-        $activeOrders = Order::where('delivery_man_id', $user->id)->whereIn('status', ['assigned', 'processing'])->count();
-        if ($activeOrders >= 2) {
-            OrderDispatchLog::where('order_id', $order->id)
-                ->where('driver_id', $user->id)
-                ->where('result', 'pending')
-                ->update(['result' => 'skipped_busy', 'responded_at' => now()]);
-            return ['success' => false, 'message' => 'Bạn đang có 2 đơn hàng chưa hoàn thành. Vui lòng hoàn thành bớt trước.', 'status' => 400];
-        }
-
         if ($order->service_type === 'car' && !$user->has_car_license) {
             return ['success' => false, 'message' => 'Đơn này yêu cầu tài xế có bằng lái ô tô.', 'status' => 403];
         }
 
-        $affected = DB::table('orders')
-            ->where('id', $order->id)
-            ->where('status', 'pending')
-            ->update([
-                'status'                   => 'assigned',
-                'delivery_man_id'          => $user->id,
-                'dispatching_to_driver_id' => null,
-                'updated_at'               => now(),
-            ]);
+        $assignment = DB::transaction(function () use ($order, $user) {
+            // Khóa tài xế là chốt nghiệp vụ chung cho accept từ app và gán
+            // tay từ tổng đài. Hai luồng không thể cùng đếm activeCount cũ
+            // rồi cùng gán vượt giới hạn 2 đơn.
+            User::where('id', $user->id)->lockForUpdate()->firstOrFail();
 
-        if ($affected === 0) {
+            $activeOrders = Order::where('delivery_man_id', $user->id)
+                ->whereIn('status', ['assigned', 'processing'])
+                ->count();
+            if ($activeOrders >= 2) {
+                OrderDispatchLog::where('order_id', $order->id)
+                    ->where('driver_id', $user->id)
+                    ->where('result', 'pending')
+                    // Enum DB chỉ có pending/accepted/declined/expired.
+                    // Đây là offer không còn hợp lệ do tài xế vừa đủ 2 đơn,
+                    // không phải hành vi từ chối để bị trừ điểm.
+                    ->update(['result' => 'expired', 'responded_at' => now()]);
+                return 'busy';
+            }
+
+            return DB::table('orders')
+                ->where('id', $order->id)
+                ->where('status', 'pending')
+                // Log pending cũ chưa đủ quyền nhận đơn: timeout có thể vừa
+                // chuyển offer sang người khác. Chỉ đúng tài xế mà order
+                // hiện đang trỏ tới mới được accept.
+                ->where('dispatching_to_driver_id', $user->id)
+                ->update([
+                    'status'                   => 'assigned',
+                    'delivery_man_id'          => $user->id,
+                    'dispatching_to_driver_id' => null,
+                    'updated_at'               => now(),
+                ]);
+        });
+
+        if ($assignment === 'busy') {
+            return ['success' => false, 'message' => 'Bạn đang có 2 đơn hàng chưa hoàn thành. Vui lòng hoàn thành bớt trước.', 'status' => 400];
+        }
+
+        if ($assignment === 0) {
             return ['success' => false, 'message' => 'Đơn đã có người nhận trước bạn.', 'status' => 409];
         }
 
@@ -234,7 +333,7 @@ class OrderService
 
         DriverScoreService::onDecline($user->id);
 
-        RTDBService::clearDriverOffer($user->id);
+        RTDBService::clearDriverOffer($user->id, $order->id);
 
         // Chuyển ngay sang tài xế tiếp theo, không chờ job 30s
         $orderId = $order->id;
@@ -295,70 +394,103 @@ class OrderService
             return ['success' => false, 'message' => 'Bạn không có quyền hoàn thành đơn này.', 'status' => 403];
         }
 
-        if ($order->status === 'cancelled') {
-            return ['success' => false, 'message' => 'Đơn hàng đã bị hủy.', 'status' => 400];
-        }
-
         if ($order->status === 'completed') {
             return ['success' => true, 'message' => 'Đơn này đã hoàn thành trước đó.', 'data' => $order, 'status' => 200];
         }
 
-        // Đơn batch phải giao hết từng điểm qua deliverStop() (tự động complete
-        // khi đủ) — chặn hoàn thành thẳng để không bỏ sót điểm chưa giao.
-        if ($order->is_batch) {
-            $stops = $order->stops ?? [];
-            $allDelivered = count($stops) > 0
-                && collect($stops)->every(fn ($s) => ($s['delivered_at'] ?? null) !== null);
-            if (!$allDelivered) {
-                return ['success' => false, 'message' => 'Đơn gộp cần giao hết các điểm trước khi hoàn thành.', 'status' => 400];
+        $completion = DB::transaction(function () use ($order, $user) {
+            $fresh = Order::where('id', $order->id)->lockForUpdate()->firstOrFail();
+
+            if ((int) $fresh->delivery_man_id !== (int) $user->id) {
+                return ['error' => 'forbidden'];
             }
-        } elseif (!in_array($order->status, ['processing'], true)) {
-            // Trước đây chỉ chặn cancelled/completed — tài xế accept xong
-            // (status='assigned') gọi thẳng complete là hợp lệ, bỏ qua hẳn
-            // bước lấy hàng (processing) mà vẫn được cộng tiền (phí ship, bù
-            // voucher, bonus_fee, thưởng mưa) ngay lập tức — farm tiền không
-            // cần chạy đơn thật.
-            return ['success' => false, 'message' => 'Đơn hàng cần ở trạng thái đã lấy hàng mới hoàn thành được.', 'status' => 400];
+            if ($fresh->status === 'completed') {
+                return ['already' => true];
+            }
+            if ($fresh->status === 'cancelled') {
+                return ['error' => 'cancelled'];
+            }
+            // Cả đơn thường và đơn gộp đều phải qua bước Đã lấy hàng.
+            if ($fresh->status !== 'processing') {
+                return ['error' => 'not_processing'];
+            }
+
+            if ($fresh->is_batch) {
+                $stops = $fresh->stops ?? [];
+                $allDelivered = count($stops) > 0
+                    && collect($stops)->every(fn ($s) => ($s['delivered_at'] ?? null) !== null);
+                if (!$allDelivered) {
+                    return ['error' => 'batch_incomplete'];
+                }
+            }
+
+            $completedAt = now();
+            $fresh->update([
+                'status' => 'completed',
+                'completed_at' => $completedAt,
+                'delivered_at' => $completedAt,
+                'updated_at' => $completedAt,
+            ]);
+
+            // Tất cả quyền lợi tài xế commit/rollback cùng trạng thái đơn.
+            // Nếu bất kỳ bước nào lỗi, đơn vẫn processing và có thể thử lại,
+            // không tồn tại đơn completed nhưng thiếu tiền/điểm.
+            $shippingFee = (float) ($fresh->shipping_fee ?? 0);
+            $bonusFee = (float) ($fresh->bonus_fee ?? 0);
+            $discountAmt = (float) ($fresh->discount_amount ?? 0);
+
+            if ($fresh->is_freeship && $shippingFee > 0) {
+                DriverWalletService::adjust($user->id, $shippingFee, 'credit', "Ship Freeship #{$fresh->id}", "order_{$fresh->id}_shipping");
+            }
+            if ($discountAmt > 0) {
+                DriverWalletService::adjust($user->id, $discountAmt, 'credit', "Bù giảm giá đơn #{$fresh->id}", "order_{$fresh->id}_discount");
+            }
+            if ($bonusFee > 0) {
+                DriverWalletService::adjust($user->id, $bonusFee, 'credit', "Bonus #{$fresh->id}", "order_{$fresh->id}_bonus");
+            }
+            if ($fresh->rain_bonus_eligible) {
+                DriverWalletService::adjust($user->id, self::RAIN_BONUS_AMOUNT, 'credit', "Thưởng trời mưa #{$fresh->id}", "order_{$fresh->id}_rain");
+            }
+
+            // COD tài xế đã thu hộ không phải thu nhập. Ghi công nợ đúng một
+            // lần cùng transaction hoàn tất đơn để đối soát/thu hồi sau đó.
+            if ((float) ($fresh->cod_amount ?? 0) > 0) {
+                \Modules\Driver\Models\DriverDebt::firstOrCreate(
+                    ['ref_id' => "cod_order_{$fresh->id}"],
+                    [
+                        'driver_id' => $user->id,
+                        'debt_type' => 'cod',
+                        'status' => 'pending',
+                        'amount_due' => (float) $fresh->cod_amount,
+                        'amount_paid' => 0,
+                        'date' => $completedAt->toDateString(),
+                        'note' => "COD đã thu đơn #{$fresh->code}",
+                    ]
+                );
+            }
+
+            DriverScoreService::onComplete($user->id);
+            DB::table('users')->where('id', $user->id)->update([
+                'last_order_completed_at' => $completedAt,
+            ]);
+
+            return ['order' => $fresh->fresh()];
+        });
+
+        if (isset($completion['error'])) {
+            return match ($completion['error']) {
+                'forbidden' => ['success' => false, 'message' => 'Bạn không có quyền hoàn thành đơn này.', 'status' => 403],
+                'cancelled' => ['success' => false, 'message' => 'Đơn hàng đã bị hủy.', 'status' => 400],
+                'batch_incomplete' => ['success' => false, 'message' => 'Đơn gộp cần giao hết các điểm trước khi hoàn thành.', 'status' => 400],
+                default => ['success' => false, 'message' => 'Đơn hàng cần ở trạng thái đã lấy hàng mới hoàn thành được.', 'status' => 400],
+            };
         }
 
-        // Atomic update — chỉ tiếp tục nếu row thực sự được update (tránh race condition)
-        $affected = \DB::table('orders')
-            ->where('id', $order->id)
-            ->where('status', '!=', 'completed')
-            ->update(['status' => 'completed', 'completed_at' => now(), 'delivered_at' => now(), 'updated_at' => now()]);
-
-        if (!$affected) {
+        if (isset($completion['already'])) {
             return ['success' => true, 'message' => 'Đơn này đã hoàn thành trước đó.', 'data' => $order->fresh(), 'status' => 200];
         }
 
-        $order->refresh();
-        $shippingFee = (float) ($order->shipping_fee ?? 0);
-        $bonusFee    = (float) ($order->bonus_fee ?? 0);
-        $discountAmt = (float) ($order->discount_amount ?? 0);
-
-        if ($order->is_freeship && $shippingFee > 0) {
-            DriverWalletService::adjust($user->id, $shippingFee, 'credit', "Ship Freeship #{$order->id}", "order_{$order->id}_shipping");
-        }
-
-        if ($discountAmt > 0) {
-            DriverWalletService::adjust($user->id, $discountAmt, 'credit', "Bù giảm giá đơn #{$order->id}", "order_{$order->id}_discount");
-        }
-
-        if ($bonusFee > 0) {
-            DriverWalletService::adjust($user->id, $bonusFee, 'credit', "Bonus #{$order->id}", "order_{$order->id}_bonus");
-        }
-
-        // Thưởng trời mưa 5k — chỉ áp dụng nếu đã chụp lại lúc NHẬN đơn là
-        // thành phố đang bật chế độ trời mưa (xem rain_bonus_eligible ở
-        // acceptOrder()/assignDriverDirectly()), không xét lại trạng thái
-        // mưa hiện tại lúc hoàn thành.
-        if ($order->rain_bonus_eligible) {
-            DriverWalletService::adjust($user->id, self::RAIN_BONUS_AMOUNT, 'credit', "Thưởng trời mưa #{$order->id}", "order_{$order->id}_rain");
-        }
-
-        DriverScoreService::onComplete($user->id);
-
-        DB::table('users')->where('id', $user->id)->update(['last_order_completed_at' => now()]);
+        $order = $completion['order'];
 
         Cache::forget("driver_stats_{$user->id}");
         Log::info("✅ Order #{$order->id} completed by driver #{$user->id}");
@@ -420,6 +552,10 @@ class OrderService
     {
         $order = Order::find($orderId);
         if (!$order) return;
+
+        if ($order->scheduled_at && $order->scheduled_at->isFuture()) {
+            return;
+        }
 
         if ($order->status === 'pending') {
             app(DispatchService::class)->startDispatch($order);

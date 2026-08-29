@@ -33,6 +33,21 @@ class DispatchService
         return "dispatch:retry_pending:{$orderId}";
     }
 
+    private function orderLockKey(int $orderId): string
+    {
+        return "dispatch:lock:order:{$orderId}";
+    }
+
+    private function releaseOrderLock(int $orderId, string $token): void
+    {
+        Redis::eval(
+            "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
+            1,
+            $this->orderLockKey($orderId),
+            $token,
+        );
+    }
+
     private function clearDispatchCache(int $orderId): void
     {
         Redis::del($this->retryKey($orderId));
@@ -45,6 +60,7 @@ class DispatchService
     public function startDispatch(Order $order): void
     {
         if ($order->status !== 'pending') return;
+        if ($order->scheduled_at && $order->scheduled_at->isFuture()) return;
 
         if (!$order->pickup_lat || !$order->pickup_lng) {
             Log::warning("[Dispatch] Đơn #{$order->id} thiếu toạ độ pickup → không dispatch");
@@ -135,7 +151,7 @@ class DispatchService
             Log::info("⏱  [Dispatch] Đơn #{$order->id}: Tài xế {$name} không xem đơn → cộng dồn bộ đếm (đủ 3 lần trừ 1 điểm), pop tiếp");
         }
 
-        RTDBService::clearDriverOffer($driverId);
+        RTDBService::clearDriverOffer($driverId, $order->id);
 
         $this->sendToNextDriver($order->fresh());
     }
@@ -155,7 +171,7 @@ class DispatchService
             return;
         }
 
-        RTDBService::clearDriverOffer($driver->id);
+        RTDBService::clearDriverOffer($driver->id, $order->id);
         $this->clearDispatchCache($order->id);
 
         $attempts = OrderDispatchLog::where('order_id', $order->id)->count();
@@ -222,28 +238,65 @@ class DispatchService
 
     public function offerToNext(Order $order): void
     {
-        $order = $order->fresh();
-        if (!$order || $order->status !== 'pending') return;
-
-        $alreadyOffered = OrderDispatchLog::where('order_id', $order->id)
-            ->pluck('driver_id')
-            ->toArray();
-
-        Log::info("┌─ [Dispatch] Đơn #{$order->id} | Quét toàn thành phố (≤" . DispatchCandidateFinder::MAX_ROAD_DISTANCE_KM . "km đường thật) | Đã hỏi: " . count($alreadyOffered));
-
-        $candidates = $this->candidateFinder->find($order, $alreadyOffered);
-
-        if ($candidates->isEmpty()) {
-            Log::info("└─ [Dispatch] Đơn #{$order->id}: không có ứng viên nào trong " . DispatchCandidateFinder::MAX_ROAD_DISTANCE_KM . "km đường thật → chờ quét lại");
-            $this->scheduleRetryOrGiveUp($order);
+        // Khoá THEO ĐƠN, không chỉ theo tài xế. start/retry/decline/
+        // timeout có thể cùng kích hoạt trong vài mili-giây; nếu hai luồng
+        // cùng find() trước khi dispatching_to_driver_id được ghi, cùng một
+        // đơn sẽ bị offer cho hai người. Token + Lua tránh luồng cũ xoá
+        // nhầm khoá mới nếu TTL hết đúng lúc xử lý chậm.
+        $orderId = $order->id;
+        $token = bin2hex(random_bytes(16));
+        if (!Redis::set($this->orderLockKey($orderId), $token, 'EX', 30, 'NX')) {
+            Log::debug("│  [Dispatch] Đơn #{$orderId} đang được luồng khác xử lý → bỏ qua luồng trùng");
             return;
         }
 
-        $driver = $candidates->first();
-        Log::info("│  Chọn: #{$driver->id} {$driver->name} | " . count($alreadyOffered) . " đã hỏi trước");
+        try {
+            $order = $order->fresh();
+            if (!$order || $order->status !== 'pending') return;
+            if ($order->dispatching_to_driver_id !== null) {
+                Log::debug("│  [Dispatch] Đơn #{$order->id} đang chờ tài xế #{$order->dispatching_to_driver_id} → không phát trùng");
+                return;
+            }
 
-        if (!$this->offerSender->send($order, $driver)) {
-            $this->sendToNextDriver($order);
+            $alreadyOffered = OrderDispatchLog::where('order_id', $order->id)
+                ->pluck('driver_id')
+                ->toArray();
+
+            $elapsedSeconds = $order->dispatch_started_at
+                ? (int) abs(now()->diffInSeconds($order->dispatch_started_at))
+                : 0;
+            $radiusKm = DispatchRadiusPolicy::radiusForElapsedSeconds($elapsedSeconds);
+
+            Log::info("┌─ [Dispatch] Đơn #{$order->id} | Vòng {$radiusKm}km đường thật | Đã chờ: {$elapsedSeconds}s | Đã hỏi: " . count($alreadyOffered));
+
+            $candidates = $this->candidateFinder->find($order, $alreadyOffered, $radiusKm);
+
+            if ($candidates->isEmpty()) {
+                Log::info("└─ [Dispatch] Đơn #{$order->id}: không có ứng viên nào trong {$radiusKm}km đường thật → chờ quét lại");
+                $this->scheduleRetryOrGiveUp($order);
+                return;
+            }
+
+            // Thử lần lượt ngay trong cùng khoá đơn. Trước đây send()
+            // thất bại gọi đệ quy offerToNext(); cách đó không thể giữ
+            // order-lock xuyên suốt và tạo khe hở phát trùng.
+            foreach ($candidates as $driver) {
+                Log::info("│  Chọn: #{$driver->id} {$driver->name} | " . count($alreadyOffered) . " đã hỏi trước");
+                if ($this->offerSender->send($order, $driver)) {
+                    return;
+                }
+                $freshState = Order::find($order->id);
+                if (!$freshState || $freshState->status !== 'pending'
+                    || $freshState->dispatching_to_driver_id !== null) {
+                    Log::debug("│  [Dispatch] Đơn #{$order->id} đã đổi trạng thái trong lúc gửi → dừng thử ứng viên");
+                    return;
+                }
+            }
+
+            Log::info("└─ [Dispatch] Đơn #{$order->id}: mọi ứng viên vòng này đều bị skip/lỗi → chờ quét lại");
+            $this->scheduleRetryOrGiveUp($order);
+        } finally {
+            $this->releaseOrderLock($orderId, $token);
         }
     }
 
