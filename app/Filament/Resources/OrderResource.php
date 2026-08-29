@@ -18,6 +18,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Modules\Core\Models\ServiceType;
 use Modules\Core\Services\RTDBService;
 use Modules\Order\Models\Order;
+use Modules\Order\Services\OrderService;
 
 class OrderResource extends Resource
 {
@@ -396,8 +397,36 @@ class OrderResource extends Resource
                     ->modalHeading('Huỷ đơn hàng')
                     ->modalDescription(fn (Order $record) => 'Xác nhận huỷ đơn ' . $record->code . '?')
                     ->action(function (Order $record) {
-                        $record->update(['status' => 'cancelled', 'cancel_reason' => 'admin']);
-                        RTDBService::clearOrder($record->code);
+                        $fresh = $record->fresh();
+                        if ($fresh->status === 'pending') {
+                            $result = app(OrderService::class)->cancelPendingOrder($fresh);
+                            if (!$result['success']) {
+                                Notification::make()->title($result['message'])->danger()->send();
+                                return;
+                            }
+                            Order::whereKey($fresh->id)->update(['cancel_reason' => 'admin']);
+                        } elseif ($fresh->status === 'assigned') {
+                            $updated = Order::whereKey($fresh->id)
+                                ->where('status', 'assigned')
+                                ->update(['status' => 'cancelled', 'cancel_reason' => 'admin', 'updated_at' => now()]);
+                            if (!$updated) {
+                                Notification::make()->title('Đơn vừa đổi trạng thái, vui lòng tải lại.')->danger()->send();
+                                return;
+                            }
+                            RTDBService::clearOrder($fresh->code);
+                            $driver = $fresh->driver;
+                            if ($driver?->fcm_token) {
+                                \Modules\Core\Services\FCMService::getInstance()->sendDriverNotice(
+                                    $driver->fcm_token,
+                                    "Đơn #{$fresh->code} đã bị hủy",
+                                    'Tổng đài đã hủy đơn hàng này.',
+                                    ['type' => 'order_status', 'order_code' => $fresh->code, 'status' => 'cancelled'],
+                                );
+                            }
+                        } else {
+                            Notification::make()->title('Chỉ có thể hủy đơn đang chờ hoặc đã nhận.')->danger()->send();
+                            return;
+                        }
                         Notification::make()->title('Đã huỷ đơn ' . $record->code)->warning()->send();
                     }),
 
