@@ -20,21 +20,32 @@ class OrderController extends Controller
     {
         $driverId = $request->user()->id;
 
-        $log = OrderDispatchLog::where('driver_id', $driverId)
-            ->where('result', 'pending')
-            ->latest('offered_at')
+        // orders.dispatching_to_driver_id mới là con trỏ offer hiện hành.
+        // Không lấy "log pending mới nhất": log là lịch sử và nếu callback
+        // timeout/afterResponse từng lỗi, một dòng cũ có thể còn pending rồi
+        // làm app khôi phục nhầm đơn đã phát trước đó.
+        $order = Order::with('city')
+            ->where('status', 'pending')
+            ->where('dispatching_to_driver_id', $driverId)
+            ->latest('updated_at')
             ->first();
 
-        $order = null;
-        if ($log) {
-            $order = Order::with('city')
-                ->where('id', $log->order_id)
-                ->where('status', 'pending')
-                ->first();
+        $activeLog = $order
+            ? OrderDispatchLog::where('order_id', $order->id)
+                ->where('driver_id', $driverId)
+                ->where('result', 'pending')
+                ->exists()
+            : false;
 
-            if (!$order) {
-                $log->update(['result' => 'expired']);
-            }
+        // Tự chữa lịch sử của riêng tài xế mỗi lần app đồng bộ offer. Chỉ
+        // giữ đúng log khớp đồng thời cả order + driver + trạng thái pending.
+        OrderDispatchLog::where('driver_id', $driverId)
+            ->where('result', 'pending')
+            ->when($order && $activeLog, fn ($query) => $query->where('order_id', '!=', $order->id))
+            ->update(['result' => 'expired', 'responded_at' => now()]);
+
+        if (!$activeLog) {
+            $order = null;
         }
 
         return response()->json(['success' => true, 'data' => ['order' => $order]]);
