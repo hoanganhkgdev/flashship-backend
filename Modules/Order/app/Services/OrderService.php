@@ -548,7 +548,6 @@ class OrderService
             'payment_method'   => $data['payment_method'] ?? 'cod',
             'cod_amount'       => $data['cod_amount'] ?? null,
             'store_name'       => $data['store_name'] ?? null,
-            'scheduled_at'     => $data['scheduled_at'] ?? null,
         ]);
     }
 
@@ -556,10 +555,6 @@ class OrderService
     {
         $order = Order::find($orderId);
         if (!$order) return;
-
-        if ($order->scheduled_at && $order->scheduled_at->isFuture()) {
-            return;
-        }
 
         if ($order->status === 'pending') {
             app(DispatchService::class)->startDispatch($order);

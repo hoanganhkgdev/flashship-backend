@@ -59,8 +59,6 @@ class DispatchService
     public function startDispatch(Order $order): void
     {
         if ($order->status !== 'pending') return;
-        if ($order->scheduled_at && $order->scheduled_at->isFuture()) return;
-
         if (!$order->pickup_lat || !$order->pickup_lng) {
             Log::warning("[Dispatch] Đơn #{$order->id} thiếu toạ độ pickup → không dispatch");
             return;

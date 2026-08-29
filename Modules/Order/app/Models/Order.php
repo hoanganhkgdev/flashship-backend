@@ -34,7 +34,7 @@ class Order extends Model
         'order_note', 'cargo_type', 'cargo_note', 'cargo_weight',
         'is_batch', 'stops', 'shop_service_type',
         'voucher_code', 'discount_amount',
-        'driver_rating', 'driver_rating_note', 'scheduled_at', 'completed_at', 'delivered_at',
+        'driver_rating', 'driver_rating_note', 'completed_at', 'delivered_at',
     ];
 
     protected $casts = [
@@ -47,7 +47,6 @@ class Order extends Model
         'stops'                    => 'array',
         'completed_at'             => 'datetime',
         'delivered_at'             => 'datetime',
-        'scheduled_at'             => 'datetime',
         'pickup_lat'               => 'float',
         'pickup_lng'               => 'float',
         'delivery_lat'             => 'float',
