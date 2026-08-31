@@ -6,8 +6,10 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\ValidationException;
 use Modules\Core\Models\Voucher;
 use Modules\Core\Models\VoucherUsage;
+use Modules\Core\Services\VoucherService;
 use Modules\Order\Models\Order;
 use Modules\Order\Services\OrderService;
 use Modules\Shop\Http\Requests\StoreBatchOrderRequest;
@@ -224,6 +226,8 @@ class OrderController extends Controller
                 'message' => 'Tạo đơn thành công',
                 'data' => $this->formatOrder($order),
             ], 201);
+        } catch (ValidationException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             Log::error('Shop createOrder: '.$e->getMessage());
 
@@ -354,6 +358,8 @@ class OrderController extends Controller
                 'message' => 'Tạo đơn gộp thành công',
                 'data' => $this->formatOrder($order),
             ], 201);
+        } catch (ValidationException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             Log::error('Shop storeBatch: '.$e->getMessage());
 
@@ -376,40 +382,13 @@ class OrderController extends Controller
             return null;
         }
 
-        $voucher = Voucher::where('code', strtoupper(trim($code)))->lockForUpdate()->first();
-
-        if (! $voucher || ! $voucher->is_active
-            || ! in_array($voucher->audience, ['all', 'shop'])
-            || ($voucher->user_id && $voucher->user_id != $user->id)
-            || ($voucher->expires_at && ! $voucher->expires_at->isFuture())
-            || ($voucher->usage_limit && $voucher->used_count >= $voucher->usage_limit)
-            || ($voucher->per_user_limit && $voucher->usageCountByUser($user->id) >= $voucher->per_user_limit)
-            || ($voucher->service_types && ! in_array('delivery', $voucher->service_types))
-            || ($voucher->city_id && $voucher->city_id != $user->city_id)
-            || ($voucher->min_order_value && $shippingFee < $voucher->min_order_value)
-        ) {
-            return null;
-        }
-
-        $isFreeship = $voucher->type === 'freeship';
-        $discountAmount = match ($voucher->type) {
-            'freeship' => $shippingFee,
-            'percent' => (int) round($shippingFee * $voucher->value / 100),
-            default => (int) $voucher->value,
-        };
-        if ($voucher->max_discount) {
-            $discountAmount = min($discountAmount, $voucher->max_discount);
-        }
-        $discountAmount = min($discountAmount, $shippingFee);
-
-        $voucher->increment('used_count');
-
-        return [
-            'voucher' => $voucher,
-            'code' => $voucher->code,
-            'discount_amount' => $discountAmount,
-            'is_freeship' => $isFreeship,
-        ];
+        return app(VoucherService::class)->redeem(
+            $code,
+            $user,
+            'shop',
+            'delivery',
+            $shippingFee,
+        );
     }
 
     public function deliverStop(string $code, int $seq, Request $request): JsonResponse
@@ -450,6 +429,7 @@ class OrderController extends Controller
         }
 
         $result = $this->orderService->cancelPendingOrder($order);
+
         return response()->json($result, $result['success'] ? 200 : 400);
     }
 

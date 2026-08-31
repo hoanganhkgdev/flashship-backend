@@ -5,6 +5,7 @@ namespace Tests\Feature\Shop;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Modules\Core\Models\User;
+use Modules\Core\Services\VoucherService;
 use Modules\Order\Services\OrderService;
 use Modules\Shop\Http\Controllers\AuthController;
 use Modules\Shop\Http\Controllers\OrderController;
@@ -84,6 +85,33 @@ class ShopOrderDataIntegrityTest extends TestCase
         }
 
         $this->assertSame(0, (int) DB::table('vouchers')->where('id', $voucherId)->value('used_count'));
+    }
+
+    public function test_voucher_preview_and_redeem_use_the_same_discount_base(): void
+    {
+        $user = $this->makeShop();
+        $code = strtoupper($this->prefix).'-PERCENT';
+        DB::table('vouchers')->insert([
+            'code' => $code,
+            'type' => 'percent',
+            'value' => 20,
+            'max_discount' => 15_000,
+            'audience' => 'shop',
+            'used_count' => 0,
+            'is_active' => true,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $service = app(VoucherService::class);
+        $preview = $service->preview($code, $user, 'shop', 'delivery', 100_000);
+        $redeemed = DB::transaction(
+            fn () => $service->redeem($code, $user, 'shop', 'delivery', 100_000)
+        );
+
+        $this->assertTrue($preview['valid']);
+        $this->assertSame(15_000, $preview['discount']);
+        $this->assertSame($preview['discount'], $redeemed['discount_amount']);
     }
 
     public function test_delete_shop_account_does_not_cancel_orders_from_other_platforms(): void
