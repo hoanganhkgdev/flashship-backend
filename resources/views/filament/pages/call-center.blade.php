@@ -54,24 +54,17 @@
 
 {{-- ══ LAYOUT 2 PANEL: FORM (trái) + BẢN ĐỒ QUAN SÁT (phải) ═══════════════ --}}
 <style>
-    {{-- Trang này tự vừa đúng 1 màn hình (nhờ _fitWrapperHeight) nên không cần
-    thanh cuộn ở cấp cả trang nữa — chỉ còn thanh cuộn dự phòng bên trong
-    panel form (.cc-form-panel) nếu lỡ tràn, không mất nội dung. --}}
-    body { overflow-y:hidden !important; }
-    @media (max-width: 900px) { body { overflow-y:auto !important; } }
+    {{-- Toàn bộ form và bản đồ cuộn cùng trang để không che mất nội dung. --}}
+    body { overflow-y:auto !important; }
 
-    {{-- height thật tính bằng JS (_fitWrapperHeight) theo đúng khoảng trống còn
-    lại của từng màn hình — số cứng calc(100vh - Npx) không đoán đúng chiều
-    cao thanh chrome của Filament trên mọi màn hình/độ phân giải, dễ tràn
-    trang. Giá trị dưới đây chỉ là fallback trước khi JS kịp chạy. --}}
     .cc-page-header { margin-bottom:12px; }
     .cc-header-context { display:flex; align-items:center; gap:8px; }
     .cc-header-context span, .cc-header-context strong { padding:6px 10px; border:1px solid #e5e7eb; border-radius:9px; background:#fff; font-size:12px; }
     .cc-header-context span { color:#64748b; font-weight:500; }
     .cc-header-context strong { color:{{ $activeSvc['color'] }}; font-weight:650; }
-    .cc-wrapper { position:relative; height:calc(100vh - 170px); min-height:520px; border-radius:16px; overflow:hidden; border:1px solid #e5e7eb; display:flex; background:#fff; box-shadow:0 1px 2px rgba(15,23,42,.03),0 12px 30px rgba(15,23,42,.04); }
+    .cc-wrapper { position:relative; min-height:720px; border-radius:16px; overflow:hidden; border:1px solid #e5e7eb; display:flex; align-items:stretch; background:#fff; box-shadow:0 1px 2px rgba(15,23,42,.03),0 12px 30px rgba(15,23,42,.04); }
 
-    .cc-form-panel { width:min(460px, 42%); flex-shrink:0; display:flex; flex-direction:column; gap:10px; padding:14px; overflow-y:auto; background:#f8fafc; border-right:1px solid #e5e7eb; }
+    .cc-form-panel { width:min(460px, 42%); flex-shrink:0; display:flex; flex-direction:column; gap:10px; padding:14px; overflow:visible; background:#f8fafc; border-right:1px solid #e5e7eb; }
     .cc-form-panel::-webkit-scrollbar { width:0; }
 
     .cc-card { background:#fff; border:1px solid #eef0f2; border-radius:14px; padding:10px; }
@@ -157,7 +150,7 @@
     .cc-submit-btn:active { transform:scale(.98); }
     .cc-submit-btn:disabled { opacity:.7; cursor:default; }
 
-    .cc-map-wrap { position:relative; flex:1; min-width:0; }
+    .cc-map-wrap { position:relative; flex:1; min-width:0; min-height:720px; }
     .cc-map { position:absolute; inset:0; width:100%; height:100%; }
     .cc-map-info { position:absolute; top:16px; left:16px; z-index:10; background:rgba(255,255,255,0.97); border-radius:14px; padding:10px 16px; box-shadow:0 4px 20px rgba(0,0,0,0.12); font-size:13px; min-width:160px; }
     .cc-map-info-city { font-weight:700; color:#111; margin-bottom:4px; }
@@ -373,22 +366,6 @@
 
 <div wire:ignore>
 <script>
-// Auto-fit chiều cao khung theo khoảng trống thật còn lại của từng màn hình
-// (không đoán số cứng "trừ Npx" — mỗi màn hình/độ phân giải có chiều cao
-// thanh chrome Filament khác nhau, đoán sai là tràn trang ngay). Dưới 900px
-// (chế độ mobile, layout xếp dọc) để CSS lo, không ép height JS.
-function _fitWrapperHeight() {
-    const wrap = document.querySelector('.cc-wrapper');
-    if (!wrap) return;
-    if (window.innerWidth <= 900) { wrap.style.height = ''; return; }
-    const top = wrap.getBoundingClientRect().top;
-    const h = window.innerHeight - top - 24;
-    wrap.style.height = Math.max(h, 480) + 'px';
-}
-window.addEventListener('resize', _fitWrapperHeight);
-window.addEventListener('load', _fitWrapperHeight);
-_fitWrapperHeight();
-
 // Cuộn chuột trên ô số (phí ship, số tiền nạp...) không được tự +/- giá trị
 // — bỏ focus ngay khi lăn chuột qua, tránh đổi số ngoài ý muốn lúc tổng đài
 // chỉ đang cuộn trang qua khu vực đó. Gắn trên document (event delegation)
