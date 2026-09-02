@@ -227,129 +227,151 @@ class OrderResource extends Resource
     public static function infolist(Infolist $infolist): Infolist
     {
         return $infolist->schema([
-            Infolists\Components\Section::make('Thông tin đơn')->schema([
-                Infolists\Components\TextEntry::make('code')
-                    ->label('Mã đơn')
-                    ->weight('bold')
-                    ->copyable(),
+            Infolists\Components\Section::make('Tổng quan đơn hàng')
+                ->description('Thông tin nhận diện và tiến trình xử lý hiện tại')
+                ->icon('heroicon-o-clipboard-document-list')
+                ->schema([
+                    Infolists\Components\TextEntry::make('code')
+                        ->label('Mã đơn')
+                        ->weight('bold')
+                        ->copyable(),
 
-                Infolists\Components\TextEntry::make('service_type')
-                    ->label('Dịch vụ')
-                    ->badge()
-                    ->formatStateUsing(fn ($state) => self::serviceLabels()[$state] ?? $state)
-                    ->color('info'),
+                    Infolists\Components\TextEntry::make('service_type')
+                        ->label('Dịch vụ')
+                        ->badge()
+                        ->formatStateUsing(fn ($state) => self::serviceLabels()[$state] ?? $state)
+                        ->color('info'),
 
-                Infolists\Components\TextEntry::make('status')
-                    ->label('Trạng thái')
-                    ->badge()
-                    ->formatStateUsing(fn ($state) => self::$statusLabels[$state] ?? $state)
-                    ->color(fn ($state) => self::$statusColors[$state] ?? 'gray'),
+                    Infolists\Components\TextEntry::make('status')
+                        ->label('Trạng thái')
+                        ->badge()
+                        ->formatStateUsing(fn ($state) => self::$statusLabels[$state] ?? $state)
+                        ->color(fn ($state) => self::$statusColors[$state] ?? 'gray'),
 
-                Infolists\Components\TextEntry::make('city.name')
-                    ->label('Thành phố')
-                    ->default('—'),
+                    Infolists\Components\TextEntry::make('city.name')
+                        ->label('Thành phố')
+                        ->default('—'),
 
-                Infolists\Components\TextEntry::make('cancel_reason')
-                    ->label('Lý do huỷ')
-                    ->default('—')
-                    ->visible(fn ($record) => $record->status === 'cancelled'),
+                    Infolists\Components\TextEntry::make('cancel_reason')
+                        ->label('Lý do huỷ')
+                        ->default('—')
+                        ->visible(fn ($record) => $record->status === 'cancelled'),
 
-                Infolists\Components\TextEntry::make('created_at')
-                    ->label('Tạo lúc')
-                    ->dateTime('d/m/Y H:i'),
+                    Infolists\Components\TextEntry::make('created_at')
+                        ->label('Tạo lúc')
+                        ->dateTime('d/m/Y H:i'),
 
-                Infolists\Components\TextEntry::make('completed_at')
-                    ->label('Hoàn thành lúc')
-                    ->dateTime('d/m/Y H:i')
-                    ->placeholder('—'),
-            ])->columns(3),
+                    Infolists\Components\TextEntry::make('completed_at')
+                        ->label('Hoàn thành lúc')
+                        ->dateTime('d/m/Y H:i')
+                        ->placeholder('—'),
+                ])->columns(3),
 
-            Infolists\Components\Section::make('Lấy hàng')->schema([
-                Infolists\Components\TextEntry::make('sender_name')->label('Người gửi')->default('—'),
-                Infolists\Components\TextEntry::make('pickup_phone')->label('SĐT')->default('—'),
-                Infolists\Components\TextEntry::make('store_name')->label('Tên cửa hàng')->default('—'),
-                Infolists\Components\TextEntry::make('pickup_address')->label('Địa chỉ')->columnSpan(2),
-            ])->columns(3),
+            Infolists\Components\Grid::make(['default' => 1, 'lg' => 2])->schema([
+                Infolists\Components\Section::make('Điểm lấy hàng')
+                    ->description('Thông tin người gửi và nơi nhận hàng')
+                    ->icon('heroicon-o-arrow-up-circle')
+                    ->schema([
+                        Infolists\Components\TextEntry::make('sender_name')->label('Người gửi')->default('—'),
+                        Infolists\Components\TextEntry::make('pickup_phone')->label('SĐT')->default('—')->copyable(),
+                        Infolists\Components\TextEntry::make('store_name')->label('Tên cửa hàng')->default('—'),
+                        Infolists\Components\TextEntry::make('pickup_address')->label('Địa chỉ')->columnSpanFull(),
+                    ])->columns(2),
 
-            Infolists\Components\Section::make('Giao hàng')->schema([
-                Infolists\Components\TextEntry::make('receiver_name')->label('Người nhận')->default('—'),
-                Infolists\Components\TextEntry::make('delivery_phone')->label('SĐT')->default('—'),
-                Infolists\Components\TextEntry::make('delivery_address')->label('Địa chỉ')->columnSpan(2),
-            ])->columns(3),
+                Infolists\Components\Section::make('Điểm giao hàng')
+                    ->description('Thông tin người nhận và nơi giao hàng')
+                    ->icon('heroicon-o-arrow-down-circle')
+                    ->schema([
+                        Infolists\Components\TextEntry::make('receiver_name')->label('Người nhận')->default('—'),
+                        Infolists\Components\TextEntry::make('delivery_phone')->label('SĐT')->default('—')->copyable(),
+                        Infolists\Components\TextEntry::make('delivery_address')->label('Địa chỉ')->columnSpanFull(),
+                    ])->columns(2),
+            ]),
 
-            Infolists\Components\Section::make('Tài xế')->schema([
-                Infolists\Components\TextEntry::make('driver.name')
-                    ->label('Tên tài xế')
-                    ->default('Chưa phân công'),
+            Infolists\Components\Grid::make(['default' => 1, 'lg' => 2])->schema([
+                Infolists\Components\Section::make('Tài xế phụ trách')
+                    ->description('Thông tin phân công và đánh giá sau chuyến')
+                    ->icon('heroicon-o-truck')
+                    ->schema([
+                        Infolists\Components\TextEntry::make('driver.name')
+                            ->label('Tên tài xế')
+                            ->default('Chưa phân công'),
 
-                Infolists\Components\TextEntry::make('driver.phone')
-                    ->label('SĐT tài xế')
-                    ->default('—'),
+                        Infolists\Components\TextEntry::make('driver.phone')
+                            ->label('SĐT tài xế')
+                            ->default('—'),
 
-                Infolists\Components\TextEntry::make('dispatch_attempts')
-                    ->label('Lần thử dispatch')
-                    ->default(0),
+                        Infolists\Components\TextEntry::make('dispatch_attempts')
+                            ->label('Lần thử dispatch')
+                            ->default(0),
 
-                Infolists\Components\TextEntry::make('driver_rating')
-                    ->label('Đánh giá')
-                    ->default('Chưa đánh giá')
-                    ->suffix(fn ($state) => $state ? ' ⭐' : ''),
+                        Infolists\Components\TextEntry::make('driver_rating')
+                            ->label('Đánh giá')
+                            ->default('Chưa đánh giá')
+                            ->suffix(fn ($state) => $state ? ' ⭐' : ''),
 
-                Infolists\Components\TextEntry::make('driver_rating_note')
-                    ->label('Ghi chú đánh giá')
-                    ->default('—'),
-            ])->columns(3),
+                        Infolists\Components\TextEntry::make('driver_rating_note')
+                            ->label('Ghi chú đánh giá')
+                            ->default('—'),
+                    ])->columns(2),
 
-            Infolists\Components\Section::make('Tài chính')->schema([
-                Infolists\Components\TextEntry::make('shipping_fee')
-                    ->label('Phí ship')
-                    ->formatStateUsing(fn ($state) => number_format((int) $state).'đ'),
+                Infolists\Components\Section::make('Chi phí & thanh toán')
+                    ->description('Các khoản phí, thu hộ và ưu đãi của đơn')
+                    ->icon('heroicon-o-banknotes')
+                    ->schema([
+                        Infolists\Components\TextEntry::make('shipping_fee')
+                            ->label('Phí ship')
+                            ->formatStateUsing(fn ($state) => number_format((int) $state).'đ'),
 
-                Infolists\Components\TextEntry::make('bonus_fee')
-                    ->label('Thưởng thêm')
-                    ->formatStateUsing(fn ($state) => number_format((int) $state).'đ')
-                    ->color(fn ($state) => $state > 0 ? 'success' : 'gray'),
+                        Infolists\Components\TextEntry::make('bonus_fee')
+                            ->label('Thưởng thêm')
+                            ->formatStateUsing(fn ($state) => number_format((int) $state).'đ')
+                            ->color(fn ($state) => $state > 0 ? 'success' : 'gray'),
 
-                Infolists\Components\TextEntry::make('cod_amount')
-                    ->label('Thu hộ COD')
-                    ->formatStateUsing(fn ($state) => $state ? number_format((int) $state).'đ' : '—'),
+                        Infolists\Components\TextEntry::make('cod_amount')
+                            ->label('Thu hộ COD')
+                            ->formatStateUsing(fn ($state) => $state ? number_format((int) $state).'đ' : '—'),
 
-                Infolists\Components\TextEntry::make('discount_amount')
-                    ->label('Giảm giá')
-                    ->formatStateUsing(fn ($state) => $state ? number_format((int) $state).'đ' : '—'),
+                        Infolists\Components\TextEntry::make('discount_amount')
+                            ->label('Giảm giá')
+                            ->formatStateUsing(fn ($state) => $state ? number_format((int) $state).'đ' : '—'),
 
-                Infolists\Components\TextEntry::make('distance')
-                    ->label('Khoảng cách')
-                    ->formatStateUsing(fn ($state) => $state ? number_format((float) $state, 1).' km' : '—'),
+                        Infolists\Components\TextEntry::make('distance')
+                            ->label('Khoảng cách')
+                            ->formatStateUsing(fn ($state) => $state ? number_format((float) $state, 1).' km' : '—'),
 
-                Infolists\Components\TextEntry::make('payment_method')
-                    ->label('Thanh toán')
-                    ->badge()
-                    ->formatStateUsing(fn ($state) => self::$paymentLabels[$state] ?? $state)
-                    ->color('info'),
+                        Infolists\Components\TextEntry::make('payment_method')
+                            ->label('Thanh toán')
+                            ->badge()
+                            ->formatStateUsing(fn ($state) => self::$paymentLabels[$state] ?? $state)
+                            ->color('info'),
 
-                Infolists\Components\TextEntry::make('voucher_code')
-                    ->label('Voucher')
-                    ->default('—'),
+                        Infolists\Components\TextEntry::make('voucher_code')
+                            ->label('Voucher')
+                            ->default('—'),
 
-                Infolists\Components\IconEntry::make('is_freeship')
-                    ->label('Freeship')
-                    ->boolean(),
-            ])->columns(4),
+                        Infolists\Components\IconEntry::make('is_freeship')
+                            ->label('Freeship')
+                            ->boolean(),
+                    ])->columns(2),
+            ]),
 
-            Infolists\Components\Section::make('Nội dung đơn hàng')->schema([
-                Infolists\Components\TextEntry::make('cargo_type')
-                    ->label('Loại hàng')
-                    ->default('—'),
-                Infolists\Components\TextEntry::make('cargo_weight')
-                    ->label('Khối lượng')
-                    ->suffix(' kg')
-                    ->default('—'),
-                Infolists\Components\TextEntry::make('order_note')
-                    ->label('Ghi chú đơn hàng')
-                    ->default('Không có ghi chú')
-                    ->columnSpanFull(),
-            ])->columns(2)->collapsible(),
+            Infolists\Components\Section::make('Hàng hóa & ghi chú')
+                ->description('Thông tin cần lưu ý trong quá trình giao nhận')
+                ->icon('heroicon-o-archive-box')
+                ->schema([
+                    Infolists\Components\TextEntry::make('cargo_type')
+                        ->label('Loại hàng')
+                        ->default('—'),
+                    Infolists\Components\TextEntry::make('cargo_weight')
+                        ->label('Khối lượng')
+                        ->suffix(' kg')
+                        ->default('—'),
+                    Infolists\Components\TextEntry::make('order_note')
+                        ->label('Ghi chú đơn hàng')
+                        ->default('Không có ghi chú')
+                        ->columnSpanFull(),
+                ])->columns(2)->collapsible(),
 
             Infolists\Components\Section::make('Lịch sử xử lý')
                 ->description('Các sự kiện mới nhất của đơn hàng')

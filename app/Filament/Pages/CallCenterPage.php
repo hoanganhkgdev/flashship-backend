@@ -386,7 +386,7 @@ class CallCenterPage extends Page implements HasForms
         }
 
         $cityId = $values['city_id'] ?? null;
-        if (! $cityId || ! DB::table('cities')->where('id', $cityId)->exists()) {
+        if (! $cityId || ! DB::table('cities')->where('id', $cityId)->where('is_active', true)->exists()) {
             $this->resultError = 'Khu vực không hợp lệ.';
 
             return;

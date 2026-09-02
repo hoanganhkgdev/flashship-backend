@@ -3,14 +3,26 @@
 @php
     $activeSvc = $this::services()[$serviceType];
     $isAdmin   = $this->isAdmin();
-    $cities    = \Illuminate\Support\Facades\DB::table('cities')->orderBy('name')->get(['id', 'name', 'lat', 'lng']);
+    $cities    = \Illuminate\Support\Facades\DB::table('cities')->where('is_active', true)->orderBy('name')->get(['id', 'name', 'lat', 'lng']);
     $currentCityName = $cities->firstWhere('id', $data['city_id'] ?? null)?->name ?? '';
     $defaultCenter = ['lat' => 10.0452, 'lng' => 105.7009];
     if (!empty($data['city_id'])) {
-        $cityRow = \Illuminate\Support\Facades\DB::table('cities')->where('id', $data['city_id'])->first(['lat', 'lng']);
+        $cityRow = $cities->firstWhere('id', $data['city_id']);
         if ($cityRow && $cityRow->lat) $defaultCenter = ['lat' => (float)$cityRow->lat, 'lng' => (float)$cityRow->lng];
     }
 @endphp
+
+<header class="fs-page-header cc-page-header">
+    <div>
+        <p class="fs-page-header__eyebrow">Trung tâm tiếp nhận</p>
+        <h1 class="fs-page-header__title">Tổng đài đặt đơn</h1>
+        <p class="fs-page-header__description">Tạo đơn, định vị hành trình và điều phối tài xế trên cùng một màn hình.</p>
+    </div>
+    <div class="cc-header-context">
+        <span>{{ $currentCityName ?: 'Chưa chọn khu vực' }}</span>
+        <strong>{{ $activeSvc['label'] }}</strong>
+    </div>
+</header>
 
 {{-- ══ BANNER THÀNH CÔNG ═══════════════════════════════════════════════════ --}}
 @if ($resultOrderCode)
@@ -52,12 +64,19 @@
     lại của từng màn hình — số cứng calc(100vh - Npx) không đoán đúng chiều
     cao thanh chrome của Filament trên mọi màn hình/độ phân giải, dễ tràn
     trang. Giá trị dưới đây chỉ là fallback trước khi JS kịp chạy. --}}
-    .cc-wrapper { position:relative; height:calc(100vh - 100px); min-height:480px; border-radius:16px; overflow:hidden; border:1px solid #e5e7eb; display:flex; background:#fff; }
+    .cc-page-header { margin-bottom:12px; }
+    .cc-header-context { display:flex; align-items:center; gap:8px; }
+    .cc-header-context span, .cc-header-context strong { padding:6px 10px; border:1px solid #e5e7eb; border-radius:9px; background:#fff; font-size:12px; }
+    .cc-header-context span { color:#64748b; font-weight:500; }
+    .cc-header-context strong { color:{{ $activeSvc['color'] }}; font-weight:650; }
+    .cc-wrapper { position:relative; height:calc(100vh - 170px); min-height:520px; border-radius:16px; overflow:hidden; border:1px solid #e5e7eb; display:flex; background:#fff; box-shadow:0 1px 2px rgba(15,23,42,.03),0 12px 30px rgba(15,23,42,.04); }
 
-    .cc-form-panel { width:min(420px, 40%); flex-shrink:0; display:flex; flex-direction:column; gap:8px; padding:12px; overflow-y:auto; background:#f8fafc; border-right:1px solid #e5e7eb; }
+    .cc-form-panel { width:min(460px, 42%); flex-shrink:0; display:flex; flex-direction:column; gap:10px; padding:14px; overflow-y:auto; background:#f8fafc; border-right:1px solid #e5e7eb; }
     .cc-form-panel::-webkit-scrollbar { width:0; }
 
     .cc-card { background:#fff; border:1px solid #eef0f2; border-radius:14px; padding:10px; }
+    .cc-step-title { display:flex; align-items:center; gap:7px; margin:0 2px 6px; color:#475569; font-size:11px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; }
+    .cc-step-title span { display:inline-grid; width:19px; height:19px; place-items:center; border-radius:50%; background:var(--cc-accent,#4F46E5); color:#fff; font-size:10px; }
 
     .cc-city-row { display:flex; align-items:center; gap:10px; }
     .cc-city-row select { flex:1; border:none; outline:none; font-size:14px; font-weight:700; color:#111827; background:transparent; cursor:pointer; }
@@ -147,6 +166,12 @@
     .cc-map-info-drivers { display:flex; align-items:center; gap:6px; color:#374151; font-weight:600; margin-top:6px; padding-top:6px; border-top:1px solid #f1f2f4; }
     .cc-map-info-drivers .dot { width:8px; height:8px; border-radius:50%; background:#22c55e; box-shadow:0 0 0 3px #22c55e20; flex-shrink:0; }
 
+    .dark .cc-header-context span, .dark .cc-header-context strong, .dark .cc-card, .dark .cc-wrapper { border-color:#293142; background:#171b25; }
+    .dark .cc-form-panel { border-color:#293142; background:#121620; }
+    .dark .cc-city-row select, .dark .cc-city-row span.cc-city-static, .dark .cc-address-col input, .dark .cc-checkbox-row span { color:#f8fafc; }
+    .dark .cc-input, .dark .cc-textarea { border-color:#334155; background:#0f1420; color:#f8fafc; }
+    .dark .cc-step-title { color:#94a3b8; }
+
     @media (max-width: 900px) {
         .cc-wrapper { height:auto; min-height:auto; flex-direction:column; border-radius:12px; }
         .cc-form-panel { width:100%; max-height:none; overflow-y:visible; border-right:none; border-bottom:1px solid #e5e7eb; }
@@ -160,6 +185,7 @@
     <div class="cc-form-panel" style="--cc-accent: {{ $activeSvc['color'] }}; --cc-accent-20: {{ $activeSvc['color'] }}26;">
 
         {{-- Khu vực + dịch vụ ── gộp 1 card cho gọn --}}
+        <p class="cc-step-title"><span>1</span>Khu vực & dịch vụ</p>
         <div class="cc-card">
             <div class="cc-city-row">
                 <svg style="width:18px; height:18px; color:#9ca3af; flex-shrink:0;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z"/></svg>
@@ -201,6 +227,7 @@
             };
             $needDelivery = $serviceType !== 'topup';
         @endphp
+        <p class="cc-step-title"><span>2</span>Hành trình</p>
         <div class="cc-card" style="padding:4px 14px;">
             <div class="cc-address-row">
                 <div class="cc-address-dot" style="background:#FF6B35; box-shadow:0 0 0 3px #FF6B3520;"></div>
@@ -232,6 +259,7 @@
 
         {{-- Form --}}
         <form wire:submit="placeOrder">
+        <p class="cc-step-title"><span>3</span>Chi tiết đơn hàng</p>
         <div class="cc-card">
 
             @if ($serviceType === 'delivery')
@@ -284,7 +312,8 @@
 
         </div>
 
-        <div class="cc-card" style="margin-top:8px;">
+        <p class="cc-step-title" style="margin-top:10px;"><span>4</span>Điều phối tài xế</p>
+        <div class="cc-card">
             <label style="display:block; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:#9ca3af; margin-bottom:4px;">Gán tài xế (tuỳ chọn)</label>
             <div class="cc-select-wrap">
                 <select wire:model="assignedDriverId" class="cc-input cc-select">

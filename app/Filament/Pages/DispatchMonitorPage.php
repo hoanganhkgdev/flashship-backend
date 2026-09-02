@@ -95,8 +95,11 @@ class DispatchMonitorPage extends Page
 
             return [
                 'id' => $o->id,
+                'code' => $o->code ?: $o->id,
                 'service_type' => $this->serviceLabels()[$o->service_type] ?? $o->service_type,
                 'city' => $o->city?->name,
+                'pickup_address' => $o->pickup_address,
+                'delivery_address' => $o->delivery_address,
                 'elapsed' => $elapsedSecs,
                 'attempts' => $o->dispatch_attempts,
                 'offering_to' => $driverName,
@@ -197,6 +200,7 @@ class DispatchMonitorPage extends Page
             ->get([
                 'order_dispatch_logs.id',
                 'order_dispatch_logs.order_id',
+                'orders.code as order_code',
                 'users.name as driver_name',
                 'order_dispatch_logs.offered_at',
                 'order_dispatch_logs.responded_at',
@@ -210,6 +214,7 @@ class DispatchMonitorPage extends Page
                 return [
                     'id' => $r->id,
                     'order_id' => $r->order_id,
+                    'order_code' => $r->order_code ?: $r->order_id,
                     'driver_name' => $r->driver_name,
                     'offered_at' => Carbon::parse($r->offered_at)->format('H:i:s d/m'),
                     'result' => $r->result,
