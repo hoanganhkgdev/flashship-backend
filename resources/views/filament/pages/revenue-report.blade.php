@@ -1,142 +1,130 @@
 <x-filament-panels::page>
+    @php
+        $report = $this->getReportData();
+        $summary = $report['summary'];
+        $options = $this->getFilterOptions();
+        $maxRevenue = max(1, collect($report['trend'])->max('revenue'));
+        $totalBreakdown = fn (array $rows) => max(1, collect($rows)->sum('revenue'));
+        $money = fn ($value) => number_format((int) $value, 0, ',', '.') . 'đ';
+    @endphp
 
-<header class="fs-page-header">
-    <div>
-        <p class="fs-page-header__eyebrow">Báo cáo kinh doanh</p>
-        <h1 class="fs-page-header__title">Doanh thu & đơn hàng</h1>
-        <p class="fs-page-header__description">Phân tích hiệu quả theo thời gian, trạng thái và từng loại dịch vụ trong khu vực.</p>
-    </div>
-</header>
-
-@php
-    $summary   = $this->getSummary();
-    $rate      = $summary['total_orders'] > 0 ? round($summary['completed_orders'] / $summary['total_orders'] * 100) : 0;
-    $services  = $this->getByService();
-    $days      = $this->getByDay();
-
-    $statCards = [
-        ['label' => 'Tổng đơn',    'value' => number_format($summary['total_orders']),                      'icon' => 'heroicon-o-clipboard-document-list', 'color' => '#6366f1', 'desc' => 'đơn trong khoảng thời gian'],
-        ['label' => 'Hoàn thành',   'value' => number_format($summary['completed_orders']),                  'icon' => 'heroicon-o-check-circle',            'color' => '#22c55e', 'desc' => $rate . '% tỉ lệ hoàn thành'],
-        ['label' => 'Đang xử lý',  'value' => number_format($summary['active_orders']),                     'icon' => 'heroicon-o-arrow-path',              'color' => '#f59e0b', 'desc' => 'chờ / đang giao'],
-        ['label' => 'Đã huỷ',      'value' => number_format($summary['cancelled_orders']),                  'icon' => 'heroicon-o-x-circle',                'color' => '#ef4444', 'desc' => 'đơn bị huỷ'],
-        ['label' => 'Doanh thu',    'value' => number_format($summary['total_revenue'], 0, ',', '.') . 'đ', 'icon' => 'heroicon-o-banknotes',                'color' => '#f97316', 'desc' => 'tổng phí ship thu được'],
-        ['label' => 'TB / đơn',    'value' => number_format($summary['avg_fee'], 0, ',', '.') . 'đ',        'icon' => 'heroicon-o-calculator',               'color' => '#3b82f6', 'desc' => 'phí trung bình mỗi đơn'],
-    ];
-@endphp
-
-{{-- ══ BỘ LỌC ══════════════════════════════════════════════════════════════ --}}
-<div class="mb-6 flex flex-wrap items-end gap-4">
-    <div class="flex-1 min-w-[140px] max-w-[180px]">
-        <label class="mb-2 block pl-1 text-xs font-medium text-gray-400 dark:text-gray-500">Từ ngày</label>
-        <input type="date" wire:model.live="from"
-            class="fi-input w-full rounded-lg border-gray-300 bg-white h-9 px-3 text-sm shadow-sm transition focus:border-primary-500 focus:ring-1 focus:ring-primary-500 dark:border-gray-600 dark:bg-gray-800 dark:text-white">
-    </div>
-    <div class="flex-1 min-w-[140px] max-w-[180px]">
-        <label class="mb-2 block pl-1 text-xs font-medium text-gray-400 dark:text-gray-500">Đến ngày</label>
-        <input type="date" wire:model.live="to"
-            class="fi-input w-full rounded-lg border-gray-300 bg-white h-9 px-3 text-sm shadow-sm transition focus:border-primary-500 focus:ring-1 focus:ring-primary-500 dark:border-gray-600 dark:bg-gray-800 dark:text-white">
-    </div>
-</div>
-
-{{-- ══ TỔNG QUAN ════════════════════════════════════════════════════════════ --}}
-<div class="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
-    @foreach($statCards as $card)
-    <x-filament::section>
-        <div class="flex items-center gap-3">
-            <div class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg" style="background:{{ $card['color'] }}15;">
-                <x-dynamic-component :component="$card['icon']" class="h-5 w-5" style="color:{{ $card['color'] }}" />
-            </div>
-            <div class="min-w-0">
-                <p class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ $card['label'] }}</p>
-                <p class="text-lg font-extrabold text-gray-900 dark:text-white">{{ $card['value'] }}</p>
-            </div>
+    <header class="fs-page-header">
+        <div>
+            <p class="fs-page-header__eyebrow">Báo cáo kinh doanh</p>
+            <h1 class="fs-page-header__title">Báo cáo doanh thu</h1>
+            <p class="fs-page-header__description">
+                Khu vực {{ filament()->getTenant()?->name }} · Doanh thu ghi nhận theo thời điểm đơn hoàn thành.
+            </p>
         </div>
-        <p class="mt-2 text-[11px] text-gray-400">{{ $card['desc'] }}</p>
+        <x-filament::button wire:click="exportCsv" wire:loading.attr="disabled" icon="heroicon-o-arrow-down-tray" color="gray">
+            Xuất CSV
+        </x-filament::button>
+    </header>
+
+    <x-filament::section class="fs-report-filter">
+        <div class="fs-filter-presets">
+            @foreach (['today' => 'Hôm nay', 'last_7_days' => '7 ngày', 'this_month' => 'Tháng này', 'last_month' => 'Tháng trước'] as $key => $label)
+                <button type="button" wire:click="setPeriod('{{ $key }}')" @class(['fs-filter-chip', 'fs-filter-chip--active' => $period === $key])>{{ $label }}</button>
+            @endforeach
+        </div>
+        <div class="fs-filter-grid">
+            <label><span>Từ ngày</span><input type="date" wire:model.live="from"></label>
+            <label><span>Đến ngày</span><input type="date" wire:model.live="to"></label>
+            <label><span>Dịch vụ</span><select wire:model.live="serviceType"><option value="">Tất cả dịch vụ</option>@foreach($options['services'] as $key => $label)<option value="{{ $key }}">{{ $label }}</option>@endforeach</select></label>
+            <label><span>Nguồn đơn</span><select wire:model.live="platform"><option value="">Tất cả nguồn đơn</option>@foreach($options['platforms'] as $key => $label)<option value="{{ $key }}">{{ $label }}</option>@endforeach</select></label>
+            <label><span>Thanh toán</span><select wire:model.live="paymentMethod"><option value="">Tất cả hình thức</option>@foreach($options['payments'] as $key => $label)<option value="{{ $key }}">{{ $label }}</option>@endforeach</select></label>
+        </div>
     </x-filament::section>
-    @endforeach
-</div>
 
-{{-- ══ BẢNG PHÂN TÍCH ══════════════════════════════════════════════════════ --}}
-<div class="grid grid-cols-1 gap-5 lg:grid-cols-2">
-
-    {{-- Theo dịch vụ --}}
-    <div class="lg:col-span-2 mt-2">
-        <div class="mb-4 flex items-center gap-2 pl-1">
-            <x-heroicon-o-squares-2x2 class="h-4 w-4 text-gray-400" />
-            <span class="text-sm font-bold text-gray-700 dark:text-gray-200">Theo dịch vụ</span>
+    <div wire:loading.class="opacity-50" class="space-y-6 transition-opacity">
+        <div class="fs-report-kpis">
+            @foreach ([
+                ['Tổng doanh thu', $money($summary['total_revenue']), $summary['revenue_change'], 'heroicon-o-banknotes', 'orange', true],
+                ['Đơn hoàn thành', number_format($summary['completed_orders']), $summary['orders_change'], 'heroicon-o-check-circle', 'green', true],
+                ['Trung bình / đơn', $money($summary['avg_fee']), 'Trên mỗi đơn hoàn thành', 'heroicon-o-calculator', 'blue', false],
+                ['Tỷ lệ hoàn thành', $summary['completion_rate'] . '%', number_format($summary['total_orders']) . ' đơn được tạo trong kỳ', 'heroicon-o-chart-pie', 'violet', false],
+            ] as [$label, $value, $trendOrText, $icon, $tone, $hasTrend])
+                <article class="fs-report-kpi fs-report-kpi--{{ $tone }}">
+                    <div class="fs-report-kpi__top">
+                        <span>{{ $label }}</span>
+                        <span class="fs-report-kpi__icon"><x-dynamic-component :component="$icon" class="h-4 w-4" /></span>
+                    </div>
+                    <strong>{{ $value }}</strong>
+                    @if ($hasTrend)
+                        <small @class(['fs-trend', 'fs-trend--up' => $trendOrText > 0, 'fs-trend--down' => $trendOrText < 0, 'fs-trend--flat' => ! $trendOrText])>
+                            @if ($trendOrText === null)
+                                Kỳ trước chưa có dữ liệu
+                            @else
+                                @if ($trendOrText > 0)
+                                    <x-heroicon-m-arrow-trending-up class="h-3.5 w-3.5" />
+                                @elseif ($trendOrText < 0)
+                                    <x-heroicon-m-arrow-trending-down class="h-3.5 w-3.5" />
+                                @endif
+                                {{ ($trendOrText >= 0 ? '+' : '') . $trendOrText . '% so với kỳ trước' }}
+                            @endif
+                        </small>
+                    @else
+                        <small>{{ $trendOrText }}</small>
+                    @endif
+                </article>
+            @endforeach
         </div>
-        <div class="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
-            @forelse($services as $row)
-            <div class="relative overflow-hidden rounded-2xl border border-gray-100 bg-white p-4 shadow-sm dark:border-gray-800 dark:bg-gray-900">
-                {{-- Top: icon + tên --}}
-                <div class="mb-4 flex items-center gap-2">
-                    <div class="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg" style="background:{{ $row['color'] }};">
-                        <x-dynamic-component :component="$row['icon']" class="h-4 w-4 text-white" />
-                    </div>
-                    <span class="text-[13px] font-bold text-gray-800 dark:text-gray-100">{{ $row['label'] }}</span>
-                </div>
 
-                {{-- Số đơn lớn --}}
-                <div class="mb-3">
-                    <p class="text-2xl font-black text-gray-900 dark:text-white leading-none">{{ $row['total'] }}</p>
-                    <p class="mt-1 text-[11px] text-gray-400">tổng đơn</p>
-                </div>
+        <div class="fs-report-secondary">
+            <div><span>Phí vận chuyển</span><strong>{{ $money($summary['shipping_revenue']) }}</strong></div>
+            <div><span>Phụ phí</span><strong>{{ $money($summary['surcharge_revenue']) }}</strong></div>
+            <div><span>Giảm giá voucher</span><strong>{{ $money($summary['total_discount']) }}</strong></div>
+            <div><span>Đơn đang xử lý</span><strong>{{ number_format($summary['active_orders']) }}</strong></div>
+            <div><span>Đơn đã huỷ</span><strong>{{ number_format($summary['cancelled_orders']) }}</strong></div>
+        </div>
 
-                {{-- Progress bar --}}
-                <div class="mb-3">
-                    <div class="h-1.5 w-full overflow-hidden rounded-full bg-gray-100 dark:bg-gray-700">
-                        <div class="h-full rounded-full transition-all" style="width:{{ $row['rate'] }}%;background:{{ $row['color'] }};"></div>
+        <section class="fs-report-panel">
+            <div class="fs-report-panel__header"><div><h2>Xu hướng doanh thu</h2><p>{{ $report['from']->format('d/m/Y') }} – {{ $report['to']->format('d/m/Y') }}</p></div><span>Doanh thu theo ngày</span></div>
+            <div class="fs-revenue-chart">
+                @foreach($report['trend'] as $row)
+                    <div class="fs-revenue-bar" title="{{ $row['label'] }}: {{ $money($row['revenue']) }}">
+                        <span class="fs-revenue-bar__value">{{ $row['revenue'] ? number_format($row['revenue'] / 1000, 0) . 'k' : '' }}</span>
+                        <i style="height: {{ max(2, round($row['revenue'] / $maxRevenue * 100)) }}%"></i>
+                        <small>{{ $row['label'] }}</small>
                     </div>
-                    <div class="mt-1.5 flex items-center justify-between">
-                        <span class="text-[10px] font-semibold text-green-600">{{ $row['completed'] }} OK</span>
-                        <span class="text-[10px] font-bold" style="color:{{ $row['color'] }}">{{ $row['rate'] }}%</span>
-                    </div>
-                </div>
-
-                {{-- Doanh thu --}}
-                <div class="rounded-lg px-2.5 py-1.5" style="background:{{ $row['color'] }}08;">
-                    <p class="text-[10px] text-gray-400">Doanh thu</p>
-                    <p class="text-sm font-extrabold" style="color:{{ $row['color'] }};">{{ $row['revenue'] }}đ</p>
-                </div>
+                @endforeach
             </div>
-            @empty
-            <div class="col-span-full py-10 text-center text-gray-300">Không có dữ liệu</div>
-            @endforelse
-        </div>
-    </div>
+        </section>
 
-    {{-- Theo ngày --}}
-    <div class="lg:col-span-2 mt-6">
-        <div class="mb-4 flex items-center gap-2 pl-1">
-            <x-heroicon-o-calendar-days class="h-4 w-4 text-gray-400" />
-            <span class="text-sm font-bold text-gray-700 dark:text-gray-200">Theo ngày</span>
-        </div>
-        <div class="overflow-hidden rounded-2xl border border-gray-100 bg-white p-4 shadow-sm dark:border-gray-800 dark:bg-gray-900">
-            <div class="overflow-x-auto">
-                <table class="w-full text-sm">
-                    <thead>
-                        <tr class="border-b border-gray-50 bg-gray-50/50 text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:border-gray-800 dark:bg-gray-800/50">
-                            <th class="px-4 py-3 text-left">Ngày</th>
-                            <th class="px-3 py-3 text-center">Tổng đơn</th>
-                            <th class="px-4 py-3 text-right">Doanh thu</th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-gray-50 dark:divide-gray-800">
-                        @forelse($days as $row)
-                        <tr class="transition hover:bg-gray-50/60 dark:hover:bg-gray-800/40">
-                            <td class="px-4 py-3 font-semibold text-gray-700 dark:text-gray-200">{{ $row['day'] }}</td>
-                            <td class="px-3 py-3 text-center text-gray-500">{{ $row['total'] }}</td>
-                            <td class="px-4 py-3 text-right font-bold text-gray-800 dark:text-gray-100">{{ $row['revenue'] }}đ</td>
-                        </tr>
+        <div class="fs-report-breakdowns">
+            @foreach ([['Dịch vụ', $report['services'], 'orange'], ['Nguồn đơn', $report['platforms'], 'blue'], ['Thanh toán', $report['payments'], 'violet']] as [$title, $rows, $tone])
+                <section class="fs-report-panel fs-report-panel--{{ $tone }}">
+                    <div class="fs-report-panel__header"><div><h2>{{ $title }}</h2><p>Cơ cấu doanh thu</p></div></div>
+                    <div class="fs-breakdown-list">
+                        @forelse($rows as $row)
+                            @php $share = round($row['revenue'] / $totalBreakdown($rows) * 100, 1); @endphp
+                            <div class="fs-breakdown-row">
+                                <div><strong>{{ $row['label'] }}</strong><span>{{ number_format($row['total']) }} đơn</span></div>
+                                <div class="fs-breakdown-row__amount"><strong>{{ $money($row['revenue']) }}</strong><span>{{ $share }}%</span></div>
+                                <div class="fs-breakdown-progress"><i style="width: {{ $share }}%"></i></div>
+                            </div>
                         @empty
-                        <tr><td colspan="3" class="px-5 py-10 text-center text-gray-300">Không có dữ liệu</td></tr>
+                            <div class="fs-empty">Không có dữ liệu trong khoảng thời gian này.</div>
+                        @endforelse
+                    </div>
+                </section>
+            @endforeach
+        </div>
+
+        <section class="fs-report-panel">
+            <div class="fs-report-panel__header"><div><h2>Chi tiết theo ngày</h2><p>Đơn hàng và doanh thu đã ghi nhận</p></div></div>
+            <div class="overflow-x-auto">
+                <table class="fs-report-table">
+                    <thead><tr><th>Ngày</th><th>Tổng đơn</th><th>Hoàn thành</th><th>Giảm giá</th><th>Doanh thu</th></tr></thead>
+                    <tbody>
+                        @forelse(array_reverse($report['trend']) as $row)
+                            <tr><td>{{ $row['label'] }}</td><td>{{ number_format($row['total']) }}</td><td>{{ number_format($row['completed']) }}</td><td>{{ $money($row['discount']) }}</td><td>{{ $money($row['revenue']) }}</td></tr>
+                        @empty
+                            <tr><td colspan="5">Không có dữ liệu</td></tr>
                         @endforelse
                     </tbody>
                 </table>
             </div>
-        </div>
+        </section>
     </div>
-
-</div>
-
 </x-filament-panels::page>

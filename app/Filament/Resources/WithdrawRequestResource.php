@@ -35,7 +35,7 @@ class WithdrawRequestResource extends Resource
 
     protected static ?string $navigationIcon = 'heroicon-o-arrow-down-tray';
 
-    protected static ?string $navigationGroup = 'Quản lý ví';
+    protected static ?string $navigationGroup = 'Tài chính tài xế';
 
     protected static ?string $modelLabel = 'Yêu cầu rút tiền';
 

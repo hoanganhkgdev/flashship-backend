@@ -22,9 +22,9 @@ class ShiftResource extends Resource
 
     protected static ?string $navigationIcon = 'heroicon-o-clock';
 
-    protected static ?string $navigationGroup = 'Cấu hình';
+    protected static ?string $navigationGroup = 'Ca làm việc';
 
-    protected static ?int $navigationSort = 2;
+    protected static ?int $navigationSort = 1;
 
     protected static ?string $label = 'Ca làm việc';
 

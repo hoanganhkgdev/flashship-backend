@@ -33,13 +33,13 @@ class SupportConfigResource extends Resource
 
     protected static ?string $navigationIcon = 'heroicon-o-lifebuoy';
 
-    protected static ?string $navigationGroup = 'Cài đặt';
+    protected static ?string $navigationGroup = 'Marketing & CSKH';
 
     protected static ?string $modelLabel = 'Hỗ trợ';
 
     protected static ?string $pluralModelLabel = 'Cấu hình hỗ trợ';
 
-    protected static ?int $navigationSort = 2;
+    protected static ?int $navigationSort = 4;
 
     private static array $typeOptions = [
         'phone' => 'Số điện thoại',

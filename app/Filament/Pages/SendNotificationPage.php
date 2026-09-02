@@ -22,11 +22,11 @@ class SendNotificationPage extends Page
 
     protected static ?string $navigationIcon = 'heroicon-o-bell-alert';
 
-    protected static ?string $navigationGroup = 'Cài đặt';
+    protected static ?string $navigationGroup = 'Marketing & CSKH';
 
     protected static ?string $navigationLabel = 'Gửi thông báo';
 
-    protected static ?int $navigationSort = 5;
+    protected static ?int $navigationSort = 3;
 
     protected static string $view = 'filament.pages.send-notification';
 

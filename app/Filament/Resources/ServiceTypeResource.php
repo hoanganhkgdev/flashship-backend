@@ -27,9 +27,9 @@ class ServiceTypeResource extends Resource
 
     protected static ?string $navigationIcon = 'heroicon-o-squares-2x2';
 
-    protected static ?string $navigationGroup = 'Cấu hình';
+    protected static ?string $navigationGroup = 'Giá & khu vực';
 
-    protected static ?int $navigationSort = 3;
+    protected static ?int $navigationSort = 2;
 
     protected static ?string $label = 'Dịch vụ';
 

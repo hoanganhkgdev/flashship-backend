@@ -13,11 +13,11 @@ class DriverFinanceReportPage extends Page
 {
     protected static ?string $navigationIcon = 'heroicon-o-document-chart-bar';
 
-    protected static ?string $navigationGroup = 'Tổng quan';
+    protected static ?string $navigationGroup = 'Tài chính tài xế';
 
     protected static ?string $navigationLabel = 'Báo cáo thu chi tài xế';
 
-    protected static ?int $navigationSort = 3;
+    protected static ?int $navigationSort = 5;
 
     protected static string $view = 'filament.pages.driver-finance-report';
 

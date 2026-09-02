@@ -34,7 +34,7 @@ class CityResource extends Resource
 
     protected static ?string $navigationIcon = 'heroicon-o-map-pin';
 
-    protected static ?string $navigationGroup = 'Cấu hình';
+    protected static ?string $navigationGroup = 'Giá & khu vực';
 
     protected static ?string $modelLabel = 'Khu vực';
 

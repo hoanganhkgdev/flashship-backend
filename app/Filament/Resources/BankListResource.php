@@ -22,13 +22,13 @@ class BankListResource extends Resource
 
     protected static ?string $navigationIcon = 'heroicon-o-building-library';
 
-    protected static ?string $navigationGroup = 'Cấu hình';
+    protected static ?string $navigationGroup = 'Hệ thống';
 
     protected static ?string $modelLabel = 'Ngân hàng';
 
     protected static ?string $pluralModelLabel = 'Danh sách ngân hàng';
 
-    protected static ?int $navigationSort = 4;
+    protected static ?int $navigationSort = 3;
 
     public static function form(Form $form): Form
     {

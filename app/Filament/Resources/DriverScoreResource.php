@@ -27,7 +27,7 @@ class DriverScoreResource extends Resource
 
     protected static ?string $navigationIcon = 'heroicon-o-trophy';
 
-    protected static ?string $navigationGroup = 'Người dùng';
+    protected static ?string $navigationGroup = 'Người dùng & đối tác';
 
     protected static ?string $modelLabel = 'Điểm tài xế';
 

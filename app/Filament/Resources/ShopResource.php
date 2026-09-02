@@ -27,7 +27,7 @@ class ShopResource extends Resource
 
     protected static ?string $navigationIcon = 'heroicon-o-building-storefront';
 
-    protected static ?string $navigationGroup = 'Người dùng';
+    protected static ?string $navigationGroup = 'Người dùng & đối tác';
 
     protected static ?string $modelLabel = 'Cửa hàng';
 
@@ -35,7 +35,7 @@ class ShopResource extends Resource
 
     protected static ?string $slug = 'shops';
 
-    protected static ?int $navigationSort = 2;
+    protected static ?int $navigationSort = 3;
 
     public static function getEloquentQuery(): Builder
     {

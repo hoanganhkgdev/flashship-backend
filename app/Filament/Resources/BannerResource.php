@@ -32,7 +32,7 @@ class BannerResource extends Resource
 
     protected static ?string $navigationIcon = 'heroicon-o-photo';
 
-    protected static ?string $navigationGroup = 'Marketing';
+    protected static ?string $navigationGroup = 'Marketing & CSKH';
 
     protected static ?string $modelLabel = 'Banner';
 

@@ -21,11 +21,11 @@ class DispatchMonitorPage extends Page
 
     protected static ?string $navigationIcon = 'heroicon-o-signal';
 
-    protected static ?string $navigationGroup = 'Đơn hàng';
+    protected static ?string $navigationGroup = 'Vận hành đơn hàng';
 
     protected static ?string $navigationLabel = 'Theo dõi phát đơn';
 
-    protected static ?int $navigationSort = 50;
+    protected static ?int $navigationSort = 2;
 
     protected static string $view = 'filament.pages.dispatch-monitor';
 

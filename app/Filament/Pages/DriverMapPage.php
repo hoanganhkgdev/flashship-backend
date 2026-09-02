@@ -20,13 +20,13 @@ class DriverMapPage extends Page
 
     protected static ?string $navigationIcon = 'heroicon-o-map-pin';
 
-    protected static ?string $navigationGroup = 'Vận hành';
+    protected static ?string $navigationGroup = 'Vận hành đơn hàng';
 
     protected static ?string $navigationLabel = 'Bản đồ tài xế';
 
     protected static ?string $title = ' ';
 
-    protected static ?int $navigationSort = 11;
+    protected static ?int $navigationSort = 4;
 
     protected static string $view = 'filament.pages.driver-map';
 

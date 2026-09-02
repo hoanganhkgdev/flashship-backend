@@ -48,14 +48,13 @@ class AdminPanelProvider extends PanelProvider
             ])
             ->navigationGroups([
                 NavigationGroup::make('Tổng quan'),
-                NavigationGroup::make('Vận hành'),
-                NavigationGroup::make('Đơn hàng'),
-                NavigationGroup::make('Người dùng'),
-                NavigationGroup::make('Quản lý ví'),
-                NavigationGroup::make('Công nợ'),
-                NavigationGroup::make('Marketing'),
-                NavigationGroup::make('Cấu hình'),
-                NavigationGroup::make('Cài đặt'),
+                NavigationGroup::make('Vận hành đơn hàng'),
+                NavigationGroup::make('Người dùng & đối tác'),
+                NavigationGroup::make('Tài chính tài xế'),
+                NavigationGroup::make('Ca làm việc'),
+                NavigationGroup::make('Giá & khu vực'),
+                NavigationGroup::make('Marketing & CSKH'),
+                NavigationGroup::make('Hệ thống'),
             ])
             ->discoverResources(in: app_path('Filament/Resources'), for: 'App\\Filament\\Resources')
             ->discoverPages(in: app_path('Filament/Pages'), for: 'App\\Filament\\Pages')

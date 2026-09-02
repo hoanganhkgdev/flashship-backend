@@ -30,7 +30,7 @@ class AdminUserResource extends Resource
 
     protected static ?string $navigationIcon = 'heroicon-o-shield-check';
 
-    protected static ?string $navigationGroup = 'Người dùng';
+    protected static ?string $navigationGroup = 'Hệ thống';
 
     protected static ?string $modelLabel = 'Quản trị viên';
 
@@ -38,7 +38,7 @@ class AdminUserResource extends Resource
 
     protected static ?string $slug = 'admins';
 
-    protected static ?int $navigationSort = 3;
+    protected static ?int $navigationSort = 1;
 
     public static function getEloquentQuery(): Builder
     {

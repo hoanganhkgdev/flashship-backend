@@ -8,6 +8,10 @@ class Dashboard extends BaseDashboard
 {
     protected static ?string $navigationLabel = 'Tổng quan';
 
+    protected static ?string $navigationGroup = 'Tổng quan';
+
+    protected static ?int $navigationSort = 1;
+
     public function getHeading(): string
     {
         return '';

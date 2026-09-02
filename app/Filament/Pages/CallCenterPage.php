@@ -26,13 +26,13 @@ class CallCenterPage extends Page implements HasForms
 
     protected static ?string $navigationIcon = 'heroicon-o-phone';
 
-    protected static ?string $navigationGroup = 'Vận hành';
+    protected static ?string $navigationGroup = 'Vận hành đơn hàng';
 
     protected static ?string $navigationLabel = 'Tổng đài đặt đơn';
 
     protected static ?string $title = '';
 
-    protected static ?int $navigationSort = 10;
+    protected static ?int $navigationSort = 3;
 
     protected static string $view = 'filament.pages.call-center';
 

@@ -35,13 +35,13 @@ class DriverShiftChangeRequestResource extends Resource
 
     protected static ?string $navigationIcon = 'heroicon-o-arrow-path-rounded-square';
 
-    protected static ?string $navigationGroup = 'Cấu hình';
+    protected static ?string $navigationGroup = 'Ca làm việc';
 
     protected static ?string $modelLabel = 'Yêu cầu đổi ca';
 
     protected static ?string $pluralModelLabel = 'Yêu cầu đổi ca';
 
-    protected static ?int $navigationSort = 3;
+    protected static ?int $navigationSort = 2;
 
     public static function getNavigationBadge(): ?string
     {

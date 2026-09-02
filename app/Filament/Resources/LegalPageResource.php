@@ -27,7 +27,7 @@ class LegalPageResource extends Resource
 
     protected static ?string $navigationIcon = 'heroicon-o-document-text';
 
-    protected static ?string $navigationGroup = 'Cài đặt';
+    protected static ?string $navigationGroup = 'Hệ thống';
 
     protected static ?string $modelLabel = 'Trang pháp lý';
 
@@ -35,7 +35,7 @@ class LegalPageResource extends Resource
 
     protected static ?string $slug = 'legal-pages';
 
-    protected static ?int $navigationSort = 10;
+    protected static ?int $navigationSort = 2;
 
     public static function form(Form $form): Form
     {

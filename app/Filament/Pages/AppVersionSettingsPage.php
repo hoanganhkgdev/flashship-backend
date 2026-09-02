@@ -19,13 +19,13 @@ class AppVersionSettingsPage extends Page implements HasForms
 
     protected static ?string $navigationIcon = 'heroicon-o-device-phone-mobile';
 
-    protected static ?string $navigationGroup = 'Cài đặt';
+    protected static ?string $navigationGroup = 'Hệ thống';
 
     protected static ?string $navigationLabel = 'Phiên bản App';
 
     protected static ?string $title = 'Cài đặt phiên bản App';
 
-    protected static ?int $navigationSort = 90;
+    protected static ?int $navigationSort = 4;
 
     protected static string $view = 'filament.pages.app-version-settings';
 

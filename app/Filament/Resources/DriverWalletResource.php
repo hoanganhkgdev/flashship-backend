@@ -33,7 +33,7 @@ class DriverWalletResource extends Resource
 
     protected static ?string $navigationIcon = 'heroicon-o-wallet';
 
-    protected static ?string $navigationGroup = 'Quản lý ví';
+    protected static ?string $navigationGroup = 'Tài chính tài xế';
 
     protected static ?string $modelLabel = 'Ví tài xế';
 

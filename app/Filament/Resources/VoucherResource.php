@@ -38,7 +38,7 @@ class VoucherResource extends Resource
 
     protected static ?string $navigationIcon = 'heroicon-o-ticket';
 
-    protected static ?string $navigationGroup = 'Marketing';
+    protected static ?string $navigationGroup = 'Marketing & CSKH';
 
     protected static ?string $modelLabel = 'Mã giảm giá';
 

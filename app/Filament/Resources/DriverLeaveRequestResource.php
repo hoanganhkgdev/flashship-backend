@@ -30,13 +30,13 @@ class DriverLeaveRequestResource extends Resource
 
     protected static ?string $navigationIcon = 'heroicon-o-calendar-days';
 
-    protected static ?string $navigationGroup = 'Cấu hình';
+    protected static ?string $navigationGroup = 'Ca làm việc';
 
     protected static ?string $modelLabel = 'Xin nghỉ phép';
 
     protected static ?string $pluralModelLabel = 'Xin nghỉ phép';
 
-    protected static ?int $navigationSort = 4;
+    protected static ?int $navigationSort = 3;
 
     public static function form(Form $form): Form
     {

@@ -36,7 +36,7 @@ class DriverDebtResource extends Resource
 
     protected static ?string $navigationIcon = 'heroicon-o-document-minus';
 
-    protected static ?string $navigationGroup = 'Công nợ';
+    protected static ?string $navigationGroup = 'Tài chính tài xế';
 
     protected static ?string $modelLabel = 'Công nợ';
 

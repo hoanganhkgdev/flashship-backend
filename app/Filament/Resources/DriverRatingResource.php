@@ -26,7 +26,7 @@ class DriverRatingResource extends Resource
 
     protected static ?string $navigationIcon = 'heroicon-o-star';
 
-    protected static ?string $navigationGroup = 'Đơn hàng';
+    protected static ?string $navigationGroup = 'Vận hành đơn hàng';
 
     protected static ?string $modelLabel = 'Đánh giá tài xế';
 
@@ -34,7 +34,7 @@ class DriverRatingResource extends Resource
 
     protected static ?string $slug = 'driver-ratings';
 
-    protected static ?int $navigationSort = 3;
+    protected static ?int $navigationSort = 5;
 
     public static function getNavigationBadge(): ?string
     {

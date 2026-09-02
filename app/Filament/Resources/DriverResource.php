@@ -36,7 +36,7 @@ class DriverResource extends Resource
 
     protected static ?string $navigationIcon = 'heroicon-o-truck';
 
-    protected static ?string $navigationGroup = 'Người dùng';
+    protected static ?string $navigationGroup = 'Người dùng & đối tác';
 
     protected static ?string $modelLabel = 'Tài xế';
 

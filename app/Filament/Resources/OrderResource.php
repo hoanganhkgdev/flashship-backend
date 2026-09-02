@@ -11,13 +11,10 @@ use Filament\Infolists\Infolist;
 use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
 use Filament\Tables;
-use Filament\Tables\Columns\Layout\Split;
-use Filament\Tables\Columns\Layout\Stack;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\HtmlString;
-use Illuminate\Support\Str;
 use Modules\Core\Models\ServiceType;
 use Modules\Core\Services\FCMService;
 use Modules\Core\Services\RTDBService;
@@ -30,7 +27,7 @@ class OrderResource extends Resource
 
     protected static ?string $navigationIcon = 'heroicon-o-shopping-bag';
 
-    protected static ?string $navigationGroup = 'Đơn hàng';
+    protected static ?string $navigationGroup = 'Vận hành đơn hàng';
 
     protected static ?string $modelLabel = 'Đơn hàng';
 
@@ -61,19 +58,65 @@ class OrderResource extends Resource
         'cancelled' => 'danger',
     ];
 
-    protected static array $statusTextColors = [
-        'pending' => '#f59e0b',
-        'assigned' => '#3b82f6',
-        'processing' => '#f97316',
-        'completed' => '#22c55e',
-        'cancelled' => '#ef4444',
-    ];
-
     private static array $paymentLabels = [
         'cod' => 'COD',
         'prepaid' => 'Thanh toán trước',
         'wallet' => 'Ví',
     ];
+
+    private static function journeySummary(Order $record): string
+    {
+        $source = match ($record->platform) {
+            'customer_app' => 'Khách hàng'.($record->sender?->name ? ' · '.$record->sender->name : ''),
+            'shop_app' => 'Shop'.($record->sender?->name ? ' · '.$record->sender->name : ''),
+            'call_center' => 'Tổng đài',
+            default => $record->platform ?: 'Chưa xác định',
+        };
+
+        return '<div class="fs-order-journey">'
+            .'<div><b class="fs-order-journey__pickup">Điểm lấy:</b><span>'.e($record->pickup_address ?: '—').'</span></div>'
+            .'<div><b class="fs-order-journey__delivery">Điểm giao:</b><span>'.e($record->delivery_address ?: '—').'</span></div>'
+            .'<div class="fs-order-journey__meta"><span title="'.e($source).'"><b class="fs-order-journey__source">Nguồn đơn:</b><em>'.e($source).'</em></span><strong class="fs-order-journey__fee">'.number_format((int) $record->shipping_fee, 0, ',', '.').'đ</strong></div>'
+            .'</div>';
+    }
+
+    private static function orderSummary(Order $record): string
+    {
+        $service = self::serviceLabels()[$record->service_type] ?? $record->service_type;
+
+        return '<div class="fs-order-summary">'
+            .'<div><b class="fs-order-summary__code">Mã đơn:</b><span>#'.e($record->code).'</span></div>'
+            .'<div><b class="fs-order-summary__service">Dịch vụ:</b><span>'.e($service ?: '—').'</span></div>'
+            .'<div><b class="fs-order-summary__time">Tạo lúc:</b><span>'.$record->created_at?->format('d/m H:i').'</span></div>'
+            .'</div>';
+    }
+
+    private static function statusSummary(Order $record): string
+    {
+        $status = self::$statusLabels[$record->status] ?? $record->status;
+        $driverName = $record->driver?->name ?: 'Đang tìm tài xế';
+        $driverPhone = $record->driver?->phone ?: '—';
+        $warning = match (true) {
+            $record->status === 'pending' && $record->cancel_reason === 'no_driver' => 'Không tìm được tài xế',
+            default => null,
+        };
+
+        return '<div class="fs-order-assignment">'
+            .'<div><b class="fs-order-assignment__status" aria-label="Trạng thái"></b><span class="fs-order-status-text fs-order-status-text--'.e(self::$statusColors[$record->status] ?? 'gray').'">'.e($status).'</span></div>'
+            .'<div><b class="fs-order-assignment__driver">Tài xế:</b><span title="'.e($driverName).'">'.e($driverName).'</span></div>'
+            .'<div><b class="fs-order-assignment__phone">SĐT:</b><span>'.e($driverPhone).'</span></div>'
+            .($warning ? '<strong class="fs-order-assignment__warning">'.e($warning).'</strong>' : '')
+            .'</div>';
+    }
+
+    public static function getEloquentQuery(): Builder
+    {
+        return parent::getEloquentQuery()->with([
+            'city:id,name',
+            'driver:id,name,phone',
+            'sender:id,name,phone',
+        ]);
+    }
 
     public static function form(Form $form): Form
     {
@@ -293,6 +336,42 @@ class OrderResource extends Resource
                     ->label('Freeship')
                     ->boolean(),
             ])->columns(4),
+
+            Infolists\Components\Section::make('Nội dung đơn hàng')->schema([
+                Infolists\Components\TextEntry::make('cargo_type')
+                    ->label('Loại hàng')
+                    ->default('—'),
+                Infolists\Components\TextEntry::make('cargo_weight')
+                    ->label('Khối lượng')
+                    ->suffix(' kg')
+                    ->default('—'),
+                Infolists\Components\TextEntry::make('order_note')
+                    ->label('Ghi chú đơn hàng')
+                    ->default('Không có ghi chú')
+                    ->columnSpanFull(),
+            ])->columns(2)->collapsible(),
+
+            Infolists\Components\Section::make('Lịch sử xử lý')
+                ->description('Các sự kiện mới nhất của đơn hàng')
+                ->icon('heroicon-o-clock')
+                ->schema([
+                    Infolists\Components\RepeatableEntry::make('histories')
+                        ->label('')
+                        ->schema([
+                            Infolists\Components\TextEntry::make('description')
+                                ->label('Sự kiện')
+                                ->weight('bold'),
+                            Infolists\Components\TextEntry::make('type')
+                                ->label('Loại')
+                                ->badge()
+                                ->color('gray'),
+                            Infolists\Components\TextEntry::make('created_at')
+                                ->label('Thời gian')
+                                ->dateTime('H:i · d/m/Y'),
+                        ])
+                        ->columns(3),
+                ])
+                ->collapsed(),
         ]);
     }
 
@@ -300,98 +379,49 @@ class OrderResource extends Resource
     {
         return $table
             ->columns([
-                // Dòng 1: mã đơn + badge dịch vụ (trái) | giờ (phải)
-                Split::make([
-                    Tables\Columns\TextColumn::make('code')
-                        ->searchable(query: function (Builder $query, string $search): Builder {
-                            return $query->where(function ($q) use ($search) {
-                                $q->where('code', 'like', "%{$search}%")
-                                    ->orWhere('pickup_phone', 'like', "%{$search}%")
-                                    ->orWhere('delivery_phone', 'like', "%{$search}%")
-                                    ->orWhere('pickup_address', 'like', "%{$search}%")
-                                    ->orWhere('delivery_address', 'like', "%{$search}%")
-                                    ->orWhere('order_note', 'like', "%{$search}%")
-                                    ->orWhereHas('driver', fn ($q) => $q->where('phone', 'like', "%{$search}%"));
-                            });
-                        })
-                        ->copyable()
-                        ->formatStateUsing(fn ($state, $record) => '<span style="font-weight:700">#'.e($state).'</span>'
-                            .'<span style="color:#9ca3af;margin:0 6px">·</span>'
-                            .'<span style="font-weight:700;color:rgb(var(--primary-500))">'.e(self::serviceLabels()[$record->service_type] ?? $record->service_type).'</span>'
-                            .'<span style="color:#9ca3af;margin:0 6px">·</span>'
-                            .'<span style="font-weight:600;color:'.self::$statusTextColors[$record->status].'">'.e(self::$statusLabels[$record->status] ?? $record->status).'</span>'
-                            .($record->status === 'pending' && $record->cancel_reason === 'no_driver'
-                                ? '<br><span style="color:#ef4444;font-size:11px;font-weight:600">⚠ Không tìm được tài xế — cần xử lý</span>'
-                                : '')
-                            .($record->status === 'processing' && $record->updated_at?->lt(now()->subMinutes(30))
-                                ? '<br><span style="color:#ef4444;font-size:11px;font-weight:600">⚠ Đã lấy hàng '.$record->updated_at->diffInMinutes(now()).' phút — chưa hoàn thành</span>'
-                                : '')
-                        )
-                        ->html()
-                        ->grow(true),
-                    Tables\Columns\TextColumn::make('created_at')
-                        ->dateTime('d/m H:i')
-                        ->color('gray')
-                        ->size('xs')
-                        ->alignEnd()
-                        ->grow(false),
-                ]),
+                Tables\Columns\TextColumn::make('code')
+                    ->label('Đơn hàng')
+                    ->formatStateUsing(fn ($state, Order $record): string => self::orderSummary($record))
+                    ->html()
+                    ->copyable()
+                    ->sortable()
+                    ->searchable(query: function (Builder $query, string $search): Builder {
+                        return $query->where(function (Builder $query) use ($search) {
+                            $query->where('code', 'like', "%{$search}%")
+                                ->orWhere('pickup_phone', 'like', "%{$search}%")
+                                ->orWhere('delivery_phone', 'like', "%{$search}%")
+                                ->orWhere('pickup_address', 'like', "%{$search}%")
+                                ->orWhere('delivery_address', 'like', "%{$search}%")
+                                ->orWhere('order_note', 'like', "%{$search}%")
+                                ->orWhereHas('driver', fn (Builder $query) => $query
+                                    ->where('name', 'like', "%{$search}%")
+                                    ->orWhere('phone', 'like', "%{$search}%"));
+                        });
+                    }),
 
-                // Dòng 3: địa chỉ lấy → giao
-                Stack::make([
-                    Tables\Columns\TextColumn::make('pickup_address')
-                        ->icon('heroicon-m-arrow-up-circle')
-                        ->iconColor('warning')
-                        ->formatStateUsing(fn ($state) => Str::limit($state, 35))
-                        ->tooltip(fn ($record) => $record->pickup_address)
-                        ->size('sm'),
-                    Tables\Columns\TextColumn::make('delivery_address')
-                        ->icon('heroicon-m-arrow-down-circle')
-                        ->iconColor('success')
-                        ->formatStateUsing(fn ($state) => Str::limit($state, 35))
-                        ->tooltip(fn ($record) => $record->delivery_address)
-                        ->size('sm'),
-                ]),
+                Tables\Columns\TextColumn::make('journey_summary')
+                    ->label('Hành trình & phụ trách')
+                    ->state(fn (Order $record): string => self::journeySummary($record))
+                    ->html(),
 
-                // Dòng 4: ghi chú
-                Tables\Columns\TextColumn::make('order_note')
-                    ->icon('heroicon-m-chat-bubble-left-ellipsis')
-                    ->iconColor('warning')
-                    ->formatStateUsing(fn ($state) => Str::limit($state, 50))
-                    ->tooltip(fn ($record) => $record->order_note)
-                    ->size('sm')
-                    ->color('gray')
-                    ->placeholder('—'),
+                Tables\Columns\TextColumn::make('status')
+                    ->label('Trạng thái')
+                    ->formatStateUsing(fn ($state, Order $record): string => self::statusSummary($record))
+                    ->html(),
 
-                // Dòng 5: tài xế (trái) | phí + thanh toán (phải)
-                Split::make([
-                    Tables\Columns\TextColumn::make('driver.name')
-                        ->icon('heroicon-m-user-circle')
-                        ->iconColor('gray')
-                        ->default('Chưa phân công')
-                        ->formatStateUsing(fn ($state, $record) => $record->driver
-                                ? e($state).'<span style="color:#9ca3af;margin:0 6px">·</span>'.'<a href="https://zalo.me/'.e(ltrim($record->driver->phone ?? '', '0')).'" target="_blank" style="text-decoration:underline">'.e($record->driver->phone ?? '').'</a>'
-                                : $state
-                        )
-                        ->html()
-                        ->color(fn ($record) => $record->delivery_man_id ? 'primary' : 'gray')
-                        ->size('sm')
-                        ->grow(true),
-                    Tables\Columns\TextColumn::make('shipping_fee')
-                        ->formatStateUsing(fn ($state) => number_format((int) $state).'đ')
-                        ->weight('bold')
-                        ->color('primary')
-                        ->alignEnd()
-                        ->grow(false),
-                ]),
             ])
-            ->contentGrid([
-                'default' => 1,
-                'sm' => 2,
-                'xl' => 3,
-            ])
-            ->recordUrl(null)
+            ->recordUrl(fn (Order $record): string => static::getUrl('view', ['record' => $record]))
             ->filters([
+                Tables\Filters\Filter::make('created_at')
+                    ->label('Ngày tạo đơn')
+                    ->form([
+                        Forms\Components\DatePicker::make('from')->label('Từ ngày'),
+                        Forms\Components\DatePicker::make('until')->label('Đến ngày'),
+                    ])
+                    ->columns(2)
+                    ->query(fn (Builder $query, array $data): Builder => $query
+                        ->when($data['from'] ?? null, fn (Builder $query, $date): Builder => $query->whereDate('created_at', '>=', $date))
+                        ->when($data['until'] ?? null, fn (Builder $query, $date): Builder => $query->whereDate('created_at', '<=', $date))),
                 SelectFilter::make('service_type')
                     ->label('Dịch vụ')
                     ->options(fn (): array => self::serviceLabels()),
@@ -405,8 +435,20 @@ class OrderResource extends Resource
                 SelectFilter::make('payment_method')
                     ->label('Thanh toán')
                     ->options(self::$paymentLabels),
+                Tables\Filters\TernaryFilter::make('delivery_man_id')
+                    ->label('Phân công tài xế')
+                    ->placeholder('Tất cả đơn')
+                    ->trueLabel('Đã có tài xế')
+                    ->falseLabel('Chưa có tài xế')
+                    ->queries(
+                        true: fn (Builder $query): Builder => $query->whereNotNull('delivery_man_id'),
+                        false: fn (Builder $query): Builder => $query->whereNull('delivery_man_id'),
+                    ),
             ])
             ->actions([
+                Tables\Actions\ViewAction::make()
+                    ->label('')
+                    ->tooltip('Xem chi tiết'),
                 Tables\Actions\EditAction::make()->label(''),
 
                 Tables\Actions\DeleteAction::make()->label(''),

@@ -18,13 +18,13 @@ class ZaloTokenSettings extends Page
 {
     protected static ?string $navigationIcon = 'heroicon-o-key';
 
-    protected static ?string $navigationGroup = 'Cài đặt';
+    protected static ?string $navigationGroup = 'Hệ thống';
 
     protected static ?string $navigationLabel = 'Zalo ZNS Token';
 
     protected static ?string $title = 'Quản lý Zalo ZNS Token';
 
-    protected static ?int $navigationSort = 99;
+    protected static ?int $navigationSort = 5;
 
     protected static string $view = 'filament.pages.zalo-token-settings';
 
