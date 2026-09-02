@@ -2,27 +2,32 @@
 
 namespace App\Filament\Widgets;
 
+use Filament\Facades\Filament;
 use Filament\Widgets\Widget;
+use Illuminate\Support\Collection;
 use Modules\Core\Models\User;
 
 class OnlineDriversWidget extends Widget
 {
     public static function canView(): bool
     {
-        return !auth()->user()?->isCallCenter();
+        return ! auth()->user()?->isCallCenter();
     }
 
     protected static string $view = 'filament.widgets.online-drivers';
+
     protected static ?string $pollingInterval = '15s';
-    protected int | string | array $columnSpan = 'full';
+
+    protected int|string|array $columnSpan = 'full';
+
     protected static ?int $sort = 2;
 
     private function cityId(): ?int
     {
-        return \Filament\Facades\Filament::getTenant()?->id;
+        return Filament::getTenant()?->id;
     }
 
-    public function getDrivers(): \Illuminate\Support\Collection
+    public function getDrivers(): Collection
     {
         return User::where('user_type', 'driver')
             ->where('is_online', true)

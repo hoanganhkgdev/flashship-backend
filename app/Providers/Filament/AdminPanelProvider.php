@@ -2,24 +2,28 @@
 
 namespace App\Providers\Filament;
 
+use App\Filament\Pages\Dashboard;
+use App\Filament\Widgets\OnlineDriversWidget;
+use App\Filament\Widgets\OrdersByHourWidget;
+use App\Filament\Widgets\StatsOverviewWidget;
+use Filament\FontProviders\GoogleFontProvider;
 use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\AuthenticateSession;
 use Filament\Http\Middleware\DisableBladeIconComponents;
 use Filament\Http\Middleware\DispatchServingFilamentEvent;
 use Filament\Navigation\NavigationGroup;
-use Filament\Pages;
 use Filament\Panel;
 use Filament\PanelProvider;
-use Filament\FontProviders\GoogleFontProvider;
 use Filament\Support\Colors\Color;
-use Filament\Widgets;
+use Filament\View\PanelsRenderHook;
 use Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse;
 use Illuminate\Cookie\Middleware\EncryptCookies;
 use Illuminate\Foundation\Http\Middleware\VerifyCsrfToken;
 use Illuminate\Routing\Middleware\SubstituteBindings;
 use Illuminate\Session\Middleware\StartSession;
+use Illuminate\Support\HtmlString;
 use Illuminate\View\Middleware\ShareErrorsFromSession;
-use Modules\Core\Models\User;
+use Modules\Core\Models\City;
 
 class AdminPanelProvider extends PanelProvider
 {
@@ -30,15 +34,22 @@ class AdminPanelProvider extends PanelProvider
             ->id('admin')
             ->path('admin')
             ->login()
-            ->tenant(\Modules\Core\Models\City::class)
+            ->tenant(City::class)
             ->brandName('FlashShip Admin')
             ->font('Roboto', provider: GoogleFontProvider::class)
+            ->renderHook(
+                PanelsRenderHook::STYLES_AFTER,
+                fn (): HtmlString => new HtmlString(
+                    '<style>'.file_get_contents(resource_path('css/filament/admin/theme.css')).'</style>',
+                ),
+            )
             ->colors([
                 'primary' => Color::Orange,
             ])
             ->navigationGroups([
-                NavigationGroup::make('Đơn hàng'),
                 NavigationGroup::make('Tổng quan'),
+                NavigationGroup::make('Vận hành'),
+                NavigationGroup::make('Đơn hàng'),
                 NavigationGroup::make('Người dùng'),
                 NavigationGroup::make('Quản lý ví'),
                 NavigationGroup::make('Công nợ'),
@@ -49,13 +60,13 @@ class AdminPanelProvider extends PanelProvider
             ->discoverResources(in: app_path('Filament/Resources'), for: 'App\\Filament\\Resources')
             ->discoverPages(in: app_path('Filament/Pages'), for: 'App\\Filament\\Pages')
             ->pages([
-                \App\Filament\Pages\Dashboard::class,
+                Dashboard::class,
             ])
             ->discoverWidgets(in: app_path('Filament/Widgets'), for: 'App\\Filament\\Widgets')
             ->widgets([
-                \App\Filament\Widgets\StatsOverviewWidget::class,
-                \App\Filament\Widgets\OnlineDriversWidget::class,
-                \App\Filament\Widgets\OrdersByHourWidget::class,
+                StatsOverviewWidget::class,
+                OnlineDriversWidget::class,
+                OrdersByHourWidget::class,
             ])
             ->middleware([
                 EncryptCookies::class,
@@ -73,20 +84,20 @@ class AdminPanelProvider extends PanelProvider
             ])
             ->renderHook(
                 'panels::head.end',
-                fn () => new \Illuminate\Support\HtmlString(
-                    '<script src="https://maps.googleapis.com/maps/api/js?key=' . config('services.google_maps.api_key') . '&libraries=places"></script>'
-                    . '<script src="https://unpkg.com/pusher-js@8.4.0/dist/web/pusher.min.js"></script>'
-                    . '<script src="https://unpkg.com/laravel-echo@1.16.1/dist/echo.iife.js"></script>'
-                    . '<script>
+                fn () => new HtmlString(
+                    '<script src="https://maps.googleapis.com/maps/api/js?key='.config('services.google_maps.api_key').'&libraries=places"></script>'
+                    .'<script src="https://unpkg.com/pusher-js@8.4.0/dist/web/pusher.min.js"></script>'
+                    .'<script src="https://unpkg.com/laravel-echo@1.16.1/dist/echo.iife.js"></script>'
+                    .'<script>
                         try {
                             window.Echo = new Echo({
                                 broadcaster: "pusher",
-                                key: "' . env('REVERB_APP_KEY') . '",
+                                key: "'.env('REVERB_APP_KEY').'",
                                 cluster: "mt1",
-                                wsHost: "' . env('REVERB_HOST', 'localhost') . '",
-                                wsPort: ' . (int) env('REVERB_PORT', 8080) . ',
-                                wssPort: ' . (int) env('REVERB_PORT', 8080) . ',
-                                forceTLS: ' . (env('REVERB_SCHEME', 'http') === 'https' ? 'true' : 'false') . ',
+                                wsHost: "'.env('REVERB_HOST', 'localhost').'",
+                                wsPort: '.(int) env('REVERB_PORT', 8080).',
+                                wssPort: '.(int) env('REVERB_PORT', 8080).',
+                                forceTLS: '.(env('REVERB_SCHEME', 'http') === 'https' ? 'true' : 'false').',
                                 disableStats: true,
                                 enabledTransports: ["ws", "wss"],
                             });
@@ -95,8 +106,8 @@ class AdminPanelProvider extends PanelProvider
                 )
             )
             ->renderHook(
-                \Filament\View\PanelsRenderHook::GLOBAL_SEARCH_AFTER,
-                fn (): string => \Illuminate\Support\Facades\Blade::render('@livewire(\'rain-mode-control\')'),
+                PanelsRenderHook::GLOBAL_SEARCH_AFTER,
+                fn (): string => view('filament.components.topbar-controls')->render(),
             );
     }
 }
