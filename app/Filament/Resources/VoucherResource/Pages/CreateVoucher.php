@@ -11,6 +11,16 @@ class CreateVoucher extends CreateRecord
 {
     protected static string $resource = VoucherResource::class;
 
+    public function getTitle(): string
+    {
+        return 'Tạo mã giảm giá';
+    }
+
+    public function getSubheading(): ?string
+    {
+        return 'Thiết lập giá trị ưu đãi, phạm vi và giới hạn sử dụng.';
+    }
+
     protected function mutateFormDataBeforeCreate(array $data): array
     {
         $data['city_id'] = Filament::getTenant()?->getKey();

@@ -1,5 +1,13 @@
 <x-filament-panels::page>
 
+<header class="fs-page-header">
+    <div>
+        <p class="fs-page-header__eyebrow">Báo cáo kinh doanh</p>
+        <h1 class="fs-page-header__title">Doanh thu & đơn hàng</h1>
+        <p class="fs-page-header__description">Phân tích hiệu quả theo thời gian, trạng thái và từng loại dịch vụ trong khu vực.</p>
+    </div>
+</header>
+
 @php
     $summary   = $this->getSummary();
     $rate      = $summary['total_orders'] > 0 ? round($summary['completed_orders'] / $summary['total_orders'] * 100) : 0;

@@ -10,6 +10,16 @@ class CreateShopPricing extends CreateRecord
 {
     protected static string $resource = ShopPricingResource::class;
 
+    public function getTitle(): string
+    {
+        return 'Thêm bảng giá cửa hàng';
+    }
+
+    public function getSubheading(): ?string
+    {
+        return 'Thiết lập các ngưỡng giá và phụ phí cho nhóm hàng.';
+    }
+
     protected function getRedirectUrl(): string
     {
         return $this->getResource()::getUrl('index');
@@ -23,6 +33,7 @@ class CreateShopPricing extends CreateRecord
     protected function associateRecordWithTenant(Model $record, Model $tenant): Model
     {
         $record->save();
+
         return $record;
     }
 }

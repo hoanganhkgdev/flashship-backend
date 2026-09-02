@@ -10,10 +10,20 @@ class EditShift extends EditRecord
 {
     protected static string $resource = ShiftResource::class;
 
+    public function getTitle(): string
+    {
+        return 'Chỉnh sửa '.$this->record->name;
+    }
+
+    public function getSubheading(): ?string
+    {
+        return 'Tránh thay đổi giờ khi ca đang diễn ra để không ảnh hưởng dữ liệu chấm điểm.';
+    }
+
     protected function getHeaderActions(): array
     {
         return [
-            Actions\DeleteAction::make(),
+            Actions\DeleteAction::make()->label('Xoá ca'),
         ];
     }
 

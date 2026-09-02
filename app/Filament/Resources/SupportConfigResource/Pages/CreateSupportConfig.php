@@ -10,6 +10,16 @@ class CreateSupportConfig extends CreateRecord
 {
     protected static string $resource = SupportConfigResource::class;
 
+    public function getTitle(): string
+    {
+        return 'Thêm kênh hỗ trợ';
+    }
+
+    public function getSubheading(): ?string
+    {
+        return 'Thiết lập thông tin liên hệ và khu vực hiển thị trên ứng dụng.';
+    }
+
     /**
      * Bỏ qua cơ chế tự gán tenant mặc định của Filament (City::supportConfigs()
      * không tồn tại — city_id=null nghĩa là áp dụng mọi khu vực, form tự
@@ -18,6 +28,7 @@ class CreateSupportConfig extends CreateRecord
     protected function associateRecordWithTenant(Model $record, Model $tenant): Model
     {
         $record->save();
+
         return $record;
     }
 }

@@ -4,6 +4,7 @@ namespace App\Filament\Resources;
 
 use App\Filament\Resources\DriverScoreResource\Pages;
 use App\Filament\Resources\DriverScoreResource\RelationManagers;
+use App\Filament\Traits\RestrictToFullAdmin;
 use Carbon\Carbon;
 use Filament\Forms\Form;
 use Filament\Infolists;
@@ -17,19 +18,24 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 use Modules\Core\Models\User;
 use Modules\Driver\Services\DriverScoreService;
-use App\Filament\Traits\RestrictToFullAdmin;
 
 class DriverScoreResource extends Resource
 {
     use RestrictToFullAdmin;
 
-    protected static ?string $model            = User::class;
-    protected static ?string $navigationIcon   = 'heroicon-o-trophy';
-    protected static ?string $navigationGroup  = 'Người dùng';
-    protected static ?string $modelLabel       = 'Điểm tài xế';
+    protected static ?string $model = User::class;
+
+    protected static ?string $navigationIcon = 'heroicon-o-trophy';
+
+    protected static ?string $navigationGroup = 'Người dùng';
+
+    protected static ?string $modelLabel = 'Điểm tài xế';
+
     protected static ?string $pluralModelLabel = 'Điểm tài xế';
-    protected static ?string $slug             = 'driver-scores';
-    protected static ?int    $navigationSort   = 4;
+
+    protected static ?string $slug = 'driver-scores';
+
+    protected static ?int $navigationSort = 4;
 
     // Badge: số settlement pending tuần này chưa xử lý
     public static function getNavigationBadge(): ?string
@@ -39,10 +45,14 @@ class DriverScoreResource extends Resource
             ->where('week_start', $weekStart)
             ->where('status', 'pending')
             ->count();
+
         return $count > 0 ? (string) $count : null;
     }
 
-    public static function getNavigationBadgeColor(): ?string { return 'warning'; }
+    public static function getNavigationBadgeColor(): ?string
+    {
+        return 'warning';
+    }
 
     public static function getEloquentQuery(): Builder
     {
@@ -59,7 +69,10 @@ class DriverScoreResource extends Resource
             ]);
     }
 
-    public static function canCreate(): bool { return false; }
+    public static function canCreate(): bool
+    {
+        return false;
+    }
 
     public static function form(Form $form): Form
     {
@@ -84,7 +97,7 @@ class DriverScoreResource extends Resource
                 ->schema([
                     Infolists\Components\TextEntry::make('driver_score')
                         ->label('Điểm hiện tại')
-                        ->formatStateUsing(fn ($state) => ($state ?? DriverScoreService::DEFAULT_SCORE) . ' / ' . DriverScoreService::MAX_SCORE)
+                        ->formatStateUsing(fn ($state) => ($state ?? DriverScoreService::DEFAULT_SCORE).' / '.DriverScoreService::MAX_SCORE)
                         ->weight('bold')
                         ->size('lg')
                         ->color(fn ($state) => self::scoreColor($state ?? DriverScoreService::DEFAULT_SCORE)),
@@ -97,7 +110,7 @@ class DriverScoreResource extends Resource
 
                     Infolists\Components\TextEntry::make('consecutive_completed')
                         ->label('Streak')
-                        ->formatStateUsing(fn ($state) => ($state ?? 0) . ' đơn liên tiếp')
+                        ->formatStateUsing(fn ($state) => ($state ?? 0).' đơn liên tiếp')
                         ->default('0 đơn liên tiếp'),
 
                     Infolists\Components\TextEntry::make('daily_bonus_points')
@@ -111,7 +124,7 @@ class DriverScoreResource extends Resource
                 ->schema([
                     Infolists\Components\TextEntry::make('week_start')
                         ->label('Tuần bắt đầu')
-                        ->state(Carbon::now()->startOfWeek()->format('d/m/Y') . ' → ' . Carbon::now()->endOfWeek()->format('d/m/Y')),
+                        ->state(Carbon::now()->startOfWeek()->format('d/m/Y').' → '.Carbon::now()->endOfWeek()->format('d/m/Y')),
 
                     Infolists\Components\TextEntry::make('weekly_settlement_status')
                         ->label('Chốt điểm')
@@ -121,11 +134,14 @@ class DriverScoreResource extends Resource
                                 ->where('driver_id', $r->id)
                                 ->where('week_start', $weekStart)
                                 ->first();
-                            if (!$s) return 'Chưa chốt';
+                            if (! $s) {
+                                return 'Chưa chốt';
+                            }
+
                             return match ($s->type) {
-                                'bonus'   => 'Thưởng ' . number_format($s->amount) . '₫',
-                                'penalty' => 'Phạt ' . number_format($s->amount) . '₫',
-                                default   => $s->type,
+                                'bonus' => 'Thưởng '.number_format($s->amount).'₫',
+                                'penalty' => 'Phạt '.number_format($s->amount).'₫',
+                                default => $s->type,
                             };
                         })
                         ->badge()
@@ -135,10 +151,11 @@ class DriverScoreResource extends Resource
                                 ->where('driver_id', $r->id)
                                 ->where('week_start', $weekStart)
                                 ->value('type');
+
                             return match ($type) {
-                                'bonus'   => 'success',
+                                'bonus' => 'success',
                                 'penalty' => 'danger',
-                                default   => 'gray',
+                                default => 'gray',
                             };
                         }),
 
@@ -150,17 +167,18 @@ class DriverScoreResource extends Resource
                                 ->where('driver_id', $r->id)
                                 ->where('week_start', $weekStart)
                                 ->value('status');
+
                             return match ($status) {
-                                'pending'   => 'Chờ xử lý',
+                                'pending' => 'Chờ xử lý',
                                 'processed' => 'Đã xử lý',
-                                default     => '—',
+                                default => '—',
                             };
                         })
                         ->badge()
                         ->color(fn (User $r) => match (DB::table('driver_score_settlements')->where('driver_id', $r->id)->where('week_start', Carbon::now()->startOfWeek()->toDateString())->value('status')) {
-                            'pending'   => 'warning',
+                            'pending' => 'warning',
                             'processed' => 'success',
-                            default     => 'gray',
+                            default => 'gray',
                         }),
                 ]),
         ]);
@@ -189,7 +207,7 @@ class DriverScoreResource extends Resource
                 Tables\Columns\TextColumn::make('driver_score')
                     ->label('Điểm')
                     ->alignCenter()
-                    ->formatStateUsing(fn ($state) => ($state ?? DriverScoreService::DEFAULT_SCORE) . ' / ' . DriverScoreService::MAX_SCORE)
+                    ->formatStateUsing(fn ($state) => ($state ?? DriverScoreService::DEFAULT_SCORE).' / '.DriverScoreService::MAX_SCORE)
                     ->weight('bold')
                     ->color(fn ($state) => self::scoreColor($state ?? DriverScoreService::DEFAULT_SCORE))
                     ->sortable(),
@@ -204,7 +222,7 @@ class DriverScoreResource extends Resource
                 Tables\Columns\TextColumn::make('consecutive_completed')
                     ->label('Streak')
                     ->alignCenter()
-                    ->formatStateUsing(fn ($state) => ($state ?? 0) . ' 🔥')
+                    ->formatStateUsing(fn ($state) => ($state ?? 0).' 🔥')
                     ->default('0'),
 
                 Tables\Columns\TextColumn::make('weekly_settlement_type')
@@ -212,14 +230,14 @@ class DriverScoreResource extends Resource
                     ->alignCenter()
                     ->badge()
                     ->formatStateUsing(fn ($state) => match ($state) {
-                        'bonus'   => 'Thưởng 50k',
+                        'bonus' => 'Thưởng 50k',
                         'penalty' => 'Phạt 50k',
-                        default   => '—',
+                        default => '—',
                     })
                     ->color(fn ($state) => match ($state) {
-                        'bonus'   => 'success',
+                        'bonus' => 'success',
                         'penalty' => 'danger',
-                        default   => 'gray',
+                        default => 'gray',
                     }),
             ])
             ->filters([
@@ -231,34 +249,35 @@ class DriverScoreResource extends Resource
                     ->label('Xếp loại')
                     ->options([
                         'excellent' => 'Xuất sắc (≥130)',
-                        'good'      => 'Tốt (110–129)',
-                        'average'   => 'Khá (90–109)',
-                        'below'     => 'Trung bình (70–89)',
-                        'poor'      => 'Cần cải thiện (<70)',
+                        'good' => 'Tốt (110–129)',
+                        'average' => 'Khá (90–109)',
+                        'below' => 'Trung bình (70–89)',
+                        'poor' => 'Cần cải thiện (<70)',
                     ])
                     ->query(fn (Builder $q, array $data) => match ($data['value'] ?? null) {
                         'excellent' => $q->where('driver_score', '>=', 130),
-                        'good'      => $q->whereBetween('driver_score', [110, 129]),
-                        'average'   => $q->whereBetween('driver_score', [90, 109]),
-                        'below'     => $q->whereBetween('driver_score', [70, 89]),
-                        'poor'      => $q->where('driver_score', '<', 70),
-                        default     => $q,
+                        'good' => $q->whereBetween('driver_score', [110, 129]),
+                        'average' => $q->whereBetween('driver_score', [90, 109]),
+                        'below' => $q->whereBetween('driver_score', [70, 89]),
+                        'poor' => $q->where('driver_score', '<', 70),
+                        default => $q,
                     }),
 
                 SelectFilter::make('weekly_settlement')
                     ->label('Chốt điểm tuần')
                     ->options([
-                        'bonus'   => 'Được thưởng 50k',
+                        'bonus' => 'Được thưởng 50k',
                         'penalty' => 'Bị phạt 50k',
-                        'none'    => 'Chưa chốt',
+                        'none' => 'Chưa chốt',
                     ])
                     ->query(function (Builder $q, array $data) {
                         $weekStart = Carbon::now()->startOfWeek()->toDateString();
+
                         return match ($data['value'] ?? null) {
-                            'bonus'   => $q->whereExists(fn ($sub) => $sub->from('driver_score_settlements')->whereColumn('driver_id', 'users.id')->where('week_start', $weekStart)->where('type', 'bonus')),
+                            'bonus' => $q->whereExists(fn ($sub) => $sub->from('driver_score_settlements')->whereColumn('driver_id', 'users.id')->where('week_start', $weekStart)->where('type', 'bonus')),
                             'penalty' => $q->whereExists(fn ($sub) => $sub->from('driver_score_settlements')->whereColumn('driver_id', 'users.id')->where('week_start', $weekStart)->where('type', 'penalty')),
-                            'none'    => $q->whereNotExists(fn ($sub) => $sub->from('driver_score_settlements')->whereColumn('driver_id', 'users.id')->where('week_start', $weekStart)),
-                            default   => $q,
+                            'none' => $q->whereNotExists(fn ($sub) => $sub->from('driver_score_settlements')->whereColumn('driver_id', 'users.id')->where('week_start', $weekStart)),
+                            default => $q,
                         };
                     }),
             ])
@@ -269,17 +288,21 @@ class DriverScoreResource extends Resource
                     ->label('')
                     ->icon('heroicon-o-arrow-path')
                     ->color('warning')
-                    ->tooltip('Reset điểm về ' . DriverScoreService::DEFAULT_SCORE)
+                    ->tooltip('Reset điểm về '.DriverScoreService::DEFAULT_SCORE)
                     ->requiresConfirmation()
                     ->modalHeading('Reset điểm tài xế')
-                    ->modalDescription(fn (User $r) => 'Reset điểm tài xế ' . $r->name . ' về ' . DriverScoreService::DEFAULT_SCORE . '?')
+                    ->modalDescription(fn (User $r) => 'Reset điểm tài xế '.$r->name.' về '.DriverScoreService::DEFAULT_SCORE.'?')
                     ->action(function (User $record) {
                         DriverScoreService::resetToDefault($record->id);
                         Notification::make()->success()
-                            ->title('Đã reset điểm về ' . DriverScoreService::DEFAULT_SCORE)
+                            ->title('Đã reset điểm về '.DriverScoreService::DEFAULT_SCORE)
                             ->send();
                     }),
-            ]);
+            ])
+            ->recordUrl(fn (User $record): string => static::getUrl('view', ['record' => $record]))
+            ->defaultSort('driver_score', 'asc')
+            ->defaultPaginationPageOption(25)
+            ->paginationPageOptions([25, 50, 100]);
     }
 
     // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -289,17 +312,18 @@ class DriverScoreResource extends Resource
         return match (true) {
             $score >= 130 => 'success',
             $score >= 110 => 'info',
-            $score >= 90  => 'primary',
-            $score >= 70  => 'gray',
-            default       => 'danger',
+            $score >= 90 => 'primary',
+            $score >= 70 => 'gray',
+            default => 'danger',
         };
     }
 
     private static function bonusTodayLabel(User $r): string
     {
-        $today  = now()->toDateString();
+        $today = now()->toDateString();
         $points = ($r->daily_bonus_date === $today) ? ($r->daily_bonus_points ?? 0) : 0;
-        return "+{$points} / " . DriverScoreService::DAILY_BONUS_CAP . ' hôm nay';
+
+        return "+{$points} / ".DriverScoreService::DAILY_BONUS_CAP.' hôm nay';
     }
 
     // ─── Relations & Pages ────────────────────────────────────────────────────────
@@ -316,7 +340,7 @@ class DriverScoreResource extends Resource
     {
         return [
             'index' => Pages\ListDriverScores::route('/'),
-            'view'  => Pages\ViewDriverScore::route('/{record}'),
+            'view' => Pages\ViewDriverScore::route('/{record}'),
         ];
     }
 }

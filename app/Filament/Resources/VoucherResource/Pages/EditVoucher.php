@@ -11,6 +11,16 @@ class EditVoucher extends EditRecord
 {
     protected static string $resource = VoucherResource::class;
 
+    public function getTitle(): string
+    {
+        return 'Chỉnh sửa mã '.$this->record->code;
+    }
+
+    public function getSubheading(): ?string
+    {
+        return 'Cập nhật ưu đãi, phạm vi và thời hạn của chiến dịch.';
+    }
+
     protected function mutateFormDataBeforeSave(array $data): array
     {
         $data['city_id'] = Filament::getTenant()?->getKey();
@@ -25,7 +35,7 @@ class EditVoucher extends EditRecord
     protected function getHeaderActions(): array
     {
         return [
-            Actions\DeleteAction::make(),
+            Actions\DeleteAction::make()->label('Xoá mã giảm giá'),
         ];
     }
 

@@ -3,33 +3,38 @@
 namespace App\Filament\Resources;
 
 use App\Filament\Resources\UserResource\Pages;
+use App\Filament\Traits\HideFromCityManager;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Resources\Resource;
 use Filament\Tables;
-use Filament\Tables\Table;
 use Filament\Tables\Filters\SelectFilter;
+use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Modules\Core\Models\User;
-use App\Filament\Traits\HideFromCityManager;
 
 class UserResource extends Resource
 {
     public static function canAccess(): bool
     {
-        return !auth()->user()?->isCallCenter() && static::canViewAny();
+        return ! auth()->user()?->isCallCenter() && static::canViewAny();
     }
 
     use HideFromCityManager;
 
     protected static ?string $model = User::class;
 
-    protected static ?string $navigationIcon  = 'heroicon-o-user-group';
+    protected static ?string $navigationIcon = 'heroicon-o-user-group';
+
     protected static ?string $navigationGroup = 'Người dùng';
-    protected static ?string $modelLabel      = 'Khách hàng';
+
+    protected static ?string $modelLabel = 'Khách hàng';
+
     protected static ?string $pluralModelLabel = 'Khách hàng';
-    protected static ?string $slug            = 'customers';
-    protected static ?int    $navigationSort  = 1;
+
+    protected static ?string $slug = 'customers';
+
+    protected static ?int $navigationSort = 1;
 
     public static function getEloquentQuery(): Builder
     {
@@ -39,41 +44,47 @@ class UserResource extends Resource
     public static function form(Form $form): Form
     {
         return $form->schema([
-            Forms\Components\Section::make('Thông tin cá nhân')->schema([
-                Forms\Components\TextInput::make('name')
-                    ->label('Họ tên')
-                    ->required(),
+            Forms\Components\Section::make('Thông tin cá nhân')
+                ->description('Thông tin liên hệ và khu vực hoạt động của khách hàng')
+                ->icon('heroicon-o-identification')
+                ->schema([
+                    Forms\Components\TextInput::make('name')
+                        ->label('Họ tên')
+                        ->required(),
 
-                Forms\Components\TextInput::make('phone')
-                    ->label('Số điện thoại')
-                    ->tel()
-                    ->required(),
+                    Forms\Components\TextInput::make('phone')
+                        ->label('Số điện thoại')
+                        ->tel()
+                        ->required(),
 
-                Forms\Components\TextInput::make('email')
-                    ->label('Email')
-                    ->email(),
+                    Forms\Components\TextInput::make('email')
+                        ->label('Email')
+                        ->email(),
 
-                Forms\Components\Select::make('city_id')
-                    ->label('Thành phố')
-                    ->relationship('city', 'name')
-                    ->searchable()
-                    ->preload(),
-            ])->columns(2),
+                    Forms\Components\Select::make('city_id')
+                        ->label('Thành phố')
+                        ->relationship('city', 'name')
+                        ->searchable()
+                        ->preload(),
+                ])->columns(2),
 
-            Forms\Components\Section::make('Tài khoản')->schema([
-                Forms\Components\TextInput::make('password')
-                    ->label('Mật khẩu')
-                    ->password()
-                    ->required(fn (string $operation) => $operation === 'create')
-                    ->minLength(6)
-                    ->dehydrateStateUsing(fn ($state) => filled($state) ? bcrypt($state) : null)
-                    ->dehydrated(fn ($state) => filled($state)),
+            Forms\Components\Section::make('Tài khoản')
+                ->description('Mật khẩu và trạng thái truy cập ứng dụng')
+                ->icon('heroicon-o-key')
+                ->schema([
+                    Forms\Components\TextInput::make('password')
+                        ->label('Mật khẩu')
+                        ->password()
+                        ->required(fn (string $operation) => $operation === 'create')
+                        ->minLength(6)
+                        ->dehydrateStateUsing(fn ($state) => filled($state) ? bcrypt($state) : null)
+                        ->dehydrated(fn ($state) => filled($state)),
 
-                Forms\Components\Select::make('status')
-                    ->label('Trạng thái')
-                    ->options([1 => 'Hoạt động', 0 => 'Chờ duyệt', 2 => 'Bị khóa'])
-                    ->required(),
-            ])->columns(2),
+                    Forms\Components\Select::make('status')
+                        ->label('Trạng thái')
+                        ->options([1 => 'Hoạt động', 0 => 'Chờ duyệt', 2 => 'Bị khóa'])
+                        ->required(),
+                ])->columns(2),
         ]);
     }
 
@@ -88,13 +99,28 @@ class UserResource extends Resource
 
                 Tables\Columns\TextColumn::make('name')
                     ->label('Họ tên')
-                    ->searchable()
-                    ->weight('semibold'),
+                    ->searchable(['name', 'phone', 'email'])
+                    ->sortable()
+                    ->weight('semibold')
+                    ->description(fn (User $record) => $record->phone),
 
                 Tables\Columns\TextColumn::make('phone')
                     ->label('Số điện thoại')
                     ->searchable()
                     ->copyable(),
+
+                Tables\Columns\TextColumn::make('customer_orders_count')
+                    ->label('Tổng đơn')
+                    ->counts('customerOrders')
+                    ->badge()
+                    ->color('primary')
+                    ->sortable(),
+
+                Tables\Columns\TextColumn::make('customer_addresses_count')
+                    ->label('Địa chỉ')
+                    ->counts('customerAddresses')
+                    ->alignCenter()
+                    ->sortable(),
 
                 Tables\Columns\TextColumn::make('email')
                     ->label('Email')
@@ -122,7 +148,8 @@ class UserResource extends Resource
                         1 => 'success',
                         2 => 'danger',
                         default => 'gray',
-                    }),
+                    })
+                    ->sortable(),
 
                 Tables\Columns\TextColumn::make('created_at')
                     ->label('Ngày đăng ký')
@@ -139,6 +166,7 @@ class UserResource extends Resource
                     ->relationship('city', 'name'),
             ])
             ->actions([
+                Tables\Actions\ViewAction::make()->label(''),
                 Tables\Actions\EditAction::make()->label(''),
                 // users không dùng SoftDeletes — xoá thật, kèm cascade xoá
                 // luôn lịch sử thông báo + lượt dùng voucher (mất dấu chống
@@ -155,7 +183,10 @@ class UserResource extends Resource
                         ->modalDescription('Xoá hẳn các tài khoản này sẽ xoá luôn lịch sử thông báo, lượt dùng voucher, và làm mất gán chủ đơn ở các đơn hàng cũ. Không thể hoàn tác.'),
                 ]),
             ])
-            ->defaultSort('created_at', 'desc');
+            ->defaultSort('created_at', 'desc')
+            ->recordUrl(fn (User $record): string => static::getUrl('view', ['record' => $record]))
+            ->defaultPaginationPageOption(25)
+            ->paginationPageOptions([25, 50, 100]);
     }
 
     public static function getRelations(): array
@@ -166,9 +197,10 @@ class UserResource extends Resource
     public static function getPages(): array
     {
         return [
-            'index'  => Pages\ListUsers::route('/'),
+            'index' => Pages\ListUsers::route('/'),
             'create' => Pages\CreateUser::route('/create'),
-            'edit'   => Pages\EditUser::route('/{record}/edit'),
+            'view' => Pages\ViewUser::route('/{record}'),
+            'edit' => Pages\EditUser::route('/{record}/edit'),
         ];
     }
 }

@@ -8,6 +8,8 @@ use Filament\Forms\Form;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Model;
 use Modules\Core\Models\User;
 use Modules\Driver\Models\DriverLeaveRequest;
 
@@ -19,23 +21,29 @@ class DriverLeaveRequestResource extends Resource
     }
 
     // DriverLeaveRequest không có city_id trực tiếp — khu vực xác định qua driver_id -> users.city_id.
-    public static function scopeEloquentQueryToTenant(\Illuminate\Database\Eloquent\Builder $query, ?\Illuminate\Database\Eloquent\Model $tenant): \Illuminate\Database\Eloquent\Builder
+    public static function scopeEloquentQueryToTenant(Builder $query, ?Model $tenant): Builder
     {
         return $query->whereHas('driver', fn ($q) => $q->where('city_id', $tenant?->id));
     }
 
-    protected static ?string $model            = DriverLeaveRequest::class;
-    protected static ?string $navigationIcon   = 'heroicon-o-calendar-days';
-    protected static ?string $navigationGroup  = 'Cấu hình';
-    protected static ?string $modelLabel       = 'Xin nghỉ phép';
+    protected static ?string $model = DriverLeaveRequest::class;
+
+    protected static ?string $navigationIcon = 'heroicon-o-calendar-days';
+
+    protected static ?string $navigationGroup = 'Cấu hình';
+
+    protected static ?string $modelLabel = 'Xin nghỉ phép';
+
     protected static ?string $pluralModelLabel = 'Xin nghỉ phép';
-    protected static ?int    $navigationSort   = 4;
+
+    protected static ?int $navigationSort = 4;
 
     public static function form(Form $form): Form
     {
         return $form->schema([
             Forms\Components\Section::make('Ghi nhận nghỉ phép')
                 ->description('Tài xế báo nghỉ trước qua điện thoại/Zalo — admin tạo bản ghi này để miễn chấm điểm "Có mặt" cho ngày nghỉ, không bị tính -15 điểm vì không online.')
+                ->icon('heroicon-o-calendar-days')
                 ->columns(2)
                 ->schema([
                     Forms\Components\Select::make('driver_id')
@@ -44,7 +52,7 @@ class DriverLeaveRequestResource extends Resource
                             ->where('status', 1)
                             ->orderBy('name')
                             ->get()
-                            ->mapWithKeys(fn ($u) => [$u->id => $u->name . ' — ' . $u->phone]))
+                            ->mapWithKeys(fn ($u) => [$u->id => $u->name.' — '.$u->phone]))
                         ->searchable()
                         ->required(),
 
@@ -108,17 +116,22 @@ class DriverLeaveRequestResource extends Resource
                 Tables\Actions\BulkActionGroup::make([
                     Tables\Actions\DeleteBulkAction::make(),
                 ]),
-            ]);
+            ])
+            ->defaultPaginationPageOption(25)
+            ->paginationPageOptions([25, 50, 100]);
     }
 
-    public static function getRelations(): array { return []; }
+    public static function getRelations(): array
+    {
+        return [];
+    }
 
     public static function getPages(): array
     {
         return [
-            'index'  => Pages\ListDriverLeaveRequests::route('/'),
+            'index' => Pages\ListDriverLeaveRequests::route('/'),
             'create' => Pages\CreateDriverLeaveRequest::route('/create'),
-            'edit'   => Pages\EditDriverLeaveRequest::route('/{record}/edit'),
+            'edit' => Pages\EditDriverLeaveRequest::route('/{record}/edit'),
         ];
     }
 }

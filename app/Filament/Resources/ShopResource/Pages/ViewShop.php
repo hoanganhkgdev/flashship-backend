@@ -13,17 +13,28 @@ class ViewShop extends ViewRecord
 {
     protected static string $resource = ShopResource::class;
 
+    public function getTitle(): string
+    {
+        return $this->record->name;
+    }
+
+    public function getSubheading(): ?string
+    {
+        return 'Hồ sơ cửa hàng · '.$this->record->phone.' · '.($this->record->city?->name ?? 'Chưa có khu vực');
+    }
+
     protected function getHeaderActions(): array
     {
         return [
-            Actions\EditAction::make()->label('Chỉnh sửa'),
+            Actions\EditAction::make()->label('Chỉnh sửa cửa hàng')->icon('heroicon-o-pencil-square'),
         ];
     }
 
     public function infolist(Infolist $infolist): Infolist
     {
         return $infolist->schema([
-            Infolists\Components\Section::make('Thông tin shop')
+            Infolists\Components\Section::make('Thông tin cửa hàng')
+                ->icon('heroicon-o-building-storefront')
                 ->schema([
                     Infolists\Components\TextEntry::make('name')
                         ->label('Tên shop')
@@ -63,6 +74,8 @@ class ViewShop extends ViewRecord
                 ])->columns(2),
 
             Infolists\Components\Section::make('Thống kê đơn hàng')
+                ->description('Tổng hợp toàn bộ đơn từ ứng dụng cửa hàng')
+                ->icon('heroicon-o-chart-bar')
                 ->schema([
                     Infolists\Components\TextEntry::make('total_orders')
                         ->label('Tổng đơn')

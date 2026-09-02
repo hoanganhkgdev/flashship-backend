@@ -2,19 +2,27 @@
 
 namespace App\Filament\Pages;
 
+use Carbon\Carbon;
+use Filament\Facades\Filament;
 use Filament\Pages\Page;
 use Illuminate\Support\Facades\DB;
-use Carbon\Carbon;
 
 class DriverEarningsPage extends Page
 {
-    protected static ?string $navigationIcon  = 'heroicon-o-currency-dollar';
-    protected static ?string $navigationGroup = 'Tổng quan';
-    protected static ?string $navigationLabel = 'Thu nhập tài xế';
-    protected static ?int    $navigationSort  = 2;
-    protected static string  $view            = 'filament.pages.driver-earnings';
+    protected static ?string $navigationIcon = 'heroicon-o-currency-dollar';
 
-    public function getHeading(): string { return ''; }
+    protected static ?string $navigationGroup = 'Tổng quan';
+
+    protected static ?string $navigationLabel = 'Thu nhập tài xế';
+
+    protected static ?int $navigationSort = 2;
+
+    protected static string $view = 'filament.pages.driver-earnings';
+
+    public function getHeading(): string
+    {
+        return '';
+    }
 
     public static function canAccess(): bool
     {
@@ -30,10 +38,10 @@ class DriverEarningsPage extends Page
 
     public function getDriversProperty(): array
     {
-        $date      = $this->date ?: now()->toDateString();
-        $cityId    = \Filament\Facades\Filament::getTenant()?->id;
+        $date = $this->date ?: now()->toDateString();
+        $cityId = Filament::getTenant()?->id;
         $weekStart = Carbon::parse($date)->startOfWeek()->toDateString();
-        $weekEnd   = Carbon::parse($date)->endOfWeek()->toDateString();
+        $weekEnd = Carbon::parse($date)->endOfWeek()->toDateString();
 
         $drivers = DB::table('users')
             ->where('user_type', 'driver')
@@ -43,7 +51,9 @@ class DriverEarningsPage extends Page
             ->get(['id', 'name', 'phone', 'is_online']);
 
         $driverIds = $drivers->pluck('id')->toArray();
-        if (empty($driverIds)) return [];
+        if (empty($driverIds)) {
+            return [];
+        }
 
         $todayStats = DB::table('orders')
             ->whereIn('delivery_man_id', $driverIds)
@@ -51,22 +61,13 @@ class DriverEarningsPage extends Page
             ->whereDate('completed_at', $date)
             ->groupBy('delivery_man_id')
             ->selectRaw('delivery_man_id, COUNT(*) as cnt, COALESCE(SUM(shipping_fee + bonus_fee), 0) as earnings')
-            ->pluck('cnt', 'delivery_man_id')
-            ->toArray();
-
-        $todayEarnings = DB::table('orders')
-            ->whereIn('delivery_man_id', $driverIds)
-            ->where('status', 'completed')
-            ->whereDate('completed_at', $date)
-            ->groupBy('delivery_man_id')
-            ->selectRaw('delivery_man_id, COALESCE(SUM(shipping_fee + bonus_fee), 0) as earnings')
-            ->pluck('earnings', 'delivery_man_id')
-            ->toArray();
+            ->get()
+            ->keyBy('delivery_man_id');
 
         $weekStats = DB::table('orders')
             ->whereIn('delivery_man_id', $driverIds)
             ->where('status', 'completed')
-            ->whereBetween('completed_at', [$weekStart . ' 00:00:00', $weekEnd . ' 23:59:59'])
+            ->whereBetween('completed_at', [$weekStart.' 00:00:00', $weekEnd.' 23:59:59'])
             ->groupBy('delivery_man_id')
             ->selectRaw('delivery_man_id, COUNT(*) as cnt, COALESCE(SUM(shipping_fee + bonus_fee), 0) as earnings')
             ->get()
@@ -75,20 +76,21 @@ class DriverEarningsPage extends Page
         $result = [];
         foreach ($drivers as $d) {
             $week = $weekStats->get($d->id);
+            $today = $todayStats->get($d->id);
 
             $result[] = [
-                'id'              => $d->id,
-                'name'            => $d->name,
-                'phone'           => $d->phone,
-                'is_online'       => $d->is_online,
-                'today_orders'    => (int) ($todayStats[$d->id] ?? 0),
-                'today_earnings'  => (int) ($todayEarnings[$d->id] ?? 0),
-                'week_orders'     => (int) ($week->cnt ?? 0),
-                'week_earnings'   => (int) ($week->earnings ?? 0),
+                'id' => $d->id,
+                'name' => $d->name,
+                'phone' => $d->phone,
+                'is_online' => $d->is_online,
+                'today_orders' => (int) ($today->cnt ?? 0),
+                'today_earnings' => (int) ($today->earnings ?? 0),
+                'week_orders' => (int) ($week->cnt ?? 0),
+                'week_earnings' => (int) ($week->earnings ?? 0),
             ];
         }
 
-        usort($result, fn($a, $b) => $b['today_earnings'] <=> $a['today_earnings']);
+        usort($result, fn ($a, $b) => $b['today_earnings'] <=> $a['today_earnings']);
 
         return $result;
     }
@@ -96,13 +98,14 @@ class DriverEarningsPage extends Page
     public function getTotalsProperty(): array
     {
         $drivers = $this->drivers;
+
         return [
-            'drivers'        => count($drivers),
-            'online'         => count(array_filter($drivers, fn($d) => $d['is_online'])),
-            'today_orders'   => array_sum(array_column($drivers, 'today_orders')),
+            'drivers' => count($drivers),
+            'online' => count(array_filter($drivers, fn ($d) => $d['is_online'])),
+            'today_orders' => array_sum(array_column($drivers, 'today_orders')),
             'today_earnings' => array_sum(array_column($drivers, 'today_earnings')),
-            'week_orders'    => array_sum(array_column($drivers, 'week_orders')),
-            'week_earnings'  => array_sum(array_column($drivers, 'week_earnings')),
+            'week_orders' => array_sum(array_column($drivers, 'week_orders')),
+            'week_earnings' => array_sum(array_column($drivers, 'week_earnings')),
         ];
     }
 }

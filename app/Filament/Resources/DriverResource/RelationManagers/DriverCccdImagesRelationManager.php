@@ -8,15 +8,17 @@ use Filament\Notifications\Notification;
 use Filament\Resources\RelationManagers\RelationManager;
 use Filament\Tables;
 use Filament\Tables\Table;
-use Illuminate\Support\HtmlString;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\HtmlString;
 use Modules\Driver\Models\DriverCccdImage;
 
 class DriverCccdImagesRelationManager extends RelationManager
 {
     protected static string $relationship = 'driverCccdImages';
-    protected static ?string $title       = 'Hình CCCD / CMND';
-    protected static ?string $modelLabel  = 'ảnh CCCD';
+
+    protected static ?string $title = 'Hình CCCD / CMND';
+
+    protected static ?string $modelLabel = 'ảnh CCCD';
 
     public function form(Form $form): Form
     {
@@ -45,14 +47,14 @@ class DriverCccdImagesRelationManager extends RelationManager
                     ->formatStateUsing(fn ($state) => match ($state) {
                         'approved' => 'Đã xác minh',
                         'rejected' => 'Từ chối',
-                        'pending'  => 'Chờ duyệt',
-                        default    => 'Không rõ',
+                        'pending' => 'Chờ duyệt',
+                        default => 'Không rõ',
                     })
                     ->color(fn ($state) => match ($state) {
                         'approved' => 'success',
                         'rejected' => 'danger',
-                        'pending'  => 'warning',
-                        default    => 'gray',
+                        'pending' => 'warning',
+                        default => 'gray',
                     }),
 
                 Tables\Columns\TextColumn::make('created_at')
@@ -71,9 +73,9 @@ class DriverCccdImagesRelationManager extends RelationManager
                     ->modalWidth('2xl')
                     ->modalContent(fn (DriverCccdImage $record): HtmlString => new HtmlString(
                         '<div style="text-align:center;padding:8px 0 16px">'
-                        . '<img src="' . ($record->image_path ? asset('storage/' . $record->image_path) : '') . '"'
-                        . ' style="max-width:100%;max-height:480px;border-radius:10px;object-fit:contain;border:1px solid #e5e7eb">'
-                        . '</div>'
+                        .'<img src="'.($record->image_path ? asset('storage/'.$record->image_path) : '').'"'
+                        .' style="max-width:100%;max-height:480px;border-radius:10px;object-fit:contain;border:1px solid #e5e7eb">'
+                        .'</div>'
                     ))
                     ->form([
                         Forms\Components\Select::make('status')
@@ -93,7 +95,7 @@ class DriverCccdImagesRelationManager extends RelationManager
                             ->rows(2),
                     ])
                     ->fillForm(fn (DriverCccdImage $record) => [
-                        'status'           => $record->status,
+                        'status' => $record->status,
                         'rejection_reason' => $record->rejection_reason,
                     ])
                     ->modalSubmitActionLabel('Lưu quyết định')
@@ -101,7 +103,9 @@ class DriverCccdImagesRelationManager extends RelationManager
                         $updated = DB::transaction(function () use ($record, $data) {
                             $latest = DriverCccdImage::where('user_id', $record->user_id)
                                 ->latest('id')->lockForUpdate()->first();
-                            if (!$latest || $latest->id !== $record->id) return false;
+                            if (! $latest || $latest->id !== $record->id) {
+                                return false;
+                            }
 
                             $latest->update([
                                 'status' => $data['status'],
@@ -109,10 +113,12 @@ class DriverCccdImagesRelationManager extends RelationManager
                                     ? ($data['rejection_reason'] ?? null)
                                     : null,
                             ]);
+
                             return true;
                         });
-                        if (!$updated) {
+                        if (! $updated) {
                             Notification::make()->title('Hồ sơ đã được thay bằng ảnh mới, vui lòng mở lại')->danger()->send();
+
                             return;
                         }
                         Notification::make()

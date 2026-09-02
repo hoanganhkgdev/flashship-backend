@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\DriverScoreResource\RelationManagers;
 
+use Carbon\Carbon;
 use Filament\Forms\Form;
 use Filament\Resources\RelationManagers\RelationManager;
 use Filament\Tables;
@@ -9,10 +10,14 @@ use Filament\Tables\Table;
 
 class ScoreSettlementsRelationManager extends RelationManager
 {
-    protected static string  $relationship = 'scoreSettlements';
-    protected static ?string $title        = 'Lịch sử chốt điểm';
+    protected static string $relationship = 'scoreSettlements';
 
-    public function form(Form $form): Form { return $form->schema([]); }
+    protected static ?string $title = 'Lịch sử chốt điểm';
+
+    public function form(Form $form): Form
+    {
+        return $form->schema([]);
+    }
 
     public function table(Table $table): Table
     {
@@ -20,9 +25,8 @@ class ScoreSettlementsRelationManager extends RelationManager
             ->columns([
                 Tables\Columns\TextColumn::make('week_start')
                     ->label('Tuần')
-                    ->formatStateUsing(fn ($state, $record) =>
-                        \Carbon\Carbon::parse($state)->format('d/m') . ' → ' .
-                        \Carbon\Carbon::parse($record->week_end)->format('d/m/Y'))
+                    ->formatStateUsing(fn ($state, $record) => Carbon::parse($state)->format('d/m').' → '.
+                        Carbon::parse($record->week_end)->format('d/m/Y'))
                     ->sortable(),
 
                 Tables\Columns\TextColumn::make('score_at_settlement')
@@ -31,8 +35,8 @@ class ScoreSettlementsRelationManager extends RelationManager
                     ->weight('bold')
                     ->color(fn ($state) => match (true) {
                         $state >= 150 => 'success',
-                        $state <= 70  => 'danger',
-                        default       => 'gray',
+                        $state <= 70 => 'danger',
+                        default => 'gray',
                     }),
 
                 Tables\Columns\TextColumn::make('type')
@@ -40,20 +44,20 @@ class ScoreSettlementsRelationManager extends RelationManager
                     ->alignCenter()
                     ->badge()
                     ->formatStateUsing(fn ($state) => match ($state) {
-                        'bonus'   => 'Thưởng',
+                        'bonus' => 'Thưởng',
                         'penalty' => 'Phạt',
-                        default   => $state,
+                        default => $state,
                     })
                     ->color(fn ($state) => match ($state) {
-                        'bonus'   => 'success',
+                        'bonus' => 'success',
                         'penalty' => 'danger',
-                        default   => 'gray',
+                        default => 'gray',
                     }),
 
                 Tables\Columns\TextColumn::make('amount')
                     ->label('Số tiền')
                     ->alignRight()
-                    ->formatStateUsing(fn ($state) => number_format($state) . '₫')
+                    ->formatStateUsing(fn ($state) => number_format($state).'₫')
                     ->weight('bold'),
 
                 Tables\Columns\TextColumn::make('status')
@@ -61,14 +65,14 @@ class ScoreSettlementsRelationManager extends RelationManager
                     ->alignCenter()
                     ->badge()
                     ->formatStateUsing(fn ($state) => match ($state) {
-                        'pending'   => 'Chờ xử lý',
+                        'pending' => 'Chờ xử lý',
                         'processed' => 'Đã xử lý',
-                        default     => $state,
+                        default => $state,
                     })
                     ->color(fn ($state) => match ($state) {
-                        'pending'   => 'warning',
+                        'pending' => 'warning',
                         'processed' => 'success',
-                        default     => 'gray',
+                        default => 'gray',
                     }),
 
                 Tables\Columns\TextColumn::make('created_at')
@@ -80,5 +84,8 @@ class ScoreSettlementsRelationManager extends RelationManager
             ->paginated([10, 25, 50]);
     }
 
-    public function canCreate(): bool { return false; }
+    public function canCreate(): bool
+    {
+        return false;
+    }
 }

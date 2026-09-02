@@ -2,20 +2,24 @@
 
 namespace App\Filament\Resources;
 
+use App\Filament\Pages\CallCenterPage;
 use App\Filament\Resources\OrderResource\Pages;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Infolists;
 use Filament\Infolists\Infolist;
+use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
 use Filament\Tables;
-use Filament\Tables\Table;
-use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Columns\Layout\Split;
 use Filament\Tables\Columns\Layout\Stack;
-use Filament\Notifications\Notification;
+use Filament\Tables\Filters\SelectFilter;
+use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\HtmlString;
+use Illuminate\Support\Str;
 use Modules\Core\Models\ServiceType;
+use Modules\Core\Services\FCMService;
 use Modules\Core\Services\RTDBService;
 use Modules\Order\Models\Order;
 use Modules\Order\Services\OrderService;
@@ -24,46 +28,51 @@ class OrderResource extends Resource
 {
     protected static ?string $model = Order::class;
 
-    protected static ?string $navigationIcon  = 'heroicon-o-shopping-bag';
+    protected static ?string $navigationIcon = 'heroicon-o-shopping-bag';
+
     protected static ?string $navigationGroup = 'Đơn hàng';
-    protected static ?string $modelLabel      = 'Đơn hàng';
+
+    protected static ?string $modelLabel = 'Đơn hàng';
+
     protected static ?string $pluralModelLabel = 'Đơn hàng';
-    protected static ?int    $navigationSort  = 1;
+
+    protected static ?int $navigationSort = 1;
 
     private static function serviceLabels(): array
     {
         static $cache = null;
+
         return $cache ??= ServiceType::pluck('label', 'key')->toArray();
     }
 
     private static array $statusLabels = [
-        'pending'    => 'Chờ tài xế',
-        'assigned'   => 'Đã phân công',
+        'pending' => 'Chờ tài xế',
+        'assigned' => 'Đã phân công',
         'processing' => 'Đã lấy hàng',
-        'completed'  => 'Hoàn thành',
-        'cancelled'  => 'Đã huỷ',
+        'completed' => 'Hoàn thành',
+        'cancelled' => 'Đã huỷ',
     ];
 
     private static array $statusColors = [
-        'pending'    => 'warning',
-        'assigned'   => 'info',
+        'pending' => 'warning',
+        'assigned' => 'info',
         'processing' => 'primary',
-        'completed'  => 'success',
-        'cancelled'  => 'danger',
+        'completed' => 'success',
+        'cancelled' => 'danger',
     ];
 
     protected static array $statusTextColors = [
-        'pending'    => '#f59e0b',
-        'assigned'   => '#3b82f6',
+        'pending' => '#f59e0b',
+        'assigned' => '#3b82f6',
         'processing' => '#f97316',
-        'completed'  => '#22c55e',
-        'cancelled'  => '#ef4444',
+        'completed' => '#22c55e',
+        'cancelled' => '#ef4444',
     ];
 
     private static array $paymentLabels = [
-        'cod'     => 'COD',
+        'cod' => 'COD',
         'prepaid' => 'Thanh toán trước',
-        'wallet'  => 'Ví',
+        'wallet' => 'Ví',
     ];
 
     public static function form(Form $form): Form
@@ -72,18 +81,21 @@ class OrderResource extends Resource
             // ── Cột trái: các trường có thể sửa ──
             Forms\Components\Group::make()->schema([
 
-                Forms\Components\Section::make('Trạng thái')->schema([
-                    Forms\Components\Select::make('status')
-                        ->label('Trạng thái')
-                        ->options(self::$statusLabels)
-                        ->required()
-                        ->live(),
-                    Forms\Components\TextInput::make('cancel_reason')
-                        ->label('Lý do huỷ')
-                        ->visible(fn ($get) => $get('status') === 'cancelled'),
-                ])->columns(2),
+                Forms\Components\Section::make('Trạng thái')
+                    ->description('Cập nhật tiến trình xử lý của đơn hàng')
+                    ->icon('heroicon-o-signal')
+                    ->schema([
+                        Forms\Components\Select::make('status')
+                            ->label('Trạng thái')
+                            ->options(self::$statusLabels)
+                            ->required()
+                            ->live(),
+                        Forms\Components\TextInput::make('cancel_reason')
+                            ->label('Lý do huỷ')
+                            ->visible(fn ($get) => $get('status') === 'cancelled'),
+                    ])->columns(2),
 
-                Forms\Components\Section::make('Điểm lấy hàng')->schema([
+                Forms\Components\Section::make('Điểm lấy hàng')->icon('heroicon-o-arrow-up-circle')->schema([
                     Forms\Components\TextInput::make('pickup_address')->label('Địa chỉ lấy')
                         ->extraInputAttributes(['id' => 'edit-pickup-addr', 'autocomplete' => 'off'])
                         ->suffixActions([
@@ -94,7 +106,7 @@ class OrderResource extends Resource
                     Forms\Components\TextInput::make('pickup_phone')->label('SĐT lấy hàng'),
                 ])->columns(2),
 
-                Forms\Components\Section::make('Điểm giao hàng')->schema([
+                Forms\Components\Section::make('Điểm giao hàng')->icon('heroicon-o-arrow-down-circle')->schema([
                     Forms\Components\TextInput::make('delivery_address')->label('Địa chỉ giao')
                         ->extraInputAttributes(['id' => 'edit-delivery-addr', 'autocomplete' => 'off'])
                         ->suffixActions([
@@ -105,11 +117,11 @@ class OrderResource extends Resource
                     Forms\Components\TextInput::make('delivery_phone')->label('SĐT giao hàng'),
                 ])->columns(2),
 
-                Forms\Components\Section::make('Phí & thanh toán')->schema([
+                Forms\Components\Section::make('Phí & thanh toán')->icon('heroicon-o-banknotes')->schema([
                     Forms\Components\TextInput::make('shipping_fee')->label('Phí ship')->numeric()->suffix('đ'),
                 ])->columns(1),
 
-                Forms\Components\Section::make('Ghi chú')->schema([
+                Forms\Components\Section::make('Ghi chú')->icon('heroicon-o-chat-bubble-left-ellipsis')->schema([
                     Forms\Components\Textarea::make('order_note')->label('Ghi chú đơn hàng')->rows(8)->columnSpanFull(),
                 ]),
 
@@ -118,49 +130,49 @@ class OrderResource extends Resource
             // ── Cột phải: thông tin chỉ xem ──
             Forms\Components\Group::make()->schema([
 
-                Forms\Components\Section::make('Thông tin đơn')->schema([
+                Forms\Components\Section::make('Thông tin đơn')->icon('heroicon-o-information-circle')->schema([
                     Forms\Components\Placeholder::make('info_display')
                         ->label('')
-                        ->content(fn ($record) => new \Illuminate\Support\HtmlString(
+                        ->content(fn ($record) => new HtmlString(
                             '<div style="line-height:2">'
-                            . '<b>Mã đơn:</b> #' . e($record->code) . '<br>'
-                            . '<b>Dịch vụ:</b> ' . e(self::serviceLabels()[$record->service_type] ?? $record->service_type) . '<br>'
-                            . '<b>Khu vực:</b> ' . e($record->city?->name ?? '—') . '<br>'
-                            . '<b>Nguồn đơn:</b> ' . e(match ($record->platform) {
+                            .'<b>Mã đơn:</b> #'.e($record->code).'<br>'
+                            .'<b>Dịch vụ:</b> '.e(self::serviceLabels()[$record->service_type] ?? $record->service_type).'<br>'
+                            .'<b>Khu vực:</b> '.e($record->city?->name ?? '—').'<br>'
+                            .'<b>Nguồn đơn:</b> '.e(match ($record->platform) {
                                 'customer_app' => 'App khách',
-                                'call_center'  => 'Tổng đài',
-                                'shop_app'     => 'App cửa hàng',
-                                default        => $record->platform ?? '—',
-                            }) . '<br>'
-                            . '<b>Tạo lúc:</b> ' . e($record->created_at?->format('d/m/Y H:i')) . '<br>'
-                            . '<b>Hoàn thành:</b> ' . e($record->completed_at?->format('d/m/Y H:i') ?? '—')
-                            . '</div>'
+                                'call_center' => 'Tổng đài',
+                                'shop_app' => 'App cửa hàng',
+                                default => $record->platform ?? '—',
+                            }).'<br>'
+                            .'<b>Tạo lúc:</b> '.e($record->created_at?->format('d/m/Y H:i')).'<br>'
+                            .'<b>Hoàn thành:</b> '.e($record->completed_at?->format('d/m/Y H:i') ?? '—')
+                            .'</div>'
                         )),
                 ]),
 
-                Forms\Components\Section::make('Tài xế')->schema([
+                Forms\Components\Section::make('Tài xế')->icon('heroicon-o-truck')->schema([
                     Forms\Components\Placeholder::make('driver_info_display')
                         ->label('')
-                        ->content(fn ($record) => new \Illuminate\Support\HtmlString(
+                        ->content(fn ($record) => new HtmlString(
                             '<div style="line-height:2">'
-                            . '<b>Tài xế:</b> ' . e($record->driver?->name ?? 'Chưa phân công') . '<br>'
-                            . '<b>SĐT:</b> ' . ($record->driver?->phone
-                                ? '<a href="https://zalo.me/' . e(ltrim($record->driver->phone, '0')) . '" target="_blank" style="text-decoration:underline">' . e($record->driver->phone) . '</a>'
+                            .'<b>Tài xế:</b> '.e($record->driver?->name ?? 'Chưa phân công').'<br>'
+                            .'<b>SĐT:</b> '.($record->driver?->phone
+                                ? '<a href="https://zalo.me/'.e(ltrim($record->driver->phone, '0')).'" target="_blank" style="text-decoration:underline">'.e($record->driver->phone).'</a>'
                                 : '—')
-                            . '</div>'
+                            .'</div>'
                         )),
                 ]),
 
-                Forms\Components\Section::make('Chi tiết phí')->schema([
+                Forms\Components\Section::make('Chi tiết phí')->icon('heroicon-o-receipt-percent')->schema([
                     Forms\Components\Placeholder::make('fee_info_display')
                         ->label('')
-                        ->content(fn ($record) => new \Illuminate\Support\HtmlString(
+                        ->content(fn ($record) => new HtmlString(
                             '<div style="line-height:2">'
-                            . '<b>Khoảng cách:</b> ' . e($record->distance ? number_format((float) $record->distance, 1) . ' km' : '—') . '<br>'
-                            . '<b>Phụ phí đêm:</b> ' . e(number_format($record->night_surcharge ?? 0)) . 'đ<br>'
-                            . '<b>Giảm giá:</b> ' . e($record->discount_amount ? number_format($record->discount_amount) . 'đ' : '—') . ($record->voucher_code ? ' (' . e($record->voucher_code) . ')' : '') . '<br>'
-                            . '<b>Thanh toán:</b> ' . e(self::$paymentLabels[$record->payment_method] ?? $record->payment_method)
-                            . '</div>'
+                            .'<b>Khoảng cách:</b> '.e($record->distance ? number_format((float) $record->distance, 1).' km' : '—').'<br>'
+                            .'<b>Phụ phí đêm:</b> '.e(number_format($record->night_surcharge ?? 0)).'đ<br>'
+                            .'<b>Giảm giá:</b> '.e($record->discount_amount ? number_format($record->discount_amount).'đ' : '—').($record->voucher_code ? ' ('.e($record->voucher_code).')' : '').'<br>'
+                            .'<b>Thanh toán:</b> '.e(self::$paymentLabels[$record->payment_method] ?? $record->payment_method)
+                            .'</div>'
                         )),
                 ]),
 
@@ -248,24 +260,24 @@ class OrderResource extends Resource
             Infolists\Components\Section::make('Tài chính')->schema([
                 Infolists\Components\TextEntry::make('shipping_fee')
                     ->label('Phí ship')
-                    ->formatStateUsing(fn ($state) => number_format((int) $state) . 'đ'),
+                    ->formatStateUsing(fn ($state) => number_format((int) $state).'đ'),
 
                 Infolists\Components\TextEntry::make('bonus_fee')
                     ->label('Thưởng thêm')
-                    ->formatStateUsing(fn ($state) => number_format((int) $state) . 'đ')
+                    ->formatStateUsing(fn ($state) => number_format((int) $state).'đ')
                     ->color(fn ($state) => $state > 0 ? 'success' : 'gray'),
 
                 Infolists\Components\TextEntry::make('cod_amount')
                     ->label('Thu hộ COD')
-                    ->formatStateUsing(fn ($state) => $state ? number_format((int) $state) . 'đ' : '—'),
+                    ->formatStateUsing(fn ($state) => $state ? number_format((int) $state).'đ' : '—'),
 
                 Infolists\Components\TextEntry::make('discount_amount')
                     ->label('Giảm giá')
-                    ->formatStateUsing(fn ($state) => $state ? number_format((int) $state) . 'đ' : '—'),
+                    ->formatStateUsing(fn ($state) => $state ? number_format((int) $state).'đ' : '—'),
 
                 Infolists\Components\TextEntry::make('distance')
                     ->label('Khoảng cách')
-                    ->formatStateUsing(fn ($state) => $state ? number_format((float) $state, 1) . ' km' : '—'),
+                    ->formatStateUsing(fn ($state) => $state ? number_format((float) $state, 1).' km' : '—'),
 
                 Infolists\Components\TextEntry::make('payment_method')
                     ->label('Thanh toán')
@@ -294,26 +306,25 @@ class OrderResource extends Resource
                         ->searchable(query: function (Builder $query, string $search): Builder {
                             return $query->where(function ($q) use ($search) {
                                 $q->where('code', 'like', "%{$search}%")
-                                  ->orWhere('pickup_phone', 'like', "%{$search}%")
-                                  ->orWhere('delivery_phone', 'like', "%{$search}%")
-                                  ->orWhere('pickup_address', 'like', "%{$search}%")
-                                  ->orWhere('delivery_address', 'like', "%{$search}%")
-                                  ->orWhere('order_note', 'like', "%{$search}%")
-                                  ->orWhereHas('driver', fn ($q) => $q->where('phone', 'like', "%{$search}%"));
+                                    ->orWhere('pickup_phone', 'like', "%{$search}%")
+                                    ->orWhere('delivery_phone', 'like', "%{$search}%")
+                                    ->orWhere('pickup_address', 'like', "%{$search}%")
+                                    ->orWhere('delivery_address', 'like', "%{$search}%")
+                                    ->orWhere('order_note', 'like', "%{$search}%")
+                                    ->orWhereHas('driver', fn ($q) => $q->where('phone', 'like', "%{$search}%"));
                             });
                         })
                         ->copyable()
-                        ->formatStateUsing(fn ($state, $record) =>
-                            '<span style="font-weight:700">#' . e($state) . '</span>'
-                            . '<span style="color:#9ca3af;margin:0 6px">·</span>'
-                            . '<span style="font-weight:700;color:rgb(var(--primary-500))">' . e(self::serviceLabels()[$record->service_type] ?? $record->service_type) . '</span>'
-                            . '<span style="color:#9ca3af;margin:0 6px">·</span>'
-                            . '<span style="font-weight:600;color:' . self::$statusTextColors[$record->status] . '">' . e(self::$statusLabels[$record->status] ?? $record->status) . '</span>'
-                            . ($record->status === 'pending' && $record->cancel_reason === 'no_driver'
+                        ->formatStateUsing(fn ($state, $record) => '<span style="font-weight:700">#'.e($state).'</span>'
+                            .'<span style="color:#9ca3af;margin:0 6px">·</span>'
+                            .'<span style="font-weight:700;color:rgb(var(--primary-500))">'.e(self::serviceLabels()[$record->service_type] ?? $record->service_type).'</span>'
+                            .'<span style="color:#9ca3af;margin:0 6px">·</span>'
+                            .'<span style="font-weight:600;color:'.self::$statusTextColors[$record->status].'">'.e(self::$statusLabels[$record->status] ?? $record->status).'</span>'
+                            .($record->status === 'pending' && $record->cancel_reason === 'no_driver'
                                 ? '<br><span style="color:#ef4444;font-size:11px;font-weight:600">⚠ Không tìm được tài xế — cần xử lý</span>'
                                 : '')
-                            . ($record->status === 'processing' && $record->updated_at?->lt(now()->subMinutes(30))
-                                ? '<br><span style="color:#ef4444;font-size:11px;font-weight:600">⚠ Đã lấy hàng ' . $record->updated_at->diffInMinutes(now()) . ' phút — chưa hoàn thành</span>'
+                            .($record->status === 'processing' && $record->updated_at?->lt(now()->subMinutes(30))
+                                ? '<br><span style="color:#ef4444;font-size:11px;font-weight:600">⚠ Đã lấy hàng '.$record->updated_at->diffInMinutes(now()).' phút — chưa hoàn thành</span>'
                                 : '')
                         )
                         ->html()
@@ -331,13 +342,13 @@ class OrderResource extends Resource
                     Tables\Columns\TextColumn::make('pickup_address')
                         ->icon('heroicon-m-arrow-up-circle')
                         ->iconColor('warning')
-                        ->formatStateUsing(fn ($state) => \Illuminate\Support\Str::limit($state, 35))
+                        ->formatStateUsing(fn ($state) => Str::limit($state, 35))
                         ->tooltip(fn ($record) => $record->pickup_address)
                         ->size('sm'),
                     Tables\Columns\TextColumn::make('delivery_address')
                         ->icon('heroicon-m-arrow-down-circle')
                         ->iconColor('success')
-                        ->formatStateUsing(fn ($state) => \Illuminate\Support\Str::limit($state, 35))
+                        ->formatStateUsing(fn ($state) => Str::limit($state, 35))
                         ->tooltip(fn ($record) => $record->delivery_address)
                         ->size('sm'),
                 ]),
@@ -346,7 +357,7 @@ class OrderResource extends Resource
                 Tables\Columns\TextColumn::make('order_note')
                     ->icon('heroicon-m-chat-bubble-left-ellipsis')
                     ->iconColor('warning')
-                    ->formatStateUsing(fn ($state) => \Illuminate\Support\Str::limit($state, 50))
+                    ->formatStateUsing(fn ($state) => Str::limit($state, 50))
                     ->tooltip(fn ($record) => $record->order_note)
                     ->size('sm')
                     ->color('gray')
@@ -358,17 +369,16 @@ class OrderResource extends Resource
                         ->icon('heroicon-m-user-circle')
                         ->iconColor('gray')
                         ->default('Chưa phân công')
-                        ->formatStateUsing(fn ($state, $record) =>
-                            $record->driver
-                                ? e($state) . '<span style="color:#9ca3af;margin:0 6px">·</span>' . '<a href="https://zalo.me/' . e(ltrim($record->driver->phone ?? '', '0')) . '" target="_blank" style="text-decoration:underline">' . e($record->driver->phone ?? '') . '</a>'
+                        ->formatStateUsing(fn ($state, $record) => $record->driver
+                                ? e($state).'<span style="color:#9ca3af;margin:0 6px">·</span>'.'<a href="https://zalo.me/'.e(ltrim($record->driver->phone ?? '', '0')).'" target="_blank" style="text-decoration:underline">'.e($record->driver->phone ?? '').'</a>'
                                 : $state
                         )
                         ->html()
-                        ->color(fn ($record) => $record->driver_id ? 'primary' : 'gray')
+                        ->color(fn ($record) => $record->delivery_man_id ? 'primary' : 'gray')
                         ->size('sm')
                         ->grow(true),
                     Tables\Columns\TextColumn::make('shipping_fee')
-                        ->formatStateUsing(fn ($state) => number_format((int) $state) . 'đ')
+                        ->formatStateUsing(fn ($state) => number_format((int) $state).'đ')
                         ->weight('bold')
                         ->color('primary')
                         ->alignEnd()
@@ -377,11 +387,25 @@ class OrderResource extends Resource
             ])
             ->contentGrid([
                 'default' => 1,
-                'sm'      => 2,
-                'xl'      => 3,
+                'sm' => 2,
+                'xl' => 3,
             ])
             ->recordUrl(null)
-            ->filters([])
+            ->filters([
+                SelectFilter::make('service_type')
+                    ->label('Dịch vụ')
+                    ->options(fn (): array => self::serviceLabels()),
+                SelectFilter::make('platform')
+                    ->label('Nguồn đơn')
+                    ->options([
+                        'customer_app' => 'App khách hàng',
+                        'shop_app' => 'App cửa hàng',
+                        'call_center' => 'Tổng đài',
+                    ]),
+                SelectFilter::make('payment_method')
+                    ->label('Thanh toán')
+                    ->options(self::$paymentLabels),
+            ])
             ->actions([
                 Tables\Actions\EditAction::make()->label(''),
 
@@ -395,13 +419,14 @@ class OrderResource extends Resource
                     ->visible(fn (Order $record) => in_array($record->status, ['pending', 'assigned']))
                     ->requiresConfirmation()
                     ->modalHeading('Huỷ đơn hàng')
-                    ->modalDescription(fn (Order $record) => 'Xác nhận huỷ đơn ' . $record->code . '?')
+                    ->modalDescription(fn (Order $record) => 'Xác nhận huỷ đơn '.$record->code.'?')
                     ->action(function (Order $record) {
                         $fresh = $record->fresh();
                         if ($fresh->status === 'pending') {
                             $result = app(OrderService::class)->cancelPendingOrder($fresh);
-                            if (!$result['success']) {
+                            if (! $result['success']) {
                                 Notification::make()->title($result['message'])->danger()->send();
+
                                 return;
                             }
                             Order::whereKey($fresh->id)->update(['cancel_reason' => 'admin']);
@@ -409,14 +434,15 @@ class OrderResource extends Resource
                             $updated = Order::whereKey($fresh->id)
                                 ->where('status', 'assigned')
                                 ->update(['status' => 'cancelled', 'cancel_reason' => 'admin', 'updated_at' => now()]);
-                            if (!$updated) {
+                            if (! $updated) {
                                 Notification::make()->title('Đơn vừa đổi trạng thái, vui lòng tải lại.')->danger()->send();
+
                                 return;
                             }
                             RTDBService::clearOrder($fresh->code);
                             $driver = $fresh->driver;
                             if ($driver?->fcm_token) {
-                                \Modules\Core\Services\FCMService::getInstance()->sendDriverNotice(
+                                FCMService::getInstance()->sendDriverNotice(
                                     $driver->fcm_token,
                                     "Đơn #{$fresh->code} đã bị hủy",
                                     'Tổng đài đã hủy đơn hàng này.',
@@ -425,9 +451,10 @@ class OrderResource extends Resource
                             }
                         } else {
                             Notification::make()->title('Chỉ có thể hủy đơn đang chờ hoặc đã nhận.')->danger()->send();
+
                             return;
                         }
-                        Notification::make()->title('Đã huỷ đơn ' . $record->code)->warning()->send();
+                        Notification::make()->title('Đã huỷ đơn '.$record->code)->warning()->send();
                     }),
 
                 Tables\Actions\Action::make('reorder')
@@ -436,19 +463,19 @@ class OrderResource extends Resource
                     ->color('success')
                     ->tooltip('Đặt lại')
                     ->visible(fn (Order $record) => in_array($record->status, ['cancelled', 'completed']))
-                    ->url(fn (Order $record) => \App\Filament\Pages\CallCenterPage::getUrl() . '?' . http_build_query(array_filter([
-                        'reorder'          => $record->id,
-                        'service'          => $record->service_type,
-                        'city_id'          => $record->city_id,
-                        'pickup_address'   => $record->pickup_address,
-                        'pickup_phone'     => $record->pickup_phone,
-                        'pickup_lat'       => $record->pickup_lat,
-                        'pickup_lng'       => $record->pickup_lng,
+                    ->url(fn (Order $record) => CallCenterPage::getUrl().'?'.http_build_query(array_filter([
+                        'reorder' => $record->id,
+                        'service' => $record->service_type,
+                        'city_id' => $record->city_id,
+                        'pickup_address' => $record->pickup_address,
+                        'pickup_phone' => $record->pickup_phone,
+                        'pickup_lat' => $record->pickup_lat,
+                        'pickup_lng' => $record->pickup_lng,
                         'delivery_address' => $record->delivery_address,
-                        'delivery_phone'   => $record->delivery_phone,
-                        'delivery_lat'     => $record->delivery_lat,
-                        'delivery_lng'     => $record->delivery_lng,
-                        'order_note'       => $record->order_note,
+                        'delivery_phone' => $record->delivery_phone,
+                        'delivery_lat' => $record->delivery_lat,
+                        'delivery_lng' => $record->delivery_lng,
+                        'order_note' => $record->order_note,
                     ]))),
 
             ])
@@ -468,9 +495,9 @@ class OrderResource extends Resource
     public static function getPages(): array
     {
         return [
-            'index'  => Pages\ListOrders::route('/'),
-            'view'   => Pages\ViewOrder::route('/{record}'),
-            'edit'   => Pages\EditOrder::route('/{record}/edit'),
+            'index' => Pages\ListOrders::route('/'),
+            'view' => Pages\ViewOrder::route('/{record}'),
+            'edit' => Pages\EditOrder::route('/{record}/edit'),
         ];
     }
 }

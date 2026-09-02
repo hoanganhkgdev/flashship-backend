@@ -3,19 +3,19 @@
 namespace App\Filament\Resources;
 
 use App\Filament\Resources\ServiceTypeResource\Pages;
+use App\Filament\Traits\HideFromCityManager;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
 use Modules\Core\Models\ServiceType;
-use App\Filament\Traits\HideFromCityManager;
 
 class ServiceTypeResource extends Resource
 {
     public static function canAccess(): bool
     {
-        return !auth()->user()?->isCallCenter() && static::canViewAny();
+        return ! auth()->user()?->isCallCenter() && static::canViewAny();
     }
 
     use HideFromCityManager;
@@ -23,17 +23,24 @@ class ServiceTypeResource extends Resource
     // Danh mục loại dịch vụ dùng chung toàn hệ thống, không theo khu vực.
     protected static bool $isScopedToTenant = false;
 
-    protected static ?string $model          = ServiceType::class;
+    protected static ?string $model = ServiceType::class;
+
     protected static ?string $navigationIcon = 'heroicon-o-squares-2x2';
+
     protected static ?string $navigationGroup = 'Cấu hình';
-    protected static ?int    $navigationSort = 3;
-    protected static ?string $label         = 'Dịch vụ';
-    protected static ?string $pluralLabel   = 'Dịch vụ';
+
+    protected static ?int $navigationSort = 3;
+
+    protected static ?string $label = 'Dịch vụ';
+
+    protected static ?string $pluralLabel = 'Dịch vụ';
 
     public static function form(Form $form): Form
     {
         return $form->schema([
             Forms\Components\Section::make('Thông tin')
+                ->description('Tên hiển thị và mã kỹ thuật dùng trong hệ thống')
+                ->icon('heroicon-o-information-circle')
                 ->columns(2)
                 ->schema([
                     Forms\Components\TextInput::make('label')
@@ -49,6 +56,8 @@ class ServiceTypeResource extends Resource
                 ]),
 
             Forms\Components\Section::make('Hiển thị')
+                ->description('Hình ảnh, thứ tự và trạng thái trên ứng dụng')
+                ->icon('heroicon-o-photo')
                 ->columns(2)
                 ->schema([
                     Forms\Components\FileUpload::make('icon_url')
@@ -109,15 +118,17 @@ class ServiceTypeResource extends Resource
             ->actions([
                 Tables\Actions\EditAction::make()->label(''),
                 Tables\Actions\DeleteAction::make()->label(''),
-            ]);
+            ])
+            ->recordAction('edit')
+            ->paginated(false);
     }
 
     public static function getPages(): array
     {
         return [
-            'index'  => Pages\ListServiceTypes::route('/'),
+            'index' => Pages\ListServiceTypes::route('/'),
             'create' => Pages\CreateServiceType::route('/create'),
-            'edit'   => Pages\EditServiceType::route('/{record}/edit'),
+            'edit' => Pages\EditServiceType::route('/{record}/edit'),
         ];
     }
 }

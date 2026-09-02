@@ -51,6 +51,7 @@ class VoucherResource extends Resource
         return $form
             ->schema([
                 Forms\Components\Section::make('Thông tin mã')
+                    ->description('Thiết lập loại ưu đãi và giá trị giảm cho mỗi đơn')
                     ->icon('heroicon-o-ticket')
                     ->columns(4)
                     ->schema([
@@ -111,6 +112,7 @@ class VoucherResource extends Resource
                     ]),
 
                 Forms\Components\Section::make('Phạm vi áp dụng')
+                    ->description('Giới hạn đối tượng, khu vực và dịch vụ được phép sử dụng mã')
                     ->icon('heroicon-o-adjustments-horizontal')
                     ->columns(3)
                     ->schema([
@@ -220,6 +222,7 @@ class VoucherResource extends Resource
                     ]),
 
                 Forms\Components\Section::make('Thiết lập nâng cao')
+                    ->description('Giới hạn lượt dùng, thời gian và trạng thái chiến dịch')
                     ->icon('heroicon-o-shield-check')
                     ->columns(4)
                     ->collapsible()
@@ -420,7 +423,9 @@ class VoucherResource extends Resource
                 ]),
             ])
             ->recordAction('edit')
-            ->defaultSort('created_at', 'desc');
+            ->defaultSort('created_at', 'desc')
+            ->defaultPaginationPageOption(25)
+            ->paginationPageOptions([25, 50, 100]);
     }
 
     public static function getRelations(): array

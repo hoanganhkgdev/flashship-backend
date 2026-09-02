@@ -18,17 +18,24 @@ class ShiftResource extends Resource
         return in_array(auth()->user()?->user_type, ['admin', 'subadmin', 'city_manager']);
     }
 
-    protected static ?string $model          = Shift::class;
+    protected static ?string $model = Shift::class;
+
     protected static ?string $navigationIcon = 'heroicon-o-clock';
+
     protected static ?string $navigationGroup = 'Cấu hình';
-    protected static ?int    $navigationSort  = 2;
-    protected static ?string $label          = 'Ca làm việc';
-    protected static ?string $pluralLabel    = 'Ca làm việc';
+
+    protected static ?int $navigationSort = 2;
+
+    protected static ?string $label = 'Ca làm việc';
+
+    protected static ?string $pluralLabel = 'Ca làm việc';
 
     public static function form(Form $form): Form
     {
         return $form->schema([
             Forms\Components\Section::make('Thông tin ca')
+                ->description('Thiết lập khung giờ làm việc và trạng thái đăng ký của ca')
+                ->icon('heroicon-o-clock')
                 ->columns(2)
                 ->schema([
                     Forms\Components\TextInput::make('name')
@@ -96,15 +103,17 @@ class ShiftResource extends Resource
             ->actions([
                 Tables\Actions\EditAction::make()->label(''),
                 Tables\Actions\DeleteAction::make()->label(''),
-            ]);
+            ])
+            ->recordAction('edit')
+            ->paginated(false);
     }
 
     public static function getPages(): array
     {
         return [
-            'index'  => Pages\ListShifts::route('/'),
+            'index' => Pages\ListShifts::route('/'),
             'create' => Pages\CreateShift::route('/create'),
-            'edit'   => Pages\EditShift::route('/{record}/edit'),
+            'edit' => Pages\EditShift::route('/{record}/edit'),
         ];
     }
 }

@@ -5,13 +5,14 @@ namespace App\Filament\Resources\ShopResource\RelationManagers;
 use Filament\Resources\RelationManagers\RelationManager;
 use Filament\Tables;
 use Filament\Tables\Table;
-use Modules\Order\Models\Order;
 
 class ShopOrdersRelationManager extends RelationManager
 {
     protected static string $relationship = 'shopOrders';
-    protected static ?string $title       = 'Đơn hàng';
-    protected static ?string $label       = 'đơn hàng của cửa hàng';
+
+    protected static ?string $title = 'Đơn hàng';
+
+    protected static ?string $label = 'đơn hàng của cửa hàng';
 
     public function table(Table $table): Table
     {
@@ -27,10 +28,10 @@ class ShopOrdersRelationManager extends RelationManager
                     ->label('Loại hàng')
                     ->badge()
                     ->formatStateUsing(fn ($state) => match ($state) {
-                        'food'    => '🍱 Đồ ăn',
+                        'food' => '🍱 Đồ ăn',
                         'flowers' => '🌸 Hoa/Trái cây',
-                        'parcel'  => '📦 Bưu kiện',
-                        default   => $state,
+                        'parcel' => '📦 Bưu kiện',
+                        default => $state,
                     })
                     ->color('gray'),
 
@@ -53,19 +54,19 @@ class ShopOrdersRelationManager extends RelationManager
                     ->label('Trạng thái')
                     ->badge()
                     ->formatStateUsing(fn ($state) => match ($state) {
-                        'pending'    => 'Đang tìm tài xế',
-                        'assigned'   => 'Tài xế đã nhận',
+                        'pending' => 'Đang tìm tài xế',
+                        'assigned' => 'Tài xế đã nhận',
                         'processing' => 'Đã lấy hàng',
-                        'completed'  => 'Hoàn thành',
-                        'cancelled'  => 'Đã huỷ',
-                        default      => $state,
+                        'completed' => 'Hoàn thành',
+                        'cancelled' => 'Đã huỷ',
+                        default => $state,
                     })
                     ->color(fn ($state) => match ($state) {
-                        'pending'                          => 'warning',
+                        'pending' => 'warning',
                         'assigned', 'processing' => 'info',
-                        'completed'                        => 'success',
-                        'cancelled'                        => 'danger',
-                        default                            => 'gray',
+                        'completed' => 'success',
+                        'cancelled' => 'danger',
+                        default => 'gray',
                     }),
 
                 Tables\Columns\TextColumn::make('created_at')
@@ -77,19 +78,19 @@ class ShopOrdersRelationManager extends RelationManager
                 Tables\Filters\SelectFilter::make('status')
                     ->label('Trạng thái')
                     ->options([
-                        'pending'    => 'Đang tìm tài xế',
-                        'assigned'   => 'Tài xế đã nhận',
+                        'pending' => 'Đang tìm tài xế',
+                        'assigned' => 'Tài xế đã nhận',
                         'processing' => 'Đã lấy hàng',
-                        'completed'  => 'Hoàn thành',
-                        'cancelled'  => 'Đã huỷ',
+                        'completed' => 'Hoàn thành',
+                        'cancelled' => 'Đã huỷ',
                     ]),
 
                 Tables\Filters\SelectFilter::make('cargo_type')
                     ->label('Loại hàng')
                     ->options([
-                        'food'    => '🍱 Đồ ăn',
+                        'food' => '🍱 Đồ ăn',
                         'flowers' => '🌸 Hoa/Trái cây',
-                        'parcel'  => '📦 Bưu kiện',
+                        'parcel' => '📦 Bưu kiện',
                     ]),
             ])
             ->defaultSort('created_at', 'desc')

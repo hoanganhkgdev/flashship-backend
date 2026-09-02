@@ -10,20 +10,34 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Collection;
 use Laravel\Sanctum\HasApiTokens;
+use Modules\Customer\Models\CustomerAddress;
+use Modules\Driver\Models\Bank;
+use Modules\Driver\Models\DriverCccdImage;
+use Modules\Driver\Models\DriverDebt;
+use Modules\Driver\Models\DriverLicense;
+use Modules\Driver\Models\DriverScoreLog;
+use Modules\Driver\Models\DriverScoreSettlement;
+use Modules\Driver\Models\DriverWallet;
+use Modules\Order\Models\Order;
 use Spatie\Permission\Traits\HasRoles;
 
-class User extends Authenticatable implements FilamentUser, HasTenants, HasDefaultTenant
+class User extends Authenticatable implements FilamentUser, HasDefaultTenant, HasTenants
 {
-    use HasRoles;
     use HasApiTokens, HasFactory, Notifiable;
+    use HasRoles;
 
     // ─── Role constants ────────────────────────────────────────────────────────
-    const ROLE_ADMIN    = 'admin';
+    const ROLE_ADMIN = 'admin';
+
     const ROLE_SUBADMIN = 'subadmin';
-    const ROLE_DRIVER   = 'driver';
+
+    const ROLE_DRIVER = 'driver';
+
     const ROLE_CUSTOMER = 'customer';
-    const ROLE_SHOP     = 'shop';
+
+    const ROLE_SHOP = 'shop';
 
     protected $fillable = [
         'name',
@@ -67,15 +81,15 @@ class User extends Authenticatable implements FilamentUser, HasTenants, HasDefau
     protected function casts(): array
     {
         return [
-            'email_verified_at'      => 'datetime',
-            'password'               => 'hashed',
-            'name_updated_at'     => 'datetime',
+            'email_verified_at' => 'datetime',
+            'password' => 'hashed',
+            'name_updated_at' => 'datetime',
             'delete_requested_at' => 'datetime',
-            'avatar_updated_at'   => 'datetime',
-            'is_online'              => 'boolean',
-            'online_since'           => 'datetime',
-            'score_suspended_until'  => 'datetime',
-            'last_location_at'       => 'datetime',
+            'avatar_updated_at' => 'datetime',
+            'is_online' => 'boolean',
+            'online_since' => 'datetime',
+            'score_suspended_until' => 'datetime',
+            'last_location_at' => 'datetime',
         ];
     }
 
@@ -94,34 +108,34 @@ class User extends Authenticatable implements FilamentUser, HasTenants, HasDefau
 
     public function orders()
     {
-        return $this->hasMany(\Modules\Order\Models\Order::class, 'delivery_man_id');
+        return $this->hasMany(Order::class, 'delivery_man_id');
     }
 
     public function customerOrders()
     {
-        return $this->hasMany(\Modules\Order\Models\Order::class, 'sender_platform_id')
+        return $this->hasMany(Order::class, 'sender_platform_id')
             ->where('platform', 'customer_app');
     }
 
     public function shopOrders()
     {
-        return $this->hasMany(\Modules\Order\Models\Order::class, 'sender_platform_id')
+        return $this->hasMany(Order::class, 'sender_platform_id')
             ->where('platform', 'shop_app');
     }
 
     public function bank()
     {
-        return $this->hasOne(\Modules\Driver\Models\Bank::class);
+        return $this->hasOne(Bank::class);
     }
 
     public function wallet()
     {
-        return $this->hasOne(\Modules\Driver\Models\DriverWallet::class, 'driver_id');
+        return $this->hasOne(DriverWallet::class, 'driver_id');
     }
 
     public function debts()
     {
-        return $this->hasMany(\Modules\Driver\Models\DriverDebt::class, 'driver_id');
+        return $this->hasMany(DriverDebt::class, 'driver_id');
     }
 
     /** Các ca làm việc tài xế đang đăng ký (ít nhất 1 ca, khoá cố định tới khi được duyệt đổi). */
@@ -132,27 +146,27 @@ class User extends Authenticatable implements FilamentUser, HasTenants, HasDefau
 
     public function customerAddresses()
     {
-        return $this->hasMany(\Modules\Customer\Models\CustomerAddress::class);
+        return $this->hasMany(CustomerAddress::class);
     }
 
     public function driverLicenses()
     {
-        return $this->hasMany(\Modules\Driver\Models\DriverLicense::class, 'user_id');
+        return $this->hasMany(DriverLicense::class, 'user_id');
     }
 
     public function driverCccdImages()
     {
-        return $this->hasMany(\Modules\Driver\Models\DriverCccdImage::class, 'user_id');
+        return $this->hasMany(DriverCccdImage::class, 'user_id');
     }
 
     public function scoreLogs()
     {
-        return $this->hasMany(\Modules\Driver\Models\DriverScoreLog::class, 'driver_id')->latest('created_at');
+        return $this->hasMany(DriverScoreLog::class, 'driver_id')->latest('created_at');
     }
 
     public function scoreSettlements()
     {
-        return $this->hasMany(\Modules\Driver\Models\DriverScoreSettlement::class, 'driver_id')->latest('week_start');
+        return $this->hasMany(DriverScoreSettlement::class, 'driver_id')->latest('week_start');
     }
 
     // =========================================================================
@@ -179,31 +193,35 @@ class User extends Authenticatable implements FilamentUser, HasTenants, HasDefau
     // chỉ quản lý đúng thành phố gán ở city_id.
     const TENANT_UNRESTRICTED_TYPES = ['admin', 'subadmin'];
 
-    public function getTenants(Panel $panel): \Illuminate\Support\Collection
+    public function getTenants(Panel $panel): Collection
     {
         if (in_array($this->user_type, self::TENANT_UNRESTRICTED_TYPES)) {
-            return City::orderBy('name')->get();
+            return City::active()->orderBy('name')->get();
         }
 
-        return City::where('id', $this->city_id)->get();
+        return City::active()->whereKey($this->city_id)->get();
     }
 
     public function canAccessTenant(Model $tenant): bool
     {
+        if (! $tenant instanceof City || ! $tenant->is_active) {
+            return false;
+        }
+
         if (in_array($this->user_type, self::TENANT_UNRESTRICTED_TYPES)) {
             return true;
         }
 
-        return $tenant->id === $this->city_id;
+        return (int) $tenant->getKey() === (int) $this->city_id;
     }
 
     public function getDefaultTenant(Panel $panel): ?Model
     {
         if (in_array($this->user_type, self::TENANT_UNRESTRICTED_TYPES)) {
-            return City::orderBy('name')->first();
+            return City::active()->orderBy('name')->first();
         }
 
-        return City::where('id', $this->city_id)->first();
+        return City::active()->whereKey($this->city_id)->first();
     }
 
     public function isCallCenter(): bool
@@ -219,12 +237,12 @@ class User extends Authenticatable implements FilamentUser, HasTenants, HasDefau
     {
         if ($this->relationLoaded('driverLicenses')) {
             return $this->driverLicenses
-                ->where('status', \Modules\Driver\Models\DriverLicense::STATUS_APPROVED)
+                ->where('status', DriverLicense::STATUS_APPROVED)
                 ->isNotEmpty();
         }
 
         return $this->driverLicenses()
-            ->where('status', \Modules\Driver\Models\DriverLicense::STATUS_APPROVED)
+            ->where('status', DriverLicense::STATUS_APPROVED)
             ->exists();
     }
 }

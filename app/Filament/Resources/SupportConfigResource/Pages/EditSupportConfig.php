@@ -10,8 +10,13 @@ class EditSupportConfig extends EditRecord
 {
     protected static string $resource = SupportConfigResource::class;
 
+    public function getTitle(): string
+    {
+        return 'Chỉnh sửa '.$this->record->title;
+    }
+
     protected function getHeaderActions(): array
     {
-        return [Actions\DeleteAction::make()];
+        return [Actions\DeleteAction::make()->label('Xoá kênh hỗ trợ')];
     }
 }

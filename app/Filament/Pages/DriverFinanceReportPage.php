@@ -4,19 +4,27 @@ namespace App\Filament\Pages;
 
 use App\Support\SimpleXlsxWriter;
 use Carbon\Carbon;
+use Filament\Facades\Filament;
 use Filament\Pages\Page;
 use Illuminate\Support\Facades\DB;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class DriverFinanceReportPage extends Page
 {
-    protected static ?string $navigationIcon  = 'heroicon-o-document-chart-bar';
-    protected static ?string $navigationGroup = 'Tổng quan';
-    protected static ?string $navigationLabel = 'Báo cáo thu chi tài xế';
-    protected static ?int    $navigationSort  = 3;
-    protected static string  $view            = 'filament.pages.driver-finance-report';
+    protected static ?string $navigationIcon = 'heroicon-o-document-chart-bar';
 
-    public function getHeading(): string { return ''; }
+    protected static ?string $navigationGroup = 'Tổng quan';
+
+    protected static ?string $navigationLabel = 'Báo cáo thu chi tài xế';
+
+    protected static ?int $navigationSort = 3;
+
+    protected static string $view = 'filament.pages.driver-finance-report';
+
+    public function getHeading(): string
+    {
+        return '';
+    }
 
     public static function canAccess(): bool
     {
@@ -24,6 +32,7 @@ class DriverFinanceReportPage extends Page
     }
 
     public string $mode = 'week';   // week | month
+
     public string $date = '';
 
     public function mount(): void
@@ -46,16 +55,16 @@ class DriverFinanceReportPage extends Page
         [$from, $to] = $this->range;
 
         return $this->mode === 'month'
-            ? 'Tháng ' . $from->format('m/Y')
+            ? 'Tháng '.$from->format('m/Y')
             : "Tuần {$from->format('d/m')} – {$to->format('d/m/Y')}";
     }
 
     public function getRowsProperty(): array
     {
         [$from, $to] = $this->range;
-        $fromStr = $from->toDateString() . ' 00:00:00';
-        $toStr   = $to->toDateString() . ' 23:59:59';
-        $cityId  = \Filament\Facades\Filament::getTenant()?->id;
+        $fromStr = $from->toDateString().' 00:00:00';
+        $toStr = $to->toDateString().' 23:59:59';
+        $cityId = Filament::getTenant()?->id;
 
         $drivers = DB::table('users')
             ->where('user_type', 'driver')
@@ -65,7 +74,9 @@ class DriverFinanceReportPage extends Page
             ->get(['id', 'name', 'phone']);
 
         $driverIds = $drivers->pluck('id')->toArray();
-        if (empty($driverIds)) return [];
+        if (empty($driverIds)) {
+            return [];
+        }
 
         // Công nợ trong kỳ, tách 3 loại: phí tuần / phạt điểm tuần / khoản khác.
         // "Còn nợ" gộp tất cả cho đúng số tiền thực tế phải thu.
@@ -88,7 +99,7 @@ class DriverFinanceReportPage extends Page
             ->whereBetween('t.created_at', [$fromStr, $toStr])
             ->where(function ($q) {
                 $q->where('t.reference', 'like', 'score_bonus_%')
-                  ->orWhere('t.reference', 'like', 'order_%_discount');
+                    ->orWhere('t.reference', 'like', 'order_%_discount');
             })
             ->groupBy('w.driver_id')
             ->selectRaw("w.driver_id,
@@ -108,29 +119,29 @@ class DriverFinanceReportPage extends Page
         $rows = [];
         foreach ($drivers as $d) {
             $debt = $debts->get($d->id);
-            $pay  = $adminPaid->get($d->id);
+            $pay = $adminPaid->get($d->id);
 
-            $feeDue    = (int) ($debt->fee_due ?? 0);
-            $feePaid   = (int) ($debt->fee_paid ?? 0);
-            $penalty   = (int) ($debt->penalty ?? 0);
+            $feeDue = (int) ($debt->fee_due ?? 0);
+            $feePaid = (int) ($debt->fee_paid ?? 0);
+            $penalty = (int) ($debt->penalty ?? 0);
             $remaining = (int) max(0, (int) ($debt->remaining ?? 0));
-            $bonus     = (int) ($pay->bonus ?? 0);
-            $voucher   = (int) ($pay->voucher ?? 0);
+            $bonus = (int) ($pay->bonus ?? 0);
+            $voucher = (int) ($pay->voucher ?? 0);
             $withdrawn = (int) ($withdrawals[$d->id] ?? 0);
 
-            if (!$feeDue && !$feePaid && !$penalty && !$bonus && !$voucher && !$withdrawn && !$remaining) {
+            if (! $feeDue && ! $feePaid && ! $penalty && ! $bonus && ! $voucher && ! $withdrawn && ! $remaining) {
                 continue;
             }
 
             $rows[] = [
-                'id'        => $d->id,
-                'name'      => $d->name,
-                'phone'     => $d->phone,
-                'penalty'   => $penalty,
-                'bonus'     => $bonus,
-                'voucher'   => $voucher,
-                'fee_due'   => $feeDue,
-                'fee_paid'  => $feePaid,
+                'id' => $d->id,
+                'name' => $d->name,
+                'phone' => $d->phone,
+                'penalty' => $penalty,
+                'bonus' => $bonus,
+                'voucher' => $voucher,
+                'fee_due' => $feeDue,
+                'fee_paid' => $feePaid,
                 'remaining' => $remaining,
                 'withdrawn' => $withdrawn,
             ];
@@ -144,15 +155,15 @@ class DriverFinanceReportPage extends Page
     public function getTotalsProperty(): array
     {
         $rows = $this->rows;
-        $sum  = fn (string $k) => array_sum(array_column($rows, $k));
+        $sum = fn (string $k) => array_sum(array_column($rows, $k));
 
         return [
-            'drivers'   => count($rows),
-            'penalty'   => $sum('penalty'),
-            'bonus'     => $sum('bonus'),
-            'voucher'   => $sum('voucher'),
-            'fee_due'   => $sum('fee_due'),
-            'fee_paid'  => $sum('fee_paid'),
+            'drivers' => count($rows),
+            'penalty' => $sum('penalty'),
+            'bonus' => $sum('bonus'),
+            'voucher' => $sum('voucher'),
+            'fee_due' => $sum('fee_due'),
+            'fee_paid' => $sum('fee_paid'),
             'remaining' => $sum('remaining'),
             'withdrawn' => $sum('withdrawn'),
         ];
@@ -169,14 +180,14 @@ class DriverFinanceReportPage extends Page
         if ($this->mode === 'month') {
             $m = now()->startOfMonth();
             for ($i = 0; $i < 12; $i++) {
-                $periods[$m->toDateString()] = 'Tháng ' . $m->format('m/Y');
+                $periods[$m->toDateString()] = 'Tháng '.$m->format('m/Y');
                 $m = $m->subMonth();
             }
         } else {
             $w = now()->startOfWeek();
             for ($i = 0; $i < 16; $i++) {
                 $label = ($i === 0 ? 'Tuần này: ' : '')
-                    . $w->format('d/m') . ' – ' . $w->copy()->endOfWeek()->format('d/m/Y');
+                    .$w->format('d/m').' – '.$w->copy()->endOfWeek()->format('d/m/Y');
                 $periods[$w->toDateString()] = $label;
                 $w = $w->subWeek();
             }
@@ -195,7 +206,7 @@ class DriverFinanceReportPage extends Page
 
     public function export(): StreamedResponse
     {
-        $rows   = $this->rows;
+        $rows = $this->rows;
         $totals = $this->totals;
 
         $data = [[
@@ -219,7 +230,7 @@ class DriverFinanceReportPage extends Page
         ];
 
         [$from, $to] = $this->range;
-        $suffix   = $this->mode === 'month' ? $from->format('Y-m') : $from->format('Y-m-d') . '_' . $to->format('Y-m-d');
+        $suffix = $this->mode === 'month' ? $from->format('Y-m') : $from->format('Y-m-d').'_'.$to->format('Y-m-d');
         $filename = "thu-chi-tai-xe_{$suffix}.xlsx";
 
         $path = SimpleXlsxWriter::write($data, 'Thu chi tài xế');

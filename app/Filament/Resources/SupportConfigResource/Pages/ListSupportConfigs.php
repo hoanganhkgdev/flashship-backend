@@ -10,5 +10,18 @@ class ListSupportConfigs extends ListRecords
 {
     protected static string $resource = SupportConfigResource::class;
 
-    protected function getHeaderActions(): array { return [CreateAction::make()]; }
+    public function getHeading(): string
+    {
+        return 'Kênh hỗ trợ';
+    }
+
+    public function getSubheading(): ?string
+    {
+        return 'Quản lý hotline, Zalo, mạng xã hội và các kênh liên hệ hiển thị trên app.';
+    }
+
+    protected function getHeaderActions(): array
+    {
+        return [CreateAction::make()->label('Thêm kênh hỗ trợ')->icon('heroicon-o-plus')];
+    }
 }

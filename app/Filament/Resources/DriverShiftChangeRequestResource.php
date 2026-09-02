@@ -3,6 +3,7 @@
 namespace App\Filament\Resources;
 
 use App\Filament\Resources\DriverShiftChangeRequestResource\Pages;
+use Filament\Facades\Filament;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Notifications\Notification;
@@ -10,6 +11,8 @@ use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Modules\Core\Models\Shift;
@@ -23,21 +26,29 @@ class DriverShiftChangeRequestResource extends Resource
     }
 
     // DriverShiftChangeRequest không có city_id trực tiếp — khu vực xác định qua driver_id -> users.city_id.
-    public static function scopeEloquentQueryToTenant(\Illuminate\Database\Eloquent\Builder $query, ?\Illuminate\Database\Eloquent\Model $tenant): \Illuminate\Database\Eloquent\Builder
+    public static function scopeEloquentQueryToTenant(Builder $query, ?Model $tenant): Builder
     {
         return $query->whereHas('driver', fn ($q) => $q->where('city_id', $tenant?->id));
     }
 
-    protected static ?string $model            = DriverShiftChangeRequest::class;
-    protected static ?string $navigationIcon   = 'heroicon-o-arrow-path-rounded-square';
-    protected static ?string $navigationGroup  = 'Cấu hình';
-    protected static ?string $modelLabel       = 'Yêu cầu đổi ca';
+    protected static ?string $model = DriverShiftChangeRequest::class;
+
+    protected static ?string $navigationIcon = 'heroicon-o-arrow-path-rounded-square';
+
+    protected static ?string $navigationGroup = 'Cấu hình';
+
+    protected static ?string $modelLabel = 'Yêu cầu đổi ca';
+
     protected static ?string $pluralModelLabel = 'Yêu cầu đổi ca';
-    protected static ?int    $navigationSort   = 3;
+
+    protected static ?int $navigationSort = 3;
 
     public static function getNavigationBadge(): ?string
     {
-        $count = static::getEloquentQuery()->where('status', 'pending')->count();
+        $count = static::scopeEloquentQueryToTenant(static::getEloquentQuery(), Filament::getTenant())
+            ->where('status', 'pending')
+            ->count();
+
         return $count > 0 ? (string) $count : null;
     }
 
@@ -46,7 +57,10 @@ class DriverShiftChangeRequestResource extends Resource
         return 'warning';
     }
 
-    public static function canCreate(): bool { return false; }
+    public static function canCreate(): bool
+    {
+        return false;
+    }
 
     public static function form(Form $form): Form
     {
@@ -65,30 +79,38 @@ class DriverShiftChangeRequestResource extends Resource
             [$eh, $em] = array_map('intval', explode(':', $shift->end_time));
             $start = $sh * 60 + $sm;
             $end = $eh * 60 + $em;
+
             return $end > $start ? [[$start, $end]] : [[$start, 1440], [0, $end]];
         };
 
         foreach ($shifts->values() as $i => $a) {
             foreach ($shifts->values() as $j => $b) {
-                if ($i >= $j) continue;
+                if ($i >= $j) {
+                    continue;
+                }
                 foreach ($segments($a) as $ap) {
                     foreach ($segments($b) as $bp) {
-                        if ($ap[0] < $bp[1] && $bp[0] < $ap[1]) return true;
+                        if ($ap[0] < $bp[1] && $bp[0] < $ap[1]) {
+                            return true;
+                        }
                     }
                 }
             }
         }
+
         return false;
     }
 
     private static function hasShiftRunningNow($shifts): bool
     {
         $minute = now()->hour * 60 + now()->minute;
+
         return $shifts->contains(function ($shift) use ($minute) {
             [$sh, $sm] = array_map('intval', explode(':', $shift->start_time));
             [$eh, $em] = array_map('intval', explode(':', $shift->end_time));
             $start = $sh * 60 + $sm;
             $end = $eh * 60 + $em;
+
             return $end > $start
                 ? $minute >= $start && $minute < $end
                 : $minute >= $start || $minute < $end;
@@ -120,16 +142,16 @@ class DriverShiftChangeRequestResource extends Resource
                     ->alignCenter()
                     ->badge()
                     ->formatStateUsing(fn ($state) => match ($state) {
-                        'pending'  => 'Chờ duyệt',
+                        'pending' => 'Chờ duyệt',
                         'approved' => 'Đã duyệt',
                         'rejected' => 'Từ chối',
-                        default    => $state,
+                        default => $state,
                     })
                     ->color(fn ($state) => match ($state) {
-                        'pending'  => 'warning',
+                        'pending' => 'warning',
                         'approved' => 'success',
                         'rejected' => 'danger',
-                        default    => 'gray',
+                        default => 'gray',
                     }),
 
                 Tables\Columns\TextColumn::make('admin_note')
@@ -158,11 +180,10 @@ class DriverShiftChangeRequestResource extends Resource
                 SelectFilter::make('status')
                     ->label('Trạng thái')
                     ->options([
-                        'pending'  => 'Chờ duyệt',
+                        'pending' => 'Chờ duyệt',
                         'approved' => 'Đã duyệt',
                         'rejected' => 'Từ chối',
-                    ])
-                    ->default('pending'),
+                    ]),
             ])
             ->actions([
                 Tables\Actions\Action::make('approve')
@@ -172,14 +193,15 @@ class DriverShiftChangeRequestResource extends Resource
                     ->visible(fn (DriverShiftChangeRequest $record) => $record->status === 'pending')
                     ->requiresConfirmation()
                     ->modalHeading('Duyệt yêu cầu đổi ca')
-                    ->modalDescription(fn (DriverShiftChangeRequest $record) =>
-                        'Đổi ca của tài xế ' . $record->driver?->name . ' sang: ' . static::shiftNames($record->shift_ids) . '?'
+                    ->modalDescription(fn (DriverShiftChangeRequest $record) => 'Đổi ca của tài xế '.$record->driver?->name.' sang: '.static::shiftNames($record->shift_ids).'?'
                     )
                     ->action(function (DriverShiftChangeRequest $record) {
                         $result = DB::transaction(function () use ($record) {
                             $locked = DriverShiftChangeRequest::where('id', $record->id)
                                 ->lockForUpdate()->firstOrFail();
-                            if ($locked->status !== 'pending') return 'handled';
+                            if ($locked->status !== 'pending') {
+                                return 'handled';
+                            }
 
                             $driver = $locked->driver()->lockForUpdate()->first();
                             $ids = array_values(array_unique(array_map('intval', $locked->shift_ids ?? [])));
@@ -187,7 +209,7 @@ class DriverShiftChangeRequestResource extends Resource
                                 ->where('is_active', true)
                                 ->where('city_id', $driver?->city_id)
                                 ->get();
-                            if (!$driver || count($ids) === 0 || $shifts->count() !== count($ids)
+                            if (! $driver || count($ids) === 0 || $shifts->count() !== count($ids)
                                 || self::shiftsOverlap($shifts)) {
                                 return 'invalid';
                             }
@@ -200,10 +222,11 @@ class DriverShiftChangeRequestResource extends Resource
 
                             $driver->registeredShifts()->sync($ids);
                             $locked->update([
-                                'status'       => 'approved',
+                                'status' => 'approved',
                                 'processed_by' => Auth::id(),
                                 'processed_at' => now(),
                             ]);
+
                             return 'approved';
                         });
 
@@ -215,6 +238,7 @@ class DriverShiftChangeRequestResource extends Resource
                                     default => 'Ca yêu cầu không còn hợp lệ hoặc bị trùng giờ.',
                                 }
                             )->send();
+
                             return;
                         }
                         Notification::make()->success()->title('Đã duyệt đổi ca.')->send();
@@ -236,22 +260,29 @@ class DriverShiftChangeRequestResource extends Resource
                         $updated = DB::transaction(function () use ($record, $data) {
                             $locked = DriverShiftChangeRequest::where('id', $record->id)
                                 ->lockForUpdate()->firstOrFail();
-                            if ($locked->status !== 'pending') return false;
+                            if ($locked->status !== 'pending') {
+                                return false;
+                            }
                             $locked->update([
-                                'status'       => 'rejected',
-                                'admin_note'   => $data['admin_note'],
+                                'status' => 'rejected',
+                                'admin_note' => $data['admin_note'],
                                 'processed_by' => Auth::id(),
                                 'processed_at' => now(),
                             ]);
+
                             return true;
                         });
-                        if (!$updated) {
+                        if (! $updated) {
                             Notification::make()->danger()->title('Yêu cầu đã được người khác xử lý.')->send();
+
                             return;
                         }
                         Notification::make()->success()->title('Đã từ chối yêu cầu đổi ca.')->send();
                     }),
-            ]);
+            ])
+            ->defaultPaginationPageOption(25)
+            ->paginationPageOptions([25, 50, 100])
+            ->poll('20s');
     }
 
     public static function getRelations(): array

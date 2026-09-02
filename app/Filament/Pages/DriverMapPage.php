@@ -2,6 +2,7 @@
 
 namespace App\Filament\Pages;
 
+use Filament\Facades\Filament;
 use Filament\Pages\Page;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -17,28 +18,38 @@ class DriverMapPage extends Page
         return true;
     }
 
-    protected static ?string $navigationIcon  = 'heroicon-o-map-pin';
+    protected static ?string $navigationIcon = 'heroicon-o-map-pin';
+
     protected static ?string $navigationGroup = 'Vận hành';
+
     protected static ?string $navigationLabel = 'Bản đồ tài xế';
-    protected static ?string $title           = ' ';
-    protected static ?int    $navigationSort  = 11;
-    protected static string  $view            = 'filament.pages.driver-map';
 
-    public function getHeading(): string { return ''; }
+    protected static ?string $title = ' ';
 
-    public array $cities      = [];
+    protected static ?int $navigationSort = 11;
+
+    protected static string $view = 'filament.pages.driver-map';
+
+    public function getHeading(): string
+    {
+        return '';
+    }
+
+    public array $cities = [];
+
     public array $driversMeta = [];
-    public ?int  $fixedCityId = null; // khu vực (tenant) đang đứng
+
+    public ?int $fixedCityId = null; // khu vực (tenant) đang đứng
 
     public function mount(): void
     {
-        $this->fixedCityId = \Filament\Facades\Filament::getTenant()?->id;
+        $this->fixedCityId = Filament::getTenant()?->id;
 
         $this->cities = DB::table('cities')
             ->when($this->fixedCityId, fn ($q) => $q->where('id', $this->fixedCityId))
             ->orderBy('name')
             ->get(['id', 'name', 'lat', 'lng'])
-            ->map(fn($c) => ['id' => $c->id, 'name' => $c->name, 'lat' => (float) $c->lat, 'lng' => (float) $c->lng])
+            ->map(fn ($c) => ['id' => $c->id, 'name' => $c->name, 'lat' => (float) $c->lat, 'lng' => (float) $c->lng])
             ->toArray();
 
         $this->loadDriversMeta();
@@ -71,12 +82,12 @@ class DriverMapPage extends Page
         $meta = [];
         foreach ($query->get() as $d) {
             $meta[$d->id] = [
-                'name'         => $d->name ?? '',
-                'phone'        => $d->phone ?? '',
-                'city_id'      => $d->city_id,
-                'busy'         => $busyDriverIds->has($d->id),
+                'name' => $d->name ?? '',
+                'phone' => $d->phone ?? '',
+                'city_id' => $d->city_id,
+                'busy' => $busyDriverIds->has($d->id),
                 'driver_score' => (int) ($d->driver_score ?? 100),
-                'avatar'       => $d->profile_photo_path
+                'avatar' => $d->profile_photo_path
                     ? Storage::url($d->profile_photo_path)
                     : null,
             ];
@@ -93,8 +104,8 @@ class DriverMapPage extends Page
     public function getFirebaseConfig(): array
     {
         return [
-            'apiKey'      => 'AIzaSyDSYWeYYO9oPK5I2HAkJ145eRp36WwnYaI',
-            'projectId'   => 'flashship-app',
+            'apiKey' => 'AIzaSyDSYWeYYO9oPK5I2HAkJ145eRp36WwnYaI',
+            'projectId' => 'flashship-app',
             'databaseURL' => config('services.firebase.database_url'),
         ];
     }

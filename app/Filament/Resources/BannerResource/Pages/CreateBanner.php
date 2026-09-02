@@ -10,6 +10,16 @@ class CreateBanner extends CreateRecord
 {
     protected static string $resource = BannerResource::class;
 
+    public function getTitle(): string
+    {
+        return 'Thêm banner';
+    }
+
+    public function getSubheading(): ?string
+    {
+        return 'Tải hình ảnh và thiết lập phạm vi hiển thị trên ứng dụng.';
+    }
+
     protected function getRedirectUrl(): string
     {
         return $this->getResource()::getUrl('index');
@@ -24,6 +34,7 @@ class CreateBanner extends CreateRecord
     protected function associateRecordWithTenant(Model $record, Model $tenant): Model
     {
         $record->save();
+
         return $record;
     }
 }

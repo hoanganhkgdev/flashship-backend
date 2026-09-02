@@ -4,6 +4,7 @@ namespace App\Filament\Resources;
 
 use App\Filament\Resources\DriverResource\Pages;
 use App\Filament\Resources\DriverResource\RelationManagers;
+use App\Filament\Traits\HideFromCityManager;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Notifications\Notification;
@@ -21,25 +22,29 @@ use Modules\Driver\Services\DriverLocationService;
 use Modules\Order\Models\Order;
 use Modules\Order\Models\OrderDispatchLog;
 use Modules\Order\Services\DispatchService;
-use App\Filament\Traits\HideFromCityManager;
 
 class DriverResource extends Resource
 {
     public static function canAccess(): bool
     {
-        return !auth()->user()?->isCallCenter() && static::canViewAny();
+        return ! auth()->user()?->isCallCenter() && static::canViewAny();
     }
 
     use HideFromCityManager;
 
     protected static ?string $model = User::class;
 
-    protected static ?string $navigationIcon  = 'heroicon-o-truck';
+    protected static ?string $navigationIcon = 'heroicon-o-truck';
+
     protected static ?string $navigationGroup = 'Người dùng';
-    protected static ?string $modelLabel      = 'Tài xế';
+
+    protected static ?string $modelLabel = 'Tài xế';
+
     protected static ?string $pluralModelLabel = 'Tài xế';
-    protected static ?string $slug            = 'drivers';
-    protected static ?int    $navigationSort  = 2;
+
+    protected static ?string $slug = 'drivers';
+
+    protected static ?int $navigationSort = 2;
 
     public static function getNavigationBadge(): ?string
     {
@@ -80,7 +85,18 @@ class DriverResource extends Resource
                     ->live(),
             ])->columns(2),
 
-            Forms\Components\Section::make('Ca làm việc')->schema([
+            Forms\Components\Section::make('Phương tiện')
+                ->description('Thông tin phương tiện tài xế sử dụng để giao hàng')
+                ->icon('heroicon-o-truck')
+                ->schema([
+                    Forms\Components\TextInput::make('vehicle_type')
+                        ->label('Loại phương tiện'),
+                    Forms\Components\TextInput::make('license_plate')
+                        ->label('Biển số xe')
+                        ->extraInputAttributes(['style' => 'text-transform: uppercase']),
+                ])->columns(2),
+
+            Forms\Components\Section::make('Ca làm việc')->icon('heroicon-o-calendar-days')->schema([
                 Forms\Components\Select::make('registeredShifts')
                     ->label('Ca đang đăng ký')
                     ->relationship(
@@ -118,7 +134,22 @@ class DriverResource extends Resource
                 Tables\Columns\TextColumn::make('name')
                     ->label('Họ tên')
                     ->weight('semibold')
+                    ->searchable(['name', 'phone', 'cccd', 'license_plate'])
+                    ->sortable()
                     ->description(fn (User $record) => $record->phone),
+
+                Tables\Columns\TextColumn::make('driver_score')
+                    ->label('Điểm')
+                    ->alignCenter()
+                    ->badge()
+                    ->sortable()
+                    ->formatStateUsing(fn ($state) => $state ?? 80)
+                    ->color(fn ($state) => match (true) {
+                        ($state ?? 80) >= 80 => 'success',
+                        ($state ?? 80) >= 60 => 'info',
+                        ($state ?? 80) >= 40 => 'warning',
+                        default => 'danger',
+                    }),
 
                 Tables\Columns\TextColumn::make('is_online')
                     ->label('Online')
@@ -142,14 +173,14 @@ class DriverResource extends Resource
                     ->formatStateUsing(fn ($state) => match ($state) {
                         'approved' => 'Đã duyệt',
                         'rejected' => 'Từ chối',
-                        'pending'  => 'Chờ duyệt',
-                        default    => 'Chưa tải lên',
+                        'pending' => 'Chờ duyệt',
+                        default => 'Chưa tải lên',
                     })
                     ->color(fn ($state) => match ($state) {
                         'approved' => 'success',
                         'rejected' => 'danger',
-                        'pending'  => 'warning',
-                        default    => 'gray',
+                        'pending' => 'warning',
+                        default => 'gray',
                     }),
 
                 Tables\Columns\TextColumn::make('license_review')
@@ -160,23 +191,40 @@ class DriverResource extends Resource
                     ->formatStateUsing(fn ($state) => match ($state) {
                         'approved' => 'Đã duyệt',
                         'rejected' => 'Từ chối',
-                        'pending'  => 'Chờ duyệt',
-                        default    => 'Chưa tải lên',
+                        'pending' => 'Chờ duyệt',
+                        default => 'Chưa tải lên',
                     })
                     ->color(fn ($state) => match ($state) {
                         'approved' => 'success',
                         'rejected' => 'danger',
-                        'pending'  => 'warning',
-                        default    => 'gray',
+                        'pending' => 'warning',
+                        default => 'gray',
                     }),
-
 
                 Tables\Columns\TextColumn::make('created_at')
                     ->label('Ngày đăng ký')
                     ->alignCenter()
                     ->dateTime('d/m/Y'),
             ])
-            ->filters([])
+            ->filters([
+                Tables\Filters\TernaryFilter::make('is_online')
+                    ->label('Trạng thái kết nối')
+                    ->trueLabel('Đang online')
+                    ->falseLabel('Đang offline'),
+                Tables\Filters\SelectFilter::make('document_status')
+                    ->label('Hồ sơ xác minh')
+                    ->options([
+                        'pending' => 'Có hồ sơ chờ duyệt',
+                        'approved' => 'Hồ sơ đã duyệt',
+                        'rejected' => 'Hồ sơ bị từ chối',
+                    ])
+                    ->query(function (Builder $query, array $data): Builder {
+                        return $query->when($data['value'] ?? null, fn (Builder $query, string $status): Builder => $query->where(function (Builder $query) use ($status) {
+                            $query->whereHas('driverCccdImages', fn (Builder $query) => $query->where('status', $status))
+                                ->orWhereHas('driverLicenses', fn (Builder $query) => $query->where('status', $status));
+                        }));
+                    }),
+            ])
             ->actions([
                 Tables\Actions\Action::make('approve')
                     ->label('Duyệt')
@@ -186,7 +234,7 @@ class DriverResource extends Resource
                     ->requiresConfirmation()
                     ->action(function (User $record) {
                         $record->update(['status' => 1]);
-                        Notification::make()->title('Đã duyệt tài xế ' . $record->name)->success()->send();
+                        Notification::make()->title('Đã duyệt tài xế '.$record->name)->success()->send();
                     }),
 
                 Tables\Actions\Action::make('block')
@@ -253,12 +301,13 @@ class DriverResource extends Resource
                             return ['blocked' => true, 'offers' => $offers];
                         });
 
-                        if (!$result['blocked']) {
+                        if (! $result['blocked']) {
                             $order = $result['active_order'];
                             Notification::make()
                                 ->title("Không thể khóa: tài xế đang giữ đơn #{$order->code}")
                                 ->body('Hãy hoàn tất hoặc điều phối đơn đang chạy trước khi khóa tài khoản.')
                                 ->danger()->send();
+
                             return;
                         }
 
@@ -272,7 +321,7 @@ class DriverResource extends Resource
                             app(DispatchService::class)->sendToNextDriver($offer->fresh());
                         }
 
-                        Notification::make()->title('Đã khóa tài xế ' . $record->name)->warning()->send();
+                        Notification::make()->title('Đã khóa tài xế '.$record->name)->warning()->send();
                     }),
 
                 Tables\Actions\Action::make('unblock')
@@ -290,7 +339,7 @@ class DriverResource extends Resource
                             ]);
                         });
                         RTDBService::setAccountLocked($record->id, false);
-                        Notification::make()->title('Đã mở khóa tài xế ' . $record->name)->success()->send();
+                        Notification::make()->title('Đã mở khóa tài xế '.$record->name)->success()->send();
                     }),
 
                 Tables\Actions\EditAction::make()->label('Sửa'),
@@ -308,11 +357,14 @@ class DriverResource extends Resource
                                 ->where('user_type', 'driver')
                                 ->where('status', 0)
                                 ->update(['status' => 1]));
-                            Notification::make()->title('Đã duyệt ' . $pendingIds->count() . ' tài xế đang chờ')->success()->send();
+                            Notification::make()->title('Đã duyệt '.$pendingIds->count().' tài xế đang chờ')->success()->send();
                         }),
                 ]),
             ])
             ->defaultSort('created_at', 'desc')
+            ->recordUrl(fn (User $record): string => static::getUrl('view', ['record' => $record]))
+            ->defaultPaginationPageOption(25)
+            ->paginationPageOptions([25, 50, 100])
             ->poll('30s');
     }
 
@@ -327,10 +379,10 @@ class DriverResource extends Resource
     public static function getPages(): array
     {
         return [
-            'index'  => Pages\ListDrivers::route('/'),
+            'index' => Pages\ListDrivers::route('/'),
             'create' => Pages\CreateDriver::route('/create'),
-            'view'   => Pages\ViewDriver::route('/{record}'),
-            'edit'   => Pages\EditDriver::route('/{record}/edit'),
+            'view' => Pages\ViewDriver::route('/{record}'),
+            'edit' => Pages\EditDriver::route('/{record}/edit'),
         ];
     }
 }

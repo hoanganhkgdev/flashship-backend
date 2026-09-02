@@ -10,8 +10,9 @@ use Filament\Tables\Table;
 
 class TransactionsRelationManager extends RelationManager
 {
-    protected static string  $relationship = 'transactions';
-    protected static ?string $title        = 'Lịch sử giao dịch';
+    protected static string $relationship = 'transactions';
+
+    protected static ?string $title = 'Lịch sử giao dịch';
 
     public function form(Form $form): Form
     {
@@ -32,8 +33,7 @@ class TransactionsRelationManager extends RelationManager
                 Tables\Columns\TextColumn::make('amount')
                     ->label('Số tiền')
                     ->alignCenter()
-                    ->formatStateUsing(fn ($state, $record) =>
-                        ($record->type === 'credit' ? '+' : '-') . number_format($state, 0, ',', '.') . ' ₫'
+                    ->formatStateUsing(fn ($state, $record) => ($record->type === 'credit' ? '+' : '-').number_format($state, 0, ',', '.').' ₫'
                     )
                     ->color(fn ($record) => $record->type === 'credit' ? 'success' : 'danger')
                     ->weight('bold'),
@@ -63,5 +63,8 @@ class TransactionsRelationManager extends RelationManager
             ->paginated([15, 30, 50]);
     }
 
-    public function canCreate(): bool { return false; }
+    public function canCreate(): bool
+    {
+        return false;
+    }
 }

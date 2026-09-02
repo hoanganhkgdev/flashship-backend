@@ -10,10 +10,20 @@ class EditBanner extends EditRecord
 {
     protected static string $resource = BannerResource::class;
 
+    public function getTitle(): string
+    {
+        return 'Chỉnh sửa banner';
+    }
+
+    public function getSubheading(): ?string
+    {
+        return $this->record->title;
+    }
+
     protected function getHeaderActions(): array
     {
         return [
-            Actions\DeleteAction::make(),
+            Actions\DeleteAction::make()->label('Xoá banner'),
         ];
     }
 

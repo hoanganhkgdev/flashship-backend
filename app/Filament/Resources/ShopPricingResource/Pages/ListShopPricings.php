@@ -10,10 +10,20 @@ class ListShopPricings extends ListRecords
 {
     protected static string $resource = ShopPricingResource::class;
 
+    public function getHeading(): string
+    {
+        return 'Bảng giá cửa hàng';
+    }
+
+    public function getSubheading(): ?string
+    {
+        return 'Cấu hình phí giao theo loại hàng, quãng đường và trọng lượng.';
+    }
+
     protected function getHeaderActions(): array
     {
         return [
-            Actions\CreateAction::make()->label('Thêm bảng giá'),
+            Actions\CreateAction::make()->label('Thêm bảng giá')->icon('heroicon-o-plus'),
         ];
     }
 }

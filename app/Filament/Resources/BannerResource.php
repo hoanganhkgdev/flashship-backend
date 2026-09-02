@@ -3,25 +3,27 @@
 namespace App\Filament\Resources;
 
 use App\Filament\Resources\BannerResource\Pages;
+use App\Filament\Traits\HideFromCityManager;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Model;
 use Modules\Admin\Models\Banner;
-use App\Filament\Traits\HideFromCityManager;
 
 class BannerResource extends Resource
 {
     public static function canAccess(): bool
     {
-        return !auth()->user()?->isCallCenter() && static::canViewAny();
+        return ! auth()->user()?->isCallCenter() && static::canViewAny();
     }
 
     use HideFromCityManager;
 
     // city_id = null nghĩa là hiển thị ở mọi khu vực — vẫn phải hiện ở mọi tenant.
-    public static function scopeEloquentQueryToTenant(\Illuminate\Database\Eloquent\Builder $query, ?\Illuminate\Database\Eloquent\Model $tenant): \Illuminate\Database\Eloquent\Builder
+    public static function scopeEloquentQueryToTenant(Builder $query, ?Model $tenant): Builder
     {
         return $query->where(fn ($q) => $q->where('city_id', $tenant?->id)->orWhereNull('city_id'));
     }
@@ -43,6 +45,8 @@ class BannerResource extends Resource
         return $form
             ->schema([
                 Forms\Components\Section::make('Hình ảnh')
+                    ->description('Tải ảnh ngang tối ưu cho khu vực banner trên ứng dụng')
+                    ->icon('heroicon-o-photo')
                     ->schema([
                         Forms\Components\FileUpload::make('image_path')
                             ->label('Ảnh banner')
@@ -58,6 +62,8 @@ class BannerResource extends Resource
                     ]),
 
                 Forms\Components\Section::make('Thông tin')
+                    ->description('Nội dung, phạm vi và thứ tự hiển thị của banner')
+                    ->icon('heroicon-o-adjustments-horizontal')
                     ->columns(2)
                     ->schema([
                         Forms\Components\TextInput::make('title')
@@ -157,7 +163,10 @@ class BannerResource extends Resource
                 Tables\Actions\BulkActionGroup::make([
                     Tables\Actions\DeleteBulkAction::make(),
                 ]),
-            ]);
+            ])
+            ->recordAction('edit')
+            ->defaultPaginationPageOption(25)
+            ->paginationPageOptions([25, 50, 100]);
     }
 
     public static function getRelations(): array
@@ -168,9 +177,9 @@ class BannerResource extends Resource
     public static function getPages(): array
     {
         return [
-            'index'  => Pages\ListBanners::route('/'),
+            'index' => Pages\ListBanners::route('/'),
             'create' => Pages\CreateBanner::route('/create'),
-            'edit'   => Pages\EditBanner::route('/{record}/edit'),
+            'edit' => Pages\EditBanner::route('/{record}/edit'),
         ];
     }
 }

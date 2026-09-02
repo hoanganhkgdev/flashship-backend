@@ -14,11 +14,37 @@ class EditOrder extends EditRecord
 
     protected static string $view = 'filament.resources.order-resource.pages.edit-order';
 
+    public function getTitle(): string
+    {
+        return 'Chỉnh sửa đơn #'.$this->record->code;
+    }
+
+    public function getSubheading(): ?string
+    {
+        return 'Cập nhật thông tin giao nhận, chi phí và trạng thái đơn hàng.';
+    }
+
     protected function getHeaderActions(): array
     {
         return [
-            Actions\DeleteAction::make(),
+            Actions\ViewAction::make()
+                ->label('Xem chi tiết')
+                ->icon('heroicon-o-eye'),
+            Actions\DeleteAction::make()
+                ->label('Xoá đơn'),
         ];
+    }
+
+    protected function getSaveFormAction(): Actions\Action
+    {
+        return parent::getSaveFormAction()
+            ->label('Lưu thay đổi')
+            ->icon('heroicon-o-check');
+    }
+
+    protected function getCancelFormAction(): Actions\Action
+    {
+        return parent::getCancelFormAction()->label('Huỷ thay đổi');
     }
 
     protected function mutateFormDataBeforeSave(array $data): array
@@ -40,7 +66,7 @@ class EditOrder extends EditRecord
         // "Gán tài xế" — form này không có ô chọn tài xế, đổi tay kiểu này để lại
         // đơn "ma" (status active nhưng delivery_man_id NULL) mà dispatch tự động
         // lẫn cảnh báo "không tìm được tài xế" đều bỏ qua vì không còn pending.
-        if (in_array($data['status'], ['assigned', 'processing']) && !$fresh?->delivery_man_id) {
+        if (in_array($data['status'], ['assigned', 'processing']) && ! $fresh?->delivery_man_id) {
             Notification::make()
                 ->title('Không thể lưu')
                 ->body('Đơn chưa có tài xế nào được gán. Dùng chức năng "Gán tài xế" thay vì đổi trạng thái trực tiếp.')

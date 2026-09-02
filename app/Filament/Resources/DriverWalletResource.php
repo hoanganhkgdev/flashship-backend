@@ -4,6 +4,7 @@ namespace App\Filament\Resources;
 
 use App\Filament\Resources\DriverWalletResource\Pages;
 use App\Filament\Resources\DriverWalletResource\RelationManagers;
+use App\Filament\Traits\RestrictToFullAdmin;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Infolists;
@@ -12,29 +13,38 @@ use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Model;
 use Modules\Core\Models\City;
 use Modules\Driver\Models\DriverWallet;
 use Modules\Driver\Services\DriverWalletService;
-use App\Filament\Traits\RestrictToFullAdmin;
 
 class DriverWalletResource extends Resource
 {
     use RestrictToFullAdmin;
 
     // DriverWallet không có city_id trực tiếp — khu vực xác định qua driver_id -> users.city_id.
-    public static function scopeEloquentQueryToTenant(\Illuminate\Database\Eloquent\Builder $query, ?\Illuminate\Database\Eloquent\Model $tenant): \Illuminate\Database\Eloquent\Builder
+    public static function scopeEloquentQueryToTenant(Builder $query, ?Model $tenant): Builder
     {
         return $query->whereHas('driver', fn ($q) => $q->where('city_id', $tenant?->id));
     }
 
-    protected static ?string $model             = DriverWallet::class;
-    protected static ?string $navigationIcon    = 'heroicon-o-wallet';
-    protected static ?string $navigationGroup   = 'Quản lý ví';
-    protected static ?string $modelLabel        = 'Ví tài xế';
-    protected static ?string $pluralModelLabel  = 'Ví tài xế';
-    protected static ?int    $navigationSort    = 1;
+    protected static ?string $model = DriverWallet::class;
 
-    public static function canCreate(): bool { return false; }
+    protected static ?string $navigationIcon = 'heroicon-o-wallet';
+
+    protected static ?string $navigationGroup = 'Quản lý ví';
+
+    protected static ?string $modelLabel = 'Ví tài xế';
+
+    protected static ?string $pluralModelLabel = 'Ví tài xế';
+
+    protected static ?int $navigationSort = 1;
+
+    public static function canCreate(): bool
+    {
+        return false;
+    }
 
     public static function form(Form $form): Form
     {
@@ -67,7 +77,7 @@ class DriverWalletResource extends Resource
 
                     Infolists\Components\TextEntry::make('balance')
                         ->label('Số dư hiện tại')
-                        ->formatStateUsing(fn ($state) => number_format($state, 0, ',', '.') . ' ₫')
+                        ->formatStateUsing(fn ($state) => number_format($state, 0, ',', '.').' ₫')
                         ->weight('bold')
                         ->size('lg')
                         ->color(fn ($state) => $state < 100_000 ? 'danger' : 'success'),
@@ -113,7 +123,7 @@ class DriverWalletResource extends Resource
                 Tables\Columns\TextColumn::make('balance')
                     ->label('Số dư')
                     ->alignCenter()
-                    ->formatStateUsing(fn ($state) => number_format($state, 0, ',', '.') . ' ₫')
+                    ->formatStateUsing(fn ($state) => number_format($state, 0, ',', '.').' ₫')
                     ->weight('bold')
                     ->color(fn ($state) => $state < 100_000 ? 'danger' : 'success'),
 
@@ -133,7 +143,7 @@ class DriverWalletResource extends Resource
                     ->label('Điều chỉnh')
                     ->icon('heroicon-o-pencil-square')
                     ->color('warning')
-                    ->modalHeading(fn (DriverWallet $record) => 'Điều chỉnh ví: ' . $record->driver?->name)
+                    ->modalHeading(fn (DriverWallet $record) => 'Điều chỉnh ví: '.$record->driver?->name)
                     ->form([
                         Forms\Components\Select::make('type')
                             ->label('Loại')
@@ -158,21 +168,25 @@ class DriverWalletResource extends Resource
                                 $record->driver_id,
                                 (float) $data['amount'],
                                 $data['type'],
-                                $data['description'] . ' (admin)',
-                                'admin_adj_' . $record->driver_id . '_' . now()->timestamp
+                                $data['description'].' (admin)',
+                                'admin_adj_'.$record->driver_id.'_'.now()->timestamp
                             );
                             $record->refresh();
                             Notification::make()->success()
-                                ->title('Đã ' . ($data['type'] === 'credit' ? 'cộng' : 'trừ') . ' ' . number_format($data['amount'], 0, ',', '.') . ' ₫')
-                                ->body('Số dư mới: ' . number_format($record->balance, 0, ',', '.') . ' ₫')
+                                ->title('Đã '.($data['type'] === 'credit' ? 'cộng' : 'trừ').' '.number_format($data['amount'], 0, ',', '.').' ₫')
+                                ->body('Số dư mới: '.number_format($record->balance, 0, ',', '.').' ₫')
                                 ->send();
                         } catch (\Exception $e) {
-                            Notification::make()->danger()->title('Lỗi: ' . $e->getMessage())->send();
+                            Notification::make()->danger()->title('Lỗi: '.$e->getMessage())->send();
                         }
                     }),
 
-                Tables\Actions\ViewAction::make()->label('Giao dịch'),
-            ]);
+                Tables\Actions\ViewAction::make()->label('Giao dịch')->icon('heroicon-o-list-bullet'),
+            ])
+            ->recordUrl(fn (DriverWallet $record): string => static::getUrl('view', ['record' => $record]))
+            ->defaultSort('balance', 'desc')
+            ->defaultPaginationPageOption(25)
+            ->paginationPageOptions([25, 50, 100]);
     }
 
     public static function getRelations(): array
@@ -186,7 +200,7 @@ class DriverWalletResource extends Resource
     {
         return [
             'index' => Pages\ListDriverWallets::route('/'),
-            'view'  => Pages\ViewDriverWallet::route('/{record}'),
+            'view' => Pages\ViewDriverWallet::route('/{record}'),
         ];
     }
 }

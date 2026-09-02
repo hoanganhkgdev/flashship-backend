@@ -1,5 +1,13 @@
 <x-filament-panels::page>
 
+<header class="fs-page-header">
+    <div>
+        <p class="fs-page-header__eyebrow">Theo dõi thời gian thực</p>
+        <h1 class="fs-page-header__title">Bản đồ tài xế</h1>
+        <p class="fs-page-header__description">Vị trí GPS, trạng thái sẵn sàng và tình trạng giao đơn của tài xế trong khu vực.</p>
+    </div>
+</header>
+
 <style>
     #driver-map-wrapper { position: relative; width: 100%; min-height: 70vh; }
     #driver-map { position: absolute; inset: 0; width: 100%; height: 100%; }

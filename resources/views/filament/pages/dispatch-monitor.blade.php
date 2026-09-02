@@ -1,6 +1,14 @@
 <x-filament-panels::page>
 
-<div wire:poll.15s.visible style="padding-top:20px; padding-bottom:32px;">
+<header class="fs-page-header">
+    <div>
+        <p class="fs-page-header__eyebrow">Trung tâm vận hành</p>
+        <h1 class="fs-page-header__title">Theo dõi phát đơn</h1>
+        <p class="fs-page-header__description">Giám sát offer, thời gian chờ và nguồn cung tài xế; dữ liệu tự cập nhật mỗi 15 giây.</p>
+    </div>
+</header>
+
+<div wire:poll.15s.visible style="padding-bottom:32px;">
 
 @php
     $stats  = $this->getTodayStats();

@@ -1,5 +1,13 @@
 <x-filament-panels::page>
 
+<header class="fs-page-header">
+    <div>
+        <p class="fs-page-header__eyebrow">Hiệu suất tài xế</p>
+        <h1 class="fs-page-header__title">Thu nhập tài xế</h1>
+        <p class="fs-page-header__description">Theo dõi số đơn hoàn thành và thu nhập của từng tài xế theo ngày, tuần.</p>
+    </div>
+</header>
+
 @php
     $drivers = $this->drivers;
     $totals  = $this->totals;

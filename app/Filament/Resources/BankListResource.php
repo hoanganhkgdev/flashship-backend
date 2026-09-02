@@ -3,13 +3,13 @@
 namespace App\Filament\Resources;
 
 use App\Filament\Resources\BankListResource\Pages;
+use App\Filament\Traits\RestrictToFullAdmin;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
 use Modules\Driver\Models\BankList;
-use App\Filament\Traits\RestrictToFullAdmin;
 
 class BankListResource extends Resource
 {
@@ -18,17 +18,24 @@ class BankListResource extends Resource
     // Danh mục ngân hàng dùng chung toàn hệ thống, không theo khu vực.
     protected static bool $isScopedToTenant = false;
 
-    protected static ?string $model            = BankList::class;
-    protected static ?string $navigationIcon   = 'heroicon-o-building-library';
-    protected static ?string $navigationGroup  = 'Cấu hình';
-    protected static ?string $modelLabel       = 'Ngân hàng';
+    protected static ?string $model = BankList::class;
+
+    protected static ?string $navigationIcon = 'heroicon-o-building-library';
+
+    protected static ?string $navigationGroup = 'Cấu hình';
+
+    protected static ?string $modelLabel = 'Ngân hàng';
+
     protected static ?string $pluralModelLabel = 'Danh sách ngân hàng';
-    protected static ?int    $navigationSort   = 4;
+
+    protected static ?int $navigationSort = 4;
 
     public static function form(Form $form): Form
     {
         return $form->schema([
             Forms\Components\Section::make('Thông tin ngân hàng')
+                ->description('Danh mục ngân hàng tài xế có thể chọn khi thiết lập tài khoản nhận tiền')
+                ->icon('heroicon-o-building-library')
                 ->columns(2)
                 ->schema([
                     Forms\Components\TextInput::make('code')
@@ -91,15 +98,17 @@ class BankListResource extends Resource
                 Tables\Actions\EditAction::make()->label(''),
                 Tables\Actions\DeleteAction::make()->label(''),
             ])
-            ->reorderable('id');
+            ->recordAction('edit')
+            ->defaultSort('name')
+            ->paginated(false);
     }
 
     public static function getPages(): array
     {
         return [
-            'index'  => Pages\ListBankLists::route('/'),
+            'index' => Pages\ListBankLists::route('/'),
             'create' => Pages\CreateBankList::route('/create'),
-            'edit'   => Pages\EditBankList::route('/{record}/edit'),
+            'edit' => Pages\EditBankList::route('/{record}/edit'),
         ];
     }
 }

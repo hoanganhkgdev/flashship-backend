@@ -25,7 +25,7 @@ class ViewDriverWallet extends ViewRecord
                         ->label('Loại')
                         ->options([
                             'credit' => 'Cộng tiền',
-                            'debit'  => 'Trừ tiền',
+                            'debit' => 'Trừ tiền',
                         ])
                         ->required(),
 
@@ -44,22 +44,22 @@ class ViewDriverWallet extends ViewRecord
                 ->action(function (array $data) {
                     $record = $this->getRecord();
                     try {
-                        $ref = 'admin_adj_' . $record->driver_id . '_' . now()->timestamp;
+                        $ref = 'admin_adj_'.$record->driver_id.'_'.now()->timestamp;
                         DriverWalletService::adjust(
                             $record->driver_id,
                             (float) $data['amount'],
                             $data['type'],
-                            $data['description'] . ' (admin)',
+                            $data['description'].' (admin)',
                             $ref
                         );
                         $record->refresh();
                         Notification::make()
                             ->success()
-                            ->title('Đã ' . ($data['type'] === 'credit' ? 'cộng' : 'trừ') . ' ' . number_format($data['amount'], 0, ',', '.') . ' ₫')
-                            ->body('Số dư mới: ' . number_format($record->balance, 0, ',', '.') . ' ₫')
+                            ->title('Đã '.($data['type'] === 'credit' ? 'cộng' : 'trừ').' '.number_format($data['amount'], 0, ',', '.').' ₫')
+                            ->body('Số dư mới: '.number_format($record->balance, 0, ',', '.').' ₫')
                             ->send();
                     } catch (\Exception $e) {
-                        Notification::make()->danger()->title('Lỗi: ' . $e->getMessage())->send();
+                        Notification::make()->danger()->title('Lỗi: '.$e->getMessage())->send();
                     }
                 }),
         ];
@@ -73,6 +73,14 @@ class ViewDriverWallet extends ViewRecord
     public function getTitle(): string
     {
         $record = $this->getRecord();
-        return 'Ví: ' . ($record->driver?->name ?? 'Tài xế #' . $record->driver_id);
+
+        return 'Ví: '.($record->driver?->name ?? 'Tài xế #'.$record->driver_id);
+    }
+
+    public function getSubheading(): ?string
+    {
+        $record = $this->getRecord();
+
+        return ($record->driver?->phone ?? '—').' · '.($record->driver?->city?->name ?? 'Chưa có khu vực').' · Cập nhật '.$record->updated_at?->format('H:i d/m/Y');
     }
 }

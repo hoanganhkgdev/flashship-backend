@@ -12,10 +12,20 @@ class ListVouchers extends ListRecords
 {
     protected static string $resource = VoucherResource::class;
 
+    public function getHeading(): string
+    {
+        return 'Mã giảm giá';
+    }
+
+    public function getSubheading(): ?string
+    {
+        return 'Tạo và theo dõi các chương trình ưu đãi theo khu vực, dịch vụ và nhóm người dùng.';
+    }
+
     protected function getHeaderActions(): array
     {
         return [
-            Actions\CreateAction::make()->label('Tạo mã mới'),
+            Actions\CreateAction::make()->label('Tạo mã mới')->icon('heroicon-o-plus'),
         ];
     }
 

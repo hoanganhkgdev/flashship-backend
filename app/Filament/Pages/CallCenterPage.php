@@ -2,11 +2,12 @@
 
 namespace App\Filament\Pages;
 
-use Filament\Pages\Page;
-use Filament\Forms\Form;
-use Filament\Forms\Contracts\HasForms;
+use Filament\Facades\Filament;
 use Filament\Forms\Concerns\InteractsWithForms;
+use Filament\Forms\Contracts\HasForms;
+use Filament\Forms\Form;
 use Filament\Notifications\Notification;
+use Filament\Pages\Page;
 use Illuminate\Support\Facades\DB;
 use Modules\Core\Models\User;
 use Modules\Core\Services\GoogleMapService;
@@ -23,43 +24,56 @@ class CallCenterPage extends Page implements HasForms
 {
     use InteractsWithForms;
 
-    protected static ?string $navigationIcon  = 'heroicon-o-phone';
+    protected static ?string $navigationIcon = 'heroicon-o-phone';
+
     protected static ?string $navigationGroup = 'Vận hành';
+
     protected static ?string $navigationLabel = 'Tổng đài đặt đơn';
-    protected static ?string $title           = '';
-    protected static ?int    $navigationSort  = 10;
+
+    protected static ?string $title = '';
+
+    protected static ?int $navigationSort = 10;
 
     protected static string $view = 'filament.pages.call-center';
 
     public static function canAccess(): bool
     {
-        return !in_array(auth()->user()?->user_type, ['city_manager']);
+        return ! in_array(auth()->user()?->user_type, ['city_manager']);
     }
 
     // ─── State ───────────────────────────────────────────────────────────────
 
     public string $serviceType = 'delivery';
-    public array  $data        = [];
+
+    public array $data = [];
 
     // Coords from map picker / autocomplete (skip geocoding on order)
-    public ?float $pickupLat   = null;
-    public ?float $pickupLng   = null;
+    public ?float $pickupLat = null;
+
+    public ?float $pickupLng = null;
+
     public ?float $deliveryLat = null;
+
     public ?float $deliveryLng = null;
 
-    public ?int    $previewFee      = null;
-    public int     $previewNightSurcharge = 0;
+    public ?int $previewFee = null;
+
+    public int $previewNightSurcharge = 0;
+
     public ?string $previewDistance = null;
-    public ?string $previewStatus   = null;
+
+    public ?string $previewStatus = null;
 
     // Gán tay tài xế — $onlineDrivers đổ vào dropdown gán tay (TẤT CẢ tài xế
     // đang online trong thành phố, không giới hạn khoảng cách — tổng đài chủ
     // động chọn ai cũng được). $nearbyDrivers riêng cho chấm xanh trên bản đồ
     // (lọc đúng 4km đường thật). $assignedDriverId = tài xế tổng đài đang
     // chọn (null = để hệ thống tự chọn như trước).
-    public array $onlineDrivers    = [];
-    public array $nearbyDrivers    = [];
-    public ?int  $assignedDriverId = null;
+    public array $onlineDrivers = [];
+
+    public array $nearbyDrivers = [];
+
+    public ?int $assignedDriverId = null;
 
     // Freeship — khách không trả phí ship, nền tảng trả thay cho tài xế lúc
     // hoàn thành đơn (xem OrderService::completeOrder(), đã có sẵn cơ chế
@@ -67,9 +81,12 @@ class CallCenterPage extends Page implements HasForms
     public bool $isFreeship = false;
 
     public ?string $resultOrderCode = null;
-    public ?string $resultError     = null;
-    public ?int    $resultFee       = null;
-    public ?string $resultDistance  = null;
+
+    public ?string $resultError = null;
+
+    public ?int $resultFee = null;
+
+    public ?string $resultDistance = null;
 
     // ─── Service definitions ─────────────────────────────────────────────────
 
@@ -78,10 +95,10 @@ class CallCenterPage extends Page implements HasForms
         return [
             'delivery' => ['label' => 'Lấy Hộ',     'icon' => 'heroicon-o-archive-box',      'color' => '#FF6B35'],
             'shopping' => ['label' => 'Mua Hộ',     'icon' => 'heroicon-o-shopping-bag',     'color' => '#7C4DFF'],
-            'topup'    => ['label' => 'Nạp Tiền',   'icon' => 'heroicon-o-banknotes',        'color' => '#00C896'],
-            'bike'     => ['label' => 'Xe Ôm',      'icon' => 'heroicon-o-bolt',             'color' => '#FFB300'],
-            'motor'    => ['label' => 'Lái Xe Máy', 'icon' => 'heroicon-o-wrench-screwdriver','color' => '#1E88E5'],
-            'car'      => ['label' => 'Lái Xe Hơi', 'icon' => 'heroicon-o-truck',            'color' => '#E53935'],
+            'topup' => ['label' => 'Nạp Tiền',   'icon' => 'heroicon-o-banknotes',        'color' => '#00C896'],
+            'bike' => ['label' => 'Xe Ôm',      'icon' => 'heroicon-o-bolt',             'color' => '#FFB300'],
+            'motor' => ['label' => 'Lái Xe Máy', 'icon' => 'heroicon-o-wrench-screwdriver', 'color' => '#1E88E5'],
+            'car' => ['label' => 'Lái Xe Hơi', 'icon' => 'heroicon-o-truck',            'color' => '#E53935'],
         ];
     }
 
@@ -99,7 +116,7 @@ class CallCenterPage extends Page implements HasForms
     {
         return in_array(
             auth()->user()?->user_type,
-            \Modules\Core\Models\User::TENANT_UNRESTRICTED_TYPES,
+            User::TENANT_UNRESTRICTED_TYPES,
             true
         );
     }
@@ -109,8 +126,9 @@ class CallCenterPage extends Page implements HasForms
         if ($this->isAdmin()) {
             // Mặc định = khu vực (tenant) đang đứng, vẫn chọn được khu vực
             // khác trên form (đặt đơn hộ cho khu vực khác qua tổng đài).
-            return \Filament\Facades\Filament::getTenant()?->id ?? 2;
+            return Filament::getTenant()?->id ?? 2;
         }
+
         return (int) (auth()->user()?->city_id ?? 2);
     }
 
@@ -126,21 +144,21 @@ class CallCenterPage extends Page implements HasForms
                 $this->serviceType = $service;
             }
 
-            $this->pickupLat   = $request->filled('pickup_lat')   ? (float) $request->get('pickup_lat')   : null;
-            $this->pickupLng   = $request->filled('pickup_lng')   ? (float) $request->get('pickup_lng')   : null;
+            $this->pickupLat = $request->filled('pickup_lat') ? (float) $request->get('pickup_lat') : null;
+            $this->pickupLng = $request->filled('pickup_lng') ? (float) $request->get('pickup_lng') : null;
             $this->deliveryLat = $request->filled('delivery_lat') ? (float) $request->get('delivery_lat') : null;
             $this->deliveryLng = $request->filled('delivery_lng') ? (float) $request->get('delivery_lng') : null;
 
             $this->form->fill([
-                'city_id'          => $request->get('city_id', $this->userCityId()),
-                'pickup_address'   => $request->get('pickup_address', ''),
-                'pickup_phone'     => $request->get('pickup_phone', ''),
+                'city_id' => $request->get('city_id', $this->userCityId()),
+                'pickup_address' => $request->get('pickup_address', ''),
+                'pickup_phone' => $request->get('pickup_phone', ''),
                 'delivery_address' => $request->get('delivery_address', ''),
-                'delivery_phone'   => $request->get('delivery_phone', ''),
-                'shopping_note'    => $service === 'shopping' ? $request->get('order_note', '') : '',
-                'order_note'       => $service !== 'shopping' ? $request->get('order_note', '') : '',
-                'cod_amount'       => null,
-                'shipping_fee'     => null,
+                'delivery_phone' => $request->get('delivery_phone', ''),
+                'shopping_note' => $service === 'shopping' ? $request->get('order_note', '') : '',
+                'order_note' => $service !== 'shopping' ? $request->get('order_note', '') : '',
+                'cod_amount' => null,
+                'shipping_fee' => null,
             ]);
 
             $this->refreshNearbyDrivers();
@@ -152,15 +170,15 @@ class CallCenterPage extends Page implements HasForms
     private function defaultFormData(mixed $cityId = null): array
     {
         return [
-            'city_id'          => $cityId ?? $this->userCityId(),
-            'pickup_address'   => '',
-            'pickup_phone'     => '',
+            'city_id' => $cityId ?? $this->userCityId(),
+            'pickup_address' => '',
+            'pickup_phone' => '',
             'delivery_address' => '',
-            'delivery_phone'   => '',
-            'shopping_note'    => '', // Mua hộ: nội dung đơn / gọi khách
-            'order_note'       => '', // Lấy hộ: ghi chú tài xế
-            'cod_amount'       => null,
-            'shipping_fee'     => null,
+            'delivery_phone' => '',
+            'shopping_note' => '', // Mua hộ: nội dung đơn / gọi khách
+            'order_note' => '', // Lấy hộ: ghi chú tài xế
+            'cod_amount' => null,
+            'shipping_fee' => null,
         ];
     }
 
@@ -168,35 +186,37 @@ class CallCenterPage extends Page implements HasForms
 
     public function selectService(string $key): void
     {
-        if (!array_key_exists($key, self::services())) return;
-        $cityId            = $this->data['city_id'] ?? null;
+        if (! array_key_exists($key, self::services())) {
+            return;
+        }
+        $cityId = $this->data['city_id'] ?? null;
         $this->serviceType = $key;
-        $this->pickupLat   = null;
-        $this->pickupLng   = null;
+        $this->pickupLat = null;
+        $this->pickupLng = null;
         $this->deliveryLat = null;
         $this->deliveryLng = null;
-        $this->previewFee      = null;
+        $this->previewFee = null;
         $this->previewDistance = null;
-        $this->previewStatus   = null;
+        $this->previewStatus = null;
         $this->resultOrderCode = null;
-        $this->resultError     = null;
-        $this->resultFee       = null;
-        $this->resultDistance  = null;
-        $this->onlineDrivers    = [];
-        $this->nearbyDrivers    = [];
+        $this->resultError = null;
+        $this->resultFee = null;
+        $this->resultDistance = null;
+        $this->onlineDrivers = [];
+        $this->nearbyDrivers = [];
         $this->assignedDriverId = null;
-        $this->isFreeship       = false;
+        $this->isFreeship = false;
         $this->form->fill($this->defaultFormData($cityId));
     }
 
     public function setPickupLocation(string $address, float $lat, float $lng): void
     {
         $this->data['pickup_address'] = $address;
-        $this->pickupLat   = $lat;
-        $this->pickupLng   = $lng;
-        $this->previewFee      = null;
+        $this->pickupLat = $lat;
+        $this->pickupLng = $lng;
+        $this->previewFee = null;
         $this->previewDistance = null;
-        $this->previewStatus   = null;
+        $this->previewStatus = null;
         $this->assignedDriverId = null;
         $this->suggestShippingFee();
         $this->refreshNearbyDrivers();
@@ -207,9 +227,9 @@ class CallCenterPage extends Page implements HasForms
         $this->data['delivery_address'] = $address;
         $this->deliveryLat = $lat;
         $this->deliveryLng = $lng;
-        $this->previewFee      = null;
+        $this->previewFee = null;
         $this->previewDistance = null;
-        $this->previewStatus   = null;
+        $this->previewStatus = null;
         $this->suggestShippingFee();
     }
 
@@ -231,8 +251,12 @@ class CallCenterPage extends Page implements HasForms
      */
     private function suggestShippingFee(): void
     {
-        if ($this->serviceType === 'topup') return;
-        if (!$this->pickupLat || !$this->pickupLng || !$this->deliveryLat || !$this->deliveryLng) return;
+        if ($this->serviceType === 'topup') {
+            return;
+        }
+        if (! $this->pickupLat || ! $this->pickupLng || ! $this->deliveryLat || ! $this->deliveryLng) {
+            return;
+        }
 
         $cityId = $this->data['city_id'] ?? null;
 
@@ -275,9 +299,10 @@ class CallCenterPage extends Page implements HasForms
     private function refreshNearbyDrivers(): void
     {
         $cityId = $this->data['city_id'] ?? null;
-        if (!$cityId) {
+        if (! $cityId) {
             $this->onlineDrivers = [];
             $this->nearbyDrivers = [];
+
             return;
         }
 
@@ -291,8 +316,9 @@ class CallCenterPage extends Page implements HasForms
             ->values()
             ->all();
 
-        if ($drivers->isEmpty() || !$this->pickupLat || !$this->pickupLng) {
+        if ($drivers->isEmpty() || ! $this->pickupLat || ! $this->pickupLng) {
             $this->nearbyDrivers = [];
+
             return;
         }
 
@@ -304,9 +330,9 @@ class CallCenterPage extends Page implements HasForms
             ->filter(fn (User $d) => ($roadDistances[$d->id] ?? null) !== null
                 && $roadDistances[$d->id] <= DispatchCandidateFinder::MAX_ROAD_DISTANCE_KM)
             ->map(fn (User $d) => [
-                'id'      => $d->id,
-                'lat'     => $origins[$d->id]['lat'],
-                'lng'     => $origins[$d->id]['lng'],
+                'id' => $d->id,
+                'lat' => $origins[$d->id]['lat'],
+                'lng' => $origins[$d->id]['lng'],
                 'road_km' => round($roadDistances[$d->id], 2),
             ])
             ->sortBy('road_km')
@@ -324,15 +350,23 @@ class CallCenterPage extends Page implements HasForms
     private function cityName(): ?string
     {
         $cityId = $this->data['city_id'] ?? null;
-        if (!$cityId) return null;
+        if (! $cityId) {
+            return null;
+        }
+
         return DB::table('cities')->where('id', $cityId)->value('name');
     }
 
     private function withCity(?string $address, ?string $cityName): string
     {
-        if (!$address) return '';
-        if (!$cityName || mb_stripos($address, $cityName) !== false) return $address;
-        return $address . ', ' . $cityName;
+        if (! $address) {
+            return '';
+        }
+        if (! $cityName || mb_stripos($address, $cityName) !== false) {
+            return $address;
+        }
+
+        return $address.', '.$cityName;
     }
 
     // ─── Đặt đơn ─────────────────────────────────────────────────────────────
@@ -342,31 +376,33 @@ class CallCenterPage extends Page implements HasForms
         $values = $this->data;
 
         $this->resultOrderCode = null;
-        $this->resultError     = null;
-        $this->resultFee       = null;
-        $this->resultDistance  = null;
+        $this->resultError = null;
+        $this->resultFee = null;
+        $this->resultDistance = null;
 
         // Enforce city cho non-admin
-        if (!$this->isAdmin()) {
+        if (! $this->isAdmin()) {
             $values['city_id'] = $this->userCityId();
         }
 
         $cityId = $values['city_id'] ?? null;
-        if (!$cityId || !DB::table('cities')->where('id', $cityId)->exists()) {
+        if (! $cityId || ! DB::table('cities')->where('id', $cityId)->exists()) {
             $this->resultError = 'Khu vực không hợp lệ.';
+
             return;
         }
 
         $pickupLabel = match ($this->serviceType) {
             'shopping' => 'địa chỉ cửa hàng',
-            'topup'    => 'điểm nạp',
+            'topup' => 'điểm nạp',
             'bike', 'motor', 'car' => 'điểm đón',
-            default    => 'điểm lấy hàng',
+            default => 'điểm lấy hàng',
         };
 
         $pickupAddress = trim($values['pickup_address'] ?? '');
-        if (!$pickupAddress) {
+        if (! $pickupAddress) {
             $this->resultError = "Vui lòng nhập {$pickupLabel}.";
+
             return;
         }
 
@@ -374,6 +410,7 @@ class CallCenterPage extends Page implements HasForms
         if ($this->serviceType === 'topup') {
             if (empty(trim($values['pickup_phone'] ?? ''))) {
                 $this->resultError = 'Vui lòng nhập số điện thoại khách nạp tiền.';
+
                 return;
             }
         }
@@ -382,13 +419,14 @@ class CallCenterPage extends Page implements HasForms
         if ($this->isRide()) {
             if (empty(trim($values['pickup_phone'] ?? ''))) {
                 $this->resultError = 'Vui lòng nhập số điện thoại hành khách.';
+
                 return;
             }
         }
 
         // Validate shipping_fee & cod_amount
         $shippingFee = max(0, (int) ($values['shipping_fee'] ?? 0));
-        $codAmount   = !empty($values['cod_amount']) ? max(0, (int) $values['cod_amount']) : null;
+        $codAmount = ! empty($values['cod_amount']) ? max(0, (int) $values['cod_amount']) : null;
 
         try {
             $cityName = $this->cityName();
@@ -396,8 +434,9 @@ class CallCenterPage extends Page implements HasForms
             $pickupLat = $this->pickupLat;
             $pickupLng = $this->pickupLng;
 
-            if (!$pickupLat || !$pickupLng) {
+            if (! $pickupLat || ! $pickupLng) {
                 $this->resultError = "Vui lòng chọn {$pickupLabel} từ gợi ý hoặc bản đồ để có toạ độ chính xác.";
+
                 return;
             }
 
@@ -407,7 +446,7 @@ class CallCenterPage extends Page implements HasForms
             } else {
                 $deliveryLat = $this->deliveryLat;
                 $deliveryLng = $this->deliveryLng;
-                if ($deliveryLat === null && !empty($values['delivery_address'])) {
+                if ($deliveryLat === null && ! empty($values['delivery_address'])) {
                     $deliveryGeo = GoogleMapService::geocode($this->withCity($values['delivery_address'], $cityName));
                     $deliveryLat = $deliveryGeo['lat'] ?? null;
                     $deliveryLng = $deliveryGeo['lng'] ?? null;
@@ -415,37 +454,37 @@ class CallCenterPage extends Page implements HasForms
             }
 
             $order = Order::create([
-                'code'               => '',
-                'service_type'       => $this->serviceType,
-                'platform'           => 'call_center',
-                'city_id'            => $cityId,
-                'created_by'         => auth()->id(),
-                'shipping_fee'       => $shippingFee,
-                'night_surcharge'    => $this->previewNightSurcharge,
-                'bonus_fee'          => 0,
-                'is_freeship'        => $this->isFreeship,
-                'status'             => 'pending',
-                'payment_method'     => 'cod',
+                'code' => '',
+                'service_type' => $this->serviceType,
+                'platform' => 'call_center',
+                'city_id' => $cityId,
+                'created_by' => auth()->id(),
+                'shipping_fee' => $shippingFee,
+                'night_surcharge' => $this->previewNightSurcharge,
+                'bonus_fee' => 0,
+                'is_freeship' => $this->isFreeship,
+                'status' => 'pending',
+                'payment_method' => 'cod',
                 'sender_platform_id' => null,
-                'pickup_place_name'  => null,
-                'pickup_address'     => $values['pickup_address'],
-                'pickup_lat'         => $pickupLat,
-                'pickup_lng'         => $pickupLng,
-                'pickup_phone'       => ($values['pickup_phone'] ?? null) ?: null,
-                'delivery_address'   => $this->serviceType === 'topup'
+                'pickup_place_name' => null,
+                'pickup_address' => $values['pickup_address'],
+                'pickup_lat' => $pickupLat,
+                'pickup_lng' => $pickupLng,
+                'pickup_phone' => ($values['pickup_phone'] ?? null) ?: null,
+                'delivery_address' => $this->serviceType === 'topup'
                     ? $values['pickup_address']
                     : ($values['delivery_address'] ?? ''),
-                'delivery_lat'       => $deliveryLat,
-                'delivery_lng'       => $deliveryLng,
-                'delivery_phone'     => $this->serviceType === 'topup' || $this->isRide()
+                'delivery_lat' => $deliveryLat,
+                'delivery_lng' => $deliveryLng,
+                'delivery_phone' => $this->serviceType === 'topup' || $this->isRide()
                     ? (($values['pickup_phone'] ?? null) ?: null)
                     : (($values['delivery_phone'] ?? null) ?: null),
-                'receiver_name'      => null,
-                'order_note'         => $this->serviceType === 'shopping'
+                'receiver_name' => null,
+                'order_note' => $this->serviceType === 'shopping'
                     ? (trim($values['shopping_note'] ?? '') ?: null)
                     : (trim($values['order_note'] ?? '') ?: null),
-                'cod_amount'         => $codAmount,
-                'distance'           => null,
+                'cod_amount' => $codAmount,
+                'distance' => null,
             ]);
 
             $order->refresh();
@@ -466,9 +505,9 @@ class CallCenterPage extends Page implements HasForms
                         ->send();
                 } else {
                     DB::table('orders')->where('id', $order->id)->update([
-                        'status'       => 'cancelled',
+                        'status' => 'cancelled',
                         'cancel_reason' => 'admin',
-                        'updated_at'   => now(),
+                        'updated_at' => now(),
                     ]);
                     RTDBService::clearOrder($order->code);
                     $this->resultError = "Không gán được cho tài xế đã chọn — {$assignResult['message']} Đơn #{$order->code} đã bị huỷ, vui lòng thử lại với tài xế khác.";
@@ -477,6 +516,7 @@ class CallCenterPage extends Page implements HasForms
                         ->body($assignResult['message'])
                         ->danger()
                         ->send();
+
                     return;
                 }
             } else {
@@ -484,17 +524,17 @@ class CallCenterPage extends Page implements HasForms
             }
 
             $this->resultOrderCode = $order->code;
-            $this->resultFee       = $shippingFee;
-            $this->resultDistance  = null;
+            $this->resultFee = $shippingFee;
+            $this->resultDistance = null;
 
-            $this->pickupLat  = null;
-            $this->pickupLng  = null;
+            $this->pickupLat = null;
+            $this->pickupLng = null;
             $this->deliveryLat = null;
             $this->deliveryLng = null;
-            $this->onlineDrivers    = [];
-            $this->nearbyDrivers    = [];
+            $this->onlineDrivers = [];
+            $this->nearbyDrivers = [];
             $this->assignedDriverId = null;
-            $this->isFreeship       = false;
+            $this->isFreeship = false;
 
             $this->form->fill($this->defaultFormData($cityId));
 
@@ -516,19 +556,19 @@ class CallCenterPage extends Page implements HasForms
     public function clearResult(): void
     {
         $this->resultOrderCode = null;
-        $this->resultError     = null;
-        $this->resultFee       = null;
-        $this->resultDistance  = null;
-        $this->previewFee      = null;
+        $this->resultError = null;
+        $this->resultFee = null;
+        $this->resultDistance = null;
+        $this->previewFee = null;
         $this->previewDistance = null;
-        $this->previewStatus   = null;
-        $this->pickupLat       = null;
-        $this->pickupLng       = null;
-        $this->deliveryLat     = null;
-        $this->deliveryLng     = null;
-        $this->onlineDrivers    = [];
-        $this->nearbyDrivers    = [];
+        $this->previewStatus = null;
+        $this->pickupLat = null;
+        $this->pickupLng = null;
+        $this->deliveryLat = null;
+        $this->deliveryLng = null;
+        $this->onlineDrivers = [];
+        $this->nearbyDrivers = [];
         $this->assignedDriverId = null;
-        $this->isFreeship       = false;
+        $this->isFreeship = false;
     }
 }

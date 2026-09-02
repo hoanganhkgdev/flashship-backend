@@ -3,6 +3,7 @@
 namespace App\Filament\Pages;
 
 use App\Services\ZaloTokenService;
+use Carbon\Carbon;
 use Filament\Actions\Action;
 use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Section;
@@ -15,23 +16,35 @@ use Illuminate\Support\HtmlString;
 
 class ZaloTokenSettings extends Page
 {
-    protected static ?string $navigationIcon  = 'heroicon-o-key';
+    protected static ?string $navigationIcon = 'heroicon-o-key';
+
     protected static ?string $navigationGroup = 'Cài đặt';
+
     protected static ?string $navigationLabel = 'Zalo ZNS Token';
-    protected static ?string $title           = 'Quản lý Zalo ZNS Token';
-    protected static ?int    $navigationSort  = 99;
+
+    protected static ?string $title = 'Quản lý Zalo ZNS Token';
+
+    protected static ?int $navigationSort = 99;
 
     protected static string $view = 'filament.pages.zalo-token-settings';
 
+    public function getSubheading(): ?string
+    {
+        return 'Theo dõi trạng thái và duy trì token phục vụ gửi thông báo Zalo ZNS.';
+    }
+
     public static function canAccess(): bool
     {
-        return !in_array(auth()->user()?->user_type, ['city_manager', 'call_center']);
+        return ! in_array(auth()->user()?->user_type, ['city_manager', 'call_center']);
     }
 
     public static function getNavigationBadge(): ?string
     {
         $row = DB::table('zalo_tokens')->orderByDesc('id')->first();
-        if ($row && isset($row->last_error_at) && $row->last_error_at) return 'LỖI';
+        if ($row && isset($row->last_error_at) && $row->last_error_at) {
+            return 'LỖI';
+        }
+
         return null;
     }
 
@@ -40,15 +53,17 @@ class ZaloTokenSettings extends Page
         return 'danger';
     }
 
-    public ?string $access_token  = null;
+    public ?string $access_token = null;
+
     public ?string $refresh_token = null;
-    public int     $expires_in    = 86400;
+
+    public int $expires_in = 86400;
 
     public function mount(): void
     {
         $row = DB::table('zalo_tokens')->orderByDesc('id')->first();
         if ($row) {
-            $this->access_token  = $row->access_token;
+            $this->access_token = $row->access_token;
             $this->refresh_token = $row->refresh_token;
         }
     }
@@ -60,6 +75,8 @@ class ZaloTokenSettings extends Page
         return $form
             ->schema([
                 Section::make('Trạng thái')
+                    ->description('Tình trạng token và lần làm mới gần nhất')
+                    ->icon('heroicon-o-signal')
                     ->schema([
                         Placeholder::make('status_info')
                             ->label('')
@@ -68,6 +85,7 @@ class ZaloTokenSettings extends Page
 
                 Section::make('Nhập Token mới')
                     ->description('Chỉ cần nhập 1 lần đầu. Sau đó hệ thống tự refresh mỗi 24h.')
+                    ->icon('heroicon-o-key')
                     ->schema([
                         TextInput::make('access_token')
                             ->label('Access Token')
@@ -98,19 +116,19 @@ class ZaloTokenSettings extends Page
     public function save(): void
     {
         $this->validate([
-            'access_token'  => 'required|string|min:10',
+            'access_token' => 'required|string|min:10',
             'refresh_token' => 'required|string|min:10',
-            'expires_in'    => 'required|integer|min:60',
+            'expires_in' => 'required|integer|min:60',
         ]);
 
         $payload = [
-            'access_token'      => $this->access_token,
-            'refresh_token'     => $this->refresh_token,
-            'expires_at'        => now()->addSeconds($this->expires_in),
-            'last_error'        => null,
-            'last_error_at'     => null,
+            'access_token' => $this->access_token,
+            'refresh_token' => $this->refresh_token,
+            'expires_at' => now()->addSeconds($this->expires_in),
+            'last_error' => null,
+            'last_error_at' => null,
             'last_refreshed_at' => now(),
-            'updated_at'        => now(),
+            'updated_at' => now(),
         ];
 
         $row = DB::table('zalo_tokens')->orderByDesc('id')->first();
@@ -142,8 +160,9 @@ class ZaloTokenSettings extends Page
                 ->action(function () {
                     $row = DB::table('zalo_tokens')->orderByDesc('id')->first();
 
-                    if (!$row) {
+                    if (! $row) {
                         Notification::make()->title('Chưa có token trong DB')->danger()->send();
+
                         return;
                     }
 
@@ -169,7 +188,7 @@ class ZaloTokenSettings extends Page
     private function buildStatusHtml(?object $row): string
     {
         // Chưa có token
-        if (!$row) {
+        if (! $row) {
             return $this->alertHtml('warning',
                 '⚠ Chưa có token',
                 'Nhập access token + refresh token lần đầu ở bên dưới. Sau đó hệ thống hoàn toàn tự động.'
@@ -180,27 +199,27 @@ class ZaloTokenSettings extends Page
 
         // Cảnh báo lỗi nếu refresh thất bại gần đây
         if (isset($row->last_error_at) && $row->last_error_at) {
-            $errorTime = \Carbon\Carbon::parse($row->last_error_at)->format('d/m/Y H:i');
+            $errorTime = Carbon::parse($row->last_error_at)->format('d/m/Y H:i');
             $html .= $this->alertHtml('danger',
                 "🚨 Tự động refresh thất bại lúc {$errorTime}",
-                "Lý do: <code>" . e($row->last_error) . "</code><br><br>" .
-                "Refresh token có thể đã hết hạn (~3 tháng). Cần:<br>" .
-                "1. Vào <a href='https://developers.zalo.me' target='_blank' style='color:inherit;text-decoration:underline'>developers.zalo.me</a> → lấy token mới<br>" .
-                "2. Dán vào form bên dưới → Lưu<br>" .
+                'Lý do: <code>'.e($row->last_error).'</code><br><br>'.
+                'Refresh token có thể đã hết hạn (~3 tháng). Cần:<br>'.
+                "1. Vào <a href='https://developers.zalo.me' target='_blank' style='color:inherit;text-decoration:underline'>developers.zalo.me</a> → lấy token mới<br>".
+                '2. Dán vào form bên dưới → Lưu<br>'.
                 "<em style='color:#dc2626'>Trong thời gian này OTP sẽ KHÔNG gửi được tới người dùng!</em>"
             );
         }
 
         // Trạng thái access token
         $minutesLeft = $row->expires_at ? now()->diffInMinutes($row->expires_at, false) : null;
-        $expiresAt   = $row->expires_at ? \Carbon\Carbon::parse($row->expires_at)->format('d/m/Y H:i') : '—';
+        $expiresAt = $row->expires_at ? Carbon::parse($row->expires_at)->format('d/m/Y H:i') : '—';
         $lastRefresh = isset($row->last_refreshed_at) && $row->last_refreshed_at
-            ? \Carbon\Carbon::parse($row->last_refreshed_at)->format('d/m/Y H:i')
+            ? Carbon::parse($row->last_refreshed_at)->format('d/m/Y H:i')
             : '—';
 
         if ($minutesLeft === null || $minutesLeft <= 0) {
             $html .= $this->alertHtml('danger', '🔴 Access token đã hết hạn',
-                "Hệ thống đang thử refresh tự động. Nếu tiếp tục lỗi, nhấn <strong>Thử Refresh Ngay</strong>."
+                'Hệ thống đang thử refresh tự động. Nếu tiếp tục lỗi, nhấn <strong>Thử Refresh Ngay</strong>.'
             );
         } elseif ($minutesLeft <= 60) {
             $html .= $this->alertHtml('warning', "🟡 Access token còn {$minutesLeft} phút",
@@ -231,7 +250,7 @@ class ZaloTokenSettings extends Page
         $styles = [
             'success' => ['bg' => '#f0fdf4', 'border' => '#86efac', 'text' => '#166534'],
             'warning' => ['bg' => '#fffbeb', 'border' => '#fcd34d', 'text' => '#92400e'],
-            'danger'  => ['bg' => '#fef2f2', 'border' => '#fca5a5', 'text' => '#b91c1c'],
+            'danger' => ['bg' => '#fef2f2', 'border' => '#fca5a5', 'text' => '#b91c1c'],
         ];
         $s = $styles[$type] ?? $styles['warning'];
 

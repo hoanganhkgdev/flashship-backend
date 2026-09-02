@@ -3,50 +3,59 @@
 namespace App\Filament\Resources;
 
 use App\Filament\Resources\SupportConfigResource\Pages;
+use App\Filament\Traits\HideFromCityManager;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Model;
 use Modules\Admin\Models\SupportConfig;
 use Modules\Core\Models\City;
-use App\Filament\Traits\HideFromCityManager;
 
 class SupportConfigResource extends Resource
 {
     public static function canAccess(): bool
     {
-        return !auth()->user()?->isCallCenter() && static::canViewAny();
+        return ! auth()->user()?->isCallCenter() && static::canViewAny();
     }
 
     use HideFromCityManager;
 
     // city_id = null nghĩa là áp dụng cho mọi khu vực — vẫn phải hiện ở mọi tenant.
-    public static function scopeEloquentQueryToTenant(\Illuminate\Database\Eloquent\Builder $query, ?\Illuminate\Database\Eloquent\Model $tenant): \Illuminate\Database\Eloquent\Builder
+    public static function scopeEloquentQueryToTenant(Builder $query, ?Model $tenant): Builder
     {
         return $query->where(fn ($q) => $q->where('city_id', $tenant?->id)->orWhereNull('city_id'));
     }
 
-    protected static ?string $model            = SupportConfig::class;
-    protected static ?string $navigationIcon   = 'heroicon-o-lifebuoy';
-    protected static ?string $navigationGroup  = 'Cài đặt';
-    protected static ?string $modelLabel       = 'Hỗ trợ';
+    protected static ?string $model = SupportConfig::class;
+
+    protected static ?string $navigationIcon = 'heroicon-o-lifebuoy';
+
+    protected static ?string $navigationGroup = 'Cài đặt';
+
+    protected static ?string $modelLabel = 'Hỗ trợ';
+
     protected static ?string $pluralModelLabel = 'Cấu hình hỗ trợ';
-    protected static ?int    $navigationSort   = 2;
+
+    protected static ?int $navigationSort = 2;
 
     private static array $typeOptions = [
-        'phone'    => 'Số điện thoại',
-        'zalo'     => 'Zalo',
+        'phone' => 'Số điện thoại',
+        'zalo' => 'Zalo',
         'facebook' => 'Facebook',
-        'website'  => 'Website',
-        'email'    => 'Email',
-        'other'    => 'Khác',
+        'website' => 'Website',
+        'email' => 'Email',
+        'other' => 'Khác',
     ];
 
     public static function form(Form $form): Form
     {
         return $form->schema([
             Forms\Components\Section::make('Thông tin nút hỗ trợ')
+                ->description('Cấu hình kênh liên hệ hiển thị trong khu vực Hỗ trợ của ứng dụng')
+                ->icon('heroicon-o-lifebuoy')
                 ->columns(2)
                 ->schema([
                     Forms\Components\TextInput::make('title')
@@ -66,12 +75,12 @@ class SupportConfigResource extends Resource
                         ->required()
                         ->maxLength(255)
                         ->placeholder(fn (Forms\Get $get) => match ($get('type')) {
-                            'phone'    => '0901234567',
-                            'zalo'     => 'https://zalo.me/...',
+                            'phone' => '0901234567',
+                            'zalo' => 'https://zalo.me/...',
                             'facebook' => 'https://fb.me/...',
-                            'website'  => 'https://...',
-                            'email'    => 'support@example.com',
-                            default    => 'https://...',
+                            'website' => 'https://...',
+                            'email' => 'support@example.com',
+                            default => 'https://...',
                         }),
 
                     Forms\Components\Select::make('city_id')
@@ -121,15 +130,17 @@ class SupportConfigResource extends Resource
             ->actions([
                 Tables\Actions\EditAction::make()->label(''),
                 Tables\Actions\DeleteAction::make()->label(''),
-            ]);
+            ])
+            ->recordAction('edit')
+            ->paginated(false);
     }
 
     public static function getPages(): array
     {
         return [
-            'index'  => Pages\ListSupportConfigs::route('/'),
+            'index' => Pages\ListSupportConfigs::route('/'),
             'create' => Pages\CreateSupportConfig::route('/create'),
-            'edit'   => Pages\EditSupportConfig::route('/{record}/edit'),
+            'edit' => Pages\EditSupportConfig::route('/{record}/edit'),
         ];
     }
 }

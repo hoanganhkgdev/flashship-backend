@@ -1,5 +1,31 @@
 <x-filament-panels::page>
 
+    @php
+        $statusConfig = match ($this->record->status) {
+            'pending' => ['label' => 'Chờ tài xế', 'class' => 'warning'],
+            'assigned' => ['label' => 'Đã phân công', 'class' => 'info'],
+            'processing' => ['label' => 'Đang giao hàng', 'class' => 'primary'],
+            'completed' => ['label' => 'Hoàn thành', 'class' => 'success'],
+            'cancelled' => ['label' => 'Đã huỷ', 'class' => 'danger'],
+            default => ['label' => $this->record->status, 'class' => 'gray'],
+        };
+    @endphp
+
+    <section class="fs-order-context">
+        <div class="fs-order-context__main">
+            <span class="fs-order-context__icon"><x-heroicon-o-shopping-bag class="h-5 w-5" /></span>
+            <div>
+                <p class="fs-order-context__eyebrow">Đơn hàng</p>
+                <p class="fs-order-context__code">#{{ $this->record->code }}</p>
+            </div>
+        </div>
+        <div class="fs-order-context__meta">
+            <span class="fs-order-status fs-order-status--{{ $statusConfig['class'] }}">{{ $statusConfig['label'] }}</span>
+            <span><x-heroicon-m-map-pin class="h-4 w-4" /> {{ $this->record->city?->name ?? '—' }}</span>
+            <span><x-heroicon-m-clock class="h-4 w-4" /> {{ $this->record->created_at?->format('H:i · d/m/Y') }}</span>
+        </div>
+    </section>
+
     <x-filament-panels::form wire:submit="save">
         {{ $this->form }}
 

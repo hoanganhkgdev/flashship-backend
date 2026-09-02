@@ -3,6 +3,7 @@
 namespace App\Filament\Pages;
 
 use Carbon\Carbon;
+use Filament\Facades\Filament;
 use Filament\Pages\Page;
 use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\On;
@@ -15,16 +16,23 @@ class DispatchMonitorPage extends Page
 {
     public static function canAccess(): bool
     {
-        return !auth()->user()?->isCallCenter();
+        return ! auth()->user()?->isCallCenter();
     }
 
-    protected static ?string $navigationIcon  = 'heroicon-o-signal';
-    protected static ?string $navigationGroup = 'Đơn hàng';
-    protected static ?string $navigationLabel = 'Theo dõi phát đơn';
-    protected static ?int    $navigationSort  = 50;
-    protected static string  $view            = 'filament.pages.dispatch-monitor';
+    protected static ?string $navigationIcon = 'heroicon-o-signal';
 
-    public function getHeading(): string { return ''; }
+    protected static ?string $navigationGroup = 'Đơn hàng';
+
+    protected static ?string $navigationLabel = 'Theo dõi phát đơn';
+
+    protected static ?int $navigationSort = 50;
+
+    protected static string $view = 'filament.pages.dispatch-monitor';
+
+    public function getHeading(): string
+    {
+        return '';
+    }
 
     #[On('echo:dispatch-monitor,.state.changed')]
     public function refresh(): void {}
@@ -32,6 +40,7 @@ class DispatchMonitorPage extends Page
     private function serviceLabels(): array
     {
         static $cache = null;
+
         return $cache ??= ServiceType::pluck('label', 'key')->toArray();
     }
 
@@ -41,15 +50,15 @@ class DispatchMonitorPage extends Page
         return match ($result) {
             'accepted' => ['color' => '#22c55e', 'label' => 'Nhận'],
             'declined' => ['color' => '#ef4444', 'label' => 'Từ chối'],
-            'expired'  => ['color' => '#9ca3af', 'label' => 'Hết hạn'],
-            default    => ['color' => '#f59e0b', 'label' => 'Đang chờ'], // 'pending'
+            'expired' => ['color' => '#9ca3af', 'label' => 'Hết hạn'],
+            default => ['color' => '#f59e0b', 'label' => 'Đang chờ'], // 'pending'
         };
     }
 
     /** Luôn khoá theo đúng khu vực (tenant) đang đứng — đổi khu vực thì dùng bộ chuyển tenant trên topbar. */
     private function effectiveCityId(): ?int
     {
-        return \Filament\Facades\Filament::getTenant()?->id;
+        return Filament::getTenant()?->id;
     }
 
     /**
@@ -77,22 +86,22 @@ class DispatchMonitorPage extends Page
             ->pluck('name', 'id');
 
         return $orders->map(function (Order $o) use ($driverNames) {
-            $driverName  = $driverNames[$o->dispatching_to_driver_id] ?? null;
+            $driverName = $driverNames[$o->dispatching_to_driver_id] ?? null;
             $elapsedSecs = max(0, now()->getTimestamp() - Carbon::parse($o->dispatch_started_at)->getTimestamp());
 
             $status = $driverName
                 ? "Đang chờ {$driverName}"
-                : "Đang quét toàn thành phố...";
+                : 'Đang quét toàn thành phố...';
 
             return [
-                'id'           => $o->id,
+                'id' => $o->id,
                 'service_type' => $this->serviceLabels()[$o->service_type] ?? $o->service_type,
-                'city'         => $o->city?->name,
-                'elapsed'      => $elapsedSecs,
-                'attempts'     => $o->dispatch_attempts,
-                'offering_to'  => $driverName,
-                'status'       => $status,
-                'started_at'   => $o->dispatch_started_at,
+                'city' => $o->city?->name,
+                'elapsed' => $elapsedSecs,
+                'attempts' => $o->dispatch_attempts,
+                'offering_to' => $driverName,
+                'status' => $status,
+                'started_at' => $o->dispatch_started_at,
             ];
         })->toArray();
     }
@@ -136,23 +145,39 @@ class DispatchMonitorPage extends Page
         $dead = $busy1 = $busy2 = $holding = $ready = 0;
 
         foreach ($drivers as $d) {
-            $hbDead = !isset($freshLocations[$d->id]);
+            $hbDead = ! isset($freshLocations[$d->id]);
             $active = (int) ($activeCounts[$d->id] ?? 0);
 
-            if ($hbDead)                        { $dead++; continue; }
-            if ($active >= 2)                   { $busy2++; continue; }
-            if (isset($holdingOffer[$d->id]))   { $holding++; continue; }
-            if ($active === 1)                  { $busy1++; continue; }
+            if ($hbDead) {
+                $dead++;
+
+                continue;
+            }
+            if ($active >= 2) {
+                $busy2++;
+
+                continue;
+            }
+            if (isset($holdingOffer[$d->id])) {
+                $holding++;
+
+                continue;
+            }
+            if ($active === 1) {
+                $busy1++;
+
+                continue;
+            }
             $ready++;
         }
 
         return [
-            'online'      => $online,
-            'ready'       => $ready,
-            'busy1'       => $busy1,
-            'busy2'       => $busy2,
-            'holding'     => $holding,
-            'dead'        => $dead,
+            'online' => $online,
+            'ready' => $ready,
+            'busy1' => $busy1,
+            'busy2' => $busy2,
+            'holding' => $holding,
+            'dead' => $dead,
         ];
     }
 
@@ -183,11 +208,11 @@ class DispatchMonitorPage extends Page
                     : null;
 
                 return [
-                    'id'           => $r->id,
-                    'order_id'     => $r->order_id,
-                    'driver_name'  => $r->driver_name,
-                    'offered_at'   => Carbon::parse($r->offered_at)->format('H:i:s d/m'),
-                    'result'       => $r->result,
+                    'id' => $r->id,
+                    'order_id' => $r->order_id,
+                    'driver_name' => $r->driver_name,
+                    'offered_at' => Carbon::parse($r->offered_at)->format('H:i:s d/m'),
+                    'result' => $r->result,
                     'response_sec' => $responseSecs,
                 ];
             })
@@ -216,28 +241,31 @@ class DispatchMonitorPage extends Page
         $avgWait = DB::table('orders as o')
             ->join('order_dispatch_logs as l', function ($j) {
                 $j->on('l.order_id', '=', 'o.id')
-                  ->on('l.driver_id', '=', 'o.delivery_man_id')
-                  ->where('l.result', 'accepted');
+                    ->on('l.driver_id', '=', 'o.delivery_man_id')
+                    ->where('l.result', 'accepted');
             })
             ->whereDate('o.dispatch_started_at', now()->toDateString())
             ->when($cityId, fn ($q) => $q->where('o.city_id', $cityId))
             ->selectRaw('AVG(TIMESTAMPDIFF(SECOND, o.dispatch_started_at, l.responded_at)) as w')
             ->value('w');
 
-        $total    = (int) ($agg->total ?? 0);
+        $total = (int) ($agg->total ?? 0);
         $accepted = (int) ($agg->accepted ?? 0);
 
         return [
-            'total'          => $total,
-            'accepted'       => $accepted,
-            'accept_rate'    => $total > 0 ? round($accepted / $total * 100) : 0,
-            'first_try'      => (int) ($agg->first_try ?? 0),
+            'total' => $total,
+            'accepted' => $accepted,
+            'accept_rate' => $total > 0 ? round($accepted / $total * 100) : 0,
+            'first_try' => (int) ($agg->first_try ?? 0),
             'first_try_rate' => $accepted > 0 ? round(($agg->first_try ?? 0) / $accepted * 100) : 0,
-            'no_driver'      => (int) ($agg->no_driver ?? 0),
-            'avg_attempts'   => round((float) ($agg->avg_attempts ?? 0), 1),
-            'avg_wait_secs'  => (int) round((float) ($avgWait ?? 0)),
+            'no_driver' => (int) ($agg->no_driver ?? 0),
+            'avg_attempts' => round((float) ($agg->avg_attempts ?? 0), 1),
+            'avg_wait_secs' => (int) round((float) ($avgWait ?? 0)),
         ];
     }
 
-    protected function getFormActions(): array { return []; }
+    protected function getFormActions(): array
+    {
+        return [];
+    }
 }

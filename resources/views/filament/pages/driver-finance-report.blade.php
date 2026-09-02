@@ -1,5 +1,13 @@
 <x-filament-panels::page>
 
+<header class="fs-page-header">
+    <div>
+        <p class="fs-page-header__eyebrow">Báo cáo tài chính</p>
+        <h1 class="fs-page-header__title">Thu chi tài xế</h1>
+        <p class="fs-page-header__description">Tổng hợp phí tuần, thưởng, phạt, công nợ và tiền đã rút theo kỳ đối soát.</p>
+    </div>
+</header>
+
 @php
     $rows   = $this->rows;
     $totals = $this->totals;

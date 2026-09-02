@@ -10,10 +10,20 @@ class EditShopPricing extends EditRecord
 {
     protected static string $resource = ShopPricingResource::class;
 
+    public function getTitle(): string
+    {
+        return 'Chỉnh sửa bảng giá cửa hàng';
+    }
+
+    public function getSubheading(): ?string
+    {
+        return 'Thay đổi này ảnh hưởng đến các đơn cửa hàng được báo giá sau khi lưu.';
+    }
+
     protected function getHeaderActions(): array
     {
         return [
-            Actions\DeleteAction::make()->label('Xoá'),
+            Actions\DeleteAction::make()->label('Xoá bảng giá'),
         ];
     }
 

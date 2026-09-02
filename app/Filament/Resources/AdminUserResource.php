@@ -3,15 +3,16 @@
 namespace App\Filament\Resources;
 
 use App\Filament\Resources\AdminUserResource\Pages;
+use App\Filament\Traits\RestrictToFullAdmin;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Resources\Resource;
 use Filament\Tables;
-use Filament\Tables\Table;
 use Filament\Tables\Filters\SelectFilter;
+use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\DB;
 use Modules\Core\Models\User;
-use App\Filament\Traits\RestrictToFullAdmin;
 
 class AdminUserResource extends Resource
 {
@@ -27,12 +28,17 @@ class AdminUserResource extends Resource
 
     protected static ?string $model = User::class;
 
-    protected static ?string $navigationIcon  = 'heroicon-o-shield-check';
+    protected static ?string $navigationIcon = 'heroicon-o-shield-check';
+
     protected static ?string $navigationGroup = 'Người dùng';
-    protected static ?string $modelLabel      = 'Quản trị viên';
+
+    protected static ?string $modelLabel = 'Quản trị viên';
+
     protected static ?string $pluralModelLabel = 'Quản trị viên';
-    protected static ?string $slug            = 'admins';
-    protected static ?int    $navigationSort  = 3;
+
+    protected static ?string $slug = 'admins';
+
+    protected static ?int $navigationSort = 3;
 
     public static function getEloquentQuery(): Builder
     {
@@ -42,56 +48,62 @@ class AdminUserResource extends Resource
     public static function form(Form $form): Form
     {
         return $form->schema([
-            Forms\Components\Section::make('Thông tin cá nhân')->schema([
-                Forms\Components\TextInput::make('name')
-                    ->label('Họ tên')
-                    ->required(),
+            Forms\Components\Section::make('Thông tin cá nhân')
+                ->description('Thông tin nhận diện và liên hệ của nhân sự quản trị')
+                ->icon('heroicon-o-identification')
+                ->schema([
+                    Forms\Components\TextInput::make('name')
+                        ->label('Họ tên')
+                        ->required(),
 
-                Forms\Components\TextInput::make('phone')
-                    ->label('Số điện thoại')
-                    ->tel(),
+                    Forms\Components\TextInput::make('phone')
+                        ->label('Số điện thoại')
+                        ->tel(),
 
-                Forms\Components\TextInput::make('email')
-                    ->label('Email')
-                    ->email(),
-            ])->columns(3),
+                    Forms\Components\TextInput::make('email')
+                        ->label('Email')
+                        ->email(),
+                ])->columns(3),
 
-            Forms\Components\Section::make('Tài khoản')->schema([
-                Forms\Components\Select::make('user_type')
-                    ->label('Vai trò')
-                    ->options([
-                        'admin'        => 'Quản trị viên',
-                        'subadmin'     => 'Quản trị viên phụ',
-                        'city_manager' => 'Quản lý khu vực',
-                        'call_center'  => 'Tổng đài viên',
-                    ])
-                    ->live()
-                    ->required(),
+            Forms\Components\Section::make('Tài khoản')
+                ->description('Vai trò quyết định phạm vi truy cập và khu vực phụ trách')
+                ->icon('heroicon-o-shield-check')
+                ->schema([
+                    Forms\Components\Select::make('user_type')
+                        ->label('Vai trò')
+                        ->options([
+                            'admin' => 'Quản trị viên',
+                            'subadmin' => 'Quản trị viên phụ',
+                            'city_manager' => 'Quản lý khu vực',
+                            'call_center' => 'Tổng đài viên',
+                        ])
+                        ->live()
+                        ->required(),
 
-                Forms\Components\Select::make('city_id')
-                    ->label('Khu vực phụ trách')
-                    ->options(fn () => \Illuminate\Support\Facades\DB::table('cities')
-                        ->where('is_active', 1)
-                        ->orderBy('name')
-                        ->pluck('name', 'id'))
-                    ->searchable()
-                    ->visible(fn (Forms\Get $get) => in_array($get('user_type'), ['city_manager', 'call_center']))
-                    ->required(fn (Forms\Get $get) => in_array($get('user_type'), ['city_manager', 'call_center'])),
+                    Forms\Components\Select::make('city_id')
+                        ->label('Khu vực phụ trách')
+                        ->options(fn () => DB::table('cities')
+                            ->where('is_active', 1)
+                            ->orderBy('name')
+                            ->pluck('name', 'id'))
+                        ->searchable()
+                        ->visible(fn (Forms\Get $get) => in_array($get('user_type'), ['city_manager', 'call_center']))
+                        ->required(fn (Forms\Get $get) => in_array($get('user_type'), ['city_manager', 'call_center'])),
 
-                Forms\Components\Select::make('status')
-                    ->label('Trạng thái')
-                    ->options([1 => 'Hoạt động', 2 => 'Bị khóa'])
-                    ->default(1)
-                    ->required(),
+                    Forms\Components\Select::make('status')
+                        ->label('Trạng thái')
+                        ->options([1 => 'Hoạt động', 2 => 'Bị khóa'])
+                        ->default(1)
+                        ->required(),
 
-                Forms\Components\TextInput::make('password')
-                    ->label('Mật khẩu')
-                    ->password()
-                    ->required(fn (string $operation) => $operation === 'create')
-                    ->minLength(6)
-                    ->dehydrateStateUsing(fn ($state) => filled($state) ? bcrypt($state) : null)
-                    ->dehydrated(fn ($state) => filled($state)),
-            ])->columns(2),
+                    Forms\Components\TextInput::make('password')
+                        ->label('Mật khẩu')
+                        ->password()
+                        ->required(fn (string $operation) => $operation === 'create')
+                        ->minLength(6)
+                        ->dehydrateStateUsing(fn ($state) => filled($state) ? bcrypt($state) : null)
+                        ->dehydrated(fn ($state) => filled($state)),
+                ])->columns(2),
         ]);
     }
 
@@ -124,16 +136,18 @@ class AdminUserResource extends Resource
                     ->label('Vai trò')
                     ->badge()
                     ->formatStateUsing(fn ($state) => match ($state) {
-                        'admin'        => 'Quản trị viên',
-                        'subadmin'     => 'Phụ quản trị',
+                        'admin' => 'Quản trị viên',
+                        'subadmin' => 'Phụ quản trị',
                         'city_manager' => 'Quản lý khu vực',
-                        default        => $state,
+                        'call_center' => 'Tổng đài viên',
+                        default => $state,
                     })
                     ->color(fn ($state) => match ($state) {
-                        'admin'        => 'danger',
-                        'subadmin'     => 'warning',
+                        'admin' => 'danger',
+                        'subadmin' => 'warning',
                         'city_manager' => 'info',
-                        default        => 'gray',
+                        'call_center' => 'success',
+                        default => 'gray',
                     }),
 
                 Tables\Columns\TextColumn::make('city.name')
@@ -165,10 +179,10 @@ class AdminUserResource extends Resource
                 SelectFilter::make('user_type')
                     ->label('Vai trò')
                     ->options([
-                        'admin'        => 'Quản trị viên',
-                        'subadmin'     => 'Quản trị viên phụ',
+                        'admin' => 'Quản trị viên',
+                        'subadmin' => 'Quản trị viên phụ',
                         'city_manager' => 'Quản lý khu vực',
-                        'call_center'  => 'Tổng đài viên',
+                        'call_center' => 'Tổng đài viên',
                     ]),
                 SelectFilter::make('city_id')
                     ->label('Khu vực')
@@ -183,7 +197,9 @@ class AdminUserResource extends Resource
                     Tables\Actions\DeleteBulkAction::make(),
                 ]),
             ])
-            ->defaultSort('created_at', 'desc');
+            ->defaultSort('created_at', 'desc')
+            ->defaultPaginationPageOption(25)
+            ->paginationPageOptions([25, 50, 100]);
     }
 
     public static function getRelations(): array
@@ -194,9 +210,9 @@ class AdminUserResource extends Resource
     public static function getPages(): array
     {
         return [
-            'index'  => Pages\ListAdminUsers::route('/'),
+            'index' => Pages\ListAdminUsers::route('/'),
             'create' => Pages\CreateAdminUser::route('/create'),
-            'edit'   => Pages\EditAdminUser::route('/{record}/edit'),
+            'edit' => Pages\EditAdminUser::route('/{record}/edit'),
         ];
     }
 }

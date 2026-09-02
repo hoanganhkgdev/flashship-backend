@@ -9,15 +9,15 @@ class RatingStatsWidget extends Widget
 {
     protected static string $view = 'filament.widgets.rating-stats';
 
-    protected int | string | array $columnSpan = 'full';
+    protected int|string|array $columnSpan = 'full';
 
     protected function getViewData(): array
     {
         $base = Order::whereNotNull('driver_rating');
 
-        $total   = (clone $base)->count();
+        $total = (clone $base)->count();
         $average = $total > 0 ? round((clone $base)->avg('driver_rating'), 1) : 0;
-        $low     = (clone $base)->where('driver_rating', '<=', 2)->count();
+        $low = (clone $base)->where('driver_rating', '<=', 2)->count();
 
         $distribution = [];
         foreach ([5, 4, 3, 2, 1] as $star) {

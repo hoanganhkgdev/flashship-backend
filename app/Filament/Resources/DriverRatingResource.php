@@ -19,16 +19,22 @@ class DriverRatingResource extends Resource
 {
     public static function canAccess(): bool
     {
-        return !auth()->user()?->isCallCenter();
+        return ! auth()->user()?->isCallCenter();
     }
 
-    protected static ?string $model            = Order::class;
-    protected static ?string $navigationIcon   = 'heroicon-o-star';
-    protected static ?string $navigationGroup  = 'Đơn hàng';
-    protected static ?string $modelLabel       = 'Đánh giá tài xế';
+    protected static ?string $model = Order::class;
+
+    protected static ?string $navigationIcon = 'heroicon-o-star';
+
+    protected static ?string $navigationGroup = 'Đơn hàng';
+
+    protected static ?string $modelLabel = 'Đánh giá tài xế';
+
     protected static ?string $pluralModelLabel = 'Đánh giá tài xế';
-    protected static ?string $slug             = 'driver-ratings';
-    protected static ?int    $navigationSort   = 3;
+
+    protected static ?string $slug = 'driver-ratings';
+
+    protected static ?int $navigationSort = 3;
 
     public static function getNavigationBadge(): ?string
     {
@@ -37,10 +43,14 @@ class DriverRatingResource extends Resource
         // model nên city_manager thấy số đơn bị đánh giá thấp CỦA TOÀN BỘ
         // các khu vực khác, không riêng khu vực mình.
         $count = static::getEloquentQuery()->where('driver_rating', '<=', 2)->count();
+
         return $count > 0 ? (string) $count : null;
     }
 
-    public static function getNavigationBadgeColor(): ?string { return 'danger'; }
+    public static function getNavigationBadgeColor(): ?string
+    {
+        return 'danger';
+    }
 
     public static function getEloquentQuery(): Builder
     {
@@ -72,11 +82,11 @@ class DriverRatingResource extends Resource
                         ->formatStateUsing(fn ($state) => match ($state) {
                             'delivery' => 'Lấy hộ',
                             'shopping' => 'Mua hộ',
-                            'topup'    => 'Nạp tiền',
-                            'bike'     => 'Xe ôm',
-                            'motor'    => 'Lái hộ xe máy',
-                            'car'      => 'Lái hộ ô tô',
-                            default    => $state,
+                            'topup' => 'Nạp tiền',
+                            'bike' => 'Xe ôm',
+                            'motor' => 'Lái hộ xe máy',
+                            'car' => 'Lái hộ ô tô',
+                            default => $state,
                         })
                         ->color('info'),
 
@@ -113,7 +123,7 @@ class DriverRatingResource extends Resource
                 ->schema([
                     Infolists\Components\TextEntry::make('driver_rating')
                         ->label('Số sao')
-                        ->formatStateUsing(fn ($state) => str_repeat('⭐', (int) $state) . ' (' . $state . '/5)')
+                        ->formatStateUsing(fn ($state) => str_repeat('⭐', (int) $state).' ('.$state.'/5)')
                         ->color(fn ($state) => $state <= 2 ? 'danger' : ($state >= 4 ? 'success' : 'warning')),
 
                     Infolists\Components\TextEntry::make('driver_rating_note')
@@ -127,6 +137,7 @@ class DriverRatingResource extends Resource
     private static function serviceLabels(): array
     {
         static $cache = null;
+
         return $cache ??= ServiceType::pluck('label', 'key')->toArray();
     }
 
@@ -135,16 +146,17 @@ class DriverRatingResource extends Resource
         return match (true) {
             $rating <= 2 => '#ef4444',
             $rating === 3 => '#f59e0b',
-            default       => '#22c55e',
+            default => '#22c55e',
         };
     }
 
     private static function ratingStars(int $rating): string
     {
         $color = self::ratingColor($rating);
-        $stars = str_repeat('<span style="color:' . $color . '">★</span>', $rating)
-               . str_repeat('<span style="color:#d1d5db">★</span>', 5 - $rating);
-        return '<span style="font-size:1rem;letter-spacing:1px">' . $stars . '</span>';
+        $stars = str_repeat('<span style="color:'.$color.'">★</span>', $rating)
+               .str_repeat('<span style="color:#d1d5db">★</span>', 5 - $rating);
+
+        return '<span style="font-size:1rem;letter-spacing:1px">'.$stars.'</span>';
     }
 
     public static function table(Table $table): Table
@@ -160,7 +172,7 @@ class DriverRatingResource extends Resource
                             ->grow(false),
 
                         Tables\Columns\TextColumn::make('driver.name')
-                                                        ->weight('bold')
+                            ->weight('bold')
                             ->size('sm')
                             ->placeholder('—'),
 
@@ -197,23 +209,24 @@ class DriverRatingResource extends Resource
                 // Khách hàng
                 Split::make([
                     Tables\Columns\TextColumn::make('sender.name')
-                                                ->icon('heroicon-m-user')
+                        ->icon('heroicon-m-user')
                         ->iconColor('gray')
                         ->size('xs')
                         ->color('gray')
                         ->placeholder('—'),
 
                     Tables\Columns\TextColumn::make('code')
-                                                ->copyable()
+                        ->copyable()
                         ->size('xs')
                         ->color('gray')
-                        ->formatStateUsing(fn ($state) => '#' . $state)
+                        ->formatStateUsing(fn ($state) => '#'.$state)
                         ->alignEnd(),
                 ]),
             ])
             ->contentGrid(['default' => 1, 'sm' => 2, 'xl' => 3])
             ->filters([])
             ->actions([
+                Tables\Actions\ViewAction::make()->label('')->tooltip('Xem chi tiết'),
                 Tables\Actions\Action::make('delete_rating')
                     ->label('')
                     ->icon('heroicon-o-trash')
@@ -223,12 +236,13 @@ class DriverRatingResource extends Resource
                     ->modalHeading('Xóa đánh giá')
                     ->modalDescription('Bạn có chắc muốn xóa đánh giá này?')
                     ->action(fn (Order $record) => $record->update([
-                        'driver_rating'      => null,
+                        'driver_rating' => null,
                         'driver_rating_note' => null,
                     ])),
             ])
             ->bulkActions([])
             ->actionsAlignment('end')
+            ->recordUrl(fn (Order $record): string => static::getUrl('view', ['record' => $record]))
             ->defaultPaginationPageOption(12)
             ->paginationPageOptions([12, 24, 48])
             ->poll('30s');
@@ -238,6 +252,7 @@ class DriverRatingResource extends Resource
     {
         return [
             'index' => Pages\ListDriverRatings::route('/'),
+            'view' => Pages\ViewDriverRating::route('/{record}'),
         ];
     }
 }

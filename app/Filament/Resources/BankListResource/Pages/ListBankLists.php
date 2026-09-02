@@ -10,5 +10,18 @@ class ListBankLists extends ListRecords
 {
     protected static string $resource = BankListResource::class;
 
-    protected function getHeaderActions(): array { return [CreateAction::make()]; }
+    public function getHeading(): string
+    {
+        return 'Danh sách ngân hàng';
+    }
+
+    public function getSubheading(): ?string
+    {
+        return 'Quản lý ngân hàng khả dụng cho tài khoản nhận tiền và rút tiền.';
+    }
+
+    protected function getHeaderActions(): array
+    {
+        return [CreateAction::make()->label('Thêm ngân hàng')->icon('heroicon-o-plus')];
+    }
 }

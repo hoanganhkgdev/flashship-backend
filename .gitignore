@@ -23,3 +23,7 @@ package-lock.json
 Homestead.json
 Homestead.yaml
 Thumbs.db
+
+# Local DB dump (contains real data, never commit)
+flashship_dump.sql
+*.sql

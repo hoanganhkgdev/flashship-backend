@@ -3,6 +3,9 @@
 namespace App\Filament\Resources;
 
 use App\Filament\Resources\DriverDebtResource\Pages;
+use App\Filament\Traits\RestrictToFullAdmin;
+use Carbon\Carbon;
+use Filament\Facades\Filament;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Infolists;
@@ -12,41 +15,55 @@ use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Model;
 use Modules\Core\Models\City;
 use Modules\Core\Models\User;
 use Modules\Driver\Models\DriverDebt;
 use Modules\Driver\Services\DriverWalletService;
-use App\Filament\Traits\RestrictToFullAdmin;
 
 class DriverDebtResource extends Resource
 {
     use RestrictToFullAdmin;
 
     // DriverDebt không có city_id trực tiếp — khu vực xác định qua driver_id -> users.city_id.
-    public static function scopeEloquentQueryToTenant(\Illuminate\Database\Eloquent\Builder $query, ?\Illuminate\Database\Eloquent\Model $tenant): \Illuminate\Database\Eloquent\Builder
+    public static function scopeEloquentQueryToTenant(Builder $query, ?Model $tenant): Builder
     {
         return $query->whereHas('driver', fn ($q) => $q->where('city_id', $tenant?->id));
     }
 
-    protected static ?string $model            = DriverDebt::class;
-    protected static ?string $navigationIcon   = 'heroicon-o-document-minus';
-    protected static ?string $navigationGroup  = 'Công nợ';
-    protected static ?string $modelLabel       = 'Công nợ';
+    protected static ?string $model = DriverDebt::class;
+
+    protected static ?string $navigationIcon = 'heroicon-o-document-minus';
+
+    protected static ?string $navigationGroup = 'Công nợ';
+
+    protected static ?string $modelLabel = 'Công nợ';
+
     protected static ?string $pluralModelLabel = 'Công nợ';
-    protected static ?int    $navigationSort   = 3;
+
+    protected static ?int $navigationSort = 3;
 
     public static function getNavigationBadge(): ?string
     {
-        $count = DriverDebt::whereIn('status', ['pending', 'overdue'])->count();
+        $count = static::scopeEloquentQueryToTenant(static::getEloquentQuery(), Filament::getTenant())
+            ->whereIn('status', ['pending', 'overdue'])
+            ->count();
+
         return $count > 0 ? (string) $count : null;
     }
 
-    public static function getNavigationBadgeColor(): ?string { return 'warning'; }
+    public static function getNavigationBadgeColor(): ?string
+    {
+        return 'warning';
+    }
 
     public static function form(Form $form): Form
     {
         return $form->schema([
             Forms\Components\Section::make('Thông tin công nợ')
+                ->description('Thiết lập số tiền, kỳ đối soát và trạng thái thanh toán')
+                ->icon('heroicon-o-document-text')
                 ->columns(2)
                 ->schema([
                     Forms\Components\Select::make('driver_id')
@@ -55,7 +72,7 @@ class DriverDebtResource extends Resource
                             ->where('status', 1)
                             ->orderBy('name')
                             ->get()
-                            ->mapWithKeys(fn ($u) => [$u->id => $u->name . ' — ' . $u->phone]))
+                            ->mapWithKeys(fn ($u) => [$u->id => $u->name.' — '.$u->phone]))
                         ->searchable()
                         ->required(),
 
@@ -94,7 +111,7 @@ class DriverDebtResource extends Resource
                         ->label('Trạng thái')
                         ->options([
                             'pending' => 'Chờ thanh toán',
-                            'paid'    => 'Đã thanh toán',
+                            'paid' => 'Đã thanh toán',
                             'overdue' => 'Quá hạn',
                         ])
                         ->default('pending')
@@ -151,18 +168,18 @@ class DriverDebtResource extends Resource
                 ->schema([
                     Infolists\Components\TextEntry::make('amount_due')
                         ->label('Số tiền nợ')
-                        ->formatStateUsing(fn ($state) => number_format($state, 0, ',', '.') . ' ₫')
+                        ->formatStateUsing(fn ($state) => number_format($state, 0, ',', '.').' ₫')
                         ->weight('bold')
                         ->color('danger'),
 
                     Infolists\Components\TextEntry::make('amount_paid')
                         ->label('Đã thanh toán')
-                        ->formatStateUsing(fn ($state) => number_format($state, 0, ',', '.') . ' ₫')
+                        ->formatStateUsing(fn ($state) => number_format($state, 0, ',', '.').' ₫')
                         ->color('success'),
 
                     Infolists\Components\TextEntry::make('remaining')
                         ->label('Còn lại')
-                        ->state(fn (DriverDebt $r) => number_format($r->amount_due - $r->amount_paid, 0, ',', '.') . ' ₫')
+                        ->state(fn (DriverDebt $r) => number_format($r->amount_due - $r->amount_paid, 0, ',', '.').' ₫')
                         ->weight('bold')
                         ->color(fn (DriverDebt $r) => ($r->amount_due - $r->amount_paid) > 0 ? 'warning' : 'success'),
 
@@ -171,15 +188,15 @@ class DriverDebtResource extends Resource
                         ->badge()
                         ->formatStateUsing(fn ($state) => match ($state) {
                             'pending' => 'Chờ thanh toán',
-                            'paid'    => 'Đã thanh toán',
+                            'paid' => 'Đã thanh toán',
                             'overdue' => 'Quá hạn',
-                            default   => $state,
+                            default => $state,
                         })
                         ->color(fn ($state) => match ($state) {
                             'pending' => 'warning',
-                            'paid'    => 'success',
+                            'paid' => 'success',
                             'overdue' => 'danger',
-                            default   => 'gray',
+                            default => 'gray',
                         }),
 
                     Infolists\Components\TextEntry::make('week_start')
@@ -228,29 +245,28 @@ class DriverDebtResource extends Resource
                 Tables\Columns\TextColumn::make('period')
                     ->label('Kỳ')
                     ->alignCenter()
-                    ->state(fn (DriverDebt $r) =>
-                        $r->week_start && $r->week_end
-                            ? \Carbon\Carbon::parse($r->week_start)->format('d/m') . ' – ' . \Carbon\Carbon::parse($r->week_end)->format('d/m/Y')
+                    ->state(fn (DriverDebt $r) => $r->week_start && $r->week_end
+                            ? Carbon::parse($r->week_start)->format('d/m').' – '.Carbon::parse($r->week_end)->format('d/m/Y')
                             : '—'
                     ),
 
                 Tables\Columns\TextColumn::make('amount_due')
                     ->label('Số tiền nợ')
                     ->alignCenter()
-                    ->formatStateUsing(fn ($state) => number_format($state, 0, ',', '.') . ' ₫')
+                    ->formatStateUsing(fn ($state) => number_format($state, 0, ',', '.').' ₫')
                     ->weight('bold')
                     ->color('danger'),
 
                 Tables\Columns\TextColumn::make('amount_paid')
                     ->label('Đã trả')
                     ->alignCenter()
-                    ->formatStateUsing(fn ($state) => number_format($state, 0, ',', '.') . ' ₫')
+                    ->formatStateUsing(fn ($state) => number_format($state, 0, ',', '.').' ₫')
                     ->color('success'),
 
                 Tables\Columns\TextColumn::make('remaining')
                     ->label('Còn lại')
                     ->alignCenter()
-                    ->state(fn (DriverDebt $r) => number_format($r->amount_due - $r->amount_paid, 0, ',', '.') . ' ₫')
+                    ->state(fn (DriverDebt $r) => number_format($r->amount_due - $r->amount_paid, 0, ',', '.').' ₫')
                     ->weight('bold')
                     ->color(fn (DriverDebt $r) => ($r->amount_due - $r->amount_paid) > 0 ? 'warning' : 'gray'),
 
@@ -260,15 +276,15 @@ class DriverDebtResource extends Resource
                     ->badge()
                     ->formatStateUsing(fn ($state) => match ($state) {
                         'pending' => 'Chờ thanh toán',
-                        'paid'    => 'Đã thanh toán',
+                        'paid' => 'Đã thanh toán',
                         'overdue' => 'Quá hạn',
-                        default   => $state,
+                        default => $state,
                     })
                     ->color(fn ($state) => match ($state) {
                         'pending' => 'warning',
-                        'paid'    => 'success',
+                        'paid' => 'success',
                         'overdue' => 'danger',
-                        default   => 'gray',
+                        default => 'gray',
                     }),
 
                 Tables\Columns\TextColumn::make('created_at')
@@ -281,7 +297,7 @@ class DriverDebtResource extends Resource
                     ->label('Trạng thái')
                     ->options([
                         'pending' => 'Chờ thanh toán',
-                        'paid'    => 'Đã thanh toán',
+                        'paid' => 'Đã thanh toán',
                         'overdue' => 'Quá hạn',
                     ])
                     ->default('pending'),
@@ -302,21 +318,20 @@ class DriverDebtResource extends Resource
                     ->visible(fn (DriverDebt $r) => $r->status !== 'paid')
                     ->requiresConfirmation()
                     ->modalHeading('Thanh toán qua ví')
-                    ->modalDescription(fn (DriverDebt $r) =>
-                        'Trừ ' . number_format($r->amount_due - $r->amount_paid, 0, ',', '.') . ' ₫ từ ví tài xế ' . $r->driver?->name . '?'
+                    ->modalDescription(fn (DriverDebt $r) => 'Trừ '.number_format($r->amount_due - $r->amount_paid, 0, ',', '.').' ₫ từ ví tài xế '.$r->driver?->name.'?'
                     )
                     ->action(function (DriverDebt $record) {
                         $remaining = $record->amount_due - $record->amount_paid;
                         try {
                             DriverWalletService::adjust(
                                 $record->driver_id, $remaining, 'debit',
-                                'Thanh toán công nợ #' . $record->id . ' (admin)',
-                                'debt_admin_' . $record->id
+                                'Thanh toán công nợ #'.$record->id.' (admin)',
+                                'debt_admin_'.$record->id
                             );
                             $record->update(['amount_paid' => $record->amount_due, 'status' => 'paid']);
                             Notification::make()->success()->title('Đã thanh toán công nợ.')->send();
                         } catch (\Exception $e) {
-                            Notification::make()->danger()->title('Lỗi: ' . $e->getMessage())->send();
+                            Notification::make()->danger()->title('Lỗi: '.$e->getMessage())->send();
                         }
                     }),
 
@@ -337,18 +352,25 @@ class DriverDebtResource extends Resource
                 Tables\Actions\BulkActionGroup::make([
                     Tables\Actions\DeleteBulkAction::make(),
                 ]),
-            ]);
+            ])
+            ->recordUrl(fn (DriverDebt $record): string => static::getUrl('view', ['record' => $record]))
+            ->defaultSort('created_at', 'desc')
+            ->defaultPaginationPageOption(25)
+            ->paginationPageOptions([25, 50, 100]);
     }
 
-    public static function getRelations(): array { return []; }
+    public static function getRelations(): array
+    {
+        return [];
+    }
 
     public static function getPages(): array
     {
         return [
-            'index'  => Pages\ListDriverDebts::route('/'),
+            'index' => Pages\ListDriverDebts::route('/'),
             'create' => Pages\CreateDriverDebt::route('/create'),
-            'view'   => Pages\ViewDriverDebt::route('/{record}'),
-            'edit'   => Pages\EditDriverDebt::route('/{record}/edit'),
+            'view' => Pages\ViewDriverDebt::route('/{record}'),
+            'edit' => Pages\EditDriverDebt::route('/{record}/edit'),
         ];
     }
 }

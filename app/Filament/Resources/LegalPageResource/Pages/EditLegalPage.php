@@ -9,6 +9,16 @@ class EditLegalPage extends EditRecord
 {
     protected static string $resource = LegalPageResource::class;
 
+    public function getTitle(): string
+    {
+        return 'Chỉnh sửa '.$this->record->title;
+    }
+
+    public function getSubheading(): ?string
+    {
+        return 'Nội dung thay đổi sẽ được dùng chung trên các ứng dụng.';
+    }
+
     protected function getHeaderActions(): array
     {
         return [];

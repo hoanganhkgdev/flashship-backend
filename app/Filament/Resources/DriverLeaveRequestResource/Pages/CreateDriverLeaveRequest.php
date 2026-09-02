@@ -8,13 +8,26 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
-use Modules\Order\Models\Order;
 use Modules\Core\Models\User;
 use Modules\Core\Services\RTDBService;
+use Modules\Driver\Models\DriverGpsEligibleSession;
+use Modules\Driver\Models\DriverShiftSession;
+use Modules\Driver\Services\DriverLocationService;
+use Modules\Order\Models\Order;
 
 class CreateDriverLeaveRequest extends CreateRecord
 {
     protected static string $resource = DriverLeaveRequestResource::class;
+
+    public function getTitle(): string
+    {
+        return 'Ghi nhận nghỉ phép';
+    }
+
+    public function getSubheading(): ?string
+    {
+        return 'Chỉ ghi nhận khi tài xế đã báo nghỉ và không còn đơn đang thực hiện.';
+    }
 
     protected function mutateFormDataBeforeCreate(array $data): array
     {
@@ -29,19 +42,21 @@ class CreateDriverLeaveRequest extends CreateRecord
 
     protected function afterCreate(): void
     {
-        if (!$this->record->leave_date->isToday()) return;
+        if (! $this->record->leave_date->isToday()) {
+            return;
+        }
         DB::transaction(function () {
             User::whereKey($this->record->driver_id)->update(['is_online' => false, 'online_since' => null]);
-            \Modules\Driver\Models\DriverShiftSession::where('driver_id', $this->record->driver_id)
+            DriverShiftSession::where('driver_id', $this->record->driver_id)
                 ->whereNull('ended_at')
                 ->update(['ended_at' => now()]);
-            $gpsSessions = \Modules\Driver\Models\DriverGpsEligibleSession::where('driver_id', $this->record->driver_id)
+            $gpsSessions = DriverGpsEligibleSession::where('driver_id', $this->record->driver_id)
                 ->whereNull('ended_at')
                 ->lockForUpdate()
                 ->get();
             foreach ($gpsSessions as $gpsSession) {
                 $endedAt = $gpsSession->last_gps_at->copy()
-                    ->addSeconds(\Modules\Driver\Services\DriverLocationService::POS_MAX_AGE_SECS)
+                    ->addSeconds(DriverLocationService::POS_MAX_AGE_SECS)
                     ->min(now());
                 $gpsSession->update(['ended_at' => $endedAt]);
             }
@@ -60,6 +75,7 @@ class CreateDriverLeaveRequest extends CreateRecord
     protected function associateRecordWithTenant(Model $record, Model $tenant): Model
     {
         $record->save();
+
         return $record;
     }
 }

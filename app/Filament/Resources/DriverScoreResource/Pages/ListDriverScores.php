@@ -9,5 +9,18 @@ class ListDriverScores extends ListRecords
 {
     protected static string $resource = DriverScoreResource::class;
 
-    protected function getHeaderActions(): array { return []; }
+    public function getHeading(): string
+    {
+        return 'Điểm hiệu suất tài xế';
+    }
+
+    public function getSubheading(): ?string
+    {
+        return 'Theo dõi xếp loại, streak và trạng thái chốt thưởng/phạt hàng tuần.';
+    }
+
+    protected function getHeaderActions(): array
+    {
+        return [];
+    }
 }

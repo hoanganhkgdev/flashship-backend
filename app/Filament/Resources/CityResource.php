@@ -3,6 +3,8 @@
 namespace App\Filament\Resources;
 
 use App\Filament\Resources\CityResource\Pages;
+use App\Filament\Traits\HideFromCityManager;
+use Filament\Facades\Filament;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Infolists;
@@ -11,15 +13,15 @@ use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Modules\Core\Models\City;
-use App\Filament\Traits\HideFromCityManager;
 
 class CityResource extends Resource
 {
     public static function canAccess(): bool
     {
-        return !auth()->user()?->isCallCenter() && static::canViewAny();
+        return ! auth()->user()?->isCallCenter() && static::canViewAny();
     }
 
     use HideFromCityManager;
@@ -28,17 +30,24 @@ class CityResource extends Resource
     // suốt tất cả khu vực, không tự lọc theo khu vực đang đứng.
     protected static bool $isScopedToTenant = false;
 
-    protected static ?string $model          = City::class;
+    protected static ?string $model = City::class;
+
     protected static ?string $navigationIcon = 'heroicon-o-map-pin';
+
     protected static ?string $navigationGroup = 'Cấu hình';
-    protected static ?string $modelLabel      = 'Khu vực';
+
+    protected static ?string $modelLabel = 'Khu vực';
+
     protected static ?string $pluralModelLabel = 'Khu vực';
-    protected static ?int    $navigationSort  = 1;
+
+    protected static ?int $navigationSort = 1;
 
     public static function form(Form $form): Form
     {
         return $form->schema([
             Forms\Components\Section::make('Thông tin khu vực')
+                ->description('Tên, mã nội bộ và trạng thái phục vụ của khu vực')
+                ->icon('heroicon-o-map-pin')
                 ->columns(2)
                 ->schema([
                     Forms\Components\TextInput::make('name')
@@ -56,10 +65,13 @@ class CityResource extends Resource
                     Forms\Components\Toggle::make('is_active')
                         ->label('Đang hoạt động')
                         ->default(true)
+                        ->hidden(fn (?City $record): bool => $record !== null && Filament::getTenant()?->is($record))
                         ->columnSpanFull(),
                 ]),
 
             Forms\Components\Section::make('Cấu hình')
+                ->description('Các thiết lập tài chính và vận hành theo khu vực')
+                ->icon('heroicon-o-cog-6-tooth')
                 ->columns(2)
                 ->schema([
                     Forms\Components\TextInput::make('weekly_fee')
@@ -73,6 +85,7 @@ class CityResource extends Resource
 
             Forms\Components\Section::make('Tọa độ trung tâm')
                 ->description('Dùng để hiển thị bản đồ và tính khoảng cách mặc định')
+                ->icon('heroicon-o-map')
                 ->columns(2)
                 ->collapsed()
                 ->schema([
@@ -88,12 +101,14 @@ class CityResource extends Resource
                         ->searchPrompt('Nhập ít nhất 3 ký tự...')
                         ->loadingMessage('Đang tìm kiếm...')
                         ->getSearchResultsUsing(function (string $search): array {
-                            if (mb_strlen($search) < 3) return [];
+                            if (mb_strlen($search) < 3) {
+                                return [];
+                            }
 
                             $apiKey = config('services.google_maps.api_key');
                             $res = Http::get('https://maps.googleapis.com/maps/api/place/autocomplete/json', [
-                                'input'    => $search,
-                                'key'      => $apiKey,
+                                'input' => $search,
+                                'key' => $apiKey,
                                 'language' => 'vi',
                                 'components' => 'country:vn',
                             ]);
@@ -102,25 +117,30 @@ class CityResource extends Resource
                             $results = [];
                             foreach ($predictions as $p) {
                                 // value = place_id|description để dùng trong afterStateUpdated
-                                $results[$p['place_id'] . '|' . $p['description']] = $p['description'];
+                                $results[$p['place_id'].'|'.$p['description']] = $p['description'];
                             }
+
                             return $results;
                         })
                         ->afterStateUpdated(function (?string $state, Forms\Set $set) {
-                            if (empty($state) || !str_contains($state, '|')) return;
+                            if (empty($state) || ! str_contains($state, '|')) {
+                                return;
+                            }
 
                             $placeId = explode('|', $state)[0];
-                            $apiKey  = config('services.google_maps.api_key');
+                            $apiKey = config('services.google_maps.api_key');
 
                             $res = Http::get('https://maps.googleapis.com/maps/api/place/details/json', [
                                 'place_id' => $placeId,
-                                'fields'   => 'geometry,formatted_address',
-                                'key'      => $apiKey,
+                                'fields' => 'geometry,formatted_address',
+                                'key' => $apiKey,
                                 'language' => 'vi',
                             ]);
 
                             $result = $res->json()['result'] ?? null;
-                            if (!$result) return;
+                            if (! $result) {
+                                return;
+                            }
 
                             $loc = $result['geometry']['location'];
                             $set('lat', round($loc['lat'], 6));
@@ -167,7 +187,7 @@ class CityResource extends Resource
 
                     Infolists\Components\TextEntry::make('weekly_fee')
                         ->label('Phí duy trì / tuần')
-                        ->formatStateUsing(fn ($state) => number_format((int) $state) . 'đ'),
+                        ->formatStateUsing(fn ($state) => number_format((int) $state).'đ'),
 
                     Infolists\Components\TextEntry::make('lat')
                         ->label('Vĩ độ')
@@ -224,7 +244,7 @@ class CityResource extends Resource
                 Tables\Columns\TextColumn::make('weekly_fee')
                     ->label('Phí / tuần')
                     ->alignCenter()
-                    ->formatStateUsing(fn ($state) => $state ? number_format((int) $state) . 'đ' : '—'),
+                    ->formatStateUsing(fn ($state) => $state ? number_format((int) $state).'đ' : '—'),
 
                 Tables\Columns\TextColumn::make('users_count')
                     ->label('Tài xế')
@@ -249,6 +269,7 @@ class CityResource extends Resource
 
                 Tables\Columns\ToggleColumn::make('is_active')
                     ->label('Hoạt động')
+                    ->hidden(fn (?City $record): bool => $record !== null && (Filament::getTenant()?->is($record) ?? false))
                     ->alignCenter(),
 
                 Tables\Columns\TextColumn::make('created_at')
@@ -270,9 +291,9 @@ class CityResource extends Resource
                     // tenant của city_manager/call_center, sai lệch báo cáo
                     // lịch sử). Chặn hẳn nếu còn phụ thuộc, không cảnh báo
                     // suông rồi vẫn cho xoá.
-                    ->before(function (\Modules\Core\Models\City $record, Tables\Actions\DeleteAction $action) {
-                        $userCount  = \Illuminate\Support\Facades\DB::table('users')->where('city_id', $record->id)->count();
-                        $orderCount = \Illuminate\Support\Facades\DB::table('orders')->where('city_id', $record->id)->count();
+                    ->before(function (City $record, Tables\Actions\DeleteAction $action) {
+                        $userCount = DB::table('users')->where('city_id', $record->id)->count();
+                        $orderCount = DB::table('orders')->where('city_id', $record->id)->count();
 
                         if ($userCount > 0 || $orderCount > 0) {
                             Notification::make()->danger()
@@ -283,7 +304,10 @@ class CityResource extends Resource
                         }
                     }),
             ])
-;
+            ->recordUrl(fn (City $record): string => static::getUrl('view', ['record' => $record]))
+            ->defaultSort('name')
+            ->defaultPaginationPageOption(25)
+            ->paginationPageOptions([25, 50, 100]);
     }
 
     public static function getRelations(): array
@@ -294,10 +318,10 @@ class CityResource extends Resource
     public static function getPages(): array
     {
         return [
-            'index'  => Pages\ListCities::route('/'),
+            'index' => Pages\ListCities::route('/'),
             'create' => Pages\CreateCity::route('/create'),
-            'view'   => Pages\ViewCity::route('/{record}'),
-            'edit'   => Pages\EditCity::route('/{record}/edit'),
+            'view' => Pages\ViewCity::route('/{record}'),
+            'edit' => Pages\EditCity::route('/{record}/edit'),
         ];
     }
 }
