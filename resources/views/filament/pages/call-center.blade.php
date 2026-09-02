@@ -2,7 +2,6 @@
 
 @php
     $activeSvc = $this::services()[$serviceType];
-    $isAdmin   = $this->isAdmin();
     $cities    = \Illuminate\Support\Facades\DB::table('cities')->where('is_active', true)->orderBy('name')->get(['id', 'name', 'lat', 'lng']);
     $currentCityName = $cities->firstWhere('id', $data['city_id'] ?? null)?->name ?? '';
     $defaultCenter = ['lat' => 10.0452, 'lng' => 105.7009];
@@ -71,11 +70,7 @@
     .cc-step-title { display:flex; align-items:center; gap:7px; margin:0 2px 6px; color:#475569; font-size:11px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; }
     .cc-step-title span { display:inline-grid; width:19px; height:19px; place-items:center; border-radius:50%; background:var(--cc-accent,#4F46E5); color:#fff; font-size:10px; }
 
-    .cc-city-row { display:flex; align-items:center; gap:10px; }
-    .cc-city-row select { flex:1; border:none; outline:none; font-size:14px; font-weight:700; color:#111827; background:transparent; cursor:pointer; }
-    .cc-city-row span.cc-city-static { font-size:14px; font-weight:700; color:#111827; }
-
-    .cc-service-tabs { display:grid; grid-template-columns:repeat(3, 1fr); gap:5px; margin-top:8px; padding-top:8px; border-top:1px solid #f1f2f4; }
+    .cc-service-tabs { display:grid; grid-template-columns:repeat(3, 1fr); gap:5px; }
     .cc-service-tab { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px; border-radius:10px; padding:6px 4px; text-align:center; color:#6b7280; background:#f8fafc; border:1px solid transparent; transition:all .15s ease; }
     .cc-service-tab:hover { background:#f1f5f9; }
     .cc-service-tab.active { color:#fff; }
@@ -152,16 +147,9 @@
 
     .cc-map-wrap { position:relative; flex:1; min-width:0; min-height:720px; }
     .cc-map { position:absolute; inset:0; width:100%; height:100%; }
-    .cc-map-info { position:absolute; top:16px; left:16px; z-index:10; background:rgba(255,255,255,0.97); border-radius:14px; padding:10px 16px; box-shadow:0 4px 20px rgba(0,0,0,0.12); font-size:13px; min-width:160px; }
-    .cc-map-info-city { font-weight:700; color:#111; margin-bottom:4px; }
-    .cc-map-info-route { color:#4F46E5; font-weight:600; min-height:18px; }
-    .cc-map-info-fee { color:#16a34a; font-weight:700; margin-top:2px; }
-    .cc-map-info-drivers { display:flex; align-items:center; gap:6px; color:#374151; font-weight:600; margin-top:6px; padding-top:6px; border-top:1px solid #f1f2f4; }
-    .cc-map-info-drivers .dot { width:8px; height:8px; border-radius:50%; background:#22c55e; box-shadow:0 0 0 3px #22c55e20; flex-shrink:0; }
-
     .dark .cc-header-context span, .dark .cc-header-context strong, .dark .cc-card, .dark .cc-wrapper { border-color:#293142; background:#171b25; }
     .dark .cc-form-panel { border-color:#293142; background:#121620; }
-    .dark .cc-city-row select, .dark .cc-city-row span.cc-city-static, .dark .cc-address-col input, .dark .cc-checkbox-row span { color:#f8fafc; }
+    .dark .cc-address-col input, .dark .cc-checkbox-row span { color:#f8fafc; }
     .dark .cc-input, .dark .cc-textarea { border-color:#334155; background:#0f1420; color:#f8fafc; }
     .dark .cc-step-title { color:#94a3b8; }
 
@@ -177,22 +165,8 @@
     {{-- ═══ PANEL FORM ═══ --}}
     <div class="cc-form-panel" style="--cc-accent: {{ $activeSvc['color'] }}; --cc-accent-20: {{ $activeSvc['color'] }}26;">
 
-        {{-- Khu vực + dịch vụ ── gộp 1 card cho gọn --}}
-        <p class="cc-step-title"><span>1</span>Khu vực & dịch vụ</p>
+        <p class="cc-step-title"><span>1</span>Dịch vụ</p>
         <div class="cc-card">
-            <div class="cc-city-row">
-                <svg style="width:18px; height:18px; color:#9ca3af; flex-shrink:0;" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z"/></svg>
-                @if ($isAdmin)
-                <select wire:model.live="data.city_id" onchange="_onCityChange(this.value)">
-                    @foreach ($cities as $city)
-                    <option value="{{ $city->id }}" {{ ($data['city_id'] ?? '') == $city->id ? 'selected' : '' }}>{{ $city->name }}</option>
-                    @endforeach
-                </select>
-                @else
-                <span class="cc-city-static">{{ $currentCityName }}</span>
-                @endif
-            </div>
-
             <div class="cc-service-tabs">
                 @foreach ($this::services() as $key => $svc)
                 @php $active = $serviceType === $key; @endphp
@@ -340,16 +314,6 @@
         <div wire:ignore style="display:contents;">
             <div id="cc-main-map" class="cc-map"></div>
 
-            <div class="cc-map-info">
-                <div id="cc-map-info-city" class="cc-map-info-city">{{ $currentCityName }}</div>
-                <div id="cc-map-info-route" class="cc-map-info-route"></div>
-                <div id="cc-map-info-fee" class="cc-map-info-fee"></div>
-                <div id="cc-map-info-drivers" class="cc-map-info-drivers" style="display:none;">
-                    <span class="dot"></span>
-                    <span id="cc-driver-label"></span>
-                </div>
-            </div>
-
             <div id="cc-pin-hint" class="cc-pin-hint">
                 <span id="cc-pin-hint-text"></span>
                 <button type="button" onclick="_exitPinMode()">✕</button>
@@ -357,9 +321,7 @@
         </div>
     </div>
 
-    @if (!$isAdmin)
     <input type="hidden" wire:model="data.city_id" />
-    @endif
 </div>
 
 <x-filament-actions::modals />
@@ -409,8 +371,6 @@ function _onCityChange(cityId) {
     if (pi) pi.value = '';
     if (di) di.value = '';
     _updateAutocompleteBounds();
-    const cityLabel = document.getElementById('cc-map-info-city');
-    if (cityLabel) cityLabel.textContent = c.name;
 }
 
 // Đổi loại dịch vụ → xoá sạch pin/route/ô địa chỉ ngay lập tức (không đợi

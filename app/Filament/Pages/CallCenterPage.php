@@ -107,29 +107,9 @@ class CallCenterPage extends Page implements HasForms
         return in_array($this->serviceType, ['bike', 'motor', 'car']);
     }
 
-    // Trước đây chỉ so === 'admin' — subadmin không có city_id cố định
-    // (Modules\Core\Models\User::TENANT_UNRESTRICTED_TYPES gồm cả 2), nên
-    // userCityId() bên dưới âm thầm rơi về mốc mặc định cứng (2) cho
-    // subadmin, ghi đè mất khu vực họ thật sự chọn trên form ở placeOrder().
-    // Coi subadmin như admin ở đây — cùng được tự chọn khu vực.
-    public function isAdmin(): bool
-    {
-        return in_array(
-            auth()->user()?->user_type,
-            User::TENANT_UNRESTRICTED_TYPES,
-            true
-        );
-    }
-
     private function userCityId(): int
     {
-        if ($this->isAdmin()) {
-            // Mặc định = khu vực (tenant) đang đứng, vẫn chọn được khu vực
-            // khác trên form (đặt đơn hộ cho khu vực khác qua tổng đài).
-            return Filament::getTenant()?->id ?? 2;
-        }
-
-        return (int) (auth()->user()?->city_id ?? 2);
+        return (int) (Filament::getTenant()?->id ?? auth()->user()?->city_id ?? 2);
     }
 
     // ─── Mount ───────────────────────────────────────────────────────────────
@@ -150,7 +130,7 @@ class CallCenterPage extends Page implements HasForms
             $this->deliveryLng = $request->filled('delivery_lng') ? (float) $request->get('delivery_lng') : null;
 
             $this->form->fill([
-                'city_id' => $request->get('city_id', $this->userCityId()),
+                'city_id' => $this->userCityId(),
                 'pickup_address' => $request->get('pickup_address', ''),
                 'pickup_phone' => $request->get('pickup_phone', ''),
                 'delivery_address' => $request->get('delivery_address', ''),
@@ -380,10 +360,8 @@ class CallCenterPage extends Page implements HasForms
         $this->resultFee = null;
         $this->resultDistance = null;
 
-        // Enforce city cho non-admin
-        if (! $this->isAdmin()) {
-            $values['city_id'] = $this->userCityId();
-        }
+        // Đơn luôn thuộc khu vực đang chọn trên thanh header.
+        $values['city_id'] = $this->userCityId();
 
         $cityId = $values['city_id'] ?? null;
         if (! $cityId || ! DB::table('cities')->where('id', $cityId)->where('is_active', true)->exists()) {
