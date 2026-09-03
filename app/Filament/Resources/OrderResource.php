@@ -76,6 +76,7 @@ class OrderResource extends Resource
         return '<div class="fs-order-journey">'
             .'<div><b class="fs-order-journey__pickup">Điểm lấy:</b><span>'.e($record->pickup_address ?: '—').'</span></div>'
             .'<div><b class="fs-order-journey__delivery">Điểm giao:</b><span>'.e($record->delivery_address ?: '—').'</span></div>'
+            .'<div class="fs-order-journey__note-row"><b class="fs-order-journey__note" aria-label="Ghi chú"></b><span>'.e($record->order_note ?: '—').'</span></div>'
             .'<div class="fs-order-journey__meta"><span title="'.e($source).'"><b class="fs-order-journey__source">Nguồn đơn:</b><em>'.e($source).'</em></span><strong class="fs-order-journey__fee">'.number_format((int) $record->shipping_fee, 0, ',', '.').'đ</strong></div>'
             .'</div>';
     }

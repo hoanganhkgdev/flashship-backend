@@ -140,6 +140,9 @@
 .fs-order-journey__source::before { content: '◉'; color: #2563eb; }
 .fs-order-journey__meta span em { overflow: hidden; font-style: normal; text-overflow: ellipsis; white-space: nowrap; }
 .fs-order-journey__fee { flex: 0 0 auto; margin-left: auto; color: #ea580c; font-size: .875rem; font-weight: 400; white-space: nowrap; }
+.fs-order-journey .fs-order-journey__note-row { align-items: flex-start; }
+.fs-order-journey__note::before { content: '✎'; color: #0f766e; }
+.fs-order-journey .fs-order-journey__note-row span { overflow: visible; white-space: normal; overflow-wrap: anywhere; line-height: 1.45; }
 .fs-order-assignment { display: grid; gap: .45rem; min-width: 14rem; padding: .15rem 0; }
 .fs-order-assignment > div { display: flex; min-width: 0; align-items: center; gap: .35rem; }
 .fs-order-assignment b { display: inline-flex; align-items: center; gap: .35rem; color: #64748b; font-size: .875rem; font-weight: 400; }
