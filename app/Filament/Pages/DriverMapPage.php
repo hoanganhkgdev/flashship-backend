@@ -69,23 +69,36 @@ class DriverMapPage extends Page
 
         // Đang đi đơn = có ít nhất 1 đơn ở trạng thái đang xử lý — cùng danh
         // sách trạng thái "active" dùng chung trong OrderService/DispatchService.
-        $busyDriverIds = DB::table('orders')
+        $activeOrders = DB::table('orders')
             ->whereIn('status', ['assigned', 'processing'])
             ->whereNotNull('delivery_man_id')
-            ->pluck('delivery_man_id')
-            ->unique()
-            ->flip();
+            ->orderByDesc('id')
+            ->get(['id', 'code', 'status', 'delivery_man_id'])
+            ->unique('delivery_man_id')
+            ->keyBy('delivery_man_id');
+
+        $shiftNames = DB::table('shift_user as su')
+            ->join('shifts as s', 's.id', '=', 'su.shift_id')
+            ->whereIn('su.user_id', (clone $query)->pluck('id'))
+            ->get(['su.user_id', 's.name'])
+            ->groupBy('user_id')
+            ->map(fn ($rows) => $rows->pluck('name')->implode(', '));
 
         // Chỉ giữ metadata quan hệ (tên/sđt/avatar/điểm) — is_online và toạ độ
         // đọc thẳng Firebase RTDB phía client (driver-map.blade.php), không
         // còn nguồn nào từ MySQL nữa.
         $meta = [];
         foreach ($query->get() as $d) {
+            $activeOrder = $activeOrders->get($d->id);
             $meta[$d->id] = [
                 'name' => $d->name ?? '',
                 'phone' => $d->phone ?? '',
                 'city_id' => $d->city_id,
-                'busy' => $busyDriverIds->has($d->id),
+                'busy' => (bool) $activeOrder,
+                'active_order_id' => $activeOrder?->id,
+                'active_order_code' => $activeOrder?->code,
+                'active_order_status' => $activeOrder?->status,
+                'shift_names' => $shiftNames->get($d->id, ''),
                 'driver_score' => (int) ($d->driver_score ?? 100),
                 'avatar' => $d->profile_photo_path
                     ? Storage::url($d->profile_photo_path)
