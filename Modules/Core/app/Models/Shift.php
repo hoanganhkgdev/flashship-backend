@@ -10,7 +10,11 @@ class Shift extends Model
     protected $casts = ['is_active' => 'boolean'];
 
     public function city() { return $this->belongsTo(City::class); }
-    public function users() { return $this->belongsToMany(User::class, 'shift_user', 'shift_id', 'user_id'); }
+    public function users()
+    {
+        return $this->belongsToMany(User::class, 'shift_user', 'shift_id', 'user_id')
+            ->withTimestamps();
+    }
 
     public function scopeActive(Builder $q): Builder { return $q->where('is_active', true); }
     public function scopeForCity(Builder $q, int $cityId): Builder { return $q->where('city_id', $cityId); }

@@ -22,8 +22,21 @@ class ScoreShiftSessionsCommand extends Command
 
         foreach (Shift::active()->get() as $shift) {
             foreach ($this->recentlyEndedWindows($shift, $now) as [$start, $end]) {
-                $driverIds = $shift->users()->pluck('users.id');
-                foreach ($driverIds as $driverId) {
+                $drivers = $shift->users()->get(['users.id']);
+                foreach ($drivers as $driver) {
+                    $driverId = $driver->id;
+
+                    // Ca mới chỉ có hiệu lực từ lúc được gán. Nếu admin duyệt
+                    // đổi ca sau khi một cửa sổ ca đã bắt đầu/kết thúc, không
+                    // được dùng quan hệ hiện tại để chấm ngược cửa sổ cũ.
+                    // created_at=null là dữ liệu legacy có trước khi hệ thống
+                    // bắt đầu lưu thời điểm gán, nên vẫn được chấm như cũ.
+                    $assignedAt = $driver->pivot?->created_at;
+                    if (! $this->assignmentWasEffective($assignedAt, $start)) {
+                        Log::info("[ScoreShiftSessions] Bỏ qua driver #{$driverId}: ca #{$shift->id} được gán lúc {$assignedAt}, sau khi ca bắt đầu {$start}.");
+                        continue;
+                    }
+
                     // Claim nằm cùng transaction với chấm điểm. Unique key
                     // chặn hai scheduler chấm cùng ca; nếu chấm lỗi thì cả
                     // claim rollback để cron sau có thể thử lại.
@@ -48,6 +61,11 @@ class ScoreShiftSessionsCommand extends Command
 
         $this->info("[ScoreShiftSessions] Đã chấm {$scored} lượt tài xế/ca.");
         Log::info("[ScoreShiftSessions] Đã chấm {$scored} lượt tài xế/ca.");
+    }
+
+    protected function assignmentWasEffective(mixed $assignedAt, Carbon $shiftStart): bool
+    {
+        return ! $assignedAt || Carbon::parse($assignedAt)->lessThanOrEqualTo($shiftStart);
     }
 
     /**

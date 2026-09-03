@@ -141,7 +141,8 @@ class User extends Authenticatable implements FilamentUser, HasDefaultTenant, Ha
     /** Các ca làm việc tài xế đang đăng ký (ít nhất 1 ca, khoá cố định tới khi được duyệt đổi). */
     public function registeredShifts()
     {
-        return $this->belongsToMany(Shift::class, 'shift_user', 'user_id', 'shift_id');
+        return $this->belongsToMany(Shift::class, 'shift_user', 'user_id', 'shift_id')
+            ->withTimestamps();
     }
 
     public function customerAddresses()
