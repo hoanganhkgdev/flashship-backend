@@ -26,13 +26,17 @@
     <div wire:poll.15s.visible class="fs-dispatch-layout">
         <div class="fs-dispatch-kpis">
             @foreach ([
-                ['Đơn phát hôm nay', $stats['total'], 'Toàn bộ lượt phát', 'gray'],
-                ['Đã có tài xế', $stats['accepted'], $stats['accept_rate'] . '% thành công', 'green'],
-                ['Chờ trung bình', $stats['avg_wait_secs'] . 's', $stats['avg_attempts'] . ' lượt hỏi', 'orange'],
-                ['Không tìm được', $stats['no_driver'], 'Cần kiểm tra thủ công', 'red'],
+                ['Đơn phát hôm nay', $stats['total'], 'Toàn bộ lượt phát', 'gray', 'heroicon-o-paper-airplane'],
+                ['Đã có tài xế', $stats['accepted'], $stats['accept_rate'] . '% thành công', 'green', 'heroicon-o-check-circle'],
+                ['Chờ trung bình', $stats['avg_wait_secs'] . 's', $stats['avg_attempts'] . ' lượt hỏi', 'orange', 'heroicon-o-clock'],
+                ['Không tìm được', $stats['no_driver'], 'Cần kiểm tra thủ công', 'red', 'heroicon-o-exclamation-triangle'],
             ] as $index => $card)
                 <article class="fs-dispatch-kpi fs-dispatch-kpi--{{ $card[3] }}">
-                    <span>{{ $card[0] }}</span><strong>{{ $card[1] }}</strong>
+                    <div class="fs-dispatch-kpi__top">
+                        <span>{{ $card[0] }}</span>
+                        <span class="fs-dispatch-kpi__icon"><x-dynamic-component :component="$card[4]" class="h-4 w-4" /></span>
+                    </div>
+                    <strong>{{ $card[1] }}</strong>
                     <small>{{ is_string($card[2]) ? $card[2] : '' }}</small>
                 </article>
             @endforeach
@@ -92,9 +96,9 @@
                 <div class="fs-dispatch-list">
                     @forelse($recentOffers as $offer)
                         @php $config = \App\Filament\Pages\DispatchMonitorPage::offerResultConfig($offer['result']); @endphp
-                        <article wire:key="offer-{{ $offer['id'] }}" class="fs-offer-row">
+                        <article wire:key="offer-{{ $offer['id'] }}" class="fs-offer-row fs-offer-row--{{ $offer['result'] }}">
                             <div><a href="{{ \App\Filament\Resources\OrderResource::getUrl('view', ['record' => $offer['order_id']]) }}">#{{ $offer['order_code'] }}</a><strong>{{ $offer['driver_name'] }}</strong><small>{{ $offer['offered_at'] }}</small></div>
-                            <div><span style="color:{{ $config['color'] }}">{{ $config['label'] }}</span>@if($offer['response_sec'] !== null)<small>{{ $offer['response_sec'] }}s</small>@endif</div>
+                            <div><span class="fs-offer-badge fs-offer-badge--{{ $offer['result'] }}">{{ $config['label'] }}</span>@if($offer['response_sec'] !== null)<small>{{ $offer['response_sec'] }}s</small>@endif</div>
                         </article>
                     @empty
                         <div class="fs-empty">Chưa có lịch sử offer.</div>
