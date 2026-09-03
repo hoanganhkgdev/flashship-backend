@@ -147,6 +147,7 @@
 
     .cc-map-wrap { position:relative; flex:1; min-width:0; min-height:720px; }
     .cc-map { position:absolute; inset:0; width:100%; height:100%; }
+    .cc-map-distance { position:absolute; top:16px; left:16px; z-index:10; color:#4338ca; font-size:14px; font-weight:600; text-shadow:0 1px 2px #fff, 0 0 8px #fff; pointer-events:none; }
     .dark .cc-header-context span, .dark .cc-header-context strong, .dark .cc-card, .dark .cc-wrapper { border-color:#293142; background:#171b25; }
     .dark .cc-form-panel { border-color:#293142; background:#121620; }
     .dark .cc-address-col input, .dark .cc-checkbox-row span { color:#f8fafc; }
@@ -313,6 +314,7 @@
     <div class="cc-map-wrap">
         <div wire:ignore style="display:contents;">
             <div id="cc-main-map" class="cc-map"></div>
+            <div id="cc-map-info-route" class="cc-map-distance"></div>
 
             <div id="cc-pin-hint" class="cc-pin-hint">
                 <span id="cc-pin-hint-text"></span>
