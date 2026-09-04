@@ -94,7 +94,6 @@ class DriverDebtResource extends Resource
                         ->options([
                             'weekly' => 'Phí tuần',
                             'commission' => 'Phí hoa hồng',
-                            'cod' => 'Tiền thu hộ COD',
                         ])
                         ->default('weekly')
                         ->required(),
@@ -319,7 +318,6 @@ class DriverDebtResource extends Resource
                     ->options([
                         'weekly' => 'Phí tuần',
                         'commission' => 'Phí hoa hồng',
-                        'cod' => 'Tiền thu hộ COD',
                     ]),
 
                 Tables\Filters\Filter::make('created_at')
@@ -387,7 +385,6 @@ class DriverDebtResource extends Resource
         return match ($type) {
             'weekly' => 'Phí tuần',
             'commission' => 'Phí hoa hồng',
-            'cod' => 'Tiền thu hộ COD',
             default => 'Công nợ khác',
         };
     }

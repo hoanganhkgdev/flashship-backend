@@ -456,22 +456,9 @@ class OrderService
                 DriverWalletService::adjust($user->id, self::RAIN_BONUS_AMOUNT, 'credit', "Thưởng trời mưa #{$fresh->id}", "order_{$fresh->id}_rain");
             }
 
-            // COD tài xế đã thu hộ không phải thu nhập. Ghi công nợ đúng một
-            // lần cùng transaction hoàn tất đơn để đối soát/thu hồi sau đó.
-            if ((float) ($fresh->cod_amount ?? 0) > 0) {
-                \Modules\Driver\Models\DriverDebt::firstOrCreate(
-                    ['ref_id' => "cod_order_{$fresh->id}"],
-                    [
-                        'driver_id' => $user->id,
-                        'debt_type' => 'cod',
-                        'status' => 'pending',
-                        'amount_due' => (float) $fresh->cod_amount,
-                        'amount_paid' => 0,
-                        'date' => $completedAt->toDateString(),
-                        'note' => "COD đã thu đơn #{$fresh->code}",
-                    ]
-                );
-            }
+            // cod_amount chỉ là số tiền shop báo để tài xế chuẩn bị ứng khi
+            // lấy hàng và thu lại từ khách. Shop và tài xế tự đối soát khoản
+            // này ngoài hệ thống, nên hoàn tất đơn không được tạo công nợ.
 
             DriverScoreService::onComplete($user->id);
             DB::table('users')->where('id', $user->id)->update([
