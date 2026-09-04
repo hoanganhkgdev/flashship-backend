@@ -7,7 +7,6 @@ use Illuminate\Validation\Rule;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Storage;
 use Modules\Core\Services\OtpService;
@@ -256,16 +255,6 @@ class DriverController extends Controller
 
     public function updateFcmToken(Request $request): JsonResponse
     {
-        // DEBUG TẠM — điều tra vì sao users.platform luôn NULL dù app đã gửi
-        // kèm platform từ bản 10.0.13+114. Gỡ log này sau khi có kết luận.
-        Log::info('[FCM][debug] update-fcm-token raw payload', [
-            'driver_id' => $request->user()?->id,
-            'raw_input' => $request->all(),
-            'has_platform_key' => $request->has('platform'),
-            'platform_value' => $request->input('platform'),
-            'user_agent' => $request->userAgent(),
-        ]);
-
         $data = $request->validate([
             'fcm_token' => 'required|string',
             'platform'  => 'nullable|in:ios,android',

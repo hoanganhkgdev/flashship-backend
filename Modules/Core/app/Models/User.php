@@ -62,6 +62,7 @@ class User extends Authenticatable implements FilamentUser, HasDefaultTenant, Ha
         'last_login_at',
         'player_id',          // Deprecated — kept for backward compatibility
         'fcm_token',
+        'platform',
         'last_notification_seen',
         'is_online',
         'online_since',
