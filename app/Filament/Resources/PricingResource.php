@@ -4,6 +4,7 @@ namespace App\Filament\Resources;
 
 use App\Filament\Resources\PricingResource\Pages;
 use App\Filament\Traits\RestrictToFullAdmin;
+use Filament\Facades\Filament;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Notifications\Notification;
@@ -55,6 +56,11 @@ class PricingResource extends Resource
         'topup' => 'gray',
     ];
 
+    public static function getEloquentQuery(): Builder
+    {
+        return parent::getEloquentQuery()->with('city');
+    }
+
     public static function form(Form $form): Form
     {
         return $form->schema([
@@ -66,14 +72,17 @@ class PricingResource extends Resource
                     Forms\Components\Select::make('city_id')
                         ->label('Khu vực')
                         ->placeholder('Mặc định (tất cả khu vực)')
-                        ->options(fn () => City::where('is_active', true)->pluck('name', 'id'))
+                        ->options(fn () => City::whereKey(Filament::getTenant()?->id)->pluck('name', 'id'))
+                        ->default(fn () => Filament::getTenant()?->id)
                         ->searchable()
+                        ->disabledOn('edit')
                         ->nullable(),
 
                     Forms\Components\Select::make('service_type')
                         ->label('Dịch vụ')
                         ->options(self::$serviceLabels)
                         ->required()
+                        ->live()
                         ->disabledOn('edit'),
 
                     Forms\Components\TextInput::make('label')
@@ -199,30 +208,28 @@ class PricingResource extends Resource
                 Tables\Columns\TextColumn::make('city.name')
                     ->label('Khu vực')
                     ->default('Mặc định')
-                    ->badge()
-                    ->alignCenter()
-                    ->color(fn (PricingConfig $record) => $record->city_id ? 'info' : 'gray'),
+                    ->color(fn (PricingConfig $record) => $record->city_id ? 'info' : 'gray')
+                    ->description(fn (PricingConfig $record) => $record->city_id ? 'Giá riêng khu vực' : 'Áp dụng khi chưa có giá riêng'),
 
                 Tables\Columns\TextColumn::make('label')
                     ->label('Dịch vụ')
-                    ->weight('bold'),
+                    ->description(fn (PricingConfig $record) => (self::$serviceLabels[$record->service_type] ?? $record->service_type).' · '.$record->service_type),
 
-                Tables\Columns\TextColumn::make('service_type')
-                    ->label('Mã')
-                    ->badge()
-                    ->formatStateUsing(fn ($state) => self::$serviceLabels[$state] ?? $state)
-                    ->color(fn ($state) => self::$serviceColors[$state] ?? 'gray'),
+                Tables\Columns\TextColumn::make('pricing_summary')
+                    ->label('Công thức giá')
+                    ->state(fn (PricingConfig $record) => self::pricingSummary($record))
+                    ->description(fn (PricingConfig $record) => self::pricingDescription($record))
+                    ->wrap(),
+
+                Tables\Columns\TextColumn::make('updated_at')
+                    ->label('Cập nhật')
+                    ->dateTime('d/m/Y H:i'),
 
                 Tables\Columns\ToggleColumn::make('is_active')
                     ->label('Hoạt động')
                     ->alignCenter(),
             ])
             ->filters([
-                Tables\Filters\SelectFilter::make('city_id')
-                    ->label('Khu vực')
-                    ->placeholder('Tất cả')
-                    ->options(fn () => ['0' => 'Mặc định'] + City::where('is_active', true)->pluck('name', 'id')->toArray()),
-
                 Tables\Filters\SelectFilter::make('service_type')
                     ->label('Dịch vụ')
                     ->options(self::$serviceLabels),
@@ -275,6 +282,36 @@ class PricingResource extends Resource
                     ->visible(fn (PricingConfig $record) => $record->city_id !== null),
             ])
             ->paginated(false);
+    }
+
+    public static function pricingSummary(PricingConfig $pricing): string
+    {
+        $config = $pricing->config_json ?? [];
+
+        return match ($pricing->service_type) {
+            'delivery', 'shopping' => count($config['slabs'] ?? []).' bậc giá',
+            'bike' => number_format((float) ($config['base_km'] ?? 0), 1, ',', '.').' km đầu · '.number_format((int) ($config['base_fee'] ?? 0)).' ₫',
+            'motor', 'car' => number_format((float) ($config['base_km'] ?? 0), 1, ',', '.').' km đầu · '.number_format((int) ($config['base_fee'] ?? 0)).' ₫',
+            'topup' => count($config['tiers'] ?? []).' mức phí nạp',
+            default => 'Chưa nhận diện công thức',
+        };
+    }
+
+    public static function pricingDescription(PricingConfig $pricing): string
+    {
+        $config = $pricing->config_json ?? [];
+
+        return (match ($pricing->service_type) {
+            'delivery', 'shopping' => collect($config['slabs'] ?? [])->map(
+                fn ($slab) => '≤'.($slab['max_km'] ?? 0).' km: '.number_format((int) ($slab['fee'] ?? 0)).' ₫'
+            )->take(3)->implode(' · ').(count($config['slabs'] ?? []) > 3 ? ' · …' : ''),
+            'bike' => number_format((int) ($config['per_km_fee'] ?? 0)).' ₫/km · từ '.($config['higher_from_km'] ?? 0).' km: '.number_format((int) ($config['higher_per_km_fee'] ?? 0)).' ₫/km',
+            'motor', 'car' => number_format((int) ($config['per_km_fee'] ?? 0)).' ₫ cho mỗi km tiếp theo',
+            'topup' => collect($config['tiers'] ?? [])->map(
+                fn ($tier) => '<'.number_format((int) ($tier['max_amount'] ?? 0)).': '.number_format((int) ($tier['fee'] ?? 0)).' ₫'
+            )->take(3)->implode(' · ').(count($config['tiers'] ?? []) > 3 ? ' · …' : ''),
+            default => 'Chưa có dữ liệu cấu hình',
+        }) ?: 'Chưa cấu hình chi tiết';
     }
 
     public static function getPages(): array

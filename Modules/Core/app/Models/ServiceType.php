@@ -18,4 +18,14 @@ class ServiceType extends Model
     {
         return $query->where('is_active', true)->orderBy('sort_order');
     }
+
+    public function pricingConfigs()
+    {
+        return $this->hasMany(\Modules\Pricing\Models\PricingConfig::class, 'service_type', 'key');
+    }
+
+    public function orders()
+    {
+        return $this->hasMany(\Modules\Order\Models\Order::class, 'service_type', 'key');
+    }
 }

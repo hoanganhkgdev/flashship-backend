@@ -104,12 +104,12 @@ class EditPricingConfig extends EditRecord
                     $record = $this->record;
 
                     if ($record->service_type === 'topup') {
-                        $fee = PricingService::topupFee((int) $data['topup_amount']);
+                        $fee = PricingService::topupFee((int) $data['topup_amount'], $record->city_id);
                         $body = 'Số tiền: '.number_format((int) $data['topup_amount']).'₫ → Phí: '.number_format($fee).'₫';
                     } else {
-                        $result = PricingService::estimate($record->service_type, (float) $data['distance_km']);
+                        $result = PricingService::estimate($record->service_type, (float) $data['distance_km'], $record->city_id);
                         $fee = $result['fee'];
-                        $body = round($data['distance_km'], 1).' km → Phí: '.number_format($fee).'₫';
+                        $body = round($data['distance_km'], 1).' km → Phí: '.number_format($fee).'₫'.($result['night_surcharge'] > 0 ? ' (gồm '.number_format($result['night_surcharge']).'₫ phụ phí đêm)' : '');
                     }
 
                     Notification::make()

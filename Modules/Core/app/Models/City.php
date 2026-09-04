@@ -21,6 +21,11 @@ class City extends Model
         return $this->hasMany(User::class)->where('user_type', 'customer');
     }
 
+    public function shops(): HasMany
+    {
+        return $this->hasMany(User::class)->where('user_type', 'shop');
+    }
+
     public function orders(): HasMany
     {
         return $this->hasMany(\Modules\Order\Models\Order::class);

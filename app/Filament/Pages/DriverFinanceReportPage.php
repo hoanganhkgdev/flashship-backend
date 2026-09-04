@@ -35,6 +35,12 @@ class DriverFinanceReportPage extends Page
 
     public string $date = '';
 
+    public string $search = '';
+
+    public string $debtStatus = 'all';
+
+    public string $sortBy = 'remaining';
+
     public function mount(): void
     {
         $this->date = now()->startOfWeek()->toDateString();
@@ -82,12 +88,26 @@ class DriverFinanceReportPage extends Page
         // "Còn nợ" gộp tất cả cho đúng số tiền thực tế phải thu.
         $debts = DB::table('driver_debts')
             ->whereIn('driver_id', $driverIds)
-            ->whereBetween('week_start', [$from->toDateString(), $to->toDateString()])
+            ->where(function ($query) use ($from, $to, $fromStr, $toStr) {
+                $query->whereBetween('week_start', [$from->toDateString(), $to->toDateString()])
+                    ->orWhere(function ($dateQuery) use ($from, $to) {
+                        $dateQuery->whereNull('week_start')
+                            ->whereBetween('date', [$from->toDateString(), $to->toDateString()]);
+                    })
+                    ->orWhere(function ($createdQuery) use ($fromStr, $toStr) {
+                        $createdQuery->whereNull('week_start')
+                            ->whereNull('date')
+                            ->whereBetween('created_at', [$fromStr, $toStr]);
+                    });
+            })
             ->groupBy('driver_id')
             ->selectRaw("driver_id,
                 COALESCE(SUM(CASE WHEN ref_id IS NULL AND note LIKE 'Phí tuần%' THEN amount_due  ELSE 0 END), 0) as fee_due,
                 COALESCE(SUM(CASE WHEN ref_id IS NULL AND note LIKE 'Phí tuần%' THEN amount_paid ELSE 0 END), 0) as fee_paid,
                 COALESCE(SUM(CASE WHEN ref_id LIKE 'score_penalty%' THEN amount_due ELSE 0 END), 0) as penalty,
+                COALESCE(SUM(CASE WHEN ref_id LIKE 'score_penalty%' THEN amount_paid ELSE 0 END), 0) as penalty_paid,
+                COALESCE(SUM(amount_due), 0) as total_due,
+                COALESCE(SUM(amount_paid), 0) as total_paid,
                 COALESCE(SUM(amount_due - amount_paid), 0) as remaining")
             ->get()->keyBy('driver_id');
 
@@ -124,12 +144,15 @@ class DriverFinanceReportPage extends Page
             $feeDue = (int) ($debt->fee_due ?? 0);
             $feePaid = (int) ($debt->fee_paid ?? 0);
             $penalty = (int) ($debt->penalty ?? 0);
+            $penaltyPaid = (int) ($debt->penalty_paid ?? 0);
+            $totalDue = (int) ($debt->total_due ?? 0);
+            $totalPaid = (int) ($debt->total_paid ?? 0);
             $remaining = (int) max(0, (int) ($debt->remaining ?? 0));
             $bonus = (int) ($pay->bonus ?? 0);
             $voucher = (int) ($pay->voucher ?? 0);
             $withdrawn = (int) ($withdrawals[$d->id] ?? 0);
 
-            if (! $feeDue && ! $feePaid && ! $penalty && ! $bonus && ! $voucher && ! $withdrawn && ! $remaining) {
+            if (! $totalDue && ! $totalPaid && ! $bonus && ! $voucher && ! $withdrawn) {
                 continue;
             }
 
@@ -138,16 +161,44 @@ class DriverFinanceReportPage extends Page
                 'name' => $d->name,
                 'phone' => $d->phone,
                 'penalty' => $penalty,
+                'penalty_paid' => $penaltyPaid,
                 'bonus' => $bonus,
                 'voucher' => $voucher,
                 'fee_due' => $feeDue,
                 'fee_paid' => $feePaid,
+                'total_due' => $totalDue,
+                'total_paid' => $totalPaid,
                 'remaining' => $remaining,
                 'withdrawn' => $withdrawn,
             ];
         }
 
-        usort($rows, fn ($a, $b) => $b['remaining'] <=> $a['remaining']);
+        $search = mb_strtolower(trim($this->search));
+        $rows = array_values(array_filter($rows, function (array $row) use ($search) {
+            if ($search !== '' && ! str_contains(mb_strtolower($row['name'].' '.$row['phone']), $search)) {
+                return false;
+            }
+            if ($this->debtStatus === 'outstanding' && $row['remaining'] <= 0) {
+                return false;
+            }
+            if ($this->debtStatus === 'settled' && $row['remaining'] > 0) {
+                return false;
+            }
+
+            return true;
+        }));
+
+        $sortKey = match ($this->sortBy) {
+            'paid' => 'total_paid',
+            'admin_paid' => 'admin_paid',
+            'withdrawn' => 'withdrawn',
+            default => 'remaining',
+        };
+        foreach ($rows as &$row) {
+            $row['admin_paid'] = $row['bonus'] + $row['voucher'];
+        }
+        unset($row);
+        usort($rows, fn ($a, $b) => $b[$sortKey] <=> $a[$sortKey] ?: strcasecmp($a['name'], $b['name']));
 
         return $rows;
     }
@@ -160,10 +211,14 @@ class DriverFinanceReportPage extends Page
         return [
             'drivers' => count($rows),
             'penalty' => $sum('penalty'),
+            'penalty_paid' => $sum('penalty_paid'),
             'bonus' => $sum('bonus'),
             'voucher' => $sum('voucher'),
             'fee_due' => $sum('fee_due'),
             'fee_paid' => $sum('fee_paid'),
+            'total_due' => $sum('total_due'),
+            'total_paid' => $sum('total_paid'),
+            'admin_paid' => $sum('admin_paid'),
             'remaining' => $sum('remaining'),
             'withdrawn' => $sum('withdrawn'),
         ];
@@ -212,21 +267,21 @@ class DriverFinanceReportPage extends Page
         $data = [[
             'Mã TX', 'Tài xế', 'SĐT',
             'Phạt tuần (đ)', 'Thưởng điểm (đ)', 'Tiền áp mã (đ)',
-            'Phí tuần (đ)', 'Đã đóng (đ)', 'Còn nợ (đ)', 'Đã rút (đ)',
+            'Phí tuần (đ)', 'Tổng phải thu (đ)', 'Đã thu (đ)', 'Còn nợ (đ)', 'Đã rút (đ)',
         ]];
 
         foreach ($rows as $r) {
             $data[] = [
                 $r['id'], $r['name'], $r['phone'],
                 $r['penalty'], $r['bonus'], $r['voucher'],
-                $r['fee_due'], $r['fee_paid'], $r['remaining'], $r['withdrawn'],
+                $r['fee_due'], $r['total_due'], $r['total_paid'], $r['remaining'], $r['withdrawn'],
             ];
         }
 
         $data[] = [
             '', 'TỔNG CỘNG', '',
             $totals['penalty'], $totals['bonus'], $totals['voucher'],
-            $totals['fee_due'], $totals['fee_paid'], $totals['remaining'], $totals['withdrawn'],
+            $totals['fee_due'], $totals['total_due'], $totals['total_paid'], $totals['remaining'], $totals['withdrawn'],
         ];
 
         [$from, $to] = $this->range;

@@ -1,84 +1,31 @@
 <x-filament-widgets::widget>
-    <div class="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-700 p-5" style="margin:0.5rem;">
-
-        {{-- Header --}}
-        <div style="display:flex; align-items:center; gap:1.5rem; flex-wrap:wrap; margin-bottom:1.25rem;">
-            <div style="display:flex; align-items:baseline; gap:6px;">
-                <span class="text-xs text-gray-400">Tổng</span>
-                <span class="text-2xl font-bold text-gray-800 dark:text-white">{{ number_format($total) }}</span>
-                <span class="text-xs text-gray-400">đánh giá</span>
-            </div>
-
-            <div style="width:1px; height:24px; background:#e5e7eb;"></div>
-
-            <div style="display:flex; align-items:center; gap:4px;">
-                <span class="text-2xl font-bold" style="color:{{ $averageColor }}">{{ $average }}</span>
-                <span style="font-size:1.1rem; color:{{ $averageColor }}">★</span>
-                <span class="text-xs text-gray-400">trung bình</span>
-            </div>
-
-            <div style="width:1px; height:24px; background:#e5e7eb;"></div>
-
-            <div style="display:flex; align-items:center; gap:6px;">
-                @if($low === 0)
-                    <span class="text-xs font-semibold text-green-600">Không có đánh giá xấu ✓</span>
-                @else
-                    <span class="text-2xl font-bold text-red-500">{{ $low }}</span>
-                    <span class="text-xs text-gray-400">đánh giá xấu (≤ 2★)</span>
-                @endif
+    @php $max = max(1, ...array_values($distribution)); @endphp
+    <style>
+        .rating-overview { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)) minmax(280px,1.6fr); gap:10px; }
+        .rating-kpi,.rating-distribution { padding:15px; border:1px solid #e5e7eb; border-radius:14px; background:#fff; }
+        .rating-kpi { display:flex; flex-direction:column; justify-content:center; min-height:104px; }
+        .rating-kpi span { color:#64748b; font-size:12px; }
+        .rating-kpi strong { margin-top:7px; color:#0f172a; font-size:25px; font-weight:650; line-height:1; }
+        .rating-kpi small { margin-top:7px; color:#94a3b8; font-size:11px; }
+        .rating-bars { display:grid; gap:6px; margin-top:8px; }
+        .rating-bar { display:grid; grid-template-columns:28px minmax(0,1fr) 28px; align-items:center; gap:7px; color:#64748b; font-size:11px; }
+        .rating-bar i { height:6px; overflow:hidden; border-radius:999px; background:#f1f5f9; }
+        .rating-bar i::after { display:block; width:var(--rating-width); height:100%; border-radius:inherit; background:var(--rating-color); content:''; }
+        .dark .rating-kpi,.dark .rating-distribution { border-color:#293142; background:#171b25; }
+        .dark .rating-kpi strong { color:#f8fafc; }
+        @media(max-width:900px){.rating-overview{grid-template-columns:repeat(2,minmax(0,1fr))}.rating-distribution{grid-column:1/-1}}
+    </style>
+    <div class="rating-overview">
+        <div class="rating-kpi"><span>Tổng đánh giá</span><strong>{{ number_format($total) }}</strong><small>Phản hồi đã ghi nhận</small></div>
+        <div class="rating-kpi"><span>Điểm trung bình</span><strong style="color:{{ $averageColor }}">{{ $average }} ★</strong><small>Trên thang điểm 5</small></div>
+        <div class="rating-kpi"><span>Cần xử lý</span><strong style="color:{{ $low ? '#ef4444' : '#16a34a' }}">{{ number_format($low) }}</strong><small>Đánh giá từ 1–2 sao</small></div>
+        <div class="rating-distribution">
+            <span style="color:#475569;font-size:12px;font-weight:600">Phân bố đánh giá</span>
+            <div class="rating-bars">
+                @foreach([5 => '#22c55e', 4 => '#84cc16', 3 => '#f59e0b', 2 => '#f97316', 1 => '#ef4444'] as $star => $color)
+                    <div class="rating-bar" style="--rating-width:{{ ($distribution[$star] / $max) * 100 }}%;--rating-color:{{ $color }}"><span>{{ $star }}★</span><i></i><b>{{ $distribution[$star] }}</b></div>
+                @endforeach
             </div>
         </div>
-
-        {{-- Biểu đồ --}}
-        <canvas id="ratingChart" height="90"></canvas>
-
     </div>
-
-    <script>
-    (function () {
-        const data = {
-            labels: ['5 ★', '4 ★', '3 ★', '2 ★', '1 ★'],
-            datasets: [{
-                data: [{{ $distribution[5] }}, {{ $distribution[4] }}, {{ $distribution[3] }}, {{ $distribution[2] }}, {{ $distribution[1] }}],
-                backgroundColor: ['#22c55e', '#84cc16', '#f59e0b', '#f97316', '#ef4444'],
-                borderRadius: 6,
-                borderSkipped: false,
-            }]
-        };
-
-        function initChart() {
-            const canvas = document.getElementById('ratingChart');
-            if (!canvas || !window.Chart) { setTimeout(initChart, 200); return; }
-            if (canvas._chartInstance) canvas._chartInstance.destroy();
-            canvas._chartInstance = new Chart(canvas, {
-                type: 'bar',
-                data: data,
-                options: {
-                    indexAxis: 'y',
-                    responsive: true,
-                    plugins: {
-                        legend: { display: false },
-                        tooltip: { callbacks: { label: ctx => ' ' + ctx.parsed.x + ' đánh giá' } }
-                    },
-                    scales: {
-                        x: {
-                            beginAtZero: true,
-                            ticks: { precision: 0, color: '#9ca3af' },
-                            grid: { color: '#f3f4f610' },
-                        },
-                        y: {
-                            ticks: {
-                                font: { weight: '600', size: 13 },
-                                color: (ctx) => ['#22c55e','#84cc16','#f59e0b','#f97316','#ef4444'][ctx.index],
-                            },
-                            grid: { display: false },
-                        }
-                    }
-                }
-            });
-        }
-
-        initChart();
-    })();
-    </script>
 </x-filament-widgets::widget>

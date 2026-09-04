@@ -163,6 +163,15 @@
 .fs-order-summary__time::before { content: '◷'; color: #64748b; }
 .dark .fs-order-summary span { color: #f8fafc; }
 .dark .fs-order-journey > div > span { color: #f8fafc; }
+.fs-driver-state { display:grid; gap:.35rem; }
+.fs-driver-state > span,.fs-driver-docs em { font-size:.875rem; font-style:normal; font-weight:400; }
+.fs-driver-state--success { color:#16a34a; }
+.fs-driver-state--warning { color:#d97706; }
+.fs-driver-state--danger { color:#dc2626; }
+.fs-driver-state--gray { color:#64748b; }
+.fs-driver-docs { display:grid; gap:.35rem; }
+.fs-driver-docs > div { display:flex; align-items:center; gap:.35rem; }
+.fs-driver-docs > div > span { color:#64748b; font-size:.875rem; font-weight:400; }
 .fs-page-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; margin-bottom: 1.25rem; }
 .fs-page-header__eyebrow { margin-bottom: .3rem; color: var(--flashship-orange-dark); font-size: .65rem; font-weight: 800; letter-spacing: .09em; text-transform: uppercase; }
 .fs-page-header__title { color: var(--flashship-ink); font-size: clamp(1.25rem, 2vw, 1.7rem); font-weight: 800; letter-spacing: -.03em; line-height: 1.2; }

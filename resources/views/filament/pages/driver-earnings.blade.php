@@ -1,95 +1,93 @@
 <x-filament-panels::page>
+    @php
+        $drivers = $this->drivers;
+        $totals = $this->totals;
+        $money = fn ($value) => number_format((float) $value, 0, ',', '.').' ₫';
+    @endphp
 
-<header class="fs-page-header">
-    <div>
-        <p class="fs-page-header__eyebrow">Hiệu suất tài xế</p>
-        <h1 class="fs-page-header__title">Thu nhập tài xế</h1>
-        <p class="fs-page-header__description">Theo dõi số đơn hoàn thành và thu nhập của từng tài xế theo ngày, tuần.</p>
-    </div>
-</header>
+    <header class="fs-page-header">
+        <div>
+            <p class="fs-page-header__eyebrow">Hiệu suất tài xế</p>
+            <h1 class="fs-page-header__title">Thu nhập tài xế</h1>
+            <p class="fs-page-header__description">Đối soát số đơn, phí giao hàng và phụ phí theo ngày được chọn và tuần tương ứng.</p>
+        </div>
+    </header>
 
-@php
-    $drivers = $this->drivers;
-    $totals  = $this->totals;
-@endphp
+    <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div class="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-gray-900">
+            <p class="text-sm text-gray-500 dark:text-gray-400">Tài xế có thu nhập</p>
+            <p class="mt-1 text-2xl text-gray-950 dark:text-white">{{ number_format($totals['earning_drivers']) }}</p>
+            <p class="mt-1 text-sm text-gray-500">{{ $totals['online'] }} online · {{ $totals['drivers'] }} đang hiển thị</p>
+        </div>
+        <div class="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-gray-900">
+            <p class="text-sm text-gray-500 dark:text-gray-400">Đơn ngày {{ $this->dateLabel }}</p>
+            <p class="mt-1 text-2xl text-gray-950 dark:text-white">{{ number_format($totals['today_orders']) }}</p>
+            <p class="mt-1 text-sm text-gray-500">Đơn đã hoàn thành</p>
+        </div>
+        <div class="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-gray-900">
+            <p class="text-sm text-gray-500 dark:text-gray-400">Thu nhập ngày {{ $this->dateLabel }}</p>
+            <p class="mt-1 text-2xl text-orange-600">{{ $money($totals['today_earnings']) }}</p>
+            <p class="mt-1 text-sm text-gray-500">TB {{ $money($totals['today_orders'] ? $totals['today_earnings'] / $totals['today_orders'] : 0) }}/đơn</p>
+        </div>
+        <div class="rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-gray-900">
+            <p class="text-sm text-gray-500 dark:text-gray-400">Thu nhập tuần</p>
+            <p class="mt-1 text-2xl text-primary-600">{{ $money($totals['week_earnings']) }}</p>
+            <p class="mt-1 text-sm text-gray-500">{{ $totals['week_orders'] }} đơn · {{ $this->weekLabel }}</p>
+        </div>
+    </div>
 
-{{-- Filters --}}
-<div class="flex flex-wrap items-end gap-4 mb-4">
-    <div>
-        <label class="block text-xs font-medium text-gray-500 mb-1">Ngày</label>
-        <input type="date" wire:model.live="date" class="rounded-lg border-gray-300 text-sm shadow-sm" />
+    <div class="flex flex-wrap items-end gap-3 rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-white/10 dark:bg-gray-900">
+        <div>
+            <label class="mb-1 block text-sm text-gray-600 dark:text-gray-300">Ngày đối soát</label>
+            <input type="date" wire:model.live="date" class="rounded-lg border-gray-300 text-sm shadow-sm dark:border-white/10 dark:bg-gray-900" />
+        </div>
+        <div class="min-w-52 flex-1">
+            <label class="mb-1 block text-sm text-gray-600 dark:text-gray-300">Tìm tài xế</label>
+            <input type="search" wire:model.live.debounce.300ms="search" placeholder="Tên hoặc số điện thoại" class="w-full rounded-lg border-gray-300 text-sm shadow-sm dark:border-white/10 dark:bg-gray-900" />
+        </div>
+        <div>
+            <label class="mb-1 block text-sm text-gray-600 dark:text-gray-300">Trạng thái</label>
+            <select wire:model.live="onlineStatus" class="rounded-lg border-gray-300 text-sm shadow-sm dark:border-white/10 dark:bg-gray-900">
+                <option value="all">Tất cả</option><option value="online">Đang online</option><option value="offline">Offline</option>
+            </select>
+        </div>
+        <div>
+            <label class="mb-1 block text-sm text-gray-600 dark:text-gray-300">Hoạt động trong ngày</label>
+            <select wire:model.live="activity" class="rounded-lg border-gray-300 text-sm shadow-sm dark:border-white/10 dark:bg-gray-900">
+                <option value="all">Tất cả</option><option value="has_orders">Có đơn hoàn thành</option><option value="no_orders">Chưa có đơn</option>
+            </select>
+        </div>
+        <div>
+            <label class="mb-1 block text-sm text-gray-600 dark:text-gray-300">Sắp xếp</label>
+            <select wire:model.live="sortBy" class="rounded-lg border-gray-300 text-sm shadow-sm dark:border-white/10 dark:bg-gray-900">
+                <option value="day_earnings">Thu nhập ngày</option><option value="week_earnings">Thu nhập tuần</option>
+            </select>
+        </div>
     </div>
-</div>
 
-{{-- Summary cards --}}
-<div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-4">
-    <div class="rounded-xl bg-white p-4 shadow-sm border">
-        <p class="text-xs text-gray-500">Tài xế</p>
-        <p class="text-2xl font-bold text-gray-900">{{ $totals['drivers'] }}</p>
-        <p class="text-xs text-green-600">{{ $totals['online'] }} online</p>
+    <div class="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm dark:border-white/10 dark:bg-gray-900">
+        <table class="w-full min-w-[900px] text-sm">
+            <thead class="border-b border-gray-200 bg-gray-50 text-gray-600 dark:border-white/10 dark:bg-white/5 dark:text-gray-300">
+                <tr>
+                    <th class="px-4 py-3 text-left">#</th><th class="px-4 py-3 text-left">Tài xế</th>
+                    <th class="px-4 py-3 text-left">Ngày {{ $this->dateLabel }}</th><th class="px-4 py-3 text-right">Thu nhập ngày</th>
+                    <th class="px-4 py-3 text-left">Tuần {{ $this->weekLabel }}</th><th class="px-4 py-3 text-right">Thu nhập tuần</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100 dark:divide-white/5">
+                @forelse ($drivers as $index => $driver)
+                    <tr class="hover:bg-gray-50 dark:hover:bg-white/5">
+                        <td class="px-4 py-3 text-gray-400">{{ $index + 1 }}</td>
+                        <td class="px-4 py-3"><div class="text-gray-950 dark:text-white">{{ $driver['name'] }}</div><div class="mt-1 text-gray-500">{{ $driver['phone'] ?: 'Chưa có SĐT' }} · {{ $driver['is_online'] ? 'Đang online' : 'Offline' }}</div></td>
+                        <td class="px-4 py-3"><div class="text-gray-950 dark:text-white">{{ $driver['today_orders'] }} đơn hoàn thành</div><div class="mt-1 text-gray-500">Phí giao {{ $money($driver['today_shipping']) }} · Phụ phí {{ $money($driver['today_bonus']) }}</div></td>
+                        <td class="px-4 py-3 text-right text-orange-600">{{ $money($driver['today_earnings']) }}</td>
+                        <td class="px-4 py-3"><div class="text-gray-950 dark:text-white">{{ $driver['week_orders'] }} đơn hoàn thành</div><div class="mt-1 text-gray-500">Phí giao {{ $money($driver['week_shipping']) }} · Phụ phí {{ $money($driver['week_bonus']) }}</div></td>
+                        <td class="px-4 py-3 text-right text-primary-600">{{ $money($driver['week_earnings']) }}</td>
+                    </tr>
+                @empty
+                    <tr><td colspan="6" class="px-4 py-10 text-center text-gray-500">Không có tài xế phù hợp với bộ lọc.</td></tr>
+                @endforelse
+            </tbody>
+        </table>
     </div>
-    <div class="rounded-xl bg-white p-4 shadow-sm border">
-        <p class="text-xs text-gray-500">Đơn hôm nay</p>
-        <p class="text-2xl font-bold text-gray-900">{{ $totals['today_orders'] }}</p>
-    </div>
-    <div class="rounded-xl bg-white p-4 shadow-sm border">
-        <p class="text-xs text-gray-500">Thu nhập hôm nay</p>
-        <p class="text-2xl font-bold text-orange-600">{{ number_format($totals['today_earnings']) }}đ</p>
-    </div>
-    <div class="rounded-xl bg-white p-4 shadow-sm border">
-        <p class="text-xs text-gray-500">Đơn tuần này</p>
-        <p class="text-2xl font-bold text-gray-900">{{ $totals['week_orders'] }}</p>
-    </div>
-    <div class="rounded-xl bg-white p-4 shadow-sm border">
-        <p class="text-xs text-gray-500">Thu nhập tuần</p>
-        <p class="text-2xl font-bold text-indigo-600">{{ number_format($totals['week_earnings']) }}đ</p>
-    </div>
-    <div class="rounded-xl bg-white p-4 shadow-sm border">
-        <p class="text-xs text-gray-500">TB/tài xế (tuần)</p>
-        <p class="text-2xl font-bold text-gray-900">{{ $totals['drivers'] > 0 ? number_format($totals['week_earnings'] / $totals['drivers']) : 0 }}đ</p>
-    </div>
-</div>
-
-{{-- Table --}}
-<div class="rounded-xl bg-white shadow-sm border overflow-hidden">
-    <table class="w-full text-sm">
-        <thead>
-            <tr class="bg-gray-50 border-b">
-                <th class="text-left px-4 py-3 font-semibold text-gray-600">#</th>
-                <th class="text-left px-4 py-3 font-semibold text-gray-600">Tài xế</th>
-                <th class="text-left px-4 py-3 font-semibold text-gray-600">SĐT</th>
-                <th class="text-center px-4 py-3 font-semibold text-gray-600">Online</th>
-                <th class="text-right px-4 py-3 font-semibold text-gray-600">Đơn ngày</th>
-                <th class="text-right px-4 py-3 font-semibold text-orange-600">Thu nhập ngày</th>
-                <th class="text-right px-4 py-3 font-semibold text-gray-600">Đơn tuần</th>
-                <th class="text-right px-4 py-3 font-semibold text-indigo-600">Thu nhập tuần</th>
-            </tr>
-        </thead>
-        <tbody>
-            @forelse ($drivers as $i => $d)
-            <tr class="border-b hover:bg-gray-50 transition-colors">
-                <td class="px-4 py-2.5 text-gray-400">{{ $i + 1 }}</td>
-                <td class="px-4 py-2.5 font-medium text-gray-900">{{ $d['name'] }}</td>
-                <td class="px-4 py-2.5 text-gray-500">{{ $d['phone'] }}</td>
-                <td class="px-4 py-2.5 text-center">
-                    @if ($d['is_online'])
-                        <span class="inline-block w-2.5 h-2.5 rounded-full bg-green-500"></span>
-                    @else
-                        <span class="inline-block w-2.5 h-2.5 rounded-full bg-gray-300"></span>
-                    @endif
-                </td>
-                <td class="px-4 py-2.5 text-right font-medium">{{ $d['today_orders'] }}</td>
-                <td class="px-4 py-2.5 text-right font-bold text-orange-600">{{ number_format($d['today_earnings']) }}đ</td>
-                <td class="px-4 py-2.5 text-right font-medium">{{ $d['week_orders'] }}</td>
-                <td class="px-4 py-2.5 text-right font-bold text-indigo-600">{{ number_format($d['week_earnings']) }}đ</td>
-            </tr>
-            @empty
-            <tr>
-                <td colspan="9" class="px-4 py-8 text-center text-gray-400">Không có dữ liệu</td>
-            </tr>
-            @endforelse
-        </tbody>
-    </table>
-</div>
-
 </x-filament-panels::page>

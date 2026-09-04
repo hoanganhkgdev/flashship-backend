@@ -44,7 +44,10 @@ class SendNotificationPage extends Page
 
     public function mount(): void
     {
-        $this->form->fill();
+        $this->form->fill([
+            'target' => $this->canManageAllCities() ? 'drivers_city' : 'all_drivers',
+            'city_id' => Filament::getTenant()?->id,
+        ]);
     }
 
     public function form(Form $form): Form
@@ -75,22 +78,33 @@ class SendNotificationPage extends Page
                     ->schema([
                         Forms\Components\Select::make('target')
                             ->label('Gửi đến')
-                            ->options([
-                                'all_drivers' => 'Tất cả tài xế',
-                                'all_customers' => 'Tất cả khách hàng',
-                                'drivers_city' => 'Tài xế theo khu vực',
-                                'customers_city' => 'Khách hàng theo khu vực',
-                            ])
+                            ->options(fn () => $this->targetOptions())
                             ->required()
                             ->live()
-                            ->default('all_drivers'),
+                            ->default(fn () => $this->canManageAllCities() ? 'drivers_city' : 'all_drivers'),
 
                         Forms\Components\Select::make('city_id')
                             ->label('Khu vực')
                             ->options(fn () => City::where('is_active', true)->pluck('name', 'id'))
+                            ->default(fn () => Filament::getTenant()?->id)
                             ->searchable()
                             ->visible(fn (Forms\Get $get) => $this->canManageAllCities() && str_contains($get('target') ?? '', 'city'))
                             ->required(fn (Forms\Get $get) => $this->canManageAllCities() && str_contains($get('target') ?? '', 'city')),
+
+                        Forms\Components\Placeholder::make('recipient_preview')
+                            ->label('Người nhận dự kiến')
+                            ->content(function (Forms\Get $get): string {
+                                $target = $get('target');
+                                if (! $target || (str_contains($target, 'city') && ! $get('city_id'))) {
+                                    return 'Chọn đầy đủ đối tượng và khu vực để xem số người nhận.';
+                                }
+
+                                return number_format($this->recipientCount([
+                                    'target' => $target,
+                                    'city_id' => $get('city_id'),
+                                ])).' thiết bị có thể nhận thông báo';
+                            })
+                            ->columnSpanFull(),
                     ]),
             ])
             ->statePath('data');
@@ -102,9 +116,30 @@ class SendNotificationPage extends Page
         return in_array(auth()->user()?->user_type, ['admin', 'subadmin']);
     }
 
+    private function targetOptions(): array
+    {
+        if (! $this->canManageAllCities()) {
+            $city = Filament::getTenant()?->name ?? 'khu vực hiện tại';
+
+            return [
+                'all_drivers' => 'Tài xế tại '.$city,
+                'all_customers' => 'Khách hàng tại '.$city,
+            ];
+        }
+
+        return [
+            'drivers_city' => 'Tài xế theo khu vực',
+            'customers_city' => 'Khách hàng theo khu vực',
+            'all_drivers' => 'Tất cả tài xế — toàn hệ thống',
+            'all_customers' => 'Tất cả khách hàng — toàn hệ thống',
+        ];
+    }
+
     private function buildQuery(array $data): Builder
     {
-        $q = User::whereNotNull('fcm_token')->where('fcm_token', '!=', '');
+        $q = User::whereNotNull('fcm_token')
+            ->where('fcm_token', '!=', '')
+            ->where('status', 1);
 
         if ($data['target'] === 'all_drivers') {
             $q->where('user_type', 'driver');
@@ -127,10 +162,30 @@ class SendNotificationPage extends Page
         return $q;
     }
 
+    private function recipientCount(array $data): int
+    {
+        return $this->buildQuery($data)->distinct()->count('fcm_token');
+    }
+
+    public function getRecipientCountProperty(): int
+    {
+        $target = $this->data['target'] ?? null;
+        if (! $target || (str_contains($target, 'city') && empty($this->data['city_id']))) {
+            return 0;
+        }
+
+        return $this->recipientCount($this->data);
+    }
+
+    public function getTargetLabelProperty(): string
+    {
+        return $this->targetOptions()[$this->data['target'] ?? ''] ?? 'đối tượng đã chọn';
+    }
+
     public function send(): void
     {
         $data = $this->form->getState();
-        $tokens = $this->buildQuery($data)->pluck('fcm_token')->filter()->values()->toArray();
+        $tokens = $this->buildQuery($data)->pluck('fcm_token')->filter()->unique()->values()->toArray();
 
         if (empty($tokens)) {
             Notification::make()->warning()
@@ -152,11 +207,14 @@ class SendNotificationPage extends Page
                 CustomerNotificationController::broadcast($data['title'], $data['body'], $cityId);
             }
 
-            Notification::make()->success()
+            Notification::make()->{$result['failed'] > 0 ? 'warning' : 'success'}()
                 ->title('Đã gửi thông báo')
                 ->body("Thành công: {$result['sent']} · Thất bại: {$result['failed']} / ".count($tokens).' người nhận')
                 ->send();
-            $this->form->fill();
+            $this->form->fill([
+                'target' => $this->canManageAllCities() ? 'drivers_city' : 'all_drivers',
+                'city_id' => Filament::getTenant()?->id,
+            ]);
         } catch (\Throwable $e) {
             Notification::make()->danger()
                 ->title('Lỗi FCM')

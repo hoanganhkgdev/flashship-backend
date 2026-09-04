@@ -6,9 +6,11 @@ use App\Filament\Resources\ServiceTypeResource\Pages;
 use App\Filament\Traits\HideFromCityManager;
 use Filament\Forms;
 use Filament\Forms\Form;
+use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 use Modules\Core\Models\ServiceType;
 
 class ServiceTypeResource extends Resource
@@ -35,6 +37,16 @@ class ServiceTypeResource extends Resource
 
     protected static ?string $pluralLabel = 'Dịch vụ';
 
+    public static function getEloquentQuery(): Builder
+    {
+        return parent::getEloquentQuery()->withCount([
+            'pricingConfigs',
+            'pricingConfigs as active_pricing_configs_count' => fn (Builder $query) => $query->where('is_active', true),
+            'orders',
+            'orders as orders_today_count' => fn (Builder $query) => $query->whereDate('created_at', today()),
+        ]);
+    }
+
     public static function form(Form $form): Form
     {
         return $form->schema([
@@ -45,13 +57,15 @@ class ServiceTypeResource extends Resource
                 ->schema([
                     Forms\Components\TextInput::make('label')
                         ->label('Tên hiển thị')
-                        ->required(),
+                        ->required()
+                        ->maxLength(100),
 
                     Forms\Components\TextInput::make('key')
                         ->label('Key')
                         ->required()
                         ->unique(ignoreRecord: true)
                         ->alphaNum()
+                        ->disabledOn('edit')
                         ->helperText('VD: delivery, shopping, bike — không dấu, không khoảng trắng'),
                 ]),
 
@@ -101,23 +115,46 @@ class ServiceTypeResource extends Resource
 
                 Tables\Columns\TextColumn::make('label')
                     ->label('Tên dịch vụ')
-                    ->weight('bold')
-                    ->searchable(),
+                    ->searchable()
+                    ->description(fn (ServiceType $record) => 'Mã: '.$record->key),
 
-                Tables\Columns\TextColumn::make('key')
-                    ->label('Key')
-                    ->badge()
-                    ->color('gray'),
+                Tables\Columns\TextColumn::make('pricing_configs_count')
+                    ->label('Bảng giá')
+                    ->formatStateUsing(fn ($state) => number_format((int) $state).' cấu hình')
+                    ->description(fn (ServiceType $record) => $record->active_pricing_configs_count.' đang hoạt động')
+                    ->color(fn (ServiceType $record) => $record->active_pricing_configs_count > 0 ? 'success' : 'danger'),
+
+                Tables\Columns\TextColumn::make('orders_count')
+                    ->label('Đơn hàng')
+                    ->formatStateUsing(fn ($state) => number_format((int) $state).' đơn')
+                    ->description(fn (ServiceType $record) => number_format((int) $record->orders_today_count).' đơn hôm nay'),
 
                 Tables\Columns\ToggleColumn::make('is_active')
                     ->label('Hiển thị')
                     ->alignCenter(),
             ])
+            ->filters([
+                Tables\Filters\TernaryFilter::make('is_active')->label('Trạng thái hiển thị'),
+                Tables\Filters\Filter::make('missing_pricing')
+                    ->label('Chưa có bảng giá hoạt động')
+                    ->query(fn (Builder $query) => $query->whereDoesntHave('pricingConfigs', fn (Builder $pricing) => $pricing->where('is_active', true))),
+            ])
             ->defaultSort('sort_order')
             ->reorderable('sort_order')
             ->actions([
-                Tables\Actions\EditAction::make()->label(''),
-                Tables\Actions\DeleteAction::make()->label(''),
+                Tables\Actions\EditAction::make()->label('')->tooltip('Chỉnh sửa dịch vụ'),
+                Tables\Actions\DeleteAction::make()
+                    ->label('')
+                    ->tooltip('Xóa dịch vụ')
+                    ->before(function (ServiceType $record, Tables\Actions\DeleteAction $action) {
+                        if ($record->orders_count > 0 || $record->pricing_configs_count > 0) {
+                            Notification::make()->danger()
+                                ->title('Không thể xóa dịch vụ này')
+                                ->body('Dịch vụ đang có '.$record->orders_count.' đơn hàng và '.$record->pricing_configs_count.' cấu hình giá. Hãy tắt hiển thị nếu không còn sử dụng.')
+                                ->send();
+                            $action->halt();
+                        }
+                    }),
             ])
             ->recordAction('edit')
             ->paginated(false);

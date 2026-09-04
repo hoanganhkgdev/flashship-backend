@@ -38,12 +38,15 @@ class ListShops extends ListRecords
         $cityId = Filament::getTenant()?->id;
 
         $total = User::where('user_type', 'shop')->where('city_id', $cityId)->count();
+        $active = User::where('user_type', 'shop')->where('city_id', $cityId)->where('status', 1)->count();
         $locked = User::where('user_type', 'shop')->where('city_id', $cityId)->where('status', 2)->count();
 
         $tabs = [
             'all' => Tab::make('Tất cả')->badge($total ?: null),
             'active' => Tab::make('Hoạt động')
                 ->icon('heroicon-m-check-circle')
+                ->badge($active ?: null)
+                ->badgeColor('success')
                 ->modifyQueryUsing(fn (Builder $query) => $query->where('status', 1)),
         ];
 

@@ -2,8 +2,8 @@
 
 namespace App\Filament\Resources\DriverRatingResource\Widgets;
 
+use App\Filament\Resources\DriverRatingResource;
 use Filament\Widgets\Widget;
-use Modules\Order\Models\Order;
 
 class RatingStatsWidget extends Widget
 {
@@ -13,7 +13,7 @@ class RatingStatsWidget extends Widget
 
     protected function getViewData(): array
     {
-        $base = Order::whereNotNull('driver_rating');
+        $base = DriverRatingResource::getEloquentQuery()->reorder();
 
         $total = (clone $base)->count();
         $average = $total > 0 ? round((clone $base)->avg('driver_rating'), 1) : 0;

@@ -7,7 +7,6 @@ use Filament\Actions;
 use Filament\Infolists;
 use Filament\Infolists\Infolist;
 use Filament\Resources\Pages\ViewRecord;
-use Modules\Order\Models\Order;
 
 class ViewShop extends ViewRecord
 {
@@ -79,31 +78,22 @@ class ViewShop extends ViewRecord
                 ->schema([
                     Infolists\Components\TextEntry::make('total_orders')
                         ->label('Tổng đơn')
-                        ->state(fn ($record) => Order::where('sender_platform_id', $record->id)->where('platform', 'shop_app')->count())
+                        ->state(fn ($record) => $record->shop_orders_count)
                         ->badge()->color('primary'),
 
                     Infolists\Components\TextEntry::make('pending_orders')
                         ->label('Đang chạy')
-                        ->state(fn ($record) => Order::where('sender_platform_id', $record->id)
-                            ->where('platform', 'shop_app')
-                            ->whereIn('status', ['pending', 'assigned', 'processing'])
-                            ->count())
+                        ->state(fn ($record) => $record->active_orders_count)
                         ->badge()->color('info'),
 
                     Infolists\Components\TextEntry::make('completed_orders')
                         ->label('Hoàn thành')
-                        ->state(fn ($record) => Order::where('sender_platform_id', $record->id)
-                            ->where('platform', 'shop_app')
-                            ->where('status', 'completed')
-                            ->count())
+                        ->state(fn ($record) => $record->completed_orders_count)
                         ->badge()->color('success'),
 
                     Infolists\Components\TextEntry::make('cancelled_orders')
                         ->label('Đã huỷ')
-                        ->state(fn ($record) => Order::where('sender_platform_id', $record->id)
-                            ->where('platform', 'shop_app')
-                            ->where('status', 'cancelled')
-                            ->count())
+                        ->state(fn ($record) => $record->cancelled_orders_count)
                         ->badge()->color('danger'),
                 ])->columns(4),
         ]);

@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\WithdrawRequestResource\Pages;
 
 use App\Filament\Resources\WithdrawRequestResource;
+use Filament\Facades\Filament;
 use Filament\Resources\Components\Tab;
 use Filament\Resources\Pages\ListRecords;
 use Illuminate\Database\Eloquent\Builder;
@@ -34,16 +35,26 @@ class ListWithdrawRequests extends ListRecords
 
     public function getTabs(): array
     {
+        $query = fn () => WithdrawRequestResource::scopeEloquentQueryToTenant(
+            WithdrawRequest::query(),
+            Filament::getTenant(),
+        );
+
         return [
-            'all' => Tab::make('Tất cả'),
+            'all' => Tab::make('Tất cả')
+                ->badge($query()->count() ?: null),
             'pending' => Tab::make('Chờ duyệt')
                 ->modifyQueryUsing(fn (Builder $query) => $query->where('status', 'pending'))
-                ->badge(WithdrawRequest::where('status', 'pending')->count())
+                ->badge($query()->where('status', 'pending')->count() ?: null)
                 ->badgeColor('warning'),
             'approved' => Tab::make('Đã duyệt')
-                ->modifyQueryUsing(fn (Builder $query) => $query->where('status', 'approved')),
+                ->modifyQueryUsing(fn (Builder $query) => $query->where('status', 'approved'))
+                ->badge($query()->where('status', 'approved')->count() ?: null)
+                ->badgeColor('success'),
             'rejected' => Tab::make('Từ chối')
-                ->modifyQueryUsing(fn (Builder $query) => $query->where('status', 'rejected')),
+                ->modifyQueryUsing(fn (Builder $query) => $query->where('status', 'rejected'))
+                ->badge($query()->where('status', 'rejected')->count() ?: null)
+                ->badgeColor('danger'),
         ];
     }
 }

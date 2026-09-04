@@ -39,6 +39,7 @@ class ListUsers extends ListRecords
         $baseQuery = User::where('user_type', 'customer')->where('city_id', $cityId);
         $totalCount = (clone $baseQuery)->count();
         $activeCount = (clone $baseQuery)->where('status', 1)->count();
+        $pendingCount = (clone $baseQuery)->where('status', 0)->count();
         $lockedCount = (clone $baseQuery)->where('status', 2)->count();
 
         return [
@@ -48,6 +49,11 @@ class ListUsers extends ListRecords
                 ->badge($activeCount ?: null)
                 ->badgeColor('success')
                 ->modifyQueryUsing(fn (Builder $query) => $query->where('status', 1)),
+            'pending' => Tab::make('Chờ duyệt')
+                ->icon('heroicon-m-clock')
+                ->badge($pendingCount ?: null)
+                ->badgeColor('warning')
+                ->modifyQueryUsing(fn (Builder $query) => $query->where('status', 0)),
             'locked' => Tab::make('Bị khoá')
                 ->icon('heroicon-m-lock-closed')
                 ->badge($lockedCount ?: null)

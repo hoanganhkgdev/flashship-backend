@@ -15,6 +15,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Collection;
 use Modules\Core\Models\Shift;
 use Modules\Driver\Models\DriverShiftChangeRequest;
 
@@ -67,9 +68,63 @@ class DriverShiftChangeRequestResource extends Resource
         return $form->schema([]);
     }
 
+    public static function getEloquentQuery(): Builder
+    {
+        return parent::getEloquentQuery()->with([
+            'driver.city',
+            'driver.registeredShifts',
+            'processor',
+        ]);
+    }
+
     private static function shiftNames(array $ids): string
     {
         return Shift::whereIn('id', $ids)->orderBy('start_time')->pluck('name')->implode(', ');
+    }
+
+    private static function requestedShifts(DriverShiftChangeRequest $request): Collection
+    {
+        $lookup = once(fn () => Shift::query()->get()->keyBy('id'));
+
+        return collect($request->shift_ids ?? [])
+            ->map(fn ($id) => $lookup->get((int) $id))
+            ->filter()
+            ->sortBy('start_time')
+            ->values();
+    }
+
+    private static function shiftSummary(Collection $shifts): string
+    {
+        if ($shifts->isEmpty()) {
+            return 'Chưa có ca';
+        }
+
+        return $shifts->map(fn (Shift $shift) => $shift->name.' ('.substr($shift->start_time, 0, 5).'–'.substr($shift->end_time, 0, 5).')')->implode(', ');
+    }
+
+    private static function requestIssue(DriverShiftChangeRequest $request): ?string
+    {
+        $ids = array_values(array_unique(array_map('intval', $request->shift_ids ?? [])));
+        $shifts = self::requestedShifts($request);
+        if ($ids === [] || $shifts->count() !== count($ids)) {
+            return 'Có ca không còn tồn tại';
+        }
+        if ($shifts->contains(fn (Shift $shift) => ! $shift->is_active)) {
+            return 'Có ca đã tắt';
+        }
+        if ($shifts->contains(fn (Shift $shift) => $shift->city_id !== $request->driver?->city_id)) {
+            return 'Ca không thuộc khu vực tài xế';
+        }
+        if (self::shiftsOverlap($shifts)) {
+            return 'Các ca đề nghị bị trùng giờ';
+        }
+        if ($request->driver?->is_online
+            || self::hasShiftRunningNow($request->driver?->registeredShifts ?? collect())
+            || self::hasShiftRunningNow($shifts)) {
+            return 'Tài xế đang online hoặc ca đang diễn ra';
+        }
+
+        return null;
     }
 
     private static function shiftsOverlap($shifts): bool
@@ -123,18 +178,28 @@ class DriverShiftChangeRequestResource extends Resource
             ->columns([
                 Tables\Columns\TextColumn::make('driver.name')
                     ->label('Tài xế')
-                    ->searchable()
-                    ->weight('bold'),
+                    ->searchable(query: fn (Builder $query, string $search): Builder => $query
+                        ->whereHas('driver', fn (Builder $driverQuery) => $driverQuery
+                            ->where('name', 'like', "%{$search}%")
+                            ->orWhere('phone', 'like', "%{$search}%")))
+                    ->description(fn (DriverShiftChangeRequest $record) => collect([
+                        $record->driver?->phone,
+                        $record->driver?->city?->name,
+                        $record->driver?->is_online ? 'Đang online' : 'Offline',
+                    ])->filter()->join(' · ')),
 
-                Tables\Columns\TextColumn::make('driver.phone')
-                    ->label('Số điện thoại')
-                    ->searchable(),
+                Tables\Columns\TextColumn::make('current_shifts')
+                    ->label('Ca hiện tại')
+                    ->state(fn (DriverShiftChangeRequest $record) => self::shiftSummary($record->driver?->registeredShifts ?? collect()))
+                    ->wrap(),
 
                 Tables\Columns\TextColumn::make('shift_ids')
                     ->label('Ca yêu cầu')
-                    ->getStateUsing(fn (DriverShiftChangeRequest $record) => static::shiftNames(
-                        is_array($record->shift_ids) ? $record->shift_ids : (json_decode((string) $record->shift_ids, true) ?? [])
-                    ))
+                    ->getStateUsing(fn (DriverShiftChangeRequest $record) => self::shiftSummary(self::requestedShifts($record)))
+                    ->description(fn (DriverShiftChangeRequest $record) => $record->status === 'pending'
+                        ? (self::requestIssue($record) ?? 'Có thể duyệt')
+                        : null)
+                    ->color(fn (DriverShiftChangeRequest $record) => $record->status === 'pending' && self::requestIssue($record) ? 'danger' : 'gray')
                     ->wrap(),
 
                 Tables\Columns\TextColumn::make('status')
@@ -152,28 +217,20 @@ class DriverShiftChangeRequestResource extends Resource
                         'approved' => 'success',
                         'rejected' => 'danger',
                         default => 'gray',
-                    }),
+                    })
+                    ->description(fn (DriverShiftChangeRequest $record) => $record->processed_at
+                        ? collect([$record->processor?->name, $record->processed_at->format('d/m H:i')])->filter()->join(' · ')
+                        : 'Chưa xử lý'),
 
                 Tables\Columns\TextColumn::make('admin_note')
                     ->label('Ghi chú')
-                    ->limit(40)
-                    ->default('—')
-                    ->tooltip(fn ($state) => $state),
-
-                Tables\Columns\TextColumn::make('processor.name')
-                    ->label('Người duyệt')
-                    ->default('—'),
+                    ->default('Không có ghi chú')
+                    ->wrap(),
 
                 Tables\Columns\TextColumn::make('created_at')
                     ->label('Ngày yêu cầu')
                     ->alignCenter()
                     ->dateTime('d/m/Y H:i'),
-
-                Tables\Columns\TextColumn::make('processed_at')
-                    ->label('Ngày xử lý')
-                    ->alignCenter()
-                    ->dateTime('d/m/Y H:i')
-                    ->placeholder('—'),
             ])
             ->defaultSort('created_at', 'desc')
             ->filters([
@@ -184,6 +241,14 @@ class DriverShiftChangeRequestResource extends Resource
                         'approved' => 'Đã duyệt',
                         'rejected' => 'Từ chối',
                     ]),
+                Tables\Filters\Filter::make('created_at')
+                    ->form([
+                        Forms\Components\DatePicker::make('from')->label('Từ ngày'),
+                        Forms\Components\DatePicker::make('until')->label('Đến ngày'),
+                    ])
+                    ->query(fn (Builder $query, array $data) => $query
+                        ->when($data['from'] ?? null, fn ($q, $date) => $q->whereDate('created_at', '>=', $date))
+                        ->when($data['until'] ?? null, fn ($q, $date) => $q->whereDate('created_at', '<=', $date))),
             ])
             ->actions([
                 Tables\Actions\Action::make('approve')
@@ -193,8 +258,7 @@ class DriverShiftChangeRequestResource extends Resource
                     ->visible(fn (DriverShiftChangeRequest $record) => $record->status === 'pending')
                     ->requiresConfirmation()
                     ->modalHeading('Duyệt yêu cầu đổi ca')
-                    ->modalDescription(fn (DriverShiftChangeRequest $record) => 'Đổi ca của tài xế '.$record->driver?->name.' sang: '.static::shiftNames($record->shift_ids).'?'
-                    )
+                    ->modalDescription(fn (DriverShiftChangeRequest $record) => 'Tài xế '.$record->driver?->name.' đổi từ '.self::shiftSummary($record->driver?->registeredShifts ?? collect()).' sang '.self::shiftSummary(self::requestedShifts($record)).'.')
                     ->action(function (DriverShiftChangeRequest $record) {
                         $result = DB::transaction(function () use ($record) {
                             $locked = DriverShiftChangeRequest::where('id', $record->id)
@@ -250,6 +314,7 @@ class DriverShiftChangeRequestResource extends Resource
                     ->color('danger')
                     ->visible(fn (DriverShiftChangeRequest $record) => $record->status === 'pending')
                     ->modalHeading('Từ chối yêu cầu đổi ca')
+                    ->modalDescription(fn (DriverShiftChangeRequest $record) => 'Từ chối ca đề nghị của tài xế '.$record->driver?->name.': '.self::shiftSummary(self::requestedShifts($record)).'.')
                     ->form([
                         Forms\Components\Textarea::make('admin_note')
                             ->label('Lý do từ chối')

@@ -9,6 +9,7 @@ use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Resources\Resource;
 use Filament\Tables;
+use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
@@ -39,7 +40,21 @@ class ShopResource extends Resource
 
     public static function getEloquentQuery(): Builder
     {
-        return parent::getEloquentQuery()->where('user_type', 'shop');
+        return parent::getEloquentQuery()
+            ->where('user_type', 'shop')
+            ->with(['latestShopOrder' => fn ($query) => $query->select([
+                'orders.id',
+                'orders.sender_platform_id',
+                'orders.code',
+                'orders.status',
+                'orders.created_at',
+            ])])
+            ->withCount([
+                'shopOrders',
+                'shopOrders as completed_orders_count' => fn (Builder $query) => $query->where('status', 'completed'),
+                'shopOrders as active_orders_count' => fn (Builder $query) => $query->whereIn('status', ['pending', 'assigned', 'processing']),
+                'shopOrders as cancelled_orders_count' => fn (Builder $query) => $query->where('status', 'cancelled'),
+            ]);
     }
 
     public static function form(Form $form): Form
@@ -110,10 +125,9 @@ class ShopResource extends Resource
                     ->width(40),
 
                 Tables\Columns\TextColumn::make('name')
-                    ->label('Tên shop')
+                    ->label('Cửa hàng')
                     ->searchable(['name', 'phone', 'email', 'address'])
                     ->sortable()
-                    ->weight('semibold')
                     ->description(fn (User $record) => $record->address ?? '—'),
 
                 Tables\Columns\TextColumn::make('phone')
@@ -127,22 +141,19 @@ class ShopResource extends Resource
                     ->toggleable()
                     ->placeholder('—'),
 
-                Tables\Columns\TextColumn::make('city.name')
-                    ->label('Thành phố')
-                    ->badge()
-                    ->color('info')
-                    ->default('—'),
-
-                Tables\Columns\TextColumn::make('orders_count')
-                    ->label('Tổng đơn')
-                    ->counts('shopOrders')
-                    ->badge()
-                    ->color('primary')
+                Tables\Columns\TextColumn::make('shop_orders_count')
+                    ->label('Hoạt động đơn')
+                    ->description(fn (User $record): string => number_format($record->completed_orders_count).' hoàn thành · '.number_format($record->active_orders_count).' đang xử lý')
                     ->sortable(),
+
+                Tables\Columns\TextColumn::make('latestShopOrder.code')
+                    ->label('Đơn gần nhất')
+                    ->formatStateUsing(fn ($state): string => '#'.$state)
+                    ->description(fn (User $record): string => $record->latestShopOrder?->created_at?->format('H:i · d/m/Y') ?: 'Chưa tạo đơn')
+                    ->placeholder('—'),
 
                 Tables\Columns\TextColumn::make('status')
                     ->label('Trạng thái')
-                    ->badge()
                     ->formatStateUsing(fn ($state) => match ((int) $state) {
                         1 => 'Hoạt động',
                         2 => 'Bị khóa',
@@ -157,7 +168,7 @@ class ShopResource extends Resource
 
                 Tables\Columns\TextColumn::make('created_at')
                     ->label('Ngày đăng ký')
-                    ->dateTime('d/m/Y')
+                    ->dateTime('H:i · d/m/Y')
                     ->sortable(),
             ])
             ->filters([
@@ -165,9 +176,20 @@ class ShopResource extends Resource
                     ->label('Trạng thái')
                     ->options([1 => 'Hoạt động', 2 => 'Bị khóa']),
 
-                SelectFilter::make('city_id')
-                    ->label('Thành phố')
-                    ->relationship('city', 'name'),
+                Filter::make('has_orders')
+                    ->label('Đã từng tạo đơn')
+                    ->query(fn (Builder $query): Builder => $query->whereHas('shopOrders')),
+
+                Filter::make('created_at')
+                    ->label('Ngày đăng ký')
+                    ->form([
+                        Forms\Components\DatePicker::make('from')->label('Từ ngày'),
+                        Forms\Components\DatePicker::make('until')->label('Đến ngày'),
+                    ])
+                    ->columns(2)
+                    ->query(fn (Builder $query, array $data): Builder => $query
+                        ->when($data['from'] ?? null, fn (Builder $query, $date): Builder => $query->whereDate('created_at', '>=', $date))
+                        ->when($data['until'] ?? null, fn (Builder $query, $date): Builder => $query->whereDate('created_at', '<=', $date))),
             ])
             ->actions([
                 Tables\Actions\ViewAction::make()->label(''),

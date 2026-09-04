@@ -5,6 +5,8 @@ namespace App\Filament\Resources\ShopPricingResource\Pages;
 use App\Filament\Resources\ShopPricingResource;
 use Filament\Resources\Pages\CreateRecord;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Validation\ValidationException;
+use Modules\Shop\Models\ShopPricingConfig;
 
 class CreateShopPricing extends CreateRecord
 {
@@ -35,5 +37,23 @@ class CreateShopPricing extends CreateRecord
         $record->save();
 
         return $record;
+    }
+
+    protected function mutateFormDataBeforeCreate(array $data): array
+    {
+        $duplicate = ShopPricingConfig::where('cargo_type', $data['cargo_type'])
+            ->when(
+                $data['city_id'] ?? null,
+                fn ($query, $cityId) => $query->where('city_id', $cityId),
+                fn ($query) => $query->whereNull('city_id'),
+            )
+            ->exists();
+        if ($duplicate) {
+            throw ValidationException::withMessages([
+                'data.cargo_type' => 'Loại hàng này đã có bảng giá trong phạm vi đã chọn.',
+            ]);
+        }
+
+        return ShopPricingResource::normalizeSlabs($data);
     }
 }

@@ -20,6 +20,7 @@ class ViewDriverWallet extends ViewRecord
                 ->label('Điều chỉnh ví')
                 ->icon('heroicon-o-pencil-square')
                 ->color('warning')
+                ->requiresConfirmation()
                 ->form([
                     Forms\Components\Select::make('type')
                         ->label('Loại')

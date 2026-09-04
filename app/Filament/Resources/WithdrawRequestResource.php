@@ -67,6 +67,11 @@ class WithdrawRequestResource extends Resource
         return $form->schema([]);
     }
 
+    public static function getEloquentQuery(): Builder
+    {
+        return parent::getEloquentQuery()->with(['driver.city', 'driver.wallet', 'processor']);
+    }
+
     public static function table(Table $table): Table
     {
         return $table
@@ -79,19 +84,31 @@ class WithdrawRequestResource extends Resource
 
                 Tables\Columns\TextColumn::make('driver.name')
                     ->label('Tài xế')
-                    ->searchable()
-                    ->weight('bold'),
-
-                Tables\Columns\TextColumn::make('driver.phone')
-                    ->label('Số điện thoại')
-                    ->searchable(),
+                    ->searchable(query: fn (Builder $query, string $search): Builder => $query
+                        ->whereHas('driver', fn (Builder $driverQuery) => $driverQuery
+                            ->where('name', 'like', "%{$search}%")
+                            ->orWhere('phone', 'like', "%{$search}%")))
+                    ->description(fn (WithdrawRequest $record) => collect([
+                        $record->driver?->phone,
+                        $record->driver?->city?->name,
+                    ])->filter()->join(' · ')),
 
                 Tables\Columns\TextColumn::make('amount')
                     ->label('Số tiền')
                     ->alignCenter()
                     ->formatStateUsing(fn ($state) => number_format($state, 0, ',', '.').' ₫')
-                    ->weight('bold')
-                    ->color('warning'),
+                    ->color(fn (WithdrawRequest $record) => $record->status === 'pending' ? 'warning' : 'gray')
+                    ->description(fn (WithdrawRequest $record) => 'Ví hiện tại: '.number_format((float) ($record->driver?->wallet?->balance ?? 0), 0, ',', '.').' ₫'),
+
+                Tables\Columns\TextColumn::make('bank_name')
+                    ->label('Tài khoản nhận')
+                    ->searchable(['bank_name', 'account_number', 'account_name'])
+                    ->default('Chưa có ngân hàng')
+                    ->description(fn (WithdrawRequest $record) => collect([
+                        $record->account_number,
+                        $record->account_name,
+                    ])->filter()->join(' · '))
+                    ->wrap(),
 
                 Tables\Columns\TextColumn::make('status')
                     ->label('Trạng thái')
@@ -108,36 +125,31 @@ class WithdrawRequestResource extends Resource
                         'approved' => 'success',
                         'rejected' => 'danger',
                         default => 'gray',
+                    })
+                    ->description(fn (WithdrawRequest $record) => match ($record->status) {
+                        'pending' => 'Đang chờ xử lý',
+                        'approved' => collect([$record->processor?->name, $record->processed_at?->format('d/m H:i')])->filter()->join(' · '),
+                        'rejected' => collect([$record->processor?->name, $record->processed_at?->format('d/m H:i')])->filter()->join(' · '),
+                        default => null,
                     }),
-
-                Tables\Columns\TextColumn::make('bank_name')
-                    ->label('Ngân hàng')
-                    ->default('—'),
-
-                Tables\Columns\TextColumn::make('account_number')
-                    ->label('STK')
-                    ->default('—'),
 
                 Tables\Columns\TextColumn::make('admin_note')
                     ->label('Ghi chú')
-                    ->limit(40)
-                    ->default('—')
-                    ->tooltip(fn ($state) => $state),
-
-                Tables\Columns\TextColumn::make('processor.name')
-                    ->label('Người duyệt')
-                    ->default('—'),
+                    ->default('Không có ghi chú')
+                    ->wrap(),
 
                 Tables\Columns\TextColumn::make('created_at')
-                    ->label('Ngày yêu cầu')
-                    ->alignCenter()
-                    ->dateTime('d/m/Y H:i'),
-
-                Tables\Columns\TextColumn::make('processed_at')
-                    ->label('Ngày xử lý')
+                    ->label('Thời gian')
                     ->alignCenter()
                     ->dateTime('d/m/Y H:i')
-                    ->placeholder('—'),
+                    ->description(fn (WithdrawRequest $record) => $record->processed_at
+                        ? 'Xử lý '.$record->processed_at->format('d/m/Y H:i')
+                        : 'Chưa xử lý'),
+
+                Tables\Columns\TextColumn::make('payout_reference')
+                    ->label('Mã chuyển khoản')
+                    ->placeholder('—')
+                    ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
                 SelectFilter::make('status')
@@ -147,6 +159,14 @@ class WithdrawRequestResource extends Resource
                         'approved' => 'Đã duyệt',
                         'rejected' => 'Từ chối',
                     ]),
+                Tables\Filters\Filter::make('created_at')
+                    ->form([
+                        Forms\Components\DatePicker::make('from')->label('Từ ngày'),
+                        Forms\Components\DatePicker::make('until')->label('Đến ngày'),
+                    ])
+                    ->query(fn (Builder $query, array $data) => $query
+                        ->when($data['from'] ?? null, fn ($q, $date) => $q->whereDate('created_at', '>=', $date))
+                        ->when($data['until'] ?? null, fn ($q, $date) => $q->whereDate('created_at', '<=', $date))),
             ])
             ->actions([
                 Tables\Actions\Action::make('approve')
@@ -155,8 +175,7 @@ class WithdrawRequestResource extends Resource
                     ->color('success')
                     ->visible(fn (WithdrawRequest $record) => $record->status === 'pending')
                     ->modalHeading('Duyệt yêu cầu rút tiền')
-                    ->modalDescription(fn (WithdrawRequest $record) => 'Xác nhận rút '.number_format($record->amount, 0, ',', '.').' ₫ cho tài xế '.$record->driver?->name.'?'
-                    )
+                    ->modalDescription(fn (WithdrawRequest $record) => 'Chuyển '.number_format($record->amount, 0, ',', '.').' ₫ cho '.$record->driver?->name.' vào '.($record->bank_name ?: 'ngân hàng chưa xác định').' · '.($record->account_number ?: 'chưa có STK').' · '.($record->account_name ?: 'chưa có chủ tài khoản').'.')
                     ->form([
                         Forms\Components\Textarea::make('admin_note')
                             ->label('Ghi chú (tuỳ chọn)')
@@ -222,6 +241,7 @@ class WithdrawRequestResource extends Resource
                     ->color('danger')
                     ->visible(fn (WithdrawRequest $record) => $record->status === 'pending')
                     ->modalHeading('Từ chối yêu cầu rút tiền')
+                    ->modalDescription(fn (WithdrawRequest $record) => 'Số tiền '.number_format($record->amount, 0, ',', '.').' ₫ đang giữ sẽ được hoàn lại vào ví tài xế '.$record->driver?->name.'.')
                     ->form([
                         Forms\Components\Textarea::make('admin_note')
                             ->label('Lý do từ chối')

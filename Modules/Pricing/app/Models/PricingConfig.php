@@ -29,6 +29,10 @@ class PricingConfig extends Model
             Cache::forget("pricing_{$m->service_type}_{$m->city_id}");
             Cache::forget("pricing_{$m->service_type}_global");
         });
+        static::deleted(function (self $m) {
+            Cache::forget("pricing_{$m->service_type}_{$m->city_id}");
+            Cache::forget("pricing_{$m->service_type}_global");
+        });
     }
 
     public function city()

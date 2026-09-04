@@ -5,6 +5,7 @@ namespace App\Filament\Resources\PricingResource\Pages;
 use App\Filament\Resources\PricingResource;
 use Filament\Resources\Pages\CreateRecord;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Validation\ValidationException;
 use Modules\Pricing\Models\PricingConfig;
 
 class CreatePricingConfig extends CreateRecord
@@ -40,6 +41,19 @@ class CreatePricingConfig extends CreateRecord
 
     protected function mutateFormDataBeforeCreate(array $data): array
     {
+        $duplicate = PricingConfig::where('service_type', $data['service_type'])
+            ->when(
+                $data['city_id'] ?? null,
+                fn ($query, $cityId) => $query->where('city_id', $cityId),
+                fn ($query) => $query->whereNull('city_id'),
+            )
+            ->exists();
+        if ($duplicate) {
+            throw ValidationException::withMessages([
+                'data.service_type' => 'Dịch vụ này đã có bảng giá trong phạm vi đã chọn.',
+            ]);
+        }
+
         // Nếu không có config_json, copy từ bảng giá global cùng service_type
         if (empty($data['config_json']) && ! empty($data['service_type'])) {
             $global = PricingConfig::where('service_type', $data['service_type'])

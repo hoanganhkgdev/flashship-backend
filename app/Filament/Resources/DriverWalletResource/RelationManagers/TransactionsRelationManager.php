@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\DriverWalletResource\RelationManagers;
 
+use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Resources\RelationManagers\RelationManager;
 use Filament\Tables;
@@ -25,7 +26,6 @@ class TransactionsRelationManager extends RelationManager
             ->columns([
                 Tables\Columns\TextColumn::make('type')
                     ->label('Loại')
-                    ->badge()
                     ->alignCenter()
                     ->formatStateUsing(fn ($state) => $state === 'credit' ? 'Cộng tiền' : 'Trừ tiền')
                     ->color(fn ($state) => $state === 'credit' ? 'success' : 'danger'),
@@ -35,13 +35,11 @@ class TransactionsRelationManager extends RelationManager
                     ->alignCenter()
                     ->formatStateUsing(fn ($state, $record) => ($record->type === 'credit' ? '+' : '-').number_format($state, 0, ',', '.').' ₫'
                     )
-                    ->color(fn ($record) => $record->type === 'credit' ? 'success' : 'danger')
-                    ->weight('bold'),
+                    ->color(fn ($record) => $record->type === 'credit' ? 'success' : 'danger'),
 
                 Tables\Columns\TextColumn::make('description')
                     ->label('Mô tả')
-                    ->limit(60)
-                    ->tooltip(fn ($state) => $state),
+                    ->wrap(),
 
                 Tables\Columns\TextColumn::make('reference')
                     ->label('Mã tham chiếu')
@@ -58,6 +56,14 @@ class TransactionsRelationManager extends RelationManager
                 SelectFilter::make('type')
                     ->label('Loại giao dịch')
                     ->options(['credit' => 'Cộng tiền', 'debit' => 'Trừ tiền']),
+                Tables\Filters\Filter::make('created_at')
+                    ->form([
+                        Forms\Components\DatePicker::make('from')->label('Từ ngày'),
+                        Forms\Components\DatePicker::make('until')->label('Đến ngày'),
+                    ])
+                    ->query(fn ($query, array $data) => $query
+                        ->when($data['from'] ?? null, fn ($q, $date) => $q->whereDate('created_at', '>=', $date))
+                        ->when($data['until'] ?? null, fn ($q, $date) => $q->whereDate('created_at', '<=', $date))),
             ])
             ->defaultSort('created_at', 'desc')
             ->paginated([15, 30, 50]);

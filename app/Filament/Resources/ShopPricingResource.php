@@ -4,6 +4,7 @@ namespace App\Filament\Resources;
 
 use App\Filament\Resources\ShopPricingResource\Pages;
 use App\Filament\Traits\RestrictToFullAdmin;
+use Filament\Facades\Filament;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Resources\Resource;
@@ -11,6 +12,7 @@ use Filament\Tables;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
+use Modules\Core\Models\City;
 use Modules\Shop\Models\ShopPricingConfig;
 
 class ShopPricingResource extends Resource
@@ -41,6 +43,11 @@ class ShopPricingResource extends Resource
         'parcel' => 'Bưu kiện / Kệ hoa / Hàng thùng',
     ];
 
+    public static function getEloquentQuery(): Builder
+    {
+        return parent::getEloquentQuery()->with('city');
+    }
+
     public static function form(Form $form): Form
     {
         return $form->schema([
@@ -52,14 +59,16 @@ class ShopPricingResource extends Resource
                         ->label('Loại hàng')
                         ->options(self::$cargoLabels)
                         ->required()
+                        ->live()
                         ->disabledOn('edit'),
 
                     Forms\Components\Select::make('city_id')
-                        ->label('Khu vực (để trống = áp dụng tất cả)')
+                        ->label('Khu vực')
                         ->placeholder('Mặc định — tất cả khu vực')
-                        ->relationship('city', 'name')
+                        ->options(fn () => City::whereKey(Filament::getTenant()?->id)->pluck('name', 'id'))
+                        ->default(fn () => Filament::getTenant()?->id)
                         ->searchable()
-                        ->preload()
+                        ->disabledOn('edit')
                         ->nullable(),
 
                     Forms\Components\Toggle::make('is_active')
@@ -78,18 +87,22 @@ class ShopPricingResource extends Resource
                                 ->label('Tới (km)')
                                 ->numeric()
                                 ->step(0.1)
+                                ->minValue(0.1)
                                 ->required()
                                 ->suffix('km'),
 
                             Forms\Components\TextInput::make('fee')
                                 ->label('Phí (đ)')
                                 ->numeric()
+                                ->minValue(0)
                                 ->required()
                                 ->suffix('đ'),
                         ])
                         ->columns(2)
                         ->addActionLabel('Thêm mức giá')
                         ->reorderable()
+                        ->minItems(1)
+                        ->required()
                         ->collapsible()
                         ->itemLabel(fn (array $state): string => '≤ '.($state['max_km'] ?? '?').' km  →  '.
                             number_format((int) ($state['fee'] ?? 0)).' đ'
@@ -104,6 +117,7 @@ class ShopPricingResource extends Resource
                     Forms\Components\TextInput::make('over_max_per_km')
                         ->label('Phí mỗi km vượt max')
                         ->numeric()
+                        ->minValue(0)
                         ->default(3000)
                         ->required()
                         ->suffix('đ/km')
@@ -112,11 +126,14 @@ class ShopPricingResource extends Resource
                     Forms\Components\TextInput::make('weight_per_kg')
                         ->label('Phụ phí theo kg')
                         ->numeric()
+                        ->minValue(0)
                         ->default(0)
                         ->required()
                         ->suffix('đ/kg')
-                        ->helperText('Chỉ dùng cho Bưu kiện. Để 0 nếu không tính theo kg'),
-                ])->columns(2),
+                        ->helperText('Tính theo mỗi kg hàng, làm tròn lên')
+                        ->visible(fn ($record, $get) => ($record?->cargo_type ?? $get('cargo_type')) === 'parcel'),
+                ])
+                ->columns(2),
         ]);
     }
 
@@ -127,57 +144,72 @@ class ShopPricingResource extends Resource
                 Tables\Columns\TextColumn::make('cargo_type')
                     ->label('Loại hàng')
                     ->formatStateUsing(fn ($state) => self::$cargoLabels[$state] ?? $state)
-                    ->weight('semibold'),
+                    ->description(fn (ShopPricingConfig $record) => $record->cargo_type),
 
                 Tables\Columns\TextColumn::make('city.name')
                     ->label('Khu vực')
                     ->default('Mặc định (tất cả)')
-                    ->badge()
-                    ->color('info'),
+                    ->color(fn (ShopPricingConfig $record) => $record->city_id ? 'info' : 'gray')
+                    ->description(fn (ShopPricingConfig $record) => $record->city_id ? 'Giá riêng khu vực' : 'Áp dụng khi chưa có giá riêng'),
 
                 // Hiển thị tóm tắt bảng giá
                 Tables\Columns\TextColumn::make('slabs')
                     ->label('Bảng giá')
-                    ->formatStateUsing(function ($state) {
-                        if (! is_array($state)) {
-                            return '—';
-                        }
-                        $first = $state[0] ?? null;
-                        $last = end($state) ?: null;
-                        if (! $first || ! $last) {
-                            return '—';
-                        }
-
-                        return number_format((int) $first['fee']).'đ – '.
-                               number_format((int) $last['fee']).'đ';
-                    })
-                    ->description(fn ($record) => count($record->slabs ?? []).' mức giá'.
-                        ($record->weight_per_kg > 0
-                            ? ' + '.number_format($record->weight_per_kg).'đ/kg'
-                            : '')
-                    ),
+                    ->formatStateUsing(fn ($state) => count(is_array($state) ? $state : []).' bậc giá')
+                    ->description(fn (ShopPricingConfig $record) => self::slabDescription($record))
+                    ->wrap(),
 
                 Tables\Columns\TextColumn::make('over_max_per_km')
                     ->label('Vượt km')
-                    ->formatStateUsing(fn ($state) => '+'.number_format((int) $state).'đ/km')
+                    ->formatStateUsing(fn ($state) => '+'.number_format((int) $state).' ₫/km')
+                    ->description(fn (ShopPricingConfig $record) => $record->weight_per_kg > 0
+                        ? '+'.number_format($record->weight_per_kg).' ₫/kg'
+                        : 'Không tính phụ phí cân nặng')
                     ->color('warning'),
 
-                Tables\Columns\IconColumn::make('is_active')
+                Tables\Columns\ToggleColumn::make('is_active')
                     ->label('Hoạt động')
-                    ->boolean(),
+                    ->alignCenter(),
 
                 Tables\Columns\TextColumn::make('updated_at')
                     ->label('Cập nhật')
                     ->dateTime('d/m/Y')
                     ->sortable(),
             ])
+            ->filters([
+                Tables\Filters\SelectFilter::make('cargo_type')
+                    ->label('Loại hàng')
+                    ->options(self::$cargoLabels),
+                Tables\Filters\TernaryFilter::make('is_active')->label('Trạng thái hoạt động'),
+            ])
             ->actions([
-                Tables\Actions\EditAction::make()->label(''),
-                Tables\Actions\DeleteAction::make()->label(''),
+                Tables\Actions\EditAction::make()->label('')->tooltip('Chỉnh sửa bảng giá'),
+                Tables\Actions\DeleteAction::make()
+                    ->label('')
+                    ->tooltip('Xóa giá riêng và dùng giá mặc định')
+                    ->visible(fn (ShopPricingConfig $record) => $record->city_id !== null),
             ])
             ->recordAction('edit')
             ->defaultSort('cargo_type')
             ->paginated(false);
+    }
+
+    public static function slabDescription(ShopPricingConfig $pricing): string
+    {
+        $slabs = $pricing->slabs ?? [];
+
+        return collect($slabs)->map(
+            fn ($slab) => '≤'.($slab['max_km'] ?? 0).' km: '.number_format((int) ($slab['fee'] ?? 0)).' ₫'
+        )->take(3)->implode(' · ').(count($slabs) > 3 ? ' · …' : '') ?: 'Chưa có mức giá';
+    }
+
+    public static function normalizeSlabs(array $data): array
+    {
+        if (isset($data['slabs']) && is_array($data['slabs'])) {
+            usort($data['slabs'], fn ($a, $b) => (float) ($a['max_km'] ?? 0) <=> (float) ($b['max_km'] ?? 0));
+        }
+
+        return $data;
     }
 
     public static function getRelations(): array

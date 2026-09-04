@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\DriverRatingResource\Pages;
 
 use App\Filament\Resources\DriverRatingResource;
+use App\Filament\Resources\DriverRatingResource\Widgets\RatingStatsWidget;
 use Filament\Pages\Concerns\ExposesTableToWidgets;
 use Filament\Resources\Pages\ListRecords;
 
@@ -25,5 +26,10 @@ class ListDriverRatings extends ListRecords
     protected function getHeaderActions(): array
     {
         return [];
+    }
+
+    protected function getHeaderWidgets(): array
+    {
+        return [RatingStatsWidget::class];
     }
 }

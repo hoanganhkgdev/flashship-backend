@@ -58,7 +58,52 @@ class DriverResource extends Resource
 
     public static function getEloquentQuery(): Builder
     {
-        return parent::getEloquentQuery()->where('user_type', 'driver');
+        return parent::getEloquentQuery()
+            ->where('user_type', 'driver')
+            ->with([
+                'registeredShifts' => fn ($query) => $query->select(['shifts.id', 'shifts.name']),
+                'latestDriverCccdImage',
+                'latestDriverLicense',
+            ])
+            ->withCount([
+                'orders as active_orders_count' => fn (Builder $query) => $query->whereIn('status', ['assigned', 'processing']),
+                'orders as completed_orders_count' => fn (Builder $query) => $query->where('status', 'completed'),
+            ]);
+    }
+
+    private static function accountSummary(User $record): string
+    {
+        [$status, $statusClass] = match ((int) $record->status) {
+            0 => ['Chờ duyệt', 'warning'],
+            1 => ['Hoạt động', 'success'],
+            2 => ['Bị khóa', 'danger'],
+            default => ['Không rõ', 'gray'],
+        };
+        $online = $record->is_online ? 'Đang online' : 'Đang offline';
+        $onlineClass = $record->is_online ? 'success' : 'gray';
+        $order = $record->active_orders_count > 0 ? ' · '.$record->active_orders_count.' đơn đang chạy' : '';
+
+        return '<div class="fs-driver-state">'
+            .'<span class="fs-driver-state--'.e($statusClass).'">'.e($status).'</span>'
+            .'<span class="fs-driver-state--'.e($onlineClass).'">'.e($online.$order).'</span>'
+            .'</div>';
+    }
+
+    private static function documentSummary(User $record): string
+    {
+        $label = fn (?string $status): array => match ($status) {
+            'approved' => ['Đã duyệt', 'success'],
+            'rejected' => ['Từ chối', 'danger'],
+            'pending' => ['Chờ duyệt', 'warning'],
+            default => ['Chưa tải lên', 'gray'],
+        };
+        [$cccd, $cccdClass] = $label($record->latestDriverCccdImage?->status);
+        [$license, $licenseClass] = $label($record->latestDriverLicense?->status);
+
+        return '<div class="fs-driver-docs">'
+            .'<div><span>CCCD:</span><em class="fs-driver-state--'.e($cccdClass).'">'.e($cccd).'</em></div>'
+            .'<div><span>Bằng lái:</span><em class="fs-driver-state--'.e($licenseClass).'">'.e($license).'</em></div>'
+            .'</div>';
     }
 
     public static function form(Form $form): Form
@@ -132,74 +177,36 @@ class DriverResource extends Resource
                     ->width(36)->height(36),
 
                 Tables\Columns\TextColumn::make('name')
-                    ->label('Họ tên')
-                    ->weight('semibold')
+                    ->label('Tài xế')
                     ->searchable(['name', 'phone', 'cccd', 'license_plate'])
                     ->sortable()
                     ->description(fn (User $record) => $record->phone),
 
+                Tables\Columns\TextColumn::make('account_summary')
+                    ->label('Trạng thái vận hành')
+                    ->state(fn (User $record): string => self::accountSummary($record))
+                    ->html(),
+
                 Tables\Columns\TextColumn::make('driver_score')
-                    ->label('Điểm')
-                    ->alignCenter()
-                    ->badge()
-                    ->sortable()
-                    ->formatStateUsing(fn ($state) => $state ?? 80)
-                    ->color(fn ($state) => match (true) {
-                        ($state ?? 80) >= 80 => 'success',
-                        ($state ?? 80) >= 60 => 'info',
-                        ($state ?? 80) >= 40 => 'warning',
-                        default => 'danger',
-                    }),
+                    ->label('Điểm & ca làm việc')
+                    ->formatStateUsing(fn ($state): string => (string) ($state ?? 80).' điểm')
+                    ->description(fn (User $record): string => $record->registeredShifts->pluck('name')->implode(', ') ?: 'Chưa đăng ký ca')
+                    ->sortable(),
 
-                Tables\Columns\TextColumn::make('is_online')
-                    ->label('Online')
-                    ->alignCenter()
-                    ->badge()
-                    ->formatStateUsing(fn ($state) => $state ? 'Online' : 'Offline')
-                    ->color(fn ($state) => $state ? 'success' : 'gray'),
+                Tables\Columns\TextColumn::make('document_summary')
+                    ->label('Hồ sơ xác minh')
+                    ->state(fn (User $record): string => self::documentSummary($record))
+                    ->html(),
 
-                Tables\Columns\TextColumn::make('registeredShifts.name')
-                    ->label('Ca đăng ký')
-                    ->alignCenter()
-                    ->badge()
-                    ->color('info')
-                    ->placeholder('Chưa đăng ký'),
+                Tables\Columns\TextColumn::make('vehicle_type')
+                    ->label('Phương tiện')
+                    ->placeholder('Chưa cập nhật')
+                    ->description(fn (User $record): string => $record->license_plate ?: 'Chưa có biển số'),
 
-                Tables\Columns\TextColumn::make('cccd_review')
-                    ->label('CCCD')
+                Tables\Columns\TextColumn::make('completed_orders_count')
+                    ->label('Đơn hoàn thành')
                     ->alignCenter()
-                    ->badge()
-                    ->state(fn ($record) => $record->driverCccdImages()->latest()->value('status') ?? 'none')
-                    ->formatStateUsing(fn ($state) => match ($state) {
-                        'approved' => 'Đã duyệt',
-                        'rejected' => 'Từ chối',
-                        'pending' => 'Chờ duyệt',
-                        default => 'Chưa tải lên',
-                    })
-                    ->color(fn ($state) => match ($state) {
-                        'approved' => 'success',
-                        'rejected' => 'danger',
-                        'pending' => 'warning',
-                        default => 'gray',
-                    }),
-
-                Tables\Columns\TextColumn::make('license_review')
-                    ->label('Bằng lái')
-                    ->alignCenter()
-                    ->badge()
-                    ->state(fn ($record) => $record->driverLicenses()->latest()->value('status') ?? 'none')
-                    ->formatStateUsing(fn ($state) => match ($state) {
-                        'approved' => 'Đã duyệt',
-                        'rejected' => 'Từ chối',
-                        'pending' => 'Chờ duyệt',
-                        default => 'Chưa tải lên',
-                    })
-                    ->color(fn ($state) => match ($state) {
-                        'approved' => 'success',
-                        'rejected' => 'danger',
-                        'pending' => 'warning',
-                        default => 'gray',
-                    }),
+                    ->sortable(),
 
                 Tables\Columns\TextColumn::make('created_at')
                     ->label('Ngày đăng ký')
@@ -224,12 +231,18 @@ class DriverResource extends Resource
                                 ->orWhereHas('driverLicenses', fn (Builder $query) => $query->where('status', $status));
                         }));
                     }),
+                Tables\Filters\SelectFilter::make('registered_shift')
+                    ->label('Ca làm việc')
+                    ->relationship('registeredShifts', 'name')
+                    ->searchable()
+                    ->preload(),
             ])
             ->actions([
                 Tables\Actions\Action::make('approve')
-                    ->label('Duyệt')
+                    ->label('')
                     ->icon('heroicon-o-check-circle')
                     ->color('success')
+                    ->tooltip('Duyệt tài xế')
                     ->visible(fn (User $record) => $record->status == 0)
                     ->requiresConfirmation()
                     ->action(function (User $record) {
@@ -238,9 +251,10 @@ class DriverResource extends Resource
                     }),
 
                 Tables\Actions\Action::make('block')
-                    ->label('Khóa')
+                    ->label('')
                     ->icon('heroicon-o-lock-closed')
                     ->color('danger')
+                    ->tooltip('Khóa tài xế')
                     ->visible(fn (User $record) => $record->status == 1)
                     ->modalHeading('Khóa tài khoản')
                     ->form([
@@ -325,9 +339,10 @@ class DriverResource extends Resource
                     }),
 
                 Tables\Actions\Action::make('unblock')
-                    ->label('Mở khóa')
+                    ->label('')
                     ->icon('heroicon-o-lock-open')
                     ->color('info')
+                    ->tooltip('Mở khóa tài xế')
                     ->visible(fn (User $record) => $record->status == 2)
                     ->requiresConfirmation()
                     ->action(function (User $record) {
@@ -342,7 +357,8 @@ class DriverResource extends Resource
                         Notification::make()->title('Đã mở khóa tài xế '.$record->name)->success()->send();
                     }),
 
-                Tables\Actions\EditAction::make()->label('Sửa'),
+                Tables\Actions\ViewAction::make()->label('')->tooltip('Xem hồ sơ'),
+                Tables\Actions\EditAction::make()->label('')->tooltip('Chỉnh sửa'),
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([

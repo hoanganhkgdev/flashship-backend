@@ -31,6 +31,11 @@ class CreateDriverLeaveRequest extends CreateRecord
 
     protected function mutateFormDataBeforeCreate(array $data): array
     {
+        if (DriverLeaveRequest::where('driver_id', $data['driver_id'])
+            ->whereDate('leave_date', $data['leave_date'])
+            ->exists()) {
+            throw ValidationException::withMessages(['data.leave_date' => 'Tài xế đã được ghi nhận nghỉ trong ngày này.']);
+        }
         if (Order::where('delivery_man_id', $data['driver_id'])
             ->whereIn('status', ['assigned', 'processing'])->exists()) {
             throw ValidationException::withMessages(['data.driver_id' => 'Tài xế đang có đơn chưa hoàn thành, không thể ghi nghỉ phép.']);

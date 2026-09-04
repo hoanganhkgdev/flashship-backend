@@ -23,7 +23,10 @@ class EditShift extends EditRecord
     protected function getHeaderActions(): array
     {
         return [
-            Actions\DeleteAction::make()->label('Xoá ca'),
+            Actions\DeleteAction::make()
+                ->label('Xoá ca')
+                ->visible(fn () => ! $this->record->users()->exists())
+                ->modalDescription('Chỉ nên xóa ca chưa có tài xế đăng ký.'),
         ];
     }
 

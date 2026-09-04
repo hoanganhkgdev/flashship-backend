@@ -8,6 +8,7 @@ use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Resources\Resource;
 use Filament\Tables;
+use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
@@ -38,7 +39,21 @@ class UserResource extends Resource
 
     public static function getEloquentQuery(): Builder
     {
-        return parent::getEloquentQuery()->where('user_type', 'customer');
+        return parent::getEloquentQuery()
+            ->where('user_type', 'customer')
+            ->with(['latestCustomerOrder' => fn ($query) => $query->select([
+                'orders.id',
+                'orders.sender_platform_id',
+                'orders.code',
+                'orders.status',
+                'orders.created_at',
+            ])])
+            ->withCount([
+                'customerOrders',
+                'customerOrders as completed_orders_count' => fn (Builder $query) => $query->where('status', 'completed'),
+                'customerOrders as active_orders_count' => fn (Builder $query) => $query->whereIn('status', ['pending', 'assigned', 'processing']),
+                'customerAddresses',
+            ]);
     }
 
     public static function form(Form $form): Form
@@ -98,45 +113,36 @@ class UserResource extends Resource
                     ->width(40),
 
                 Tables\Columns\TextColumn::make('name')
-                    ->label('Họ tên')
+                    ->label('Khách hàng')
                     ->searchable(['name', 'phone', 'email'])
                     ->sortable()
-                    ->weight('semibold')
-                    ->description(fn (User $record) => $record->phone),
+                    ->description(fn (User $record): string => $record->phone ?: 'Chưa có số điện thoại'),
 
-                Tables\Columns\TextColumn::make('phone')
-                    ->label('Số điện thoại')
+                Tables\Columns\TextColumn::make('email')
+                    ->label('Liên hệ')
+                    ->placeholder('Chưa có email')
                     ->searchable()
                     ->copyable(),
 
                 Tables\Columns\TextColumn::make('customer_orders_count')
-                    ->label('Tổng đơn')
-                    ->counts('customerOrders')
-                    ->badge()
-                    ->color('primary')
+                    ->label('Hoạt động đơn')
+                    ->description(fn (User $record): string => number_format($record->completed_orders_count).' hoàn thành · '.number_format($record->active_orders_count).' đang xử lý')
                     ->sortable(),
+
+                Tables\Columns\TextColumn::make('latestCustomerOrder.code')
+                    ->label('Đơn gần nhất')
+                    ->formatStateUsing(fn ($state): string => '#'.$state)
+                    ->description(fn (User $record): string => $record->latestCustomerOrder?->created_at?->format('H:i · d/m/Y') ?: 'Chưa đặt đơn')
+                    ->placeholder('—'),
 
                 Tables\Columns\TextColumn::make('customer_addresses_count')
-                    ->label('Địa chỉ')
-                    ->counts('customerAddresses')
+                    ->label('Địa chỉ đã lưu')
                     ->alignCenter()
-                    ->sortable(),
-
-                Tables\Columns\TextColumn::make('email')
-                    ->label('Email')
-                    ->searchable()
-                    ->default('—')
-                    ->toggleable(isToggledHiddenByDefault: true),
-
-                Tables\Columns\TextColumn::make('city.name')
-                    ->label('Thành phố')
-                    ->badge()
-                    ->color('info')
-                    ->default('—'),
+                    ->sortable()
+                    ->toggleable(),
 
                 Tables\Columns\TextColumn::make('status')
                     ->label('Trạng thái')
-                    ->badge()
                     ->formatStateUsing(fn ($state) => match ((int) $state) {
                         0 => 'Chờ duyệt',
                         1 => 'Hoạt động',
@@ -153,7 +159,7 @@ class UserResource extends Resource
 
                 Tables\Columns\TextColumn::make('created_at')
                     ->label('Ngày đăng ký')
-                    ->dateTime('d/m/Y')
+                    ->dateTime('H:i · d/m/Y')
                     ->sortable(),
             ])
             ->filters([
@@ -161,9 +167,20 @@ class UserResource extends Resource
                     ->label('Trạng thái')
                     ->options([0 => 'Chờ duyệt', 1 => 'Hoạt động', 2 => 'Bị khóa']),
 
-                SelectFilter::make('city_id')
-                    ->label('Thành phố')
-                    ->relationship('city', 'name'),
+                Filter::make('has_orders')
+                    ->label('Đã từng đặt đơn')
+                    ->query(fn (Builder $query): Builder => $query->whereHas('customerOrders')),
+
+                Filter::make('created_at')
+                    ->label('Ngày đăng ký')
+                    ->form([
+                        Forms\Components\DatePicker::make('from')->label('Từ ngày'),
+                        Forms\Components\DatePicker::make('until')->label('Đến ngày'),
+                    ])
+                    ->columns(2)
+                    ->query(fn (Builder $query, array $data): Builder => $query
+                        ->when($data['from'] ?? null, fn (Builder $query, $date): Builder => $query->whereDate('created_at', '>=', $date))
+                        ->when($data['until'] ?? null, fn (Builder $query, $date): Builder => $query->whereDate('created_at', '<=', $date))),
             ])
             ->actions([
                 Tables\Actions\ViewAction::make()->label(''),

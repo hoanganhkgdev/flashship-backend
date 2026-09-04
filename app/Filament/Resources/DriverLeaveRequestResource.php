@@ -3,6 +3,8 @@
 namespace App\Filament\Resources;
 
 use App\Filament\Resources\DriverLeaveRequestResource\Pages;
+use Carbon\Carbon;
+use Filament\Facades\Filament;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Resources\Resource;
@@ -38,6 +40,25 @@ class DriverLeaveRequestResource extends Resource
 
     protected static ?int $navigationSort = 3;
 
+    public static function getNavigationBadge(): ?string
+    {
+        $count = static::scopeEloquentQueryToTenant(static::getEloquentQuery(), Filament::getTenant())
+            ->whereDate('leave_date', '>=', today())
+            ->count();
+
+        return $count > 0 ? (string) $count : null;
+    }
+
+    public static function getNavigationBadgeColor(): string|array|null
+    {
+        return 'info';
+    }
+
+    public static function getEloquentQuery(): Builder
+    {
+        return parent::getEloquentQuery()->with(['driver.city', 'driver.registeredShifts', 'creator']);
+    }
+
     public static function form(Form $form): Form
     {
         return $form->schema([
@@ -50,6 +71,7 @@ class DriverLeaveRequestResource extends Resource
                         ->label('Tài xế')
                         ->options(fn () => User::where('user_type', 'driver')
                             ->where('status', 1)
+                            ->where('city_id', Filament::getTenant()?->id)
                             ->orderBy('name')
                             ->get()
                             ->mapWithKeys(fn ($u) => [$u->id => $u->name.' — '.$u->phone]))
@@ -60,7 +82,7 @@ class DriverLeaveRequestResource extends Resource
                         ->label('Ngày nghỉ')
                         ->native(false)
                         ->displayFormat('d/m/Y')
-                        ->minDate(today())
+                        ->minDate(fn (?DriverLeaveRequest $record) => $record?->leave_date?->isPast() ? $record->leave_date : today())
                         ->required(),
 
                     Forms\Components\Textarea::make('note')
@@ -77,48 +99,90 @@ class DriverLeaveRequestResource extends Resource
             ->columns([
                 Tables\Columns\TextColumn::make('driver.name')
                     ->label('Tài xế')
-                    ->searchable()
-                    ->weight('bold')
-                    ->description(fn (DriverLeaveRequest $r) => $r->driver?->phone ?? ''),
-
-                Tables\Columns\TextColumn::make('driver.city.name')
-                    ->label('Khu vực')
-                    ->alignCenter()
-                    ->default('—'),
+                    ->searchable(query: fn (Builder $query, string $search): Builder => $query
+                        ->whereHas('driver', fn (Builder $driverQuery) => $driverQuery
+                            ->where('name', 'like', "%{$search}%")
+                            ->orWhere('phone', 'like', "%{$search}%")))
+                    ->description(fn (DriverLeaveRequest $record) => collect([
+                        $record->driver?->phone,
+                        $record->driver?->city?->name,
+                    ])->filter()->join(' · ')),
 
                 Tables\Columns\TextColumn::make('leave_date')
                     ->label('Ngày nghỉ')
-                    ->alignCenter()
                     ->date('d/m/Y')
-                    ->weight('bold'),
+                    ->description(fn (DriverLeaveRequest $record) => self::dateDescription($record->leave_date))
+                    ->color(fn (DriverLeaveRequest $record) => $record->leave_date->isToday() ? 'warning' : ($record->leave_date->isFuture() ? 'info' : 'gray')),
+
+                Tables\Columns\TextColumn::make('affected_shifts')
+                    ->label('Ca được miễn chấm')
+                    ->state(fn (DriverLeaveRequest $record) => $record->driver?->registeredShifts
+                        ?->sortBy('start_time')
+                        ->map(fn ($shift) => $shift->name.' ('.substr($shift->start_time, 0, 5).'–'.substr($shift->end_time, 0, 5).')')
+                        ->implode(', ') ?: 'Chưa đăng ký ca')
+                    ->wrap(),
+
+                Tables\Columns\TextColumn::make('leave_status')
+                    ->label('Hiệu lực')
+                    ->state(fn (DriverLeaveRequest $record) => match (true) {
+                        $record->leave_date->isToday() => 'Đang nghỉ',
+                        $record->leave_date->isFuture() => 'Sắp nghỉ',
+                        default => 'Đã kết thúc',
+                    })
+                    ->color(fn (DriverLeaveRequest $record) => match (true) {
+                        $record->leave_date->isToday() => 'warning',
+                        $record->leave_date->isFuture() => 'info',
+                        default => 'gray',
+                    })
+                    ->description(fn (DriverLeaveRequest $record) => $record->leave_date->isPast() && ! $record->leave_date->isToday()
+                        ? 'Ngày nghỉ đã qua'
+                        : 'Miễn chấm điểm ca'),
 
                 Tables\Columns\TextColumn::make('note')
                     ->label('Ghi chú')
-                    ->limit(40)
-                    ->default('—')
-                    ->tooltip(fn ($state) => $state),
+                    ->default('Không có ghi chú')
+                    ->wrap(),
 
                 Tables\Columns\TextColumn::make('creator.name')
-                    ->label('Người tạo')
-                    ->default('—'),
-
-                Tables\Columns\TextColumn::make('created_at')
-                    ->label('Ngày tạo')
-                    ->alignCenter()
-                    ->dateTime('d/m/Y H:i'),
+                    ->label('Ghi nhận bởi')
+                    ->default('Không xác định')
+                    ->description(fn (DriverLeaveRequest $record) => $record->created_at?->format('d/m/Y H:i')),
+            ])
+            ->filters([
+                Tables\Filters\Filter::make('leave_date')
+                    ->form([
+                        Forms\Components\DatePicker::make('from')->label('Nghỉ từ ngày'),
+                        Forms\Components\DatePicker::make('until')->label('Nghỉ đến ngày'),
+                    ])
+                    ->query(fn (Builder $query, array $data) => $query
+                        ->when($data['from'] ?? null, fn ($q, $date) => $q->whereDate('leave_date', '>=', $date))
+                        ->when($data['until'] ?? null, fn ($q, $date) => $q->whereDate('leave_date', '<=', $date))),
             ])
             ->defaultSort('leave_date', 'desc')
             ->actions([
-                Tables\Actions\EditAction::make()->label(''),
-                Tables\Actions\DeleteAction::make()->label(''),
-            ])
-            ->bulkActions([
-                Tables\Actions\BulkActionGroup::make([
-                    Tables\Actions\DeleteBulkAction::make(),
-                ]),
+                Tables\Actions\EditAction::make()->label('')->tooltip('Chỉnh sửa lịch nghỉ'),
+                Tables\Actions\DeleteAction::make()
+                    ->label('')
+                    ->tooltip('Xóa lịch nghỉ')
+                    ->modalDescription('Xóa lịch nghỉ có thể khiến tài xế bị chấm điểm ca hoặc được phép bật online trở lại trong ngày này.'),
             ])
             ->defaultPaginationPageOption(25)
             ->paginationPageOptions([25, 50, 100]);
+    }
+
+    public static function dateDescription(Carbon $date): string
+    {
+        if ($date->isToday()) {
+            return 'Hôm nay';
+        }
+        if ($date->isTomorrow()) {
+            return 'Ngày mai';
+        }
+        if ($date->isYesterday()) {
+            return 'Hôm qua';
+        }
+
+        return $date->isFuture() ? 'Còn '.(int) $date->diffInDays(today()).' ngày' : 'Đã qua '.(int) $date->diffInDays(today()).' ngày';
     }
 
     public static function getRelations(): array

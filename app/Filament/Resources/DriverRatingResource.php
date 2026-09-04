@@ -8,8 +8,8 @@ use Filament\Infolists;
 use Filament\Infolists\Infolist;
 use Filament\Resources\Resource;
 use Filament\Tables;
-use Filament\Tables\Columns\Layout\Split;
-use Filament\Tables\Columns\Layout\Stack;
+use Filament\Tables\Filters\Filter;
+use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Modules\Core\Models\ServiceType;
@@ -163,68 +163,69 @@ class DriverRatingResource extends Resource
     {
         return $table
             ->columns([
-                Split::make([
-                    // Sao + tên tài xế (trái)
-                    Stack::make([
-                        Tables\Columns\TextColumn::make('driver_rating')
-                            ->formatStateUsing(fn ($state) => self::ratingStars((int) $state))
-                            ->html()
-                            ->grow(false),
+                Tables\Columns\TextColumn::make('driver_rating')
+                    ->label('Đánh giá')
+                    ->formatStateUsing(fn ($state) => self::ratingStars((int) $state))
+                    ->html()
+                    ->sortable(),
 
-                        Tables\Columns\TextColumn::make('driver.name')
-                            ->weight('bold')
-                            ->size('sm')
-                            ->placeholder('—'),
+                Tables\Columns\TextColumn::make('driver.name')
+                    ->label('Tài xế')
+                    ->description(fn (Order $record): string => $record->driver?->phone ?: '—')
+                    ->searchable()
+                    ->placeholder('—'),
 
-                        Tables\Columns\TextColumn::make('driver.phone')
-                            ->color('gray')
-                            ->size('xs'),
-                    ])->grow(true),
+                Tables\Columns\TextColumn::make('driver_rating_note')
+                    ->label('Nhận xét của khách')
+                    ->placeholder('Không có nhận xét')
+                    ->wrap()
+                    ->searchable(),
 
-                    // Ngày + dịch vụ (phải)
-                    Stack::make([
-                        Tables\Columns\TextColumn::make('completed_at')
-                            ->dateTime('d/m H:i')
-                            ->color('gray')
-                            ->size('xs')
-                            ->alignEnd(),
+                Tables\Columns\TextColumn::make('code')
+                    ->label('Đơn hàng')
+                    ->formatStateUsing(fn ($state) => '#'.$state)
+                    ->description(fn (Order $record): string => self::serviceLabels()[$record->service_type] ?? $record->service_type)
+                    ->copyable()
+                    ->searchable(),
 
-                        Tables\Columns\TextColumn::make('service_type')
-                            ->formatStateUsing(fn ($state) => self::serviceLabels()[$state] ?? $state)
-                            ->size('xs')
-                            ->color('primary')
-                            ->alignEnd(),
-                    ])->grow(false),
-                ]),
+                Tables\Columns\TextColumn::make('sender.name')
+                    ->label('Khách hàng')
+                    ->description(fn (Order $record): string => $record->sender?->phone ?: '—')
+                    ->searchable()
+                    ->placeholder('—'),
 
-                // Nhận xét
-                Stack::make([
-                    Tables\Columns\TextColumn::make('driver_rating_note')
-                        ->size('sm')
-                        ->color('gray')
-                        ->placeholder('Không có nhận xét')
-                        ->wrap(),
-                ]),
-
-                // Khách hàng
-                Split::make([
-                    Tables\Columns\TextColumn::make('sender.name')
-                        ->icon('heroicon-m-user')
-                        ->iconColor('gray')
-                        ->size('xs')
-                        ->color('gray')
-                        ->placeholder('—'),
-
-                    Tables\Columns\TextColumn::make('code')
-                        ->copyable()
-                        ->size('xs')
-                        ->color('gray')
-                        ->formatStateUsing(fn ($state) => '#'.$state)
-                        ->alignEnd(),
-                ]),
+                Tables\Columns\TextColumn::make('completed_at')
+                    ->label('Hoàn thành')
+                    ->dateTime('d/m/Y H:i')
+                    ->sortable()
+                    ->placeholder('—'),
             ])
-            ->contentGrid(['default' => 1, 'sm' => 2, 'xl' => 3])
-            ->filters([])
+            ->filters([
+                SelectFilter::make('driver_rating')
+                    ->label('Số sao')
+                    ->options([5 => '5 sao', 4 => '4 sao', 3 => '3 sao', 2 => '2 sao', 1 => '1 sao']),
+                SelectFilter::make('delivery_man_id')
+                    ->label('Tài xế')
+                    ->relationship('driver', 'name')
+                    ->searchable()
+                    ->preload(),
+                SelectFilter::make('service_type')
+                    ->label('Dịch vụ')
+                    ->options(fn (): array => self::serviceLabels()),
+                Filter::make('low_rating')
+                    ->label('Cần xử lý (1–2 sao)')
+                    ->query(fn (Builder $query): Builder => $query->where('driver_rating', '<=', 2)),
+                Filter::make('completed_at')
+                    ->label('Ngày hoàn thành')
+                    ->form([
+                        \Filament\Forms\Components\DatePicker::make('from')->label('Từ ngày'),
+                        \Filament\Forms\Components\DatePicker::make('until')->label('Đến ngày'),
+                    ])
+                    ->columns(2)
+                    ->query(fn (Builder $query, array $data): Builder => $query
+                        ->when($data['from'] ?? null, fn (Builder $query, $date): Builder => $query->whereDate('completed_at', '>=', $date))
+                        ->when($data['until'] ?? null, fn (Builder $query, $date): Builder => $query->whereDate('completed_at', '<=', $date))),
+            ])
             ->actions([
                 Tables\Actions\ViewAction::make()->label('')->tooltip('Xem chi tiết'),
                 Tables\Actions\Action::make('delete_rating')
@@ -243,8 +244,8 @@ class DriverRatingResource extends Resource
             ->bulkActions([])
             ->actionsAlignment('end')
             ->recordUrl(fn (Order $record): string => static::getUrl('view', ['record' => $record]))
-            ->defaultPaginationPageOption(12)
-            ->paginationPageOptions([12, 24, 48])
+            ->defaultPaginationPageOption(25)
+            ->paginationPageOptions([25, 50, 100])
             ->poll('30s');
     }
 

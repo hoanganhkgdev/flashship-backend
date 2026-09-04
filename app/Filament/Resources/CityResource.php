@@ -13,6 +13,7 @@ use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Modules\Core\Models\City;
@@ -42,6 +43,21 @@ class CityResource extends Resource
 
     protected static ?int $navigationSort = 1;
 
+    public static function getEloquentQuery(): Builder
+    {
+        return parent::getEloquentQuery()
+            ->withCount([
+                'users as drivers_count',
+                'users as online_drivers_count' => fn (Builder $query) => $query->where('is_online', true),
+                'customers',
+                'shops',
+                'orders',
+                'orders as orders_today_count' => fn (Builder $query) => $query->whereDate('created_at', today()),
+                'shifts',
+                'shifts as active_shifts_count' => fn (Builder $query) => $query->where('is_active', true),
+            ]);
+    }
+
     public static function form(Form $form): Form
     {
         return $form->schema([
@@ -59,6 +75,7 @@ class CityResource extends Resource
                     Forms\Components\TextInput::make('slug')
                         ->label('Slug')
                         ->maxLength(100)
+                        ->unique(ignoreRecord: true)
                         ->placeholder('VD: rach-gia')
                         ->helperText('Dùng để phân biệt nội bộ'),
 
@@ -156,11 +173,15 @@ class CityResource extends Resource
                     Forms\Components\TextInput::make('lat')
                         ->label('Vĩ độ (Latitude)')
                         ->numeric()
+                        ->minValue(-90)
+                        ->maxValue(90)
                         ->placeholder('10.0000'),
 
                     Forms\Components\TextInput::make('lng')
                         ->label('Kinh độ (Longitude)')
                         ->numeric()
+                        ->minValue(-180)
+                        ->maxValue(180)
                         ->placeholder('105.0000'),
                 ]),
         ]);
@@ -174,7 +195,6 @@ class CityResource extends Resource
                 ->schema([
                     Infolists\Components\TextEntry::make('name')
                         ->label('Tên khu vực')
-                        ->weight('bold')
                         ->size('lg'),
 
                     Infolists\Components\TextEntry::make('slug')
@@ -203,24 +223,32 @@ class CityResource extends Resource
                 ->schema([
                     Infolists\Components\TextEntry::make('users_count')
                         ->label('Tài xế')
-                        ->state(fn (City $record) => $record->users()->count())
-                        ->badge()
+                        ->state(fn (City $record) => $record->drivers_count)
                         ->color('info')
-                        ->suffix(' tài xế'),
+                        ->suffix(' tài xế')
+                        ->helperText(fn (City $record) => $record->online_drivers_count.' đang online'),
 
                     Infolists\Components\TextEntry::make('customers_count')
                         ->label('Khách hàng')
-                        ->state(fn (City $record) => $record->customers()->count())
-                        ->badge()
+                        ->state(fn (City $record) => $record->customers_count)
                         ->color('success')
                         ->suffix(' khách'),
 
+                    Infolists\Components\TextEntry::make('shops_count')
+                        ->label('Cửa hàng')
+                        ->suffix(' cửa hàng'),
+
                     Infolists\Components\TextEntry::make('orders_count')
                         ->label('Tổng đơn hàng')
-                        ->state(fn (City $record) => $record->orders()->count())
-                        ->badge()
+                        ->state(fn (City $record) => $record->orders_count)
                         ->color('warning')
-                        ->suffix(' đơn'),
+                        ->suffix(' đơn')
+                        ->helperText(fn (City $record) => $record->orders_today_count.' đơn hôm nay'),
+
+                    Infolists\Components\TextEntry::make('shifts_count')
+                        ->label('Ca làm việc')
+                        ->suffix(' ca')
+                        ->helperText(fn (City $record) => $record->active_shifts_count.' ca đang bật'),
                 ]),
         ]);
     }
@@ -237,35 +265,35 @@ class CityResource extends Resource
 
                 Tables\Columns\TextColumn::make('name')
                     ->label('Khu vực')
-                    ->weight('bold')
-                    ->alignCenter()
-                    ->searchable(),
+                    ->searchable()
+                    ->description(fn (City $record) => Filament::getTenant()?->is($record)
+                        ? 'Khu vực đang chọn'
+                        : ($record->slug ?: 'Chưa có slug')),
 
                 Tables\Columns\TextColumn::make('weekly_fee')
-                    ->label('Phí / tuần')
-                    ->alignCenter()
-                    ->formatStateUsing(fn ($state) => $state ? number_format((int) $state).'đ' : '—'),
+                    ->label('Cấu hình')
+                    ->formatStateUsing(fn ($state) => number_format((int) $state).' ₫/tuần')
+                    ->description(fn (City $record) => $record->lat !== null && $record->lng !== null
+                        ? 'Tâm: '.$record->lat.', '.$record->lng
+                        : 'Chưa có tọa độ trung tâm'),
 
                 Tables\Columns\TextColumn::make('users_count')
-                    ->label('Tài xế')
-                    ->counts('users')
-                    ->badge()
-                    ->alignCenter()
-                    ->color('info'),
-
-                Tables\Columns\TextColumn::make('customers_count')
-                    ->label('Khách hàng')
-                    ->counts('customers')
-                    ->badge()
-                    ->alignCenter()
-                    ->color('success'),
+                    ->label('Người dùng')
+                    ->state(fn (City $record) => $record->drivers_count.' tài xế · '.$record->customers_count.' khách')
+                    ->description(fn (City $record) => $record->online_drivers_count.' tài xế online · '.$record->shops_count.' cửa hàng'),
 
                 Tables\Columns\TextColumn::make('orders_count')
-                    ->label('Tổng đơn')
-                    ->counts('orders')
-                    ->badge()
-                    ->alignCenter()
-                    ->color('warning'),
+                    ->label('Vận hành')
+                    ->formatStateUsing(fn ($state) => number_format((int) $state).' đơn')
+                    ->description(fn (City $record) => $record->orders_today_count.' đơn hôm nay · '.$record->active_shifts_count.'/'.$record->shifts_count.' ca đang bật'),
+
+                Tables\Columns\TextColumn::make('is_rain_mode')
+                    ->label('Chế độ mưa')
+                    ->formatStateUsing(fn ($state) => $state ? 'Đang bật' : 'Đang tắt')
+                    ->color(fn ($state) => $state ? 'info' : 'gray')
+                    ->description(fn (City $record) => $record->is_rain_mode && $record->rain_mode_started_at
+                        ? 'Từ '.$record->rain_mode_started_at->format('d/m H:i')
+                        : null),
 
                 Tables\Columns\ToggleColumn::make('is_active')
                     ->label('Hoạt động')
@@ -279,7 +307,8 @@ class CityResource extends Resource
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
-                Tables\Filters\TernaryFilter::make('is_active')->label('Trạng thái'),
+                Tables\Filters\TernaryFilter::make('is_active')->label('Trạng thái hoạt động'),
+                Tables\Filters\TernaryFilter::make('is_rain_mode')->label('Chế độ mưa'),
             ])
             ->actions([
                 Tables\Actions\ViewAction::make()->label(''),
@@ -292,6 +321,13 @@ class CityResource extends Resource
                     // lịch sử). Chặn hẳn nếu còn phụ thuộc, không cảnh báo
                     // suông rồi vẫn cho xoá.
                     ->before(function (City $record, Tables\Actions\DeleteAction $action) {
+                        if (Filament::getTenant()?->is($record)) {
+                            Notification::make()->danger()
+                                ->title('Không thể xoá khu vực đang chọn')
+                                ->body('Hãy chuyển sang khu vực khác trước khi thao tác.')
+                                ->send();
+                            $action->halt();
+                        }
                         $userCount = DB::table('users')->where('city_id', $record->id)->count();
                         $orderCount = DB::table('orders')->where('city_id', $record->id)->count();
 

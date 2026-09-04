@@ -93,7 +93,13 @@ class ViewDriver extends ViewRecord
                         ->badge()
                         ->color('info')
                         ->placeholder('Chưa đăng ký'),
-                ])->columns(4),
+                    Infolists\Components\TextEntry::make('active_orders_count')
+                        ->label('Đơn đang chạy')
+                        ->default(0),
+                    Infolists\Components\TextEntry::make('completed_orders_count')
+                        ->label('Đơn hoàn thành')
+                        ->default(0),
+                ])->columns(3),
 
             Infolists\Components\Section::make('Phương tiện')
                 ->icon('heroicon-o-truck')
@@ -102,6 +108,43 @@ class ViewDriver extends ViewRecord
                     Infolists\Components\TextEntry::make('license_plate')->label('Biển số xe')->placeholder('—'),
                     Infolists\Components\IconEntry::make('has_car_license')->label('Bằng lái')->boolean(),
                 ])->columns(3),
+
+            Infolists\Components\Section::make('Tình trạng hồ sơ')
+                ->icon('heroicon-o-document-check')
+                ->schema([
+                    Infolists\Components\TextEntry::make('latestDriverCccdImage.status')
+                        ->label('CCCD / CMND')
+                        ->default('none')
+                        ->formatStateUsing(fn ($state) => match ($state) {
+                            'approved' => 'Đã duyệt',
+                            'pending' => 'Chờ duyệt',
+                            'rejected' => 'Từ chối',
+                            default => 'Chưa tải lên',
+                        })
+                        ->badge()
+                        ->color(fn ($state) => match ($state) {
+                            'approved' => 'success',
+                            'pending' => 'warning',
+                            'rejected' => 'danger',
+                            default => 'gray',
+                        }),
+                    Infolists\Components\TextEntry::make('latestDriverLicense.status')
+                        ->label('Bằng lái')
+                        ->default('none')
+                        ->formatStateUsing(fn ($state) => match ($state) {
+                            'approved' => 'Đã duyệt',
+                            'pending' => 'Chờ duyệt',
+                            'rejected' => 'Từ chối',
+                            default => 'Chưa tải lên',
+                        })
+                        ->badge()
+                        ->color(fn ($state) => match ($state) {
+                            'approved' => 'success',
+                            'pending' => 'warning',
+                            'rejected' => 'danger',
+                            default => 'gray',
+                        }),
+                ])->columns(2),
 
         ]);
     }

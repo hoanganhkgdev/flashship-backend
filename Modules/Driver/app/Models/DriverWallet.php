@@ -9,4 +9,5 @@ class DriverWallet extends Model
 
     public function driver()       { return $this->belongsTo(\Modules\Core\Models\User::class, 'driver_id'); }
     public function transactions() { return $this->hasMany(DriverWalletTransaction::class, 'wallet_id'); }
+    public function latestTransaction() { return $this->hasOne(DriverWalletTransaction::class, 'wallet_id')->latestOfMany(); }
 }

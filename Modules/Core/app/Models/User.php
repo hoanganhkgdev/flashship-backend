@@ -117,10 +117,24 @@ class User extends Authenticatable implements FilamentUser, HasDefaultTenant, Ha
             ->where('platform', 'customer_app');
     }
 
+    public function latestCustomerOrder()
+    {
+        return $this->hasOne(Order::class, 'sender_platform_id')
+            ->where('platform', 'customer_app')
+            ->latestOfMany();
+    }
+
     public function shopOrders()
     {
         return $this->hasMany(Order::class, 'sender_platform_id')
             ->where('platform', 'shop_app');
+    }
+
+    public function latestShopOrder()
+    {
+        return $this->hasOne(Order::class, 'sender_platform_id')
+            ->where('platform', 'shop_app')
+            ->latestOfMany();
     }
 
     public function bank()
@@ -155,14 +169,29 @@ class User extends Authenticatable implements FilamentUser, HasDefaultTenant, Ha
         return $this->hasMany(DriverLicense::class, 'user_id');
     }
 
+    public function latestDriverLicense()
+    {
+        return $this->hasOne(DriverLicense::class, 'user_id')->latestOfMany();
+    }
+
     public function driverCccdImages()
     {
         return $this->hasMany(DriverCccdImage::class, 'user_id');
     }
 
+    public function latestDriverCccdImage()
+    {
+        return $this->hasOne(DriverCccdImage::class, 'user_id')->latestOfMany();
+    }
+
     public function scoreLogs()
     {
         return $this->hasMany(DriverScoreLog::class, 'driver_id')->latest('created_at');
+    }
+
+    public function latestScoreLog()
+    {
+        return $this->hasOne(DriverScoreLog::class, 'driver_id')->latestOfMany();
     }
 
     public function scoreSettlements()
