@@ -11,6 +11,7 @@ use Illuminate\Validation\ValidationException;
 use Modules\Core\Models\User;
 use Modules\Core\Services\RTDBService;
 use Modules\Driver\Models\DriverGpsEligibleSession;
+use Modules\Driver\Models\DriverLeaveRequest;
 use Modules\Driver\Models\DriverShiftSession;
 use Modules\Driver\Services\DriverLocationService;
 use Modules\Order\Models\Order;
