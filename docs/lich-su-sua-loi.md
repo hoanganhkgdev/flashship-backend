@@ -9,6 +9,60 @@ mục vào đây TRƯỚC khi coi là xong việc.
 
 ---
 
+## 2026-09-12 — Backend: driver chưa từng bấm Online trong ca được miễn chấm điểm vĩnh viễn thay vì bị -15
+
+**Bối cảnh**: tiếp tục rà luồng tính % thời gian online trong ca
+(`ScoreShiftSessionsCommand`) sau đợt viết lại toàn bộ bằng
+`DriverGpsEligibleSession`/`TrackGpsEligibleSessionsCommand` (rollout
+2026-08-28/29, chưa có mục riêng trong file này) — audit chủ động, không
+phải báo cáo triệu chứng cụ thể.
+
+**Triệu chứng (suy ra từ đọc code, chưa thấy trên production)**: driver được
+gán ca nhưng cả ca không hề bấm nút Online lần nào — đúng đối tượng luật
+"-15 vì 0% online" muốn bắt — lại hoàn toàn không bị trừ điểm, và im lặng
+vĩnh viễn (không cron nào sau đó chấm lại được ca đó nữa).
+
+**Nguyên nhân gốc**: `scoreDriverShift()` có 1 guard miễn chấm ca khi
+`driver_gps_eligibility_states.initialized_at` (mốc driver được
+`TrackGpsEligibleSessionsCommand` quan sát online-có-GPS LẦN ĐẦU TIÊN trong
+đời) rỗng hoặc muộn hơn giờ ca bắt đầu — mục đích ban đầu là tránh trừ oan
+khi hệ thống theo dõi GPS chỉ vừa rollout giữa ca hoặc driver mới join,
+chưa có lịch sử phần đầu ca. Vấn đề: dòng `driver_gps_eligibility_states`
+CHỈ được tạo khi driver online lần đầu (trong `TrackGpsEligibleSessionsCommand`)
+— nếu driver KHÔNG BAO GIỜ bấm online (kể cả ca đang xét), `initialized_at`
+rỗng y hệt case "hệ thống chưa kịp theo dõi", nên bị gộp nhầm vào cùng 1
+nhánh miễn trừ. Vì `driver_shift_score_runs` (cơ chế idempotent chống chấm
+2 lần) claim luôn ô [driver, ca, ngày] này ngay khi `scoreDriverShift()`
+return sớm (transaction vẫn commit phần insert claim dù không cộng/trừ điểm
+gì), driver không hề bị chấm ca đó — và không cron nào retry lại được nữa
+kể cả khi sau này driver có online.
+
+**Cách sửa**: `Modules/Driver/app/Console/Commands/ScoreShiftSessionsCommand.php`
+— tính thêm `$rolloutAt = MIN(driver_gps_eligibility_states.initialized_at)`
+1 lần mỗi lượt chạy `handle()` (xấp xỉ đúng thời điểm hệ thống rollout: dòng
+đầu tiên được ghi ngay ở lần cron đầu sau deploy, không đổi khi có thêm
+driver mới) — truyền xuống `scoreDriverShift()`. Guard giờ tách 2 nhánh:
+- Có `initialized_at` cho driver này → giữ nguyên logic cũ (miễn nếu muộn
+  hơn giờ ca bắt đầu — case driver mới/thiếu lịch sử đầu ca).
+- Không có (`null`) → chỉ miễn nếu ca bắt đầu TRƯỚC lúc hệ thống rollout
+  (`$rolloutAt` cũng null hoặc muộn hơn giờ ca) — dữ liệu thật sự không tồn
+  tại lúc đó. Ca bắt đầu SAU rollout mà vẫn không có dòng state → driver
+  chắc chắn không hề online ca đó → cho chấm tiếp bình thường (0% online →
+  -15 `shift_online_critical`), không còn miễn oan.
+
+**Trạng thái**: Đã sửa, `php -l` sạch. Verify logic guard bằng script PHP
+độc lập tách riêng nhánh điều kiện (5 case: driver bình thường, driver mới
+online giữa ca, driver chưa từng online với ca sau/tại đúng lúc rollout,
+hệ thống chưa có dữ liệu rollout nào) — cả 5 case ra đúng kỳ vọng. Môi
+trường session này không có MySQL/vendor cài sẵn nên CHƯA chạy được
+`ScoreAndWalletRaceConditionTest`/`php artisan test` hay test hành vi thật
+trên DB — cần chạy lại bộ test đó (và test thủ công 1 ca thật của driver
+chưa từng online) trước khi deploy VPS. Chưa deploy. Các ca đã bị claim
+nhầm trước khi sửa (nếu có trên production) sẽ không được chấm lại hồi tố
+— unique claim đã khoá ô đó, cần xử lý dữ liệu riêng nếu muốn bù.
+
+---
+
 ## 2026-08-28 (a) — App tài xế: bấm "Nhận đơn" trên màn hình offer có thể accept nhầm đơn khác đơn đang hiện
 
 **Triệu chứng**: tài xế báo "hiện 1 đơn mà bấm nhận thì qua đơn khác, nhận

@@ -20,6 +20,14 @@ class ScoreShiftSessionsCommand extends Command
         $now = Carbon::now();
         $scored = 0;
 
+        // Mốc tham chiếu duy nhất để phân biệt "hệ thống theo dõi GPS chưa
+        // kịp khởi tạo cho driver này" (đáng miễn trừ) với "driver chưa từng
+        // online" (đáng chấm 0%) — xem giải thích chi tiết trong
+        // scoreDriverShift(). MIN(initialized_at) xấp xỉ đúng thời điểm
+        // rollout hệ thống vì hàng đầu tiên được ghi ngay lần cron đầu sau
+        // deploy và không bao giờ nhỏ đi khi có thêm driver mới.
+        $rolloutAt = DB::table('driver_gps_eligibility_states')->min('initialized_at');
+
         foreach (Shift::active()->get() as $shift) {
             foreach ($this->recentlyEndedWindows($shift, $now) as [$start, $end]) {
                 $drivers = $shift->users()->get(['users.id']);
@@ -40,7 +48,7 @@ class ScoreShiftSessionsCommand extends Command
                     // Claim nằm cùng transaction với chấm điểm. Unique key
                     // chặn hai scheduler chấm cùng ca; nếu chấm lỗi thì cả
                     // claim rollback để cron sau có thể thử lại.
-                    $claimed = DB::transaction(function () use ($shift, $driverId, $start, $end) {
+                    $claimed = DB::transaction(function () use ($shift, $driverId, $start, $end, $rolloutAt) {
                         $inserted = DB::table('driver_shift_score_runs')->insertOrIgnore([
                             'driver_id' => $driverId,
                             'shift_id' => $shift->id,
@@ -51,7 +59,7 @@ class ScoreShiftSessionsCommand extends Command
                         ]);
                         if (!$inserted) return false;
 
-                        $this->scoreDriverShift($driverId, $start, $end);
+                        $this->scoreDriverShift($driverId, $start, $end, $rolloutAt);
                         return true;
                     });
                     if ($claimed) $scored++;
@@ -93,15 +101,35 @@ class ScoreShiftSessionsCommand extends Command
         return $windows;
     }
 
-    private function scoreDriverShift(int $driverId, Carbon $start, Carbon $end): void
+    private function scoreDriverShift(int $driverId, Carbon $start, Carbon $end, mixed $rolloutAt): void
     {
         // Không chấm ca nếu bộ theo dõi GPS chỉ được khởi tạo sau khi ca đã
         // bắt đầu (rollout hệ thống, tài xế mới, dữ liệu state bị mất). Khi
         // đó backend không có lịch sử phần đầu ca; coi 0 phút sẽ trừ oan.
+        //
+        // `driver_gps_eligibility_states` chỉ có dòng cho driver này SAU LẦN
+        // ĐẦU TIÊN họ online (ghi trong TrackGpsEligibleSessionsCommand) — vì
+        // vậy driver CHƯA TỪNG bấm online một lần nào (kể cả trong ca này)
+        // cũng cho `initialized_at` rỗng giống hệt case "hệ thống chưa kịp
+        // theo dõi". Trước đây 2 case này bị gộp làm một: driver không mở
+        // app suốt ca — đúng đối tượng luật -15 muốn bắt — lại được miễn
+        // chấm vĩnh viễn (và bị "khoá" vĩnh viễn qua unique claim
+        // driver_shift_score_runs, không cron nào chấm lại được nữa dù sau
+        // đó driver có online). Phân biệt lại bằng `$rolloutAt` (mốc hệ
+        // thống bắt đầu theo dõi GPS, không đổi theo từng driver): chỉ miễn
+        // khi ca bắt đầu TRƯỚC lúc hệ thống rollout (dữ liệu thật sự không
+        // tồn tại), còn ca bắt đầu sau rollout mà driver vẫn không có dòng
+        // state nghĩa là họ không hề online — phải chấm 0%, không miễn.
         $trackingStartedAt = DB::table('driver_gps_eligibility_states')
             ->where('driver_id', $driverId)->value('initialized_at');
-        if (!$trackingStartedAt || Carbon::parse($trackingStartedAt)->greaterThan($start)) {
-            Log::info("[ScoreShiftSessions] Bỏ qua driver #{$driverId}: chưa có dữ liệu GPS từ đầu ca {$start}.");
+
+        if ($trackingStartedAt) {
+            if (Carbon::parse($trackingStartedAt)->greaterThan($start)) {
+                Log::info("[ScoreShiftSessions] Bỏ qua driver #{$driverId}: chưa có dữ liệu GPS từ đầu ca {$start}.");
+                return;
+            }
+        } elseif (!$rolloutAt || Carbon::parse($rolloutAt)->greaterThan($start)) {
+            Log::info("[ScoreShiftSessions] Bỏ qua driver #{$driverId}: hệ thống theo dõi GPS chưa rollout lúc ca bắt đầu {$start}.");
             return;
         }
 
