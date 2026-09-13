@@ -59,16 +59,16 @@ class AutoOfflineStaleLocationCommand extends Command
                 continue;
             }
 
-            $expiresAt = $policy->expiresAt(
+            $expiresAtTimestamp = $policy->expiresAtTimestamp(
                 $locations["driver_{$driver->id}"] ?? null,
                 Carbon::parse($onlineSince),
                 $now,
             );
-            if ($expiresAt->isAfter($now)) {
+            if ($expiresAtTimestamp > $now->getTimestamp()) {
                 continue;
             }
 
-            $result = $this->forceOffline($driver->id, Carbon::instance($expiresAt), $now);
+            $result = $this->forceOffline($driver->id, $expiresAtTimestamp, $now);
             if (! $result) {
                 continue;
             }
@@ -89,7 +89,10 @@ class AutoOfflineStaleLocationCommand extends Command
             Log::info('[AutoOfflineGPS] Đã Offline tài xế do vị trí quá hạn.', [
                 'driver_id' => $driver->id,
                 'driver_name' => $driver->name,
-                'session_ended_at' => $expiresAt->toIso8601String(),
+                'session_ended_at' => Carbon::createFromTimestamp(
+                    $expiresAtTimestamp,
+                    config('app.timezone'),
+                )->toIso8601String(),
             ]);
         }
 
@@ -99,9 +102,9 @@ class AutoOfflineStaleLocationCommand extends Command
     /**
      * @return array{offers: Collection<int, Order>}|null
      */
-    private function forceOffline(int $driverId, Carbon $expiredAt, Carbon $now): ?array
+    private function forceOffline(int $driverId, int $expiredAtTimestamp, Carbon $now): ?array
     {
-        return DB::transaction(function () use ($driverId, $expiredAt, $now) {
+        return DB::transaction(function () use ($driverId, $expiredAtTimestamp, $now) {
             $driver = User::whereKey($driverId)->lockForUpdate()->first();
             if (! $driver?->is_online) {
                 return null;
@@ -136,7 +139,14 @@ class AutoOfflineStaleLocationCommand extends Command
                 ->lockForUpdate()
                 ->get();
             foreach ($openSessions as $session) {
-                $endedAt = $expiredAt->copy()->max($session->started_at)->min($now);
+                $endedAtTimestamp = min(
+                    $now->getTimestamp(),
+                    max($expiredAtTimestamp, $session->started_at->getTimestamp()),
+                );
+                $endedAt = Carbon::createFromTimestamp(
+                    $endedAtTimestamp,
+                    config('app.timezone'),
+                );
                 $session->update(['ended_at' => $endedAt]);
             }
 
