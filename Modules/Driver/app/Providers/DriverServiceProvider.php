@@ -3,7 +3,6 @@
 namespace Modules\Driver\Providers;
 
 use Illuminate\Console\Scheduling\Schedule;
-use Modules\Driver\Console\Commands\AutoOfflineStaleLocationCommand;
 use Modules\Driver\Console\Commands\GenerateWeeklyFeesCommand;
 use Modules\Driver\Console\Commands\InactivityDecayCommand;
 use Modules\Driver\Console\Commands\MarkOverdueDebtsCommand;
@@ -21,7 +20,6 @@ class DriverServiceProvider extends ModuleServiceProvider
 
     protected array $commands = [
         GenerateWeeklyFeesCommand::class,
-        AutoOfflineStaleLocationCommand::class,
         InactivityDecayCommand::class,
         MarkOverdueDebtsCommand::class,
         WeeklyScoreCommand::class,
@@ -48,10 +46,7 @@ class DriverServiceProvider extends ModuleServiceProvider
         // Mỗi 5 phút — dò ca vừa kết thúc (giờ khác nhau theo từng khu vực),
         // chấm % thời gian online cuối ca — thay luật "8h/ngày" cũ.
         $schedule->command('drivers:score-shift-sessions')->everyFiveMinutes();
-        // Mỗi phút kiểm tra heartbeat vị trí. Quá 2 phút không có vị trí mới
-        // thì backend tự Offline; bộ chấm ca vẫn chỉ đọc phiên Online/Offline.
-        $schedule->command('drivers:auto-offline-stale-location')
-            ->everyMinute()
-            ->withoutOverlapping();
+        // GPS chỉ còn phục vụ phát đơn. Chấm giờ ca dùng các phiên Online /
+        // Offline trong driver_shift_sessions, nên không chạy tracker GPS.
     }
 }
