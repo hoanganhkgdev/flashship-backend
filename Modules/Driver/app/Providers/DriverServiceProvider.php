@@ -2,19 +2,20 @@
 
 namespace Modules\Driver\Providers;
 
-use Nwidart\Modules\Support\ModuleServiceProvider;
 use Illuminate\Console\Scheduling\Schedule;
 use Modules\Driver\Console\Commands\GenerateWeeklyFeesCommand;
 use Modules\Driver\Console\Commands\InactivityDecayCommand;
 use Modules\Driver\Console\Commands\MarkOverdueDebtsCommand;
-use Modules\Driver\Console\Commands\WeeklyScoreCommand;
 use Modules\Driver\Console\Commands\PruneDriverLocationLogsCommand;
 use Modules\Driver\Console\Commands\ScoreShiftSessionsCommand;
 use Modules\Driver\Console\Commands\TrackGpsEligibleSessionsCommand;
+use Modules\Driver\Console\Commands\WeeklyScoreCommand;
+use Nwidart\Modules\Support\ModuleServiceProvider;
 
 class DriverServiceProvider extends ModuleServiceProvider
 {
-    protected string $name      = 'Driver';
+    protected string $name = 'Driver';
+
     protected string $nameLower = 'driver';
 
     protected array $commands = [
@@ -45,8 +46,7 @@ class DriverServiceProvider extends ModuleServiceProvider
         // Mỗi 5 phút — dò ca vừa kết thúc (giờ khác nhau theo từng khu vực),
         // chấm % thời gian online cuối ca — thay luật "8h/ngày" cũ.
         $schedule->command('drivers:score-shift-sessions')->everyFiveMinutes();
-        // Mỗi phút ghi các khoảng Online có GPS tươi. Mất GPS không
-        // tự Offline nữa; dispatch ngừng phát đơn và chấm ca ngừng cộng giờ.
-        $schedule->command('drivers:track-gps-eligibility')->everyMinute()->withoutOverlapping();
+        // GPS chỉ còn phục vụ phát đơn. Chấm giờ ca dùng các phiên Online /
+        // Offline trong driver_shift_sessions, nên không chạy tracker GPS.
     }
 }
