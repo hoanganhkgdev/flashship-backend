@@ -13,13 +13,13 @@ class StaleLocationPolicyTest extends TestCase
         $now = CarbonImmutable::parse('2026-09-14 10:05:00', 'Asia/Ho_Chi_Minh');
         $gpsAt = $now->subSeconds(30);
 
-        $expiresAt = (new StaleLocationPolicy)->expiresAtTimestamp([
+        $warningDueAt = (new StaleLocationPolicy)->warningDueTimestamp([
             'lat' => 10.0,
             'lng' => 105.0,
             'updated_at' => $gpsAt->getTimestampMs(),
         ], $now->subMinutes(10), $now);
 
-        $this->assertSame($gpsAt->addSeconds(120)->getTimestamp(), $expiresAt);
+        $this->assertSame($gpsAt->addSeconds(120)->getTimestamp(), $warningDueAt);
     }
 
     public function test_missing_location_expires_two_minutes_after_going_online(): void
@@ -27,9 +27,9 @@ class StaleLocationPolicyTest extends TestCase
         $now = CarbonImmutable::parse('2026-09-14 10:05:00', 'Asia/Ho_Chi_Minh');
         $onlineSince = $now->subMinutes(3);
 
-        $expiresAt = (new StaleLocationPolicy)->expiresAtTimestamp(null, $onlineSince, $now);
+        $warningDueAt = (new StaleLocationPolicy)->warningDueTimestamp(null, $onlineSince, $now);
 
-        $this->assertSame($onlineSince->addSeconds(120)->getTimestamp(), $expiresAt);
+        $this->assertSame($onlineSince->addSeconds(120)->getTimestamp(), $warningDueAt);
     }
 
     public function test_location_from_a_previous_session_does_not_expire_the_new_session_early(): void
@@ -37,13 +37,13 @@ class StaleLocationPolicyTest extends TestCase
         $now = CarbonImmutable::parse('2026-09-14 10:05:00', 'Asia/Ho_Chi_Minh');
         $onlineSince = $now->subSeconds(30);
 
-        $expiresAt = (new StaleLocationPolicy)->expiresAtTimestamp([
+        $warningDueAt = (new StaleLocationPolicy)->warningDueTimestamp([
             'lat' => 10.0,
             'lng' => 105.0,
             'updated_at' => $now->subHour()->getTimestampMs(),
         ], $onlineSince, $now);
 
-        $this->assertSame($onlineSince->addSeconds(120)->getTimestamp(), $expiresAt);
+        $this->assertSame($onlineSince->addSeconds(120)->getTimestamp(), $warningDueAt);
     }
 
     public function test_future_timestamp_is_not_trusted(): void
@@ -51,12 +51,21 @@ class StaleLocationPolicyTest extends TestCase
         $now = CarbonImmutable::parse('2026-09-14 10:05:00', 'Asia/Ho_Chi_Minh');
         $onlineSince = $now->subSeconds(30);
 
-        $expiresAt = (new StaleLocationPolicy)->expiresAtTimestamp([
+        $warningDueAt = (new StaleLocationPolicy)->warningDueTimestamp([
             'lat' => 10.0,
             'lng' => 105.0,
             'updated_at' => $now->addMinute()->getTimestampMs(),
         ], $onlineSince, $now);
 
-        $this->assertSame($onlineSince->addSeconds(120)->getTimestamp(), $expiresAt);
+        $this->assertSame($onlineSince->addSeconds(120)->getTimestamp(), $warningDueAt);
+    }
+
+    public function test_driver_has_one_full_minute_after_the_warning(): void
+    {
+        $notifiedAt = CarbonImmutable::parse('2026-09-14 10:07:13', 'Asia/Ho_Chi_Minh');
+
+        $offlineDueAt = (new StaleLocationPolicy)->offlineDueTimestamp($notifiedAt);
+
+        $this->assertSame($notifiedAt->addMinute()->getTimestamp(), $offlineDueAt);
     }
 }

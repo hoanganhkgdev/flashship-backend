@@ -119,6 +119,8 @@ class DriverController extends Controller
 
             $locked->is_online    = $targetOnline;
             $locked->online_since = $locked->is_online ? now() : null;
+            $locked->gps_stale_notified_at = null;
+            $locked->gps_stale_evidence_at = null;
 
             // Ghi log phiên online/offline — dùng để tính % online trong ca ở
             // lệnh drivers:score-shift-sessions cuối mỗi ca (thay cho luật

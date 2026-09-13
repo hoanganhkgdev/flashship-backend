@@ -72,6 +72,8 @@ class User extends Authenticatable implements FilamentUser, HasDefaultTenant, Ha
         'name_updated_at',
         'delete_requested_at',
         'last_location_at',
+        'gps_stale_notified_at',
+        'gps_stale_evidence_at',
     ];
 
     protected $hidden = [
@@ -91,6 +93,8 @@ class User extends Authenticatable implements FilamentUser, HasDefaultTenant, Ha
             'online_since' => 'datetime',
             'score_suspended_until' => 'datetime',
             'last_location_at' => 'datetime',
+            'gps_stale_notified_at' => 'datetime',
+            'gps_stale_evidence_at' => 'datetime',
         ];
     }
 
