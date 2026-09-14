@@ -235,16 +235,6 @@ class AuthController extends Controller
             \Modules\Driver\Models\DriverShiftSession::where('driver_id', $user->id)
                 ->whereNull('ended_at')
                 ->update(['ended_at' => now()]);
-            $gpsSessions = \Modules\Driver\Models\DriverGpsEligibleSession::where('driver_id', $user->id)
-                ->whereNull('ended_at')
-                ->lockForUpdate()
-                ->get();
-            foreach ($gpsSessions as $gpsSession) {
-                $endedAt = $gpsSession->last_gps_at->copy()
-                    ->addSeconds(\Modules\Driver\Services\DriverLocationService::POS_MAX_AGE_SECS)
-                    ->min(now());
-                $gpsSession->update(['ended_at' => $endedAt]);
-            }
             return $offers->pluck('id')->map(fn ($id) => (int) $id)->all();
         });
         $user->is_online = false;

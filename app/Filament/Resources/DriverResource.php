@@ -16,9 +16,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Redis;
 use Modules\Core\Models\User;
 use Modules\Core\Services\RTDBService;
-use Modules\Driver\Models\DriverGpsEligibleSession;
 use Modules\Driver\Models\DriverShiftSession;
-use Modules\Driver\Services\DriverLocationService;
 use Modules\Order\Models\Order;
 use Modules\Order\Models\OrderDispatchLog;
 use Modules\Order\Services\DispatchService;
@@ -295,15 +293,6 @@ class DriverResource extends Resource
                                 ->whereNull('ended_at')
                                 ->lockForUpdate()
                                 ->update(['ended_at' => now()]);
-
-                            $gpsSessions = DriverGpsEligibleSession::where('driver_id', $driver->id)
-                                ->whereNull('ended_at')->lockForUpdate()->get();
-                            foreach ($gpsSessions as $session) {
-                                $endedAt = $session->last_gps_at->copy()
-                                    ->addSeconds(DriverLocationService::POS_MAX_AGE_SECS)
-                                    ->min(now());
-                                $session->update(['ended_at' => $endedAt]);
-                            }
 
                             $driver->update([
                                 'status' => 2,

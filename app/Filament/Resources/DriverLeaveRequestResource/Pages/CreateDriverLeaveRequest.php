@@ -10,10 +10,8 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Modules\Core\Models\User;
 use Modules\Core\Services\RTDBService;
-use Modules\Driver\Models\DriverGpsEligibleSession;
 use Modules\Driver\Models\DriverLeaveRequest;
 use Modules\Driver\Models\DriverShiftSession;
-use Modules\Driver\Services\DriverLocationService;
 use Modules\Order\Models\Order;
 
 class CreateDriverLeaveRequest extends CreateRecord
@@ -56,16 +54,6 @@ class CreateDriverLeaveRequest extends CreateRecord
             DriverShiftSession::where('driver_id', $this->record->driver_id)
                 ->whereNull('ended_at')
                 ->update(['ended_at' => now()]);
-            $gpsSessions = DriverGpsEligibleSession::where('driver_id', $this->record->driver_id)
-                ->whereNull('ended_at')
-                ->lockForUpdate()
-                ->get();
-            foreach ($gpsSessions as $gpsSession) {
-                $endedAt = $gpsSession->last_gps_at->copy()
-                    ->addSeconds(DriverLocationService::POS_MAX_AGE_SECS)
-                    ->min(now());
-                $gpsSession->update(['ended_at' => $endedAt]);
-            }
         });
         RTDBService::removeDriverLocation($this->record->driver_id);
     }

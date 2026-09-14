@@ -12,7 +12,7 @@ class DriverLocationService
 {
     // App làm mới updated_at tối đa mỗi 20s kể cả khi đứng yên.
     // Cho vùng đệm 3 phút để không loại oan khi mạng/GPS chập chờn;
-    // quá mốc này thì không thể phát đơn và không cộng giờ ca.
+    // quá mốc này thì không thể phát đơn và cơ chế bảo vệ sẽ cảnh báo/Offline.
     const POS_MAX_AGE_SECS = 180;
 
     /**
@@ -22,8 +22,8 @@ class DriverLocationService
     public function freshLocationsFor(array $driverIds): array
     {
         // Khi Firebase lỗi, fail closed cho dispatch: không phát đơn dựa trên
-        // vị trí không xác minh được. Cron chấm giờ xử lý null theo cách khác
-        // (bỏ qua vòng quan sát), xem TrackGpsEligibleSessionsCommand.
+        // vị trí không xác minh được. Cron tự Offline sẽ bỏ qua cả vòng kiểm
+        // tra nếu Firebase lỗi để không chuyển Offline oan.
         $raw = RTDBService::getDriverLocations() ?? [];
         $now = time();
         $out = [];

@@ -9,7 +9,6 @@ use Modules\Driver\Console\Commands\InactivityDecayCommand;
 use Modules\Driver\Console\Commands\MarkOverdueDebtsCommand;
 use Modules\Driver\Console\Commands\PruneDriverLocationLogsCommand;
 use Modules\Driver\Console\Commands\ScoreShiftSessionsCommand;
-use Modules\Driver\Console\Commands\TrackGpsEligibleSessionsCommand;
 use Modules\Driver\Console\Commands\WeeklyScoreCommand;
 use Nwidart\Modules\Support\ModuleServiceProvider;
 
@@ -27,7 +26,6 @@ class DriverServiceProvider extends ModuleServiceProvider
         WeeklyScoreCommand::class,
         PruneDriverLocationLogsCommand::class,
         ScoreShiftSessionsCommand::class,
-        TrackGpsEligibleSessionsCommand::class,
     ];
 
     protected array $providers = [

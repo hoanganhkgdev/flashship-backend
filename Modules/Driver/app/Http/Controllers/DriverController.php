@@ -158,16 +158,6 @@ class DriverController extends Controller
                 \Modules\Driver\Models\DriverShiftSession::where('driver_id', $locked->id)
                     ->whereNull('ended_at')
                     ->update(['ended_at' => now()]);
-                $gpsSessions = \Modules\Driver\Models\DriverGpsEligibleSession::where('driver_id', $locked->id)
-                    ->whereNull('ended_at')
-                    ->lockForUpdate()
-                    ->get();
-                foreach ($gpsSessions as $gpsSession) {
-                    $endedAt = $gpsSession->last_gps_at->copy()
-                        ->addSeconds(\Modules\Driver\Services\DriverLocationService::POS_MAX_AGE_SECS)
-                        ->min(now());
-                    $gpsSession->update(['ended_at' => $endedAt]);
-                }
             }
 
             $locked->save();
@@ -808,15 +798,6 @@ class DriverController extends Controller
 
             \Modules\Driver\Models\DriverShiftSession::where('driver_id', $driver->id)
                 ->whereNull('ended_at')->lockForUpdate()->update(['ended_at' => now()]);
-            $gpsSessions = \Modules\Driver\Models\DriverGpsEligibleSession::where('driver_id', $driver->id)
-                ->whereNull('ended_at')->lockForUpdate()->get();
-            foreach ($gpsSessions as $session) {
-                $endedAt = $session->last_gps_at->copy()
-                    ->addSeconds(\Modules\Driver\Services\DriverLocationService::POS_MAX_AGE_SECS)
-                    ->min(now());
-                $session->update(['ended_at' => $endedAt]);
-            }
-
             $driver->update([
                 'delete_requested_at' => now(),
                 'is_online' => false,
