@@ -74,35 +74,17 @@ class FCMService
         // onMessage/onBackgroundMessage xử lý như cũ, không tự hiển thị gì
         // thêm nên không bị trùng 2 thông báo. channel_id trỏ đúng kênh đã
         // tạo sẵn trong app (kèm chuông/rung riêng) để OS tự hiển thị đúng.
-        try {
-            $data = [
-                'type'       => 'order_offer',
-                'order_id'   => (string) $orderId,
-                'order_code' => (string) $orderCode,
-                'expires_at' => (string) ($expiresAt ?? (time() + 25)),
-                'receipt_url'=> (string) ($receiptUrl ?? ''),
-            ];
+        $data = [
+            'type'       => 'order_offer',
+            'order_id'   => (string) $orderId,
+            'order_code' => (string) $orderCode,
+            'expires_at' => (string) ($expiresAt ?? (time() + 25)),
+            'receipt_url'=> (string) ($receiptUrl ?? ''),
+        ];
 
-            // iOS không bảo đảm chạy Dart background handler cho push
-            // alert+data (OS có thể tự hiển banner mà không đánh thức
-            // app). Gửi thêm silent wake-up riêng: handler chạy được thì
-            // app ACK received_at; không chạy được thì backend không phạt.
-            $silent = CloudMessage::withTarget('token', $fcmToken)
-                ->withData($data + ['ack_only' => '1'])
-                ->withAndroidConfig(AndroidConfig::fromArray([
-                    'priority' => 'high',
-                    'ttl'      => '25s',
-                ]))
-                ->withApnsConfig(ApnsConfig::fromArray([
-                    'headers' => [
-                        'apns-priority'  => '5',
-                        'apns-push-type' => 'background',
-                    ],
-                    'payload' => ['aps' => ['content-available' => 1]],
-                ]));
-            $this->sendWithRetry(fn (self $fcm) => $fcm->messaging->send($silent));
-
-            $message = CloudMessage::withTarget('token', $fcmToken)
+        // Gửi banner nhìn thấy trước. Gói ACK nền chỉ là tín hiệu bổ sung,
+        // tuyệt đối không được trì hoãn hoặc chặn thông báo chính.
+        $message = CloudMessage::withTarget('token', $fcmToken)
                 ->withNotification(Notification::create('Có đơn hàng mới!', 'Nhấn để xem và nhận đơn hàng'))
                 ->withData($data)
                 ->withAndroidConfig(AndroidConfig::fromArray([
@@ -139,9 +121,38 @@ class FCMService
                         'interruption-level' => 'time-sensitive',
                     ]],
                 ]));
+
+        try {
             $this->sendWithRetry(fn (self $fcm) => $fcm->messaging->send($message));
         } catch (\Throwable $e) {
-            Log::error('[FCM] sendDriverWakeUp failed: ' . $e->getMessage());
+            Log::error('[FCM] Không gửi được banner đơn hàng: ' . $e->getMessage(), [
+                'order_id' => $orderId,
+            ]);
+        }
+
+        // iOS không bảo đảm chạy Dart background handler cho push alert+data.
+        // Gửi ACK wake-up độc lập sau banner; lỗi ở đây không ảnh hưởng việc
+        // tài xế nhìn thấy thông báo và backend cũng không dùng nó để phạt oan.
+        $silent = CloudMessage::withTarget('token', $fcmToken)
+            ->withData($data + ['ack_only' => '1'])
+            ->withAndroidConfig(AndroidConfig::fromArray([
+                'priority' => 'high',
+                'ttl'      => '25s',
+            ]))
+            ->withApnsConfig(ApnsConfig::fromArray([
+                'headers' => [
+                    'apns-priority'  => '5',
+                    'apns-push-type' => 'background',
+                ],
+                'payload' => ['aps' => ['content-available' => 1]],
+            ]));
+
+        try {
+            $this->sendWithRetry(fn (self $fcm) => $fcm->messaging->send($silent));
+        } catch (\Throwable $e) {
+            Log::warning('[FCM] Banner đã gửi nhưng ACK nền thất bại: ' . $e->getMessage(), [
+                'order_id' => $orderId,
+            ]);
         }
     }
 
