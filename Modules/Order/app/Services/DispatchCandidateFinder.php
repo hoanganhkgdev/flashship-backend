@@ -22,8 +22,8 @@ class DispatchCandidateFinder
     // Ghép đơn tự động trong find() — điều kiện: điểm lấy 2 đơn gần nhau VÀ
     // điểm giao 2 đơn cũng gần nhau (cùng khu vực lấy, cùng khu vực giao mới
     // hợp lý để 1 tài xế chạy được cả 2 mà không vòng vèo quá xa).
-    const BATCH_MAX_PICKUP_KM   = 1.0;
-    const BATCH_MAX_DELIVERY_KM = 1.5;
+    const BATCH_MAX_PICKUP_KM   = StackedOrderPolicy::MAX_PICKUP_KM;
+    const BATCH_MAX_DELIVERY_KM = StackedOrderPolicy::MAX_DELIVERY_KM;
 
     // Không còn khái niệm "bán kính tìm kiếm" (2km/4km đường chim bay) — quét
     // TOÀN BỘ tài xế online đủ điều kiện trong thành phố ngay từ đầu, tính
@@ -124,28 +124,17 @@ class DispatchCandidateFinder
         // giao 2 đơn ≤ BATCH_MAX_DELIVERY_KM (cả 2 điều kiện, không phải 1).
         $activeOrders = Order::whereIn('status', ['assigned', 'processing'])
             ->whereIn('delivery_man_id', $afterLicense->pluck('id'))
-            ->get(['delivery_man_id', 'pickup_lat', 'pickup_lng', 'delivery_lat', 'delivery_lng'])
+            ->get(['delivery_man_id', 'status', 'pickup_lat', 'pickup_lng', 'delivery_lat', 'delivery_lng'])
             ->keyBy('delivery_man_id');
 
         $afterDetour = $afterLicense->filter(function (User $d) use ($order, $activeOrders) {
             $active = $activeOrders->get($d->id);
             if (!$active) return true;
-            if (!$active->pickup_lat || !$active->pickup_lng || !$active->delivery_lat || !$active->delivery_lng) return false;
 
-            $pickupToPickup = GoogleMapService::haversineKm(
-                (float) $order->pickup_lat, (float) $order->pickup_lng,
-                (float) $active->pickup_lat, (float) $active->pickup_lng
-            );
-            $deliveryToDelivery = GoogleMapService::haversineKm(
-                (float) $order->delivery_lat, (float) $order->delivery_lng,
-                (float) $active->delivery_lat, (float) $active->delivery_lng
-            );
-
-            return $pickupToPickup <= self::BATCH_MAX_PICKUP_KM
-                && $deliveryToDelivery <= self::BATCH_MAX_DELIVERY_KM;
+            return StackedOrderPolicy::allows($order, $active);
         });
         if (($removed = $afterLicense->count() - $afterDetour->count()) > 0) {
-            Log::debug("     [Candidates] Loại {$removed} tài xế — đơn đang chạy không cùng tuyến (lấy >1km hoặc giao >1.5km)");
+            Log::debug("     [Candidates] Loại {$removed} tài xế — đã lấy đơn thứ nhất hoặc hai đơn không cùng tuyến");
         }
 
         // ── 5. Tính khoảng cách đường thật cho TOÀN BỘ ứng viên còn lại — 1 lần

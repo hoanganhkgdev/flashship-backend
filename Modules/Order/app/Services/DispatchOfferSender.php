@@ -55,12 +55,18 @@ class DispatchOfferSender
         }
 
         // Verify lại lần cuối — tài xế có thể nhận đơn giữa lúc pop và lock
-        $activeCount = Order::where('delivery_man_id', $driver->id)
+        $activeOrders = Order::where('delivery_man_id', $driver->id)
             ->whereIn('status', ['assigned', 'processing'])
-            ->count();
+            ->get();
+        $activeCount = $activeOrders->count();
         if ($activeCount >= 2) {
             Redis::del($lockKey);
             Log::debug("│  Skip #{$driver->id} {$driver->name}: đã có {$activeCount} đơn active");
+            return false;
+        }
+        if ($activeCount === 1 && ! StackedOrderPolicy::allows($order, $activeOrders->first())) {
+            Redis::del($lockKey);
+            Log::debug("│  Skip #{$driver->id} {$driver->name}: đơn thứ nhất đã lấy hoặc không còn đủ điều kiện ghép");
             return false;
         }
 

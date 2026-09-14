@@ -221,8 +221,11 @@ class OrderService
 
             $activeOrders = Order::where('delivery_man_id', $user->id)
                 ->whereIn('status', ['assigned', 'processing'])
-                ->count();
-            if ($activeOrders >= 2) {
+                ->lockForUpdate()
+                ->get();
+            if ($activeOrders->count() >= 2
+                || ($activeOrders->count() === 1
+                    && ! StackedOrderPolicy::allows($order, $activeOrders->first()))) {
                 OrderDispatchLog::where('order_id', $order->id)
                     ->where('driver_id', $user->id)
                     ->where('result', 'pending')
@@ -230,7 +233,12 @@ class OrderService
                     // Đây là offer không còn hợp lệ do tài xế vừa đủ 2 đơn,
                     // không phải hành vi từ chối để bị trừ điểm.
                     ->update(['result' => 'expired', 'responded_at' => now()]);
-                return 'busy';
+                DB::table('orders')->where('id', $order->id)
+                    ->where('status', 'pending')
+                    ->where('dispatching_to_driver_id', $user->id)
+                    ->update(['dispatching_to_driver_id' => null, 'updated_at' => now()]);
+
+                return $activeOrders->count() >= 2 ? 'busy' : 'not_stackable';
             }
 
             return DB::table('orders')
@@ -248,8 +256,22 @@ class OrderService
                 ]);
         });
 
-        if ($assignment === 'busy') {
-            return ['success' => false, 'message' => 'Bạn đang có 2 đơn hàng chưa hoàn thành. Vui lòng hoàn thành bớt trước.', 'status' => 400];
+        if (in_array($assignment, ['busy', 'not_stackable'], true)) {
+            Redis::del("dispatch:lock:driver:{$user->id}");
+            RTDBService::clearDriverOffer($user->id, $order->id);
+            $orderId = $order->id;
+            dispatch(function () use ($orderId) {
+                $freshOrder = Order::find($orderId);
+                if ($freshOrder?->status === 'pending') {
+                    app(DispatchService::class)->sendToNextDriver($freshOrder);
+                }
+            })->afterResponse();
+
+            $message = $assignment === 'busy'
+                ? 'Bạn đang có 2 đơn hàng chưa hoàn thành. Vui lòng hoàn thành bớt trước.'
+                : 'Đơn ghép không còn phù hợp vì bạn đã lấy đơn trước. Hệ thống sẽ chuyển đơn cho tài xế khác.';
+
+            return ['success' => false, 'message' => $message, 'status' => 409];
         }
 
         if ($assignment === 0) {
