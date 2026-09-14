@@ -21,7 +21,7 @@ class AutoOfflineStaleLocationCommand extends Command
 {
     protected $signature = 'drivers:auto-offline-stale-location';
 
-    protected $description = 'Cảnh báo GPS quá hạn 2 phút và tự Offline sau thêm 1 phút không phục hồi';
+    protected $description = 'Cảnh báo GPS quá hạn 3 phút và tự Offline sau thêm 1 phút không phục hồi';
 
     public function handle(StaleLocationPolicy $policy): void
     {
@@ -159,7 +159,7 @@ class AutoOfflineStaleLocationCommand extends Command
         FCMService::getInstance()->sendDriverNotice(
             $driver->fcm_token,
             'Mất kết nối vị trí',
-            'Không nhận được GPS mới trong 2 phút. Hãy mở app trong 1 phút để tránh bị chuyển Offline.',
+            'Không nhận được GPS mới trong 3 phút. Hãy mở app và bật GPS trong 1 phút để tránh bị chuyển Offline.',
             ['type' => 'driver_gps_stale_warning', 'reason' => 'stale_location'],
         );
     }

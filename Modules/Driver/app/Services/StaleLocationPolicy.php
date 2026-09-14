@@ -6,7 +6,7 @@ use Carbon\CarbonInterface;
 
 class StaleLocationPolicy
 {
-    public const STALE_AFTER_SECONDS = 120;
+    public const STALE_AFTER_SECONDS = 180;
 
     public const RESPONSE_GRACE_SECONDS = 60;
 

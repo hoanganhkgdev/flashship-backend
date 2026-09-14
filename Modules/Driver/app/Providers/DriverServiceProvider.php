@@ -48,8 +48,9 @@ class DriverServiceProvider extends ModuleServiceProvider
         // Mỗi 5 phút — dò ca vừa kết thúc (giờ khác nhau theo từng khu vực),
         // chấm % thời gian online cuối ca — thay luật "8h/ngày" cũ.
         $schedule->command('drivers:score-shift-sessions')->everyFiveMinutes();
-        // Mỗi phút kiểm tra heartbeat vị trí. Quá 2 phút không có vị trí mới
-        // thì backend tự Offline; bộ chấm ca vẫn chỉ đọc phiên Online/Offline.
+        // Mỗi phút kiểm tra heartbeat vị trí. Quá 3 phút không có vị trí mới
+        // thì cảnh báo; sau thêm 1 phút không phục hồi mới tự Offline và đóng
+        // phiên tính giờ. Bộ chấm ca vẫn chỉ đọc phiên Online/Offline.
         $schedule->command('drivers:auto-offline-stale-location')
             ->everyMinute()
             ->withoutOverlapping();
