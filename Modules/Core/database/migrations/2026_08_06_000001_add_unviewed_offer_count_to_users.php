@@ -10,7 +10,8 @@ return new class extends Migration
     {
         Schema::table('users', function (Blueprint $table) {
             // Đếm dồn liên tục số offer bị bỏ lỡ KHÔNG xem — cứ đủ 3 thì trừ 1
-            // điểm rồi reset về 0 (xem DriverScoreService::onOfferUnviewed()).
+            // Cột tương thích dữ liệu cũ; logic hiện tại dùng cửa sổ 5 dòng
+            // order_dispatch_logs gần nhất trong mỗi phiên Online.
             // Thay hẳn cho luật % bỏ lỡ tính cuối ca cũ.
             $table->unsignedTinyInteger('unviewed_offer_count')->default(0)->after('driver_score');
         });

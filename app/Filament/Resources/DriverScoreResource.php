@@ -333,7 +333,7 @@ class DriverScoreResource extends Resource
             $reason === 'complete' => 'Hoàn thành đơn',
             $reason === 'decline' => 'Từ chối đơn',
             $reason === 'viewed_timeout' => 'Xem đơn nhưng không nhận',
-            $reason === 'offer_unviewed_x3' => 'Không xem 3 đơn liên tiếp',
+            $reason === 'offer_unviewed_x3' => 'Không xem 3/5 đơn gần nhất',
             str_starts_with($reason, 'streak_') => 'Thưởng chuỗi '.str_replace('streak_', '', $reason).' đơn',
             $reason === 'shift_online_normal' => 'Online đủ ca (85–100%)',
             $reason === 'shift_online_reduced' => 'Online 70–84% ca',

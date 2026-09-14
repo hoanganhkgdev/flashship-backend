@@ -266,8 +266,7 @@ class OrderService
 
         \Illuminate\Support\Facades\Redis::del("dispatch:lock:driver:{$user->id}");
         DB::table('users')->where('id', $user->id)->update([
-            'last_order_accepted_at'  => now(),
-            'unviewed_offer_count'    => 0,
+            'last_order_accepted_at' => now(),
         ]);
 
         $orderId   = $order->id;

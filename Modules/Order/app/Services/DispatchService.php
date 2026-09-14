@@ -135,16 +135,16 @@ class DispatchService
             DriverScoreService::onViewedTimeout($driverId);
             Log::info("⏱  [Dispatch] Đơn #{$order->id}: Tài xế {$name} xem đơn nhưng không nhận → " . DriverScoreService::SCORE_VIEWED_TIMEOUT . " điểm, pop tiếp");
         } elseif ($timedOutLog->received_at) {
-            $unviewedCount = DriverScoreService::onOfferUnviewed($driverId);
-            Log::info("⏱  [Dispatch] Đơn #{$order->id}: app tài xế {$name} đã ACK nhận nhưng không mở → cộng chuỗi bỏ lỡ (3 lần trừ 2 điểm rồi tự Offline), pop tiếp");
-            if ($unviewedCount === 2 && $driver?->fcm_token) {
+            $window = $this->unviewedOfferWindow($driverId, $driver?->online_since);
+            Log::info("⏱  [Dispatch] Đơn #{$order->id}: app tài xế {$name} đã ACK nhưng không mở → {$window['unviewed']}/{$window['total']} offer ACK gần nhất bị bỏ lỡ, pop tiếp");
+            if ($window['should_warn'] && $driver?->fcm_token) {
                 FCMService::getInstance()->sendDriverNotice(
                     $driver->fcm_token,
                     'Bạn đã bỏ lỡ 2 đơn',
-                    'Nếu không mở thêm 1 đơn nữa, hệ thống sẽ trừ 2 điểm và chuyển bạn Offline.',
+                    'Nếu bỏ lỡ thêm 1 trong 5 đơn gần nhất, hệ thống sẽ trừ 2 điểm và chuyển bạn Offline.',
                     ['type' => 'missed_offers_warning'],
                 );
-            } elseif ($unviewedCount >= 3) {
+            } elseif ($window['should_offline']) {
                 $this->autoOfflineAfterUnviewedOffers($driverId);
             }
         } else {
@@ -167,12 +167,19 @@ class DispatchService
             $driver = User::whereKey($driverId)->lockForUpdate()->first();
             if (! $driver?->is_online) return null;
 
+            // Kiểm tra lại dưới cùng khoá dòng với thao tác trừ điểm + Offline.
+            // Hai timeout chạy đồng thời vì vậy không thể cùng trừ điểm.
+            $window = $this->unviewedOfferWindow($driverId, $driver->online_since);
+            if (! $window['should_offline']) return null;
+
             // Không bao giờ tự Offline tài xế đang giữ đơn.
             if (Order::where('delivery_man_id', $driverId)
                 ->whereIn('status', ['assigned', 'processing'])
                 ->lockForUpdate()->exists()) {
                 return null;
             }
+
+            DriverScoreService::onUnviewedOfferWindowLimit($driverId);
 
             $now = now();
             $offers = Order::where('status', 'pending')
@@ -213,15 +220,31 @@ class DispatchService
             FCMService::getInstance()->sendDriverNotice(
                 $driver->fcm_token,
                 'Đã chuyển Offline',
-                'Bạn đã không mở 3 đơn liên tiếp. Hãy bật Online lại khi sẵn sàng nhận đơn.',
+                'Bạn đã không mở 3 trong 5 đơn gần nhất. Hãy bật Online lại khi sẵn sàng nhận đơn.',
                 ['type' => 'driver_auto_offline', 'reason' => 'unviewed_offers'],
             );
         }
 
-        Log::warning('[Dispatch] Tài xế tự Offline sau 3 offer có ACK nhưng không mở.', [
+        Log::warning('[Dispatch] Tài xế tự Offline sau khi không mở 3 trong 5 offer ACK gần nhất.', [
             'driver_id' => $driverId,
             'driver_name' => $driver->name,
         ]);
+    }
+
+    private function unviewedOfferWindow(int $driverId, mixed $onlineSince): array
+    {
+        if (! $onlineSince) {
+            return UnviewedOfferWindowPolicy::evaluate([]);
+        }
+
+        $offers = OrderDispatchLog::where('driver_id', $driverId)
+            ->whereNotNull('received_at')
+            ->where('offered_at', '>=', $onlineSince)
+            ->orderByDesc('offered_at')
+            ->limit(UnviewedOfferWindowPolicy::WINDOW_SIZE)
+            ->get(['viewed_at', 'result']);
+
+        return UnviewedOfferWindowPolicy::evaluate($offers);
     }
 
     public function handleAccepted(Order $order, User $driver): void

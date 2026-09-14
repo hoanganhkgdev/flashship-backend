@@ -65,7 +65,7 @@ class DriverScoreService
 
     public static function onDecline(int $driverId): void
     {
-        self::adjustWithStreakReset($driverId, self::SCORE_DECLINE, 'decline', true);
+        self::adjustWithStreakReset($driverId, self::SCORE_DECLINE, 'decline');
     }
 
     /**
@@ -97,7 +97,7 @@ class DriverScoreService
         };
 
         // Khoá dòng driver trước khi cộng/trừ điểm — các hàm chấm điểm khác
-        // (onComplete/onDecline/onOfferUnviewed, qua adjustWithStreakReset)
+        // (onComplete/onDecline/onUnviewedOfferWindowLimit, qua khoá dòng)
         // đều khoá trước khi gọi adjust(), hàm này trước đây thiếu, có thể
         // mất 1 lần cộng/trừ nếu trùng lúc cron chấm ca với 1 sự kiện chấm
         // điểm real-time khác cho cùng tài xế.
@@ -107,29 +107,10 @@ class DriverScoreService
         });
     }
 
-    /**
-     * Chỉ gọi khi app đã ACK `received_at` nhưng tài xế không
-     * mở offer. Ba lần liên tiếp trừ 2 điểm. Offer chỉ được
-     * backend/FCM gửi mà không có ACK tuyệt đối không gọi hàm này.
-     *
-     * @return int Số lần liên tiếp hiện tại; 3 nghĩa là vừa chạm ngưỡng.
-     */
-    public static function onOfferUnviewed(int $driverId): int
+    /** Gọi khi đã xác nhận có 3 offer không mở trong cửa sổ 5 offer ACK. */
+    public static function onUnviewedOfferWindowLimit(int $driverId): void
     {
-        return DB::transaction(function () use ($driverId) {
-            $count = (int) (DB::table('users')->where('id', $driverId)->lockForUpdate()->value('unviewed_offer_count') ?? 0) + 1;
-
-            if ($count >= 3) {
-                DB::table('users')->where('id', $driverId)->update(['unviewed_offer_count' => 0]);
-                self::adjust($driverId, self::SCORE_UNVIEWED_X3, 'offer_unviewed_x3');
-
-                return 3;
-            }
-
-            DB::table('users')->where('id', $driverId)->update(['unviewed_offer_count' => $count]);
-
-            return $count;
-        });
+        self::adjustWithStreakReset($driverId, self::SCORE_UNVIEWED_X3, 'offer_unviewed_x3');
     }
 
     // ─── Weekly Reset ────────────────────────────────────────────────────────────
@@ -169,14 +150,12 @@ class DriverScoreService
         int $driverId,
         int $delta,
         string $reason,
-        bool $resetUnviewedOffers = false,
     ): void
     {
-        DB::transaction(function () use ($driverId, $delta, $reason, $resetUnviewedOffers) {
+        DB::transaction(function () use ($driverId, $delta, $reason) {
             DB::table('users')->where('id', $driverId)->lockForUpdate()->select('id')->first();
             DB::table('users')->where('id', $driverId)->update([
                 'consecutive_completed' => 0,
-                ...($resetUnviewedOffers ? ['unviewed_offer_count' => 0] : []),
             ]);
             self::adjust($driverId, $delta, $reason);
         });

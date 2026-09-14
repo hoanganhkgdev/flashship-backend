@@ -244,18 +244,9 @@ class ScoreAndWalletRaceConditionTest extends TestCase
         $this->assertSame(98, (int) DB::table('users')->where('id', $viewedDriver)->value('driver_score'));
 
         $unviewedDriver = $this->makeDriver(100);
-        $this->assertSame(1, DriverScoreService::onOfferUnviewed($unviewedDriver));
-        $this->assertSame(2, DriverScoreService::onOfferUnviewed($unviewedDriver));
-        $this->assertSame(100, (int) DB::table('users')->where('id', $unviewedDriver)->value('driver_score'));
-
-        $this->assertSame(3, DriverScoreService::onOfferUnviewed($unviewedDriver));
+        DriverScoreService::onUnviewedOfferWindowLimit($unviewedDriver);
         $this->assertSame(98, (int) DB::table('users')->where('id', $unviewedDriver)->value('driver_score'));
-        $this->assertSame(0, (int) DB::table('users')->where('id', $unviewedDriver)->value('unviewed_offer_count'));
-
-        // Lời gọi trễ sau khi DispatchService đã Offline phải bắt đầu chuỗi
-        // mới, không được trừ thêm 2 điểm ngay lập tức.
-        $this->assertSame(1, DriverScoreService::onOfferUnviewed($unviewedDriver));
-        $this->assertSame(98, (int) DB::table('users')->where('id', $unviewedDriver)->value('driver_score'));
+        $this->assertSame('offer_unviewed_x3', DB::table('driver_score_logs')->where('driver_id', $unviewedDriver)->latest('id')->value('reason'));
     }
 
     public function test_wallet_balance_correct_after_sequential_credit_and_debit(): void

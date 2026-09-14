@@ -134,7 +134,7 @@ class ScoreController extends Controller
             $reason === 'shift_never_online'   => 'Không online suốt cả ca',
             $reason === 'shift_online_high'    => 'Online ≥ 90% thời lượng ca',
             $reason === 'shift_online_neutral' => 'Online 70–89% thời lượng ca',
-            $reason === 'offer_unviewed_x3'  => 'Bỏ lỡ 3 đơn không xem',
+            $reason === 'offer_unviewed_x3'  => 'Bỏ lỡ 3/5 đơn gần nhất',
             $reason === 'streak_bonus'     => 'Thưởng chuỗi đơn liên tiếp',
             $reason === 'inactive_1_day' || $reason === 'inactivity_1d'
                 => 'Không giao đơn 1 ngày',

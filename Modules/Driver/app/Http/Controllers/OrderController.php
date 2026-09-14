@@ -124,9 +124,6 @@ class OrderController extends Controller
                 ->whereNull('viewed_at')
                 ->update(['received_at' => DB::raw('COALESCE(received_at, CURRENT_TIMESTAMP)'), 'viewed_at' => $viewedAt]);
 
-            // Đã thật sự mở xem thì chuỗi "nhận nhưng không xem" bị ngắt.
-            DB::table('users')->where('id', $driver->id)->update(['unviewed_offer_count' => 0]);
-
             // Reset đồng hồ RTDB về APP_DECISION_SECS — giống ShopeeFood
             RTDBService::updateDriverOfferExpiry($driver->id, $order->id, $expiresAt->timestamp);
 
