@@ -243,9 +243,19 @@ class ScoreAndWalletRaceConditionTest extends TestCase
         DriverScoreService::onViewedTimeout($viewedDriver);
         $this->assertSame(98, (int) DB::table('users')->where('id', $viewedDriver)->value('driver_score'));
 
-        // DB test legacy chưa có cột unviewed_offer_count; khóa mức
-        // phạt. DispatchService chỉ gọi khi có received_at ACK.
-        $this->assertSame(-2, DriverScoreService::SCORE_UNVIEWED_X3);
+        $unviewedDriver = $this->makeDriver(100);
+        $this->assertSame(1, DriverScoreService::onOfferUnviewed($unviewedDriver));
+        $this->assertSame(2, DriverScoreService::onOfferUnviewed($unviewedDriver));
+        $this->assertSame(100, (int) DB::table('users')->where('id', $unviewedDriver)->value('driver_score'));
+
+        $this->assertSame(3, DriverScoreService::onOfferUnviewed($unviewedDriver));
+        $this->assertSame(98, (int) DB::table('users')->where('id', $unviewedDriver)->value('driver_score'));
+        $this->assertSame(0, (int) DB::table('users')->where('id', $unviewedDriver)->value('unviewed_offer_count'));
+
+        // Lời gọi trễ sau khi DispatchService đã Offline phải bắt đầu chuỗi
+        // mới, không được trừ thêm 2 điểm ngay lập tức.
+        $this->assertSame(1, DriverScoreService::onOfferUnviewed($unviewedDriver));
+        $this->assertSame(98, (int) DB::table('users')->where('id', $unviewedDriver)->value('driver_score'));
     }
 
     public function test_wallet_balance_correct_after_sequential_credit_and_debit(): void

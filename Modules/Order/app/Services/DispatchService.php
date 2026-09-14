@@ -2,6 +2,7 @@
 namespace Modules\Order\Services;
 
 use Modules\Driver\Services\DriverScoreService;
+use Modules\Driver\Models\DriverShiftSession;
 use Modules\Order\Jobs\DispatchOrderRetryJob;
 use Modules\Order\Models\Order;
 use Modules\Order\Models\OrderDispatchLog;
@@ -134,8 +135,18 @@ class DispatchService
             DriverScoreService::onViewedTimeout($driverId);
             Log::info("⏱  [Dispatch] Đơn #{$order->id}: Tài xế {$name} xem đơn nhưng không nhận → " . DriverScoreService::SCORE_VIEWED_TIMEOUT . " điểm, pop tiếp");
         } elseif ($timedOutLog->received_at) {
-            DriverScoreService::onOfferUnviewed($driverId);
-            Log::info("⏱  [Dispatch] Đơn #{$order->id}: app tài xế {$name} đã ACK nhận nhưng không mở → cộng chuỗi bỏ lỡ (3 lần trừ 2 điểm), pop tiếp");
+            $unviewedCount = DriverScoreService::onOfferUnviewed($driverId);
+            Log::info("⏱  [Dispatch] Đơn #{$order->id}: app tài xế {$name} đã ACK nhận nhưng không mở → cộng chuỗi bỏ lỡ (3 lần trừ 2 điểm rồi tự Offline), pop tiếp");
+            if ($unviewedCount === 2 && $driver?->fcm_token) {
+                FCMService::getInstance()->sendDriverNotice(
+                    $driver->fcm_token,
+                    'Bạn đã bỏ lỡ 2 đơn',
+                    'Nếu không mở thêm 1 đơn nữa, hệ thống sẽ trừ 2 điểm và chuyển bạn Offline.',
+                    ['type' => 'missed_offers_warning'],
+                );
+            } elseif ($unviewedCount >= 3) {
+                $this->autoOfflineAfterUnviewedOffers($driverId);
+            }
         } else {
             // RTDB/FCM chỉ xác nhận backend đã gửi, không chứng minh
             // điện thoại đã hiển offer hay phát chuông. GPS/heartbeat tươi
@@ -148,6 +159,69 @@ class DispatchService
         RTDBService::clearDriverOffer($driverId, $order->id);
 
         $this->sendToNextDriver($order->fresh());
+    }
+
+    private function autoOfflineAfterUnviewedOffers(int $driverId): void
+    {
+        $result = DB::transaction(function () use ($driverId) {
+            $driver = User::whereKey($driverId)->lockForUpdate()->first();
+            if (! $driver?->is_online) return null;
+
+            // Không bao giờ tự Offline tài xế đang giữ đơn.
+            if (Order::where('delivery_man_id', $driverId)
+                ->whereIn('status', ['assigned', 'processing'])
+                ->lockForUpdate()->exists()) {
+                return null;
+            }
+
+            $now = now();
+            $offers = Order::where('status', 'pending')
+                ->where('dispatching_to_driver_id', $driverId)
+                ->lockForUpdate()->get();
+            foreach ($offers as $offer) {
+                $offer->update(['dispatching_to_driver_id' => null, 'offer_viewed_at' => null]);
+                OrderDispatchLog::where('order_id', $offer->id)
+                    ->where('driver_id', $driverId)->where('result', 'pending')
+                    ->update(['result' => 'expired', 'responded_at' => $now]);
+            }
+
+            DriverShiftSession::where('driver_id', $driverId)
+                ->whereNull('ended_at')->lockForUpdate()
+                ->update(['ended_at' => $now]);
+
+            $driver->update([
+                'is_online' => false,
+                'online_since' => null,
+                'gps_stale_notified_at' => null,
+                'gps_stale_evidence_at' => null,
+            ]);
+
+            return ['driver' => $driver, 'offers' => $offers];
+        });
+
+        if (! $result) return;
+
+        RTDBService::removeDriverLocation($driverId);
+        foreach ($result['offers'] as $offer) {
+            RTDBService::clearDriverOffer($driverId, $offer->id);
+            Redis::del("dispatch:lock:driver:{$driverId}");
+            $this->sendToNextDriver($offer->fresh());
+        }
+
+        $driver = $result['driver'];
+        if ($driver->fcm_token) {
+            FCMService::getInstance()->sendDriverNotice(
+                $driver->fcm_token,
+                'Đã chuyển Offline',
+                'Bạn đã không mở 3 đơn liên tiếp. Hãy bật Online lại khi sẵn sàng nhận đơn.',
+                ['type' => 'driver_auto_offline', 'reason' => 'unviewed_offers'],
+            );
+        }
+
+        Log::warning('[Dispatch] Tài xế tự Offline sau 3 offer có ACK nhưng không mở.', [
+            'driver_id' => $driverId,
+            'driver_name' => $driver->name,
+        ]);
     }
 
     public function handleAccepted(Order $order, User $driver): void

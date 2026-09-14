@@ -65,7 +65,7 @@ class DriverScoreService
 
     public static function onDecline(int $driverId): void
     {
-        self::adjustWithStreakReset($driverId, self::SCORE_DECLINE, 'decline');
+        self::adjustWithStreakReset($driverId, self::SCORE_DECLINE, 'decline', true);
     }
 
     /**
@@ -111,18 +111,24 @@ class DriverScoreService
      * Chỉ gọi khi app đã ACK `received_at` nhưng tài xế không
      * mở offer. Ba lần liên tiếp trừ 2 điểm. Offer chỉ được
      * backend/FCM gửi mà không có ACK tuyệt đối không gọi hàm này.
+     *
+     * @return int Số lần liên tiếp hiện tại; 3 nghĩa là vừa chạm ngưỡng.
      */
-    public static function onOfferUnviewed(int $driverId): void
+    public static function onOfferUnviewed(int $driverId): int
     {
-        DB::transaction(function () use ($driverId) {
+        return DB::transaction(function () use ($driverId) {
             $count = (int) (DB::table('users')->where('id', $driverId)->lockForUpdate()->value('unviewed_offer_count') ?? 0) + 1;
 
             if ($count >= 3) {
                 DB::table('users')->where('id', $driverId)->update(['unviewed_offer_count' => 0]);
                 self::adjust($driverId, self::SCORE_UNVIEWED_X3, 'offer_unviewed_x3');
-            } else {
-                DB::table('users')->where('id', $driverId)->update(['unviewed_offer_count' => $count]);
+
+                return 3;
             }
+
+            DB::table('users')->where('id', $driverId)->update(['unviewed_offer_count' => $count]);
+
+            return $count;
         });
     }
 
@@ -159,11 +165,19 @@ class DriverScoreService
 
     // ─── Core ────────────────────────────────────────────────────────────────────
 
-    private static function adjustWithStreakReset(int $driverId, int $delta, string $reason): void
+    private static function adjustWithStreakReset(
+        int $driverId,
+        int $delta,
+        string $reason,
+        bool $resetUnviewedOffers = false,
+    ): void
     {
-        DB::transaction(function () use ($driverId, $delta, $reason) {
+        DB::transaction(function () use ($driverId, $delta, $reason, $resetUnviewedOffers) {
             DB::table('users')->where('id', $driverId)->lockForUpdate()->select('id')->first();
-            DB::table('users')->where('id', $driverId)->update(['consecutive_completed' => 0]);
+            DB::table('users')->where('id', $driverId)->update([
+                'consecutive_completed' => 0,
+                ...($resetUnviewedOffers ? ['unviewed_offer_count' => 0] : []),
+            ]);
             self::adjust($driverId, $delta, $reason);
         });
     }
