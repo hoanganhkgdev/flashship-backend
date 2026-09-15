@@ -37,6 +37,7 @@ class AutoOfflineStaleLocationCommand extends Command
             ->where('is_online', true)
             ->get([
                 'id', 'name', 'online_since', 'fcm_token',
+                'platform',
                 'gps_stale_notified_at', 'gps_stale_evidence_at',
             ]);
         $activeDriverIds = Order::whereIn('status', ['assigned', 'processing'])
@@ -94,7 +95,13 @@ class AutoOfflineStaleLocationCommand extends Command
                 continue;
             }
 
-            $result = $this->forceOffline($driver->id, $offlineAtTimestamp, $now);
+            $result = $this->forceOffline(
+                $driver->id,
+                $offlineAtTimestamp,
+                $now,
+                is_array($location) ? $location : [],
+                $driver->gps_stale_notified_at,
+            );
             if (! $result) {
                 continue;
             }
@@ -167,9 +174,21 @@ class AutoOfflineStaleLocationCommand extends Command
     /**
      * @return array{offers: Collection<int, Order>}|null
      */
-    private function forceOffline(int $driverId, int $expiredAtTimestamp, Carbon $now): ?array
+    private function forceOffline(
+        int $driverId,
+        int $expiredAtTimestamp,
+        Carbon $now,
+        array $location,
+        ?Carbon $warnedAt,
+    ): ?array
     {
-        return DB::transaction(function () use ($driverId, $expiredAtTimestamp, $now) {
+        return DB::transaction(function () use (
+            $driverId,
+            $expiredAtTimestamp,
+            $now,
+            $location,
+            $warnedAt,
+        ) {
             $driver = User::whereKey($driverId)->lockForUpdate()->first();
             if (! $driver?->is_online) {
                 return null;
@@ -214,6 +233,42 @@ class AutoOfflineStaleLocationCommand extends Command
                 );
                 $session->update(['ended_at' => $endedAt]);
             }
+
+            $diagnostic = is_array($location['diagnostic'] ?? null)
+                ? $location['diagnostic']
+                : [];
+            $updatedAt = $location['updated_at'] ?? null;
+            DB::table('driver_gps_incidents')->insert([
+                'driver_id' => $driverId,
+                'last_location_at' => is_numeric($updatedAt)
+                    ? Carbon::createFromTimestampMs(
+                        (int) $updatedAt,
+                        config('app.timezone'),
+                    )
+                    : null,
+                'diagnostic_status' => isset($diagnostic['status'])
+                    ? mb_substr((string) $diagnostic['status'], 0, 50)
+                    : 'heartbeat_missing',
+                'diagnostic_detail' => isset($diagnostic['detail'])
+                    ? mb_substr((string) $diagnostic['detail'], 0, 255)
+                    : null,
+                'platform' => isset($location['platform'])
+                    ? mb_substr((string) $location['platform'], 0, 20)
+                    : $driver->platform,
+                'device_id' => isset($location['device_id'])
+                    ? mb_substr((string) $location['device_id'], 0, 100)
+                    : null,
+                'diagnostic_payload' => $diagnostic === []
+                    ? null
+                    : json_encode($diagnostic, JSON_UNESCAPED_UNICODE),
+                'warned_at' => $warnedAt,
+                'offline_at' => Carbon::createFromTimestamp(
+                    $expiredAtTimestamp,
+                    config('app.timezone'),
+                ),
+                'created_at' => $now,
+                'updated_at' => $now,
+            ]);
 
             $driver->update([
                 'is_online' => false,
