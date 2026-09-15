@@ -17,6 +17,8 @@ use Modules\Driver\Models\Bank;
 use Modules\Driver\Models\DriverCccdImage;
 use Modules\Driver\Models\DriverLicense;
 use Modules\Driver\Models\DriverLocationLog;
+use Modules\Driver\Models\DriverShiftSession;
+use Modules\Driver\Services\ShiftOnlineTimeCalculator;
 use Modules\Order\Models\Order;
 use Modules\Driver\Services\DriverScoreService;
 use Modules\Order\Models\OrderDispatchLog;
@@ -609,10 +611,49 @@ class DriverController extends Controller
             ->orderBy('start_time')
             ->get(['id', 'code', 'name', 'start_time', 'end_time']);
 
+        $registered = $user->registeredShifts()
+            ->get(['shifts.id', 'shifts.name', 'shifts.start_time', 'shifts.end_time']);
+        $now = now();
+        $currentOnline = null;
+
+        foreach ($registered as $shift) {
+            foreach ([0, -1] as $dayOffset) {
+                $day = $now->copy()->startOfDay()->addDays($dayOffset);
+                $start = $day->copy()->setTimeFromTimeString((string) $shift->start_time);
+                $end = $day->copy()->setTimeFromTimeString((string) $shift->end_time);
+                if ($end->lessThanOrEqualTo($start)) {
+                    $end->addDay();
+                }
+                if ($now->lt($start) || $now->gte($end)) {
+                    continue;
+                }
+
+                $sessions = DriverShiftSession::where('driver_id', $user->id)
+                    ->where('started_at', '<', $now)
+                    ->where(fn ($query) => $query
+                        ->whereNull('ended_at')
+                        ->orWhere('ended_at', '>', $start))
+                    ->orderBy('started_at')
+                    ->get();
+                $seconds = app(ShiftOnlineTimeCalculator::class)
+                    ->seconds($sessions, $start, $now);
+
+                $currentOnline = [
+                    'shift_id'       => $shift->id,
+                    'online_seconds' => $seconds,
+                    'measured_at'    => $now->toIso8601String(),
+                    'shift_start_at' => $start->toIso8601String(),
+                    'shift_end_at'   => $end->toIso8601String(),
+                ];
+                break 2;
+            }
+        }
+
         return response()->json([
             'success'           => true,
             'data'              => $shifts,
             'current_shift_ids' => $user->registeredShifts()->pluck('shifts.id'),
+            'current_shift_online' => $currentOnline,
         ]);
     }
 
