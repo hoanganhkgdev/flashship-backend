@@ -61,13 +61,68 @@ class RTDBService
         }
     }
 
-    public static function clearOrder(string $orderCode): void
+    public static function clearOrder(string $orderCode): bool
+    {
+        for ($attempt = 1; $attempt <= 3; $attempt++) {
+            try {
+                self::db()->getReference("orders/{$orderCode}")->remove();
+
+                return true;
+            } catch (\Throwable $e) {
+                if ($attempt === 3) {
+                    Log::error('[RTDB] clearOrder failed after 3 attempts: ' . $e->getMessage(), [
+                        'order_code' => $orderCode,
+                    ]);
+
+                    return false;
+                }
+                usleep($attempt * 100_000);
+                self::$db = null;
+            }
+        }
+
+        return false;
+    }
+
+    /** @return array<string, array>|null */
+    public static function getOrderStates(): ?array
     {
         try {
-            self::db()->getReference("orders/{$orderCode}")->remove();
+            return self::db()->getReference('orders')->getValue() ?? [];
         } catch (\Throwable $e) {
-            Log::error('[RTDB] clearOrder failed: ' . $e->getMessage());
+            Log::error('[RTDB] getOrderStates failed: ' . $e->getMessage());
+
+            return null;
         }
+    }
+
+    /** Xóa nhiều node orders trong một request multi-location. */
+    public static function clearOrders(array $orderCodes): bool
+    {
+        if ($orderCodes === []) {
+            return true;
+        }
+
+        $updates = array_fill_keys(array_map('strval', $orderCodes), null);
+        for ($attempt = 1; $attempt <= 3; $attempt++) {
+            try {
+                self::db()->getReference('orders')->update($updates);
+
+                return true;
+            } catch (\Throwable $e) {
+                if ($attempt === 3) {
+                    Log::error('[RTDB] clearOrders failed after 3 attempts: ' . $e->getMessage(), [
+                        'count' => count($orderCodes),
+                    ]);
+
+                    return false;
+                }
+                usleep($attempt * 100_000);
+                self::$db = null;
+            }
+        }
+
+        return false;
     }
 
     /**

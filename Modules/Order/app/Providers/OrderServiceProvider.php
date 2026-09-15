@@ -2,8 +2,9 @@
 
 namespace Modules\Order\Providers;
 
-use Nwidart\Modules\Support\ModuleServiceProvider;
 use Illuminate\Console\Scheduling\Schedule;
+use Modules\Order\Console\Commands\PruneStaleRtdbOrdersCommand;
+use Nwidart\Modules\Support\ModuleServiceProvider;
 
 class OrderServiceProvider extends ModuleServiceProvider
 {
@@ -19,6 +20,7 @@ class OrderServiceProvider extends ModuleServiceProvider
 
     protected array $commands = [
         \Modules\Order\Console\Commands\RemindDelayedDeliveryCommand::class,
+        PruneStaleRtdbOrdersCommand::class,
     ];
 
     protected array $providers = [
@@ -28,6 +30,9 @@ class OrderServiceProvider extends ModuleServiceProvider
 
     protected function configureSchedules(Schedule $schedule): void
     {
+        $schedule->command('orders:prune-stale-rtdb')
+            ->everyTenMinutes()
+            ->withoutOverlapping();
         $schedule->command('order:remind-delayed-delivery')->everyMinute();
     }
 }
