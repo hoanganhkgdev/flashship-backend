@@ -62,7 +62,7 @@ class FCMService
     /**
      * Wake-up signal để app resume và đọc RTDB offer.
      */
-    public function sendDriverWakeUp(string $fcmToken, int $orderId, string $orderCode = '', string $pickupAddress = '', ?int $expiresAt = null, ?string $receiptUrl = null): void
+    public function sendDriverWakeUp(string $fcmToken, int $orderId, string $orderCode = '', string $pickupAddress = '', ?int $expiresAt = null, ?string $receiptUrl = null, ?string $viewUrl = null): void
     {
         // Android nhận high-priority data-only để app tự tạo notification có
         // ID ổn định và timeout theo offer. Notification do FCM tự tạo trước
@@ -75,6 +75,7 @@ class FCMService
             'order_code' => (string) $orderCode,
             'expires_at' => (string) ($expiresAt ?? (time() + 25)),
             'receipt_url'=> (string) ($receiptUrl ?? ''),
+            'view_url'   => (string) ($viewUrl ?? ''),
             'title'      => 'Có đơn hàng mới!',
             'body'       => 'Nhấn để xem và nhận đơn hàng',
         ];

@@ -67,6 +67,54 @@ class OrderController extends Controller
         return response()->json(['success' => $received], $received ? 200 : 409);
     }
 
+    /** Popup Android báo tài xế đã chủ động bấm xem trước khi Flutter mở xong. */
+    public function viewSignedOffer(OrderDispatchLog $dispatchLog): JsonResponse
+    {
+        $order = Order::find($dispatchLog->order_id);
+        if (! $order || $dispatchLog->result !== 'pending'
+            || $order->status !== 'pending'
+            || (int) $order->dispatching_to_driver_id !== (int) $dispatchLog->driver_id) {
+            return response()->json(['success' => false], 409);
+        }
+
+        $viewedAt = now();
+        $updated = DB::table('orders')
+            ->where('id', $order->id)
+            ->where('status', 'pending')
+            ->where('dispatching_to_driver_id', $dispatchLog->driver_id)
+            ->whereNull('offer_viewed_at')
+            ->update(['offer_viewed_at' => $viewedAt, 'updated_at' => $viewedAt]);
+
+        $fresh = Order::find($order->id);
+        if (! $updated && ! $fresh?->offer_viewed_at) {
+            return response()->json(['success' => false], 409);
+        }
+
+        $effectiveViewedAt = $updated ? $viewedAt : $fresh->offer_viewed_at;
+        $expiresAt = $effectiveViewedAt->copy()->addSeconds(DispatchOfferSender::APP_DECISION_SECS);
+        if ($updated) {
+            DB::table('order_dispatch_logs')->where('id', $dispatchLog->id)
+                ->where('result', 'pending')->whereNull('viewed_at')
+                ->update([
+                    'received_at' => DB::raw('COALESCE(received_at, CURRENT_TIMESTAMP)'),
+                    'viewed_at' => $viewedAt,
+                    'updated_at' => $viewedAt,
+                ]);
+            RTDBService::updateDriverOfferExpiry(
+                (int) $dispatchLog->driver_id,
+                (int) $order->id,
+                $expiresAt->timestamp,
+            );
+            DispatchOrderJob::dispatch($order->id, $dispatchLog->driver_id, true)
+                ->delay($expiresAt);
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => ['expires_at' => $expiresAt->timestamp],
+        ]);
+    }
+
     public function myOrders(Request $request): JsonResponse
     {
         $data = $this->orderService->getDriverOrders($request->user());

@@ -18,6 +18,9 @@ Route::post('/payment/webhook/payos', [PaymentController::class, 'webhook']);
 Route::post('/dispatch/offers/{dispatchLog}/received', [OrderController::class, 'receiveSignedOffer'])
     ->middleware('signed')
     ->name('dispatch.offer.received');
+Route::post('/dispatch/offers/{dispatchLog}/viewed', [OrderController::class, 'viewSignedOffer'])
+    ->middleware('signed')
+    ->name('dispatch.offer.viewed');
 
 // auth:sanctum + driver.active KHÔNG kiểm tra user_type — 1 tài khoản
 // customer/shop đã đăng nhập vẫn gọi được nguyên vẹn API driver (ví, đơn,

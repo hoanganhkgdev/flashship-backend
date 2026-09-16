@@ -150,6 +150,11 @@ class DispatchOfferSender
             now()->addSeconds(self::DRIVER_OFFER_SECS + 10),
             ['dispatchLog' => $dispatchLog->id],
         );
+        $viewUrl = URL::temporarySignedRoute(
+            'api.dispatch.offer.viewed',
+            now()->addSeconds(self::DRIVER_OFFER_SECS + 10),
+            ['dispatchLog' => $dispatchLog->id],
+        );
 
         // Xem trước cho tài xế lúc đang cân nhắc — đọc LIVE trạng thái mưa
         // tại đúng lúc gửi offer, không phải giá trị đã khoá. Giá trị áp
@@ -194,6 +199,7 @@ class DispatchOfferSender
             'customer_phone'    => $order->sender?->phone    ?? '',
             'is_rain_mode'      => $isRainMode,
             'receipt_url'       => $receiptUrl,
+            'view_url'          => $viewUrl,
             ...($isRainMode ? ['rain_bonus_amount' => OrderService::RAIN_BONUS_AMOUNT] : []),
         ]);
 
@@ -219,7 +225,7 @@ class DispatchOfferSender
 
         if ($driver->fcm_token) {
             try {
-                FCMService::getInstance()->sendDriverWakeUp($driver->fcm_token, $order->id, $order->code, $order->pickup_address ?? '', $expiresAt, $receiptUrl);
+                FCMService::getInstance()->sendDriverWakeUp($driver->fcm_token, $order->id, $order->code, $order->pickup_address ?? '', $expiresAt, $receiptUrl, $viewUrl);
                 Log::debug("     → FCM wake-up gửi thành công");
             } catch (\Throwable $e) {
                 Log::error("[Dispatch] FCM failed for driver #{$driver->id}: " . $e->getMessage());
