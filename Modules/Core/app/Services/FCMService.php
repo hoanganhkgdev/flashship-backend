@@ -4,7 +4,6 @@ namespace Modules\Core\Services;
 use Illuminate\Support\Facades\Log;
 use Kreait\Firebase\Factory;
 use Kreait\Firebase\Messaging\CloudMessage;
-use Kreait\Firebase\Messaging\Notification;
 use Kreait\Firebase\Messaging\AndroidConfig;
 use Kreait\Firebase\Messaging\ApnsConfig;
 
@@ -65,35 +64,28 @@ class FCMService
      */
     public function sendDriverWakeUp(string $fcmToken, int $orderId, string $orderCode = '', string $pickupAddress = '', ?int $expiresAt = null, ?string $receiptUrl = null): void
     {
-        // Kèm "notification" (không chỉ "data" như trước) — nếu app bị hệ
-        // điều hành kill nền (hay gặp trên Xiaomi/Oppo/Vivo ở VN), OS tự hiển
-        // thị thông báo thẳng từ hệ thống, không cần chờ code Dart chạy (mà
-        // trước đây KHÔNG có gì đảm bảo sẽ chạy — tài xế mất đơn trong im
-        // lặng, rồi bị tính vào % bỏ lỡ oan vì thật ra chưa từng thấy đơn).
-        // App đang mở/nền nhẹ thì hành vi không đổi: OS giao thẳng cho
-        // onMessage/onBackgroundMessage xử lý như cũ, không tự hiển thị gì
-        // thêm nên không bị trùng 2 thông báo. channel_id trỏ đúng kênh đã
-        // tạo sẵn trong app (kèm chuông/rung riêng) để OS tự hiển thị đúng.
+        // Android nhận high-priority data-only để app tự tạo notification có
+        // ID ổn định và timeout theo offer. Notification do FCM tự tạo trước
+        // đây tồn tại tới 72 giờ, không thể bị app xoá khi offer thu hồi và
+        // bị Android gom nhóm thành các banner cũ. iOS vẫn nhận alert qua
+        // APNs config bên dưới.
         $data = [
             'type'       => 'order_offer',
             'order_id'   => (string) $orderId,
             'order_code' => (string) $orderCode,
             'expires_at' => (string) ($expiresAt ?? (time() + 25)),
             'receipt_url'=> (string) ($receiptUrl ?? ''),
+            'title'      => 'Có đơn hàng mới!',
+            'body'       => 'Nhấn để xem và nhận đơn hàng',
         ];
 
         // Gửi banner nhìn thấy trước. Gói ACK nền chỉ là tín hiệu bổ sung,
         // tuyệt đối không được trì hoãn hoặc chặn thông báo chính.
         $message = CloudMessage::withTarget('token', $fcmToken)
-                ->withNotification(Notification::create('Có đơn hàng mới!', 'Nhấn để xem và nhận đơn hàng'))
                 ->withData($data)
                 ->withAndroidConfig(AndroidConfig::fromArray([
-                    'priority'     => 'high',
-                    'ttl'          => '25s',
-                    'notification' => [
-                        'channel_id' => 'order_offer_channel',
-                        'sound'      => 'order_offer',
-                    ],
+                    'priority' => 'high',
+                    'ttl'      => '25s',
                 ]))
                 ->withApnsConfig(ApnsConfig::fromArray([
                     'headers' => [
