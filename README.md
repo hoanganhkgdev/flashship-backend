@@ -1,59 +1,132 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# Flashship Backend
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+Backend platform for **Flashship**, a multi-service local delivery ecosystem connecting customers, drivers, shops, and operations teams.
 
-## About Laravel
+This repository powers the core APIs, business rules, administration, realtime integrations, authentication, permissions, pricing, orders, and payment-related workflows used by the Flashship applications.
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+## System Overview
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+Flashship is organized around multiple client applications and a central Laravel backend:
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+- **Customer App** — customers create and manage service orders.
+- **Driver App** — drivers receive and process assigned orders.
+- **Shop App** — partner shops manage delivery operations.
+- **Admin / Operations** — internal management powered by Filament.
+- **Backend API** — shared business logic, authentication, pricing, realtime services, and integrations.
 
-## Learning Laravel
+## Tech Stack
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework. You can also check out [Laravel Learn](https://laravel.com/learn), where you will be guided through building a modern Laravel application.
+- PHP 8.2+
+- Laravel 12
+- Filament 3
+- Laravel Sanctum
+- Laravel Reverb
+- Redis / Predis
+- Firebase Admin SDK
+- Spatie Laravel Permission
+- PayOS
+- Google Gemini integration
+- PHPUnit
 
-If you don't feel like reading, [Laracasts](https://laracasts.com) can help. Laracasts contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+## Modular Architecture
 
-## Laravel Sponsors
+The backend uses a modular structure to keep major business domains separated and maintainable.
 
-We would like to extend our thanks to the following sponsors for funding Laravel development. If you are interested in becoming a sponsor, please visit the [Laravel Partners program](https://partners.laravel.com).
+```text
+Modules/
+├── Admin/
+├── Core/
+├── Customer/
+├── Driver/
+├── Order/
+├── Pricing/
+└── Shop/
+```
 
-### Premium Partners
+### Main Domains
 
-- **[Vehikl](https://vehikl.com)**
-- **[Tighten Co.](https://tighten.co)**
-- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
-- **[64 Robots](https://64robots.com)**
-- **[Curotec](https://www.curotec.com/services/technologies/laravel)**
-- **[DevSquad](https://devsquad.com/hire-laravel-developers)**
-- **[Redberry](https://redberry.international/laravel-development)**
-- **[Active Logic](https://activelogic.com)**
+**Admin**  
+Administration and operational management features.
 
-## Contributing
+**Core**  
+Shared application infrastructure and common domain functionality.
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+**Customer**  
+Customer-facing business logic and API functionality.
 
-## Code of Conduct
+**Driver**  
+Driver operations and driver-specific workflows.
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+**Order**  
+Order lifecycle and related business processes.
 
-## Security Vulnerabilities
+**Pricing**  
+Pricing rules and calculation-related functionality.
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+**Shop**  
+Partner shop functionality and workflows.
 
-## License
+## Key Engineering Areas
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+The project demonstrates work across several production-oriented areas:
+
+- REST API development with Laravel
+- Token-based authentication with Laravel Sanctum
+- Role and permission management
+- Modular domain architecture
+- Firebase integration
+- Realtime application capabilities
+- Queue-ready Laravel architecture
+- Redis integration
+- Payment integration with PayOS
+- Filament-based administration
+- Automated testing support with PHPUnit
+
+## Local Development
+
+### Requirements
+
+- PHP 8.2+
+- Composer
+- Node.js / npm
+- A supported database
+
+### Setup
+
+```bash
+git clone <repository-url>
+cd flashship-backend
+composer run setup
+```
+
+Configure environment-specific services in `.env`, including database, Firebase, Redis, payment, and other external integrations as required.
+
+### Development
+
+```bash
+composer run dev
+```
+
+The development command starts the Laravel server, queue listener, application logs, and Vite development process.
+
+### Tests
+
+```bash
+composer test
+```
+
+## Related Flashship Applications
+
+The Flashship ecosystem also includes separate Flutter applications for customers, drivers, and partner shops.
+
+## Project Context
+
+Flashship is an actively developed real-world delivery platform rather than a tutorial or framework demonstration. The repository is structured around the operational requirements of a multi-role delivery system and continues to evolve as the product grows.
+
+## Security
+
+Credentials and production secrets must never be committed to this repository. Environment-specific values should be configured through `.env` and the deployment environment.
+
+---
+
+**Flashship** — Local delivery and on-demand services platform.
