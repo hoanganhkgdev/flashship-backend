@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Artisan;
 use Modules\Core\Models\User;
 use Modules\Core\Models\Voucher;
 use Modules\Core\Services\VoucherService;
@@ -157,6 +158,29 @@ class VoucherHardeningTest extends TestCase
         );
 
         $this->assertNull($result);
+    }
+
+    public function test_arrived_order_is_auto_completed_after_three_minute_grace(): void
+    {
+        $orderId = $this->makeOrder('processing');
+        DB::table('orders')->where('id', $orderId)->update([
+            'delivery_man_id' => $this->customer->id,
+            'delivery_lat' => 10.0000000,
+            'delivery_lng' => 105.0000000,
+            'delivery_arrived_at' => now()->subMinutes(4),
+        ]);
+        $this->mock(DriverLocationService::class)
+            ->shouldReceive('freshLocationsFor')->once()->andReturn([]);
+        $orderService = $this->mock(OrderService::class);
+        $orderService->shouldReceive('completeOrder')
+            ->once()
+            ->withArgs(fn (Order $order, User $driver, bool $verified) =>
+                $order->id === $orderId && $driver->id === $this->customer->id && $verified
+            )
+            ->andReturn(['success' => true, 'status' => 200]);
+
+        $this->assertSame(0, Artisan::call('orders:auto-complete-arrived'));
+        $this->assertNotNull(DB::table('orders')->where('id', $orderId)->value('auto_completed_at'));
     }
 
     private function makeVoucher(?int $perUserLimit = 1, ?float $maxDistanceKm = null): Voucher

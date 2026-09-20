@@ -4,6 +4,7 @@ namespace Modules\Order\Providers;
 
 use Illuminate\Console\Scheduling\Schedule;
 use Modules\Order\Console\Commands\PruneStaleRtdbOrdersCommand;
+use Modules\Order\Console\Commands\AutoCompleteArrivedOrdersCommand;
 use Nwidart\Modules\Support\ModuleServiceProvider;
 
 class OrderServiceProvider extends ModuleServiceProvider
@@ -21,6 +22,7 @@ class OrderServiceProvider extends ModuleServiceProvider
     protected array $commands = [
         \Modules\Order\Console\Commands\RemindDelayedDeliveryCommand::class,
         PruneStaleRtdbOrdersCommand::class,
+        AutoCompleteArrivedOrdersCommand::class,
     ];
 
     protected array $providers = [
@@ -34,5 +36,8 @@ class OrderServiceProvider extends ModuleServiceProvider
             ->everyTenMinutes()
             ->withoutOverlapping();
         $schedule->command('order:remind-delayed-delivery')->everyMinute();
+        $schedule->command('orders:auto-complete-arrived')
+            ->everyMinute()
+            ->withoutOverlapping();
     }
 }

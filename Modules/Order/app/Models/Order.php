@@ -35,6 +35,7 @@ class Order extends Model
         'is_batch', 'stops', 'shop_service_type',
         'voucher_code', 'discount_amount',
         'driver_rating', 'driver_rating_note', 'completed_at', 'delivered_at',
+        'delivery_arrived_at', 'auto_completed_at',
     ];
 
     protected $casts = [
@@ -46,6 +47,8 @@ class Order extends Model
         'is_batch'                 => 'boolean',
         'stops'                    => 'array',
         'completed_at'             => 'datetime',
+        'delivery_arrived_at'      => 'datetime',
+        'auto_completed_at'        => 'datetime',
         'delivered_at'             => 'datetime',
         'pickup_lat'               => 'float',
         'pickup_lng'               => 'float',
