@@ -461,13 +461,18 @@ class OrderService
             // Tất cả quyền lợi tài xế commit/rollback cùng trạng thái đơn.
             // Nếu bất kỳ bước nào lỗi, đơn vẫn processing và có thể thử lại,
             // không tồn tại đơn completed nhưng thiếu tiền/điểm.
+            $shippingFee = (float) ($fresh->shipping_fee ?? 0);
             $bonusFee = (float) ($fresh->bonus_fee ?? 0);
             $discountAmt = (float) ($fresh->discount_amount ?? 0);
 
             // shipping_fee is the amount the driver collects directly from the
             // customer. Crediting it to the wallet as well would pay that amount
             // twice. For a freeship/discount voucher the platform only owes the
-            // subsidised part recorded in discount_amount.
+            // subsidised part recorded in discount_amount. Call-center freeship
+            // has no voucher/discount and remains platform-paid in full.
+            if ($fresh->is_freeship && empty($fresh->voucher_code) && $discountAmt <= 0 && $shippingFee > 0) {
+                DriverWalletService::adjust($user->id, $shippingFee, 'credit', "Ship Freeship #{$fresh->id}", "order_{$fresh->id}_shipping");
+            }
             if ($discountAmt > 0) {
                 DriverWalletService::adjust($user->id, $discountAmt, 'credit', "Bù giảm giá đơn #{$fresh->id}", "order_{$fresh->id}_discount");
             }
