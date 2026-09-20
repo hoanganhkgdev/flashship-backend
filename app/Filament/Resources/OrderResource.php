@@ -496,11 +496,9 @@ class OrderResource extends Resource
                             }
                             Order::whereKey($fresh->id)->update(['cancel_reason' => 'admin']);
                         } elseif ($fresh->status === 'assigned') {
-                            $updated = Order::whereKey($fresh->id)
-                                ->where('status', 'assigned')
-                                ->update(['status' => 'cancelled', 'cancel_reason' => 'admin', 'updated_at' => now()]);
-                            if (! $updated) {
-                                Notification::make()->title('Đơn vừa đổi trạng thái, vui lòng tải lại.')->danger()->send();
+                            $result = app(OrderService::class)->cancelAssignedOrderByAdmin($fresh);
+                            if (! $result['success']) {
+                                Notification::make()->title($result['message'])->danger()->send();
 
                                 return;
                             }

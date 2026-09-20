@@ -53,6 +53,7 @@ class VoucherController extends Controller
                     'used_at' => $usage?->used_at?->toIso8601String(),
                     'used_count_by_user' => $usedByUser,
                     'per_user_limit' => $v->per_user_limit,
+                    'first_order_only' => (bool) $v->first_order_only,
                     'status' => $status,
                 ];
             });

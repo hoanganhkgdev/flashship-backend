@@ -1,0 +1,115 @@
+<?php
+
+namespace Tests\Feature;
+
+use Illuminate\Foundation\Testing\DatabaseTransactions;
+use Illuminate\Support\Facades\DB;
+use Modules\Core\Models\User;
+use Modules\Core\Models\Voucher;
+use Modules\Core\Services\VoucherService;
+use Modules\Order\Models\Order;
+use Modules\Order\Services\OrderService;
+use Tests\TestCase;
+
+class VoucherHardeningTest extends TestCase
+{
+    use DatabaseTransactions;
+
+    private User $customer;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $this->assertStringEndsWith('_test', DB::connection()->getDatabaseName());
+        $this->customer = User::create([
+            'name' => 'Voucher hardening test',
+            'email' => 'voucher-hardening-'.uniqid().'@test.local',
+            'phone' => '09'.random_int(10000000, 99999999),
+            'password' => 'test-password',
+            'user_type' => 'customer',
+            'status' => 1,
+        ]);
+    }
+
+    public function test_first_order_voucher_rejects_customer_with_completed_order(): void
+    {
+        $voucher = $this->makeVoucher();
+        $this->makeOrder('completed');
+
+        $result = app(VoucherService::class)
+            ->evaluate($voucher, $this->customer, 'customer', 'delivery', 50_000);
+
+        $this->assertFalse($result['valid']);
+        $this->assertSame('FIRST_ORDER_ONLY', $result['reason_code']);
+    }
+
+    public function test_first_order_voucher_cannot_be_used_by_two_pending_orders(): void
+    {
+        $voucher = $this->makeVoucher(perUserLimit: null);
+        $orderId = $this->makeOrder('pending');
+        DB::table('voucher_usages')->insert([
+            'voucher_id' => $voucher->id,
+            'user_id' => $this->customer->id,
+            'order_id' => $orderId,
+            'used_at' => now(),
+        ]);
+
+        $result = app(VoucherService::class)
+            ->evaluate($voucher, $this->customer, 'customer', 'delivery', 50_000);
+
+        $this->assertFalse($result['valid']);
+        $this->assertSame('FIRST_ORDER_ONLY', $result['reason_code']);
+    }
+
+    public function test_admin_cancellation_restores_voucher_usage_once(): void
+    {
+        $voucher = $this->makeVoucher();
+        $voucher->update(['used_count' => 1]);
+        $orderId = $this->makeOrder('assigned');
+        DB::table('voucher_usages')->insert([
+            'voucher_id' => $voucher->id,
+            'user_id' => $this->customer->id,
+            'order_id' => $orderId,
+            'used_at' => now(),
+        ]);
+
+        $result = app(OrderService::class)
+            ->cancelAssignedOrderByAdmin(Order::findOrFail($orderId));
+
+        $this->assertTrue($result['success']);
+        $this->assertSame('cancelled', Order::findOrFail($orderId)->status);
+        $this->assertDatabaseMissing('voucher_usages', ['order_id' => $orderId]);
+        $this->assertSame(0, (int) $voucher->fresh()->used_count);
+    }
+
+    private function makeVoucher(?int $perUserLimit = 1): Voucher
+    {
+        return Voucher::create([
+            'code' => 'VH-'.strtoupper(uniqid()),
+            'type' => 'fixed',
+            'value' => 10_000,
+            'audience' => 'customer',
+            'per_user_limit' => $perUserLimit,
+            'first_order_only' => true,
+            'used_count' => 0,
+            'is_active' => true,
+        ]);
+    }
+
+    private function makeOrder(string $status): int
+    {
+        return DB::table('orders')->insertGetId([
+            'code' => 'VH-ORDER-'.strtoupper(uniqid()),
+            'service_type' => 'delivery',
+            'sender_platform_id' => $this->customer->id,
+            'platform' => 'customer_app',
+            'status' => $status,
+            'shipping_fee' => 50_000,
+            'bonus_fee' => 0,
+            'is_freeship' => false,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+    }
+}

@@ -226,10 +226,13 @@ class AuthController extends Controller
             ], 422);
         }
 
-        // Huỷ các đơn đang chờ (pending) của khách trước khi xóa
+        // Hủy qua OrderService để hoàn lượt voucher và dọn dispatch atomically.
         \Modules\Order\Models\Order::where('sender_platform_id', $user->id)
+            ->where('platform', 'customer_app')
             ->where('status', 'pending')
-            ->update(['status' => 'cancelled']);
+            ->get()
+            ->each(fn ($order) => app(\Modules\Order\Services\OrderService::class)
+                ->cancelPendingOrder($order));
 
         // Xóa toàn bộ token
         $user->tokens()->delete();

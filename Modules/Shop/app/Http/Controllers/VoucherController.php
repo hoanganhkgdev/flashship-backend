@@ -32,6 +32,7 @@ class VoucherController extends Controller
                 'discount_label' => $v->discount_label,
                 'min_order_value' => $v->min_order_value,
                 'max_discount' => $v->max_discount,
+                'first_order_only' => (bool) $v->first_order_only,
                 'expires_at' => $v->expires_at?->toIso8601String(),
             ]);
 

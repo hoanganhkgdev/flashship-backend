@@ -56,16 +56,7 @@ class OrderService
 
             // Hoàn đúng usage của đơn; chỉ giảm used_count nếu thật sự xóa
             // được usage, nên request hủy lặp không thể hoàn voucher hai lần.
-            $usage = VoucherUsage::where('order_id', $fresh->id)
-                ->lockForUpdate()
-                ->first();
-            if ($usage) {
-                $voucherId = $usage->voucher_id;
-                $usage->delete();
-                Voucher::where('id', $voucherId)
-                    ->where('used_count', '>', 0)
-                    ->decrement('used_count');
-            }
+            $this->releaseVoucherUsage($fresh->id);
 
             return ['success' => true, 'driver_id' => $driverId, 'order' => $fresh];
         });
@@ -100,6 +91,44 @@ class OrderService
         }
 
         return ['success' => true, 'message' => 'Đã hủy đơn hàng'];
+    }
+
+    /** Cancel an assigned order from admin and restore its voucher atomically. */
+    public function cancelAssignedOrderByAdmin(Order $order): array
+    {
+        return DB::transaction(function () use ($order) {
+            $fresh = Order::whereKey($order->id)->lockForUpdate()->firstOrFail();
+            if ($fresh->status !== 'assigned') {
+                return ['success' => false, 'message' => 'Đơn không còn ở trạng thái đã nhận'];
+            }
+
+            $fresh->update([
+                'status' => 'cancelled',
+                'cancel_reason' => 'admin',
+                'dispatching_to_driver_id' => null,
+                'updated_at' => now(),
+            ]);
+            $this->releaseVoucherUsage($fresh->id);
+
+            return ['success' => true, 'message' => 'Đã hủy đơn hàng'];
+        });
+    }
+
+    /** Must be called inside a DB transaction. */
+    private function releaseVoucherUsage(int $orderId): void
+    {
+        $usage = VoucherUsage::where('order_id', $orderId)
+            ->lockForUpdate()
+            ->first();
+        if (! $usage) {
+            return;
+        }
+
+        $voucherId = $usage->voucher_id;
+        $usage->delete();
+        Voucher::where('id', $voucherId)
+            ->where('used_count', '>', 0)
+            ->decrement('used_count');
     }
 
     public function getDriverOrders(User $user): array

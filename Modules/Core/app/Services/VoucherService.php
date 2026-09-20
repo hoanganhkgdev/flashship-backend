@@ -4,6 +4,7 @@ namespace Modules\Core\Services;
 
 use Illuminate\Validation\ValidationException;
 use Modules\Core\Models\Voucher;
+use Modules\Order\Models\Order;
 
 class VoucherService
 {
@@ -62,12 +63,21 @@ class VoucherService
         }
 
         $used = $voucher->usageCountByUser((int) $user->id);
+        if ($voucher->first_order_only && $used > 0) {
+            return $invalid('FIRST_ORDER_ONLY', 'Mã này chỉ áp dụng cho đơn hàng đầu tiên');
+        }
         if ($voucher->per_user_limit && $used >= $voucher->per_user_limit) {
             $message = $voucher->per_user_limit === 1
                 ? 'Mã này chỉ dùng được 1 lần cho mỗi tài khoản'
                 : "Bạn đã dùng mã này {$used}/{$voucher->per_user_limit} lần";
 
             return $invalid('USER_LIMIT_REACHED', $message);
+        }
+        if ($voucher->first_order_only && Order::query()
+            ->where('sender_platform_id', $user->id)
+            ->where('status', 'completed')
+            ->exists()) {
+            return $invalid('FIRST_ORDER_ONLY', 'Mã này chỉ áp dụng cho đơn hàng đầu tiên');
         }
         if ($voucher->service_types && ! in_array($serviceType, $voucher->service_types, true)) {
             return $invalid('SERVICE_NOT_SUPPORTED', 'Mã không áp dụng cho dịch vụ này');

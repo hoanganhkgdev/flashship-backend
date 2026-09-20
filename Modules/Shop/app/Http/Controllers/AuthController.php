@@ -421,7 +421,9 @@ class AuthController extends Controller
         Order::where('sender_platform_id', $user->id)
             ->where('platform', 'shop_app')
             ->where('status', 'pending')
-            ->update(['status' => 'cancelled']);
+            ->get()
+            ->each(fn ($order) => app(\Modules\Order\Services\OrderService::class)
+                ->cancelPendingOrder($order));
 
         $user->tokens()->delete();
         $user->delete();

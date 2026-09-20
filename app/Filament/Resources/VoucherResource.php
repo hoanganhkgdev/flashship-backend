@@ -254,6 +254,11 @@ class VoucherResource extends Resource
                                 tooltip: 'Số lần tối đa mỗi tài khoản được sử dụng mã. Nhập 1 nếu mã chỉ được dùng một lần; để trống nếu không giới hạn.',
                             ),
 
+                        Forms\Components\Toggle::make('first_order_only')
+                            ->label('Chỉ đơn đầu tiên')
+                            ->helperText('Chỉ tài khoản chưa từng hoàn thành đơn nào mới được sử dụng.')
+                            ->default(false),
+
                         Forms\Components\DatePicker::make('expires_at')
                             ->label('Ngày hết hạn')
                             ->placeholder('Không hết hạn')
