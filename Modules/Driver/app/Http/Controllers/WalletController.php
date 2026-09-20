@@ -40,6 +40,13 @@ class WalletController extends Controller
         $data = $request->validate(['amount' => 'required|numeric|min:50000']);
 
         $user   = $request->user();
+        if ((int) $user->status !== 1) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Tài khoản đang tạm ngưng, không thể tạo yêu cầu rút tiền.',
+            ], 403);
+        }
+
         $wallet = DriverWallet::firstOrCreate(['driver_id' => $user->id]);
 
         // Kiểm tra nhanh trước — không phải nguồn xác thực chính, chỉ để trả
