@@ -125,6 +125,7 @@ class OrderController extends Controller
                     $user,
                     $data['service_type'],
                     (int) $pricing['fee'],
+                    (float) $pricing['distance_km'],
                 );
                 $voucherCode = $applied['code'] ?? null;
                 $discountAmount = $applied['discount_amount'] ?? 0;
@@ -224,7 +225,7 @@ class OrderController extends Controller
      *
      * @return array{voucher: Voucher, code: string, discount_amount: int, is_freeship: bool}|null
      */
-    private function tryApplyVoucher(?string $code, $user, string $serviceType, int $shippingFee): ?array
+    private function tryApplyVoucher(?string $code, $user, string $serviceType, int $shippingFee, float $distanceKm): ?array
     {
         if (empty($code)) {
             return null;
@@ -236,6 +237,7 @@ class OrderController extends Controller
             'customer',
             $serviceType,
             $shippingFee,
+            $distanceKm,
         );
     }
 

@@ -8,24 +8,24 @@ use Modules\Order\Models\Order;
 
 class VoucherService
 {
-    public function preview(?string $code, $user, string $audience, string $serviceType, int $discountBase): array
+    public function preview(?string $code, $user, string $audience, string $serviceType, int $discountBase, ?float $distanceKm = null): array
     {
         $voucher = $code ? Voucher::where('code', strtoupper(trim($code)))->first() : null;
-        $result = $this->evaluate($voucher, $user, $audience, $serviceType, $discountBase);
+        $result = $this->evaluate($voucher, $user, $audience, $serviceType, $discountBase, $distanceKm);
         unset($result['voucher']);
 
         return $result;
     }
 
     /** Call inside the same transaction that creates the order and usage. */
-    public function redeem(?string $code, $user, string $audience, string $serviceType, int $discountBase): ?array
+    public function redeem(?string $code, $user, string $audience, string $serviceType, int $discountBase, ?float $distanceKm = null): ?array
     {
         if (! $code) {
             return null;
         }
 
         $voucher = Voucher::where('code', strtoupper(trim($code)))->lockForUpdate()->first();
-        $result = $this->evaluate($voucher, $user, $audience, $serviceType, $discountBase);
+        $result = $this->evaluate($voucher, $user, $audience, $serviceType, $discountBase, $distanceKm);
         if (! $result['valid']) {
             throw ValidationException::withMessages([
                 'voucher_code' => $result['message'],
@@ -42,7 +42,7 @@ class VoucherService
         ];
     }
 
-    public function evaluate(?Voucher $voucher, $user, string $audience, string $serviceType, int $discountBase): array
+    public function evaluate(?Voucher $voucher, $user, string $audience, string $serviceType, int $discountBase, ?float $distanceKm = null): array
     {
         $invalid = fn (string $reason, string $message) => [
             'valid' => false, 'reason_code' => $reason, 'message' => $message,
@@ -84,6 +84,14 @@ class VoucherService
         }
         if ($voucher->city_id && (int) $voucher->city_id !== (int) $user->city_id) {
             return $invalid('CITY_NOT_SUPPORTED', 'Mã không áp dụng tại thành phố của bạn');
+        }
+        if ($voucher->max_distance_km !== null
+            && $distanceKm !== null
+            && $distanceKm > (float) $voucher->max_distance_km) {
+            return $invalid(
+                'DISTANCE_NOT_SUPPORTED',
+                'Mã chỉ áp dụng cho đơn không quá '.rtrim(rtrim(number_format($voucher->max_distance_km, 2, '.', ''), '0'), '.').' km'
+            );
         }
 
         $discountBase = max(0, $discountBase);

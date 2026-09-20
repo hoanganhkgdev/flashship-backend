@@ -259,6 +259,12 @@ class VoucherResource extends Resource
                             ->helperText('Chỉ tài khoản chưa từng hoàn thành đơn nào mới được sử dụng.')
                             ->default(false),
 
+                        Forms\Components\TextInput::make('max_distance_km')
+                            ->label('Cự ly tối đa (km)')
+                            ->numeric()
+                            ->minValue(0.1)
+                            ->helperText('Để trống nếu mã không giới hạn cự ly.'),
+
                         Forms\Components\DatePicker::make('expires_at')
                             ->label('Ngày hết hạn')
                             ->placeholder('Không hết hạn')

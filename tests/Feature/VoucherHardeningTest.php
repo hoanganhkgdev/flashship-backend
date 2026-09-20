@@ -83,7 +83,28 @@ class VoucherHardeningTest extends TestCase
         $this->assertSame(0, (int) $voucher->fresh()->used_count);
     }
 
-    private function makeVoucher(?int $perUserLimit = 1): Voucher
+    public function test_distance_limited_voucher_rejects_long_order(): void
+    {
+        $voucher = $this->makeVoucher(maxDistanceKm: 10);
+
+        $result = app(VoucherService::class)
+            ->evaluate($voucher, $this->customer, 'customer', 'delivery', 50_000, 10.01);
+
+        $this->assertFalse($result['valid']);
+        $this->assertSame('DISTANCE_NOT_SUPPORTED', $result['reason_code']);
+    }
+
+    public function test_distance_limited_voucher_accepts_order_at_limit(): void
+    {
+        $voucher = $this->makeVoucher(maxDistanceKm: 10);
+
+        $result = app(VoucherService::class)
+            ->evaluate($voucher, $this->customer, 'customer', 'delivery', 50_000, 10);
+
+        $this->assertTrue($result['valid']);
+    }
+
+    private function makeVoucher(?int $perUserLimit = 1, ?float $maxDistanceKm = null): Voucher
     {
         return Voucher::create([
             'code' => 'VH-'.strtoupper(uniqid()),
@@ -92,6 +113,7 @@ class VoucherHardeningTest extends TestCase
             'audience' => 'customer',
             'per_user_limit' => $perUserLimit,
             'first_order_only' => true,
+            'max_distance_km' => $maxDistanceKm,
             'used_count' => 0,
             'is_active' => true,
         ]);

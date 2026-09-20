@@ -162,7 +162,7 @@ class OrderController extends Controller
             // Order::create() hoặc VoucherUsage::create() lỗi thì used_count
             // cũng được rollback, không làm mất lượt voucher của shop.
             $order = \DB::transaction(function () use ($data, $user, $pricing, $nightSurcharge) {
-                $applied = $this->tryApplyVoucher($data['voucher_code'] ?? null, $user, $pricing['fee']);
+                $applied = $this->tryApplyVoucher($data['voucher_code'] ?? null, $user, $pricing['fee'], (float) $pricing['distance_km']);
                 $voucherCode = $applied['code'] ?? null;
                 $discountAmount = $applied['discount_amount'] ?? 0;
                 $isFreeship = $applied['is_freeship'] ?? false;
@@ -293,7 +293,8 @@ class OrderController extends Controller
             $firstStop = $stops[0];
 
             $order = \DB::transaction(function () use ($data, $user, $totalFee, $firstStop, $stops, $pickupLat, $pickupLng, $cargoType, $weightKg) {
-                $applied = $this->tryApplyVoucher($data['voucher_code'] ?? null, $user, $totalFee);
+                $maxDistanceKm = max(array_column($stops, 'distance_km'));
+                $applied = $this->tryApplyVoucher($data['voucher_code'] ?? null, $user, $totalFee, (float) $maxDistanceKm);
                 $voucherCode = $applied['code'] ?? null;
                 $discountAmount = $applied['discount_amount'] ?? 0;
                 $isFreeship = $applied['is_freeship'] ?? false;
@@ -376,7 +377,7 @@ class OrderController extends Controller
      *
      * @return array{voucher: Voucher, code: string, discount_amount: int, is_freeship: bool}|null
      */
-    private function tryApplyVoucher(?string $code, $user, int $shippingFee): ?array
+    private function tryApplyVoucher(?string $code, $user, int $shippingFee, float $distanceKm): ?array
     {
         if (empty($code)) {
             return null;
@@ -388,6 +389,7 @@ class OrderController extends Controller
             'shop',
             'delivery',
             $shippingFee,
+            $distanceKm,
         );
     }
 

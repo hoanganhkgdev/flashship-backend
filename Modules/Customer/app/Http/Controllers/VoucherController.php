@@ -48,6 +48,7 @@ class VoucherController extends Controller
                     'discount_label' => $v->discount_label,
                     'min_order_value' => $v->min_order_value,
                     'max_discount' => $v->max_discount,
+                    'max_distance_km' => $v->max_distance_km,
                     'service_types' => $v->service_types,
                     'expires_at' => $v->expires_at?->toIso8601String(),
                     'used_at' => $usage?->used_at?->toIso8601String(),
@@ -68,6 +69,7 @@ class VoucherController extends Controller
             'service_type' => 'required|string',
             'order_total' => 'nullable|integer|min:0',
             'shipping_fee' => 'nullable|integer|min:0',
+            'distance_km' => 'nullable|numeric|min:0',
         ]);
 
         $shippingFee = (int) ($data['shipping_fee'] ?? 0);
@@ -77,6 +79,7 @@ class VoucherController extends Controller
             'customer',
             $data['service_type'],
             $shippingFee,
+            isset($data['distance_km']) ? (float) $data['distance_km'] : null,
         );
 
         return response()->json($result, $result['valid'] ? 200 : 422);

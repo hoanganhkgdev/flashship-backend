@@ -9,7 +9,7 @@ class Voucher extends Model
 {
     protected $fillable = [
         'code', 'type', 'value', 'description',
-        'min_order_value', 'max_discount', 'service_types',
+        'min_order_value', 'max_discount', 'max_distance_km', 'service_types',
         'city_id', 'audience', 'user_id', 'expires_at', 'usage_limit', 'per_user_limit', 'first_order_only', 'used_count', 'is_active',
     ];
 
@@ -18,6 +18,7 @@ class Voucher extends Model
         'expires_at'    => 'datetime',
         'is_active'     => 'boolean',
         'first_order_only' => 'boolean',
+        'max_distance_km' => 'float',
     ];
 
     public function scopeAvailable($query)
