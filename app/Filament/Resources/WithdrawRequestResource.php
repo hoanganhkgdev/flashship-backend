@@ -196,6 +196,13 @@ class WithdrawRequestResource extends Resource
 
                                 return;
                             }
+                            if ((int) $fresh->driver?->status !== 1) {
+                                Notification::make()->danger()
+                                    ->title('Không thể duyệt: tài khoản tài xế đang tạm ngưng.')
+                                    ->send();
+
+                                return;
+                            }
                             if (! $fresh->bank_code || ! $fresh->account_number) {
                                 Notification::make()->danger()->title('Yêu cầu cũ chưa có bản lưu tài khoản ngân hàng.')->send();
 
