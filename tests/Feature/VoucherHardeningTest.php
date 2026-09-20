@@ -64,6 +64,18 @@ class VoucherHardeningTest extends TestCase
         $this->assertSame('FIRST_ORDER_ONLY', $result['reason_code']);
     }
 
+    public function test_first_order_voucher_rejects_existing_pending_order_even_from_another_voucher(): void
+    {
+        $voucher = $this->makeVoucher();
+        $this->makeOrder('pending');
+
+        $result = app(VoucherService::class)
+            ->evaluate($voucher, $this->customer, 'customer', 'delivery', 50_000);
+
+        $this->assertFalse($result['valid']);
+        $this->assertSame('FIRST_ORDER_ONLY', $result['reason_code']);
+    }
+
     public function test_admin_cancellation_restores_voucher_usage_once(): void
     {
         $voucher = $this->makeVoucher();

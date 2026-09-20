@@ -120,6 +120,9 @@ class OrderController extends Controller
 
             // Redeem, tạo đơn và ghi usage phải commit/rollback cùng nhau.
             $order = \DB::transaction(function () use ($data, $user, $nightSurcharge, $pricing) {
+                // Khóa tài khoản để hai request đồng thời không thể cùng nhìn
+                // thấy "chưa có đơn" rồi dùng hai mã người mới khác nhau.
+                \DB::table('users')->where('id', $user->id)->lockForUpdate()->first();
                 $applied = $this->tryApplyVoucher(
                     $data['voucher_code'] ?? null,
                     $user,

@@ -75,7 +75,7 @@ class VoucherService
         }
         if ($voucher->first_order_only && Order::query()
             ->where('sender_platform_id', $user->id)
-            ->where('status', 'completed')
+            ->where('status', '<>', 'cancelled')
             ->exists()) {
             return $invalid('FIRST_ORDER_ONLY', 'Mã này chỉ áp dụng cho đơn hàng đầu tiên');
         }

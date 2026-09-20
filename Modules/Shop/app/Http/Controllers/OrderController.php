@@ -162,6 +162,7 @@ class OrderController extends Controller
             // Order::create() hoặc VoucherUsage::create() lỗi thì used_count
             // cũng được rollback, không làm mất lượt voucher của shop.
             $order = \DB::transaction(function () use ($data, $user, $pricing, $nightSurcharge) {
+                \DB::table('users')->where('id', $user->id)->lockForUpdate()->first();
                 $applied = $this->tryApplyVoucher($data['voucher_code'] ?? null, $user, $pricing['fee'], (float) $pricing['distance_km']);
                 $voucherCode = $applied['code'] ?? null;
                 $discountAmount = $applied['discount_amount'] ?? 0;
@@ -293,6 +294,7 @@ class OrderController extends Controller
             $firstStop = $stops[0];
 
             $order = \DB::transaction(function () use ($data, $user, $totalFee, $firstStop, $stops, $pickupLat, $pickupLng, $cargoType, $weightKg) {
+                \DB::table('users')->where('id', $user->id)->lockForUpdate()->first();
                 $maxDistanceKm = max(array_column($stops, 'distance_km'));
                 $applied = $this->tryApplyVoucher($data['voucher_code'] ?? null, $user, $totalFee, (float) $maxDistanceKm);
                 $voucherCode = $applied['code'] ?? null;
