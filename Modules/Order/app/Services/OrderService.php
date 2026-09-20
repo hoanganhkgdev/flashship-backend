@@ -8,9 +8,11 @@ use Modules\Core\Models\User;
 use Modules\Core\Models\Voucher;
 use Modules\Core\Models\VoucherUsage;
 use Modules\Core\Services\FCMService;
+use Modules\Core\Services\GoogleMapService;
 use Modules\Customer\Http\Controllers\CustomerNotificationController;
 use Modules\Core\Services\RTDBService;
 use Modules\Driver\Services\DriverScoreService;
+use Modules\Driver\Services\DriverLocationService;
 use Modules\Driver\Services\DriverWalletService;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Cache;
@@ -20,6 +22,8 @@ use Illuminate\Support\Facades\Redis;
 
 class OrderService
 {
+    const COMPLETION_RADIUS_KM = 0.3;
+
     // Thưởng thêm khi tài xế nhận đơn lúc thành phố đang bật chế độ trời mưa
     // (xem rain_bonus_eligible ở acceptOrder()) — 1 nguồn duy nhất cho cả số
     // tiền cộng thật (completeOrder()) lẫn số tiền xem trước gửi kèm offer
@@ -443,7 +447,7 @@ class OrderService
         return ['success' => true, 'message' => 'Cập nhật trạng thái thành công.', 'status' => 200];
     }
 
-    public function completeOrder(Order $order, User $user): array
+    public function completeOrder(Order $order, User $user, bool $proximityAlreadyVerified = false): array
     {
         if ((int) $order->delivery_man_id !== (int) $user->id) {
             return ['success' => false, 'message' => 'Bạn không có quyền hoàn thành đơn này.', 'status' => 403];
@@ -451,6 +455,21 @@ class OrderService
 
         if ($order->status === 'completed') {
             return ['success' => true, 'message' => 'Đơn này đã hoàn thành trước đó.', 'data' => $order, 'status' => 200];
+        }
+
+        if (! $proximityAlreadyVerified) {
+            $target = $this->completionTarget($order);
+            $proximityError = $this->checkDriverProximity($user, $target['lat'] ?? null, $target['lng'] ?? null);
+            if ($proximityError) {
+                Log::warning('[OrderComplete] proximity rejected', [
+                    'order_id' => $order->id,
+                    'driver_id' => $user->id,
+                    'reason' => $proximityError['reason_code'],
+                    'distance_m' => $proximityError['distance_m'] ?? null,
+                ]);
+
+                return $proximityError;
+            }
         }
 
         $completion = DB::transaction(function () use ($order, $user) {
@@ -558,6 +577,60 @@ class OrderService
         }
 
         return ['success' => true, 'message' => 'Hoàn thành đơn thành công', 'data' => $order->fresh(), 'status' => 200];
+    }
+
+    public function checkDriverProximity(User $driver, mixed $targetLat, mixed $targetLng): ?array
+    {
+        if (! is_numeric($targetLat) || ! is_numeric($targetLng)) {
+            return [
+                'success' => false,
+                'reason_code' => 'DELIVERY_LOCATION_MISSING',
+                'message' => 'Đơn hàng thiếu tọa độ điểm giao. Vui lòng liên hệ tổng đài.',
+                'status' => 422,
+            ];
+        }
+
+        $locations = app(DriverLocationService::class)->freshLocationsFor([(int) $driver->id]);
+        $location = $locations[(int) $driver->id] ?? null;
+        if (! $location) {
+            return [
+                'success' => false,
+                'reason_code' => 'DRIVER_LOCATION_UNAVAILABLE',
+                'message' => 'Không xác minh được vị trí hiện tại. Vui lòng bật GPS và thử lại.',
+                'status' => 422,
+            ];
+        }
+
+        $distanceKm = GoogleMapService::haversineKm(
+            (float) $location['lat'],
+            (float) $location['lng'],
+            (float) $targetLat,
+            (float) $targetLng,
+        );
+        if ($distanceKm > self::COMPLETION_RADIUS_KM) {
+            return [
+                'success' => false,
+                'reason_code' => 'TOO_FAR_FROM_DELIVERY',
+                'message' => 'Bạn cần đến trong phạm vi 300 m của điểm giao để hoàn thành.',
+                'distance_m' => (int) round($distanceKm * 1000),
+                'status' => 422,
+            ];
+        }
+
+        return null;
+    }
+
+    /** @return array{lat: mixed, lng: mixed} */
+    private function completionTarget(Order $order): array
+    {
+        if ($order->is_batch) {
+            $lastStop = collect($order->stops ?? [])->sortByDesc('seq')->first();
+            if ($lastStop) {
+                return ['lat' => $lastStop['lat'] ?? null, 'lng' => $lastStop['lng'] ?? null];
+            }
+        }
+
+        return ['lat' => $order->delivery_lat, 'lng' => $order->delivery_lng];
     }
 
     public function createOrder(array $data, User $user): Order

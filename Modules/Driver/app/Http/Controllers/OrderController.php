@@ -277,6 +277,24 @@ class OrderController extends Controller
             return response()->json(['success' => false, 'message' => 'Không phải đơn gộp'], 400);
         }
 
+        $requestedStop = collect($order->stops ?? [])->first(
+            fn ($stop) => (int) ($stop['seq'] ?? 0) === $seq
+        );
+        if (! $requestedStop) {
+            return response()->json(['success' => false, 'message' => 'Không tìm thấy điểm giao'], 404);
+        }
+        $proximityError = $this->orderService->checkDriverProximity(
+            $driver,
+            $requestedStop['lat'] ?? null,
+            $requestedStop['lng'] ?? null,
+        );
+        if ($proximityError) {
+            $status = $proximityError['status'];
+            unset($proximityError['status']);
+
+            return response()->json($proximityError, $status);
+        }
+
         // Khoá + đọc lại bản mới nhất TRONG transaction — nếu không, 2 request
         // bấm "Đã giao" liên tiếp nhanh cho 2 điểm khác nhau sẽ cùng đọc bản
         // stops cũ, mỗi request sửa xong ghi đè toàn bộ mảng, request chạy
@@ -324,7 +342,13 @@ class OrderController extends Controller
         // Nếu tất cả stops đã delivered → hoàn thành đơn
         $allDone = count($stops) > 0 && collect($stops)->every(fn($s) => ($s['delivered_at'] ?? null) !== null);
         if ($allDone) {
-            $this->orderService->completeOrder($fresh, $driver);
+            $completion = $this->orderService->completeOrder($fresh, $driver, true);
+            if (! $completion['success']) {
+                return response()->json(
+                    ['success' => false, 'message' => $completion['message']],
+                    $completion['status'],
+                );
+            }
             return response()->json([
                 'success'   => true,
                 'message'   => "Đã giao điểm $seq — Tất cả điểm đã giao, đơn hoàn thành!",
