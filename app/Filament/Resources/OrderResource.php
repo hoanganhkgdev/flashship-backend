@@ -16,9 +16,11 @@ use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\HtmlString;
 use Modules\Core\Models\ServiceType;
+use Modules\Core\Models\User;
 use Modules\Core\Services\FCMService;
 use Modules\Core\Services\RTDBService;
 use Modules\Order\Models\Order;
+use Modules\Order\Services\DispatchService;
 use Modules\Order\Services\OrderService;
 
 class OrderResource extends Resource
@@ -117,6 +119,75 @@ class OrderResource extends Resource
             'driver:id,name,phone',
             'sender:id,name,phone',
         ]);
+    }
+
+    public static function manualAssignmentForm(Order $record): array
+    {
+        return [
+            Forms\Components\Select::make('driver_id')
+                ->label('Tài xế')
+                ->placeholder('Chọn tài xế đang online')
+                ->options(fn (): array => self::manualAssignmentDriverOptions($record))
+                ->searchable()
+                ->preload()
+                ->native(false)
+                ->required()
+                ->noSearchResultsMessage('Không có tài xế phù hợp trong khu vực')
+                ->helperText('Gán trực tiếp, không cần tài xế bấm nhận. Offer đang tìm sẽ được thu hồi tự động.'),
+        ];
+    }
+
+    public static function assignDriverManually(Order $record, array $data): bool
+    {
+        $fresh = $record->fresh();
+        if (! $fresh || $fresh->status !== 'pending') {
+            Notification::make()
+                ->title('Đơn không còn ở trạng thái chờ tài xế.')
+                ->warning()
+                ->send();
+
+            return false;
+        }
+
+        $result = app(DispatchService::class)->assignDriverDirectly($fresh, (int) $data['driver_id']);
+        $notification = Notification::make()->title($result['message']);
+        ($result['success'] ? $notification->success() : $notification->danger())->send();
+
+        return $result['success'];
+    }
+
+    private static function manualAssignmentDriverOptions(Order $record): array
+    {
+        $now = now();
+
+        return User::query()
+            ->where('user_type', 'driver')
+            ->where('city_id', $record->city_id)
+            ->where('status', 1)
+            ->where('is_online', true)
+            ->when($record->service_type === 'car', fn (Builder $query) => $query->where('has_car_license', true))
+            ->whereDoesntHave('debts', fn (Builder $query) => $query->where('status', 'overdue'))
+            ->where(function (Builder $query) use ($now) {
+                $query->whereNull('score_suspended_until')
+                    ->orWhere('score_suspended_until', '<=', $now);
+            })
+            ->whereNotExists(function ($query) {
+                $query->selectRaw('1')
+                    ->from('driver_leave_requests')
+                    ->whereColumn('driver_leave_requests.driver_id', 'users.id')
+                    ->whereDate('driver_leave_requests.leave_date', today());
+            })
+            ->select(['id', 'name', 'phone'])
+            ->withCount([
+                'orders as active_orders_count' => fn (Builder $query) => $query->whereIn('status', ['assigned', 'processing']),
+            ])
+            ->orderBy('name')
+            ->get()
+            ->filter(fn (User $driver) => $driver->active_orders_count < 2)
+            ->mapWithKeys(fn (User $driver) => [
+                $driver->id => trim("{$driver->name} · {$driver->phone} · {$driver->active_orders_count}/2 đơn đang chạy"),
+            ])
+            ->all();
     }
 
     public static function form(Form $form): Form
@@ -473,6 +544,17 @@ class OrderResource extends Resource
                 Tables\Actions\EditAction::make()->label(''),
 
                 Tables\Actions\DeleteAction::make()->label(''),
+
+                Tables\Actions\Action::make('assignDriver')
+                    ->label('')
+                    ->icon('heroicon-o-user-plus')
+                    ->color('info')
+                    ->tooltip('Gán tài xế')
+                    ->visible(fn (Order $record) => $record->status === 'pending')
+                    ->modalHeading(fn (Order $record) => 'Gán tài xế cho đơn #'.$record->code)
+                    ->modalDescription('Đơn sẽ ngừng tìm tự động và chuyển thẳng vào danh sách đã nhận của tài xế.')
+                    ->form(fn (Order $record): array => self::manualAssignmentForm($record))
+                    ->action(fn (Order $record, array $data) => self::assignDriverManually($record, $data)),
 
                 Tables\Actions\Action::make('cancel')
                     ->label('')

@@ -33,8 +33,23 @@ class DispatchManualAssignment
         if (!$driver || $driver->user_type !== 'driver') {
             return ['success' => false, 'message' => 'Không tìm thấy tài xế.'];
         }
+        if ((int) $driver->status !== 1) {
+            return ['success' => false, 'message' => "Tài khoản tài xế {$driver->name} đang bị khóa hoặc chưa được duyệt."];
+        }
+        if (! $driver->is_online) {
+            return ['success' => false, 'message' => "Tài xế {$driver->name} hiện đang offline."];
+        }
         if ($driver->city_id !== $order->city_id) {
             return ['success' => false, 'message' => 'Tài xế không thuộc thành phố của đơn này.'];
+        }
+        if ($driver->score_suspended_until?->isFuture()) {
+            return ['success' => false, 'message' => "Tài xế {$driver->name} đang tạm ngưng nhận đơn."];
+        }
+        if (DB::table('driver_leave_requests')
+            ->where('driver_id', $driver->id)
+            ->whereDate('leave_date', today())
+            ->exists()) {
+            return ['success' => false, 'message' => "Tài xế {$driver->name} đang nghỉ phép hôm nay."];
         }
         if ($this->hasBlockedDebt($driver)) {
             return ['success' => false, 'message' => "Tài xế {$driver->name} đang nợ quá hạn, không thể nhận đơn."];
