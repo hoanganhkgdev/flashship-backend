@@ -132,11 +132,9 @@ class OrderResource extends Resource
                         Forms\Components\Select::make('status')
                             ->label('Trạng thái')
                             ->options(self::$statusLabels)
-                            ->required()
-                            ->live(),
-                        Forms\Components\TextInput::make('cancel_reason')
-                            ->label('Lý do huỷ')
-                            ->visible(fn ($get) => $get('status') === 'cancelled'),
+                            ->disabled()
+                            ->dehydrated(false)
+                            ->helperText('Dùng nút thao tác của đơn để hệ thống xử lý điểm, ví, voucher và thông báo đầy đủ.'),
                     ])->columns(2),
 
                 Forms\Components\Section::make('Điểm lấy hàng')->icon('heroicon-o-arrow-up-circle')->schema([
@@ -518,6 +516,30 @@ class OrderResource extends Resource
                             return;
                         }
                         Notification::make()->title('Đã huỷ đơn '.$record->code)->warning()->send();
+                    }),
+
+                Tables\Actions\Action::make('complete')
+                    ->label('')
+                    ->icon('heroicon-o-check-circle')
+                    ->color('success')
+                    ->tooltip('Hoàn thành đơn')
+                    ->visible(fn (Order $record) => $record->status === 'processing')
+                    ->requiresConfirmation()
+                    ->modalHeading('Hoàn thành đơn hàng')
+                    ->modalDescription(fn (Order $record) => 'Xác nhận tài xế đã giao xong đơn '.$record->code.'? Điểm, ví, voucher và các khoản thưởng sẽ được xử lý đầy đủ.')
+                    ->action(function (Order $record) {
+                        $fresh = $record->fresh(['driver']);
+                        if (! $fresh->driver) {
+                            Notification::make()->title('Đơn không có tài xế phụ trách.')->danger()->send();
+
+                            return;
+                        }
+
+                        $result = app(OrderService::class)->completeOrder($fresh, $fresh->driver, true);
+                        Notification::make()
+                            ->title($result['message'])
+                            ->color($result['success'] ? 'success' : 'danger')
+                            ->send();
                     }),
 
                 Tables\Actions\Action::make('reorder')

@@ -78,9 +78,13 @@ class AutoCompleteArrivedOrdersCommand extends Command
 
             if ($order->driver?->fcm_token) {
                 try {
-                    FCMService::getInstance()->sendDeliveryReminder($order->driver->fcm_token, $order->code);
-                    DB::table('orders')->where('id', $order->id)
+                    $claimed = DB::table('orders')
+                        ->where('id', $order->id)
+                        ->whereNull('delivery_reminder_sent_at')
                         ->update(['delivery_reminder_sent_at' => now()]);
+                    if ($claimed) {
+                        FCMService::getInstance()->sendDeliveryReminder($order->driver->fcm_token, $order->code);
+                    }
                 } catch (\Throwable $e) {
                     Log::warning('[OrderAutoComplete] arrival reminder failed', [
                         'order_id' => $order->id,

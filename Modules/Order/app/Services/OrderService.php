@@ -608,11 +608,12 @@ class OrderService
             (float) $targetLng,
         );
         if ($distanceKm > self::COMPLETION_RADIUS_KM) {
+            $distanceM = (int) round($distanceKm * 1000);
             return [
                 'success' => false,
                 'reason_code' => 'TOO_FAR_FROM_DELIVERY',
-                'message' => 'Bạn cần đến trong phạm vi 300 m của điểm giao để hoàn thành.',
-                'distance_m' => (int) round($distanceKm * 1000),
+                'message' => "Hệ thống ghi nhận bạn đang cách điểm giao {$distanceM} m. Cần ở trong phạm vi 300 m để hoàn thành.",
+                'distance_m' => $distanceM,
                 'status' => 422,
             ];
         }

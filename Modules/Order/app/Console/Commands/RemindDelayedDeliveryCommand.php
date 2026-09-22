@@ -25,9 +25,18 @@ class RemindDelayedDeliveryCommand extends Command
 
         foreach ($orders as $order) {
             try {
-                FCMService::getInstance()->sendDeliveryReminder($order->fcm_token, $order->code);
-                DB::table('orders')->where('id', $order->id)
+                // Hai cron nhắc trễ và tự hoàn thành có thể cùng nhìn thấy
+                // reminder_sent_at=NULL trong một phút. Claim trước bằng
+                // update có điều kiện để một đơn chỉ phát đúng một thông báo.
+                $claimed = DB::table('orders')
+                    ->where('id', $order->id)
+                    ->whereNull('delivery_reminder_sent_at')
                     ->update(['delivery_reminder_sent_at' => now()]);
+                if (! $claimed) {
+                    continue;
+                }
+
+                FCMService::getInstance()->sendDeliveryReminder($order->fcm_token, $order->code);
                 $this->info("Nhắc đơn #{$order->code} → {$order->driver_name}");
             } catch (\Throwable $e) {
                 $this->error("Lỗi đơn #{$order->code}: " . $e->getMessage());
