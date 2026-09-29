@@ -13,6 +13,12 @@ class VoucherController extends Controller
     {
         $user = $request->user();
 
+        // Không hiện mã nào cho shop dùng chung SĐT với tài xế — họ không
+        // được áp dụng mã (xem VoucherService::evaluate()).
+        if ($user->sharesPhoneWithDriver()) {
+            return response()->json(['data' => []]);
+        }
+
         // Trước đây where('city_id', ...)/('user_id', ...) exact-match làm ẩn
         // mất voucher broadcast (city_id/user_id NULL = áp dụng mọi nơi/mọi
         // người) — lệch với logic thật ở validate() bên dưới (chấp nhận NULL).

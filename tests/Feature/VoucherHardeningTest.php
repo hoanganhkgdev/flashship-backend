@@ -34,6 +34,90 @@ class VoucherHardeningTest extends TestCase
         ]);
     }
 
+    public function test_customer_sharing_phone_with_driver_cannot_use_any_voucher(): void
+    {
+        $voucher = $this->makeVoucher();
+        $service = app(VoucherService::class);
+        $this->assertTrue($service->evaluate($voucher, $this->customer, 'customer', 'delivery', 50_000)['valid']);
+
+        // Tài xế đăng ký cùng số (lưu dạng 84xxx) → khách mất quyền dùng mã.
+        User::create([
+            'name' => 'Driver same phone',
+            'email' => 'voucher-driver-'.uniqid().'@test.local',
+            'phone' => '84'.substr($this->customer->phone, 1),
+            'password' => 'test-password',
+            'user_type' => 'driver',
+            'status' => 1,
+        ]);
+
+        $result = $service->evaluate($voucher, $this->customer->fresh(), 'customer', 'delivery', 50_000);
+        $this->assertFalse($result['valid']);
+        $this->assertSame('DRIVER_PHONE_NOT_ELIGIBLE', $result['reason_code']);
+
+        // Danh sách mã trả rỗng.
+        $this->actingAs($this->customer)->getJson('/api/customer/vouchers')
+            ->assertOk()->assertExactJson(['data' => []]);
+
+        // Đặt đơn gửi thẳng mã cũng bị chặn.
+        $this->expectException(\Illuminate\Validation\ValidationException::class);
+        DB::transaction(fn () => $service->redeem($voucher->code, $this->customer, 'customer', 'delivery', 50_000));
+    }
+
+    public function test_shop_sharing_phone_with_driver_cannot_use_any_voucher(): void
+    {
+        $phone = '09'.random_int(10000000, 99999999);
+        $shop = User::create([
+            'name' => 'Shop same phone',
+            'email' => 'voucher-shop-'.uniqid().'@test.local',
+            'phone' => $phone,
+            'password' => 'test-password',
+            'user_type' => 'shop',
+            'status' => 1,
+        ]);
+        $voucher = Voucher::create([
+            'code' => 'VH-SHOP-'.strtoupper(uniqid()),
+            'type' => 'fixed',
+            'value' => 10_000,
+            'audience' => 'shop',
+            'per_user_limit' => 5,
+            'used_count' => 0,
+            'is_active' => true,
+        ]);
+        $service = app(VoucherService::class);
+        $this->assertTrue($service->evaluate($voucher, $shop, 'shop', 'delivery', 50_000)['valid']);
+
+        User::create([
+            'name' => 'Driver same phone',
+            'email' => 'voucher-driver-'.uniqid().'@test.local',
+            'phone' => $phone,
+            'password' => 'test-password',
+            'user_type' => 'driver',
+            'status' => 1,
+        ]);
+
+        $result = $service->evaluate($voucher, $shop, 'shop', 'delivery', 50_000);
+        $this->assertFalse($result['valid']);
+        $this->assertSame('DRIVER_PHONE_NOT_ELIGIBLE', $result['reason_code']);
+        $this->actingAs($shop)->getJson('/api/shop/vouchers')
+            ->assertOk()->assertExactJson(['data' => []]);
+    }
+
+    public function test_driver_phone_rule_does_not_affect_other_customers(): void
+    {
+        User::create([
+            'name' => 'Unrelated driver',
+            'email' => 'voucher-driver-'.uniqid().'@test.local',
+            'phone' => '09'.random_int(10000000, 99999999),
+            'password' => 'test-password',
+            'user_type' => 'driver',
+            'status' => 1,
+        ]);
+
+        $this->assertFalse($this->customer->sharesPhoneWithDriver());
+        $this->assertTrue(app(VoucherService::class)
+            ->evaluate($this->makeVoucher(), $this->customer, 'customer', 'delivery', 50_000)['valid']);
+    }
+
     public function test_first_order_voucher_rejects_customer_with_completed_order(): void
     {
         $voucher = $this->makeVoucher();

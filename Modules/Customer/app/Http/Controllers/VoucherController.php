@@ -15,6 +15,12 @@ class VoucherController extends Controller
 
         $userId = $request->user()->id;
 
+        // Không hiện mã nào cho khách dùng chung SĐT với tài xế — họ không
+        // được áp dụng mã (xem VoucherService::evaluate()).
+        if ($request->user()->sharesPhoneWithDriver()) {
+            return response()->json(['data' => []]);
+        }
+
         // Trả cả lịch sử voucher để app có thể hiển thị đủ 3 nhóm:
         // khả dụng, đã dùng và hết hạn. Việc kiểm tra áp dụng voucher vẫn
         // được bảo vệ riêng trong validate().

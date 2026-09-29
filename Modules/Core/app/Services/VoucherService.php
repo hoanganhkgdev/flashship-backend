@@ -51,6 +51,14 @@ class VoucherService
         if (! $voucher || ! $voucher->is_active) {
             return $invalid('NOT_FOUND', 'Mã giảm giá không tồn tại hoặc đã bị vô hiệu');
         }
+        // Khách/shop dùng chung SĐT với tài xế vẫn đặt đơn được nhưng không
+        // được dùng mã: chặn tài xế tự đặt đơn giảm giá rồi tự nhận tiền bù.
+        if ($user->sharesPhoneWithDriver()) {
+            return $invalid(
+                'DRIVER_PHONE_NOT_ELIGIBLE',
+                'Số điện thoại này đang được dùng cho tài khoản tài xế nên không áp dụng mã giảm giá.'
+            );
+        }
         if (! in_array($voucher->audience, ['all', $audience], true)
             || ($voucher->user_id && (int) $voucher->user_id !== (int) $user->id)) {
             return $invalid('NOT_ELIGIBLE', 'Mã giảm giá không áp dụng cho tài khoản này');

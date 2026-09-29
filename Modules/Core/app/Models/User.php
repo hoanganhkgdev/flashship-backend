@@ -102,6 +102,26 @@ class User extends Authenticatable implements FilamentUser, HasDefaultTenant, Ha
     // HELPERS
     // =========================================================================
 
+    /**
+     * Tài khoản (không phải tài xế) dùng chung số điện thoại với một tài xế.
+     * SĐT chỉ duy nhất theo từng user_type nên một người có thể vừa là tài xế
+     * vừa là khách — so theo 9 số cuối để 0xxx/84xxx/+84xxx là một.
+     */
+    public function sharesPhoneWithDriver(): bool
+    {
+        $digits = preg_replace('/\D/', '', (string) $this->phone);
+        if ($this->user_type === 'driver' || strlen($digits) < 9) {
+            return false;
+        }
+
+        $last9 = substr($digits, -9);
+
+        return static::query()
+            ->where('user_type', 'driver')
+            ->whereIn('phone', ['0'.$last9, '84'.$last9, '+84'.$last9, $last9])
+            ->exists();
+    }
+
     // =========================================================================
     // RELATIONSHIPS
     // =========================================================================
