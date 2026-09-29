@@ -138,6 +138,17 @@ class OrderResource extends Resource
         ];
     }
 
+    /** Đơn đã đổi trạng thái/rời khỏi bảng trong lúc hộp thoại đang mở. */
+    private static function notifyRecordGone(): bool
+    {
+        Notification::make()
+            ->title('Đơn vừa thay đổi trạng thái — danh sách đã được làm mới, vui lòng kiểm tra lại.')
+            ->warning()
+            ->send();
+
+        return false;
+    }
+
     public static function assignDriverManually(Order $record, array $data): bool
     {
         $fresh = $record->fresh();
@@ -551,23 +562,32 @@ class OrderResource extends Resource
                     ->icon('heroicon-o-user-plus')
                     ->color('info')
                     ->tooltip('Gán tài xế')
-                    ->visible(fn (Order $record) => $record->status === 'pending')
-                    ->modalHeading(fn (Order $record) => 'Gán tài xế cho đơn #'.$record->code)
+                    // $record null khi đơn vừa rời khỏi bảng (bảng tự làm mới 15s, tab
+                    // lọc theo trạng thái) trong lúc hộp thoại đang mở.
+                    ->visible(fn (?Order $record) => $record?->status === 'pending')
+                    ->modalHeading(fn (?Order $record) => $record ? 'Gán tài xế cho đơn #'.$record->code : 'Gán tài xế')
                     ->modalDescription('Đơn sẽ ngừng tìm tự động và chuyển thẳng vào danh sách đã nhận của tài xế.')
-                    ->form(fn (Order $record): array => self::manualAssignmentForm($record))
-                    ->action(fn (Order $record, array $data) => self::assignDriverManually($record, $data)),
+                    ->form(fn (?Order $record): array => $record ? self::manualAssignmentForm($record) : [])
+                    ->action(fn (?Order $record, array $data) => $record
+                        ? self::assignDriverManually($record, $data)
+                        : self::notifyRecordGone()),
 
                 Tables\Actions\Action::make('cancel')
                     ->label('')
                     ->icon('heroicon-o-x-circle')
                     ->color('danger')
                     ->tooltip('Huỷ đơn')
-                    ->visible(fn (Order $record) => in_array($record->status, ['pending', 'assigned']))
+                    ->visible(fn (?Order $record) => in_array($record?->status, ['pending', 'assigned'], true))
                     ->requiresConfirmation()
                     ->modalHeading('Huỷ đơn hàng')
-                    ->modalDescription(fn (Order $record) => 'Xác nhận huỷ đơn '.$record->code.'?')
-                    ->action(function (Order $record) {
-                        $fresh = $record->fresh();
+                    ->modalDescription(fn (?Order $record) => $record ? 'Xác nhận huỷ đơn '.$record->code.'?' : null)
+                    ->action(function (?Order $record) {
+                        $fresh = $record?->fresh();
+                        if (! $fresh) {
+                            self::notifyRecordGone();
+
+                            return;
+                        }
                         if ($fresh->status === 'pending') {
                             $result = app(OrderService::class)->cancelPendingOrder($fresh);
                             if (! $result['success']) {
@@ -606,12 +626,19 @@ class OrderResource extends Resource
                     ->icon('heroicon-o-check-circle')
                     ->color('success')
                     ->tooltip('Hoàn thành đơn')
-                    ->visible(fn (Order $record) => $record->status === 'processing')
+                    ->visible(fn (?Order $record) => $record?->status === 'processing')
                     ->requiresConfirmation()
                     ->modalHeading('Hoàn thành đơn hàng')
-                    ->modalDescription(fn (Order $record) => 'Xác nhận tài xế đã giao xong đơn '.$record->code.'? Điểm, ví, voucher và các khoản thưởng sẽ được xử lý đầy đủ.')
-                    ->action(function (Order $record) {
-                        $fresh = $record->fresh(['driver']);
+                    ->modalDescription(fn (?Order $record) => $record
+                        ? 'Xác nhận tài xế đã giao xong đơn '.$record->code.'? Điểm, ví, voucher và các khoản thưởng sẽ được xử lý đầy đủ.'
+                        : null)
+                    ->action(function (?Order $record) {
+                        $fresh = $record?->fresh(['driver']);
+                        if (! $fresh) {
+                            self::notifyRecordGone();
+
+                            return;
+                        }
                         if (! $fresh->driver) {
                             Notification::make()->title('Đơn không có tài xế phụ trách.')->danger()->send();
 
