@@ -34,8 +34,8 @@ class ScoreSettlementsRelationManager extends RelationManager
                     ->alignCenter()
                     ->weight('bold')
                     ->color(fn ($state) => match (true) {
-                        $state >= \Modules\Driver\Services\DriverScoreService::WEEKLY_BONUS_SCORE => 'success',
-                        $state <= 70 => 'danger',
+                        $state >= \Modules\Driver\Services\DriverScoreService::weeklyBonusScore() => 'success',
+                        $state <= \Modules\Driver\Services\DriverScoreService::weeklyPenaltyScore() => 'danger',
                         default => 'gray',
                     }),
 

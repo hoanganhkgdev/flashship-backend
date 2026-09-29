@@ -8,6 +8,7 @@ use Modules\Order\Models\Order;
 use Modules\Order\Models\OrderDispatchLog;
 use Modules\Core\Models\User;
 use Modules\Core\Services\FCMService;
+use Modules\Core\Services\OperationalSettings;
 use Modules\Core\Services\RTDBService;
 use App\Events\DispatchStateChanged;
 use App\Services\ZaloTokenService;
@@ -125,7 +126,7 @@ class DispatchService
         // Offer đã kết thúc — xoá con trỏ "đang hỏi ai" NGAY, đừng đợi tìm được
         // người kế. Nếu không còn ứng viên, con trỏ ôi sẽ (1) hiển thị sai
         // "Đang chờ X" trên monitor và (2) khoá X khỏi mọi đơn khác vì bộ quét
-        // coi X là "đang cầm offer" (tối đa 15 phút). Guard theo driverId để
+        // coi X là "đang cầm offer" trong suốt thời gian tìm tài xế. Guard theo driverId để
         // không đè con trỏ nếu luồng khác đã kịp trỏ sang tài xế mới.
         DB::table('orders')->where('id', $order->id)
             ->where('dispatching_to_driver_id', $driverId)
@@ -133,15 +134,15 @@ class DispatchService
 
         if ($timedOutLog->viewed_at || $order->offer_viewed_at) {
             DriverScoreService::onViewedTimeout($driverId);
-            Log::info("⏱  [Dispatch] Đơn #{$order->id}: Tài xế {$name} xem đơn nhưng không nhận → " . DriverScoreService::SCORE_VIEWED_TIMEOUT . " điểm, pop tiếp");
+            Log::info("⏱  [Dispatch] Đơn #{$order->id}: Tài xế {$name} xem đơn nhưng không nhận → " . DriverScoreService::viewedTimeoutPenalty() . " điểm, pop tiếp");
         } elseif ($timedOutLog->received_at) {
             $window = $this->unviewedOfferWindow($driverId, $driver?->online_since);
             Log::info("⏱  [Dispatch] Đơn #{$order->id}: app tài xế {$name} đã ACK nhưng không mở → {$window['unviewed']}/{$window['total']} offer ACK gần nhất bị bỏ lỡ, pop tiếp");
             if ($window['should_warn'] && $driver?->fcm_token) {
                 FCMService::getInstance()->sendDriverNotice(
                     $driver->fcm_token,
-                    'Bạn đã bỏ lỡ 2 đơn',
-                    'Nếu bỏ lỡ thêm 1 trong 5 đơn gần nhất, hệ thống sẽ trừ 2 điểm và chuyển bạn Offline.',
+                    'Bạn sắp đạt giới hạn bỏ lỡ đơn',
+                    'Nếu bỏ lỡ thêm 1 trong '.OperationalSettings::unviewedWindowSize().' đơn gần nhất, hệ thống sẽ trừ '.abs(DriverScoreService::unviewedPenalty()).' điểm và chuyển bạn Offline.',
                     ['type' => 'missed_offers_warning'],
                 );
             } elseif ($window['should_offline']) {
@@ -220,12 +221,12 @@ class DispatchService
             FCMService::getInstance()->sendDriverNotice(
                 $driver->fcm_token,
                 'Đã chuyển Offline',
-                'Bạn đã không mở 3 trong 5 đơn gần nhất. Hãy bật Online lại khi sẵn sàng nhận đơn.',
+                'Bạn đã không mở '.OperationalSettings::unviewedLimit().' trong '.OperationalSettings::unviewedWindowSize().' đơn gần nhất. Hãy bật Online lại khi sẵn sàng nhận đơn.',
                 ['type' => 'driver_auto_offline', 'reason' => 'unviewed_offers'],
             );
         }
 
-        Log::warning('[Dispatch] Tài xế tự Offline sau khi không mở 3 trong 5 offer ACK gần nhất.', [
+        Log::warning('[Dispatch] Tài xế tự Offline sau khi đạt giới hạn offer ACK không mở.', [
             'driver_id' => $driverId,
             'driver_name' => $driver->name,
         ]);
@@ -241,7 +242,7 @@ class DispatchService
             ->whereNotNull('received_at')
             ->where('offered_at', '>=', $onlineSince)
             ->orderByDesc('offered_at')
-            ->limit(UnviewedOfferWindowPolicy::WINDOW_SIZE)
+            ->limit(OperationalSettings::unviewedWindowSize())
             ->get(['viewed_at', 'result']);
 
         return UnviewedOfferWindowPolicy::evaluate($offers);
@@ -311,7 +312,7 @@ class DispatchService
         foreach ($admins as $admin) {
             \Filament\Notifications\Notification::make()
                 ->title("Đơn #{$order->code} — Không tìm được tài xế")
-                ->body("Đơn từ {$order->pickup_address} đã quá " . self::DISPATCH_TIMEOUT_MINS . " phút không có tài xế nhận. Vui lòng xử lý thủ công.")
+                ->body("Đơn từ {$order->pickup_address} đã quá ".OperationalSettings::dispatchTimeoutMinutes().' phút không có tài xế nhận. Vui lòng xử lý thủ công.')
                 ->danger()
                 ->sendToDatabase($admin);
 
@@ -324,7 +325,7 @@ class DispatchService
             }
         }
 
-        Log::info("╟── [Dispatch] Đơn #{$order->id}: Không tìm được tài xế sau " . self::DISPATCH_TIMEOUT_MINS . " phút → giữ pending, dừng dispatch");
+        Log::info("╟── [Dispatch] Đơn #{$order->id}: Không tìm được tài xế sau ".OperationalSettings::dispatchTimeoutMinutes().' phút → giữ pending, dừng dispatch');
     }
 
     public function offerToNext(Order $order): void
@@ -391,12 +392,10 @@ class DispatchService
         }
     }
 
-    const DISPATCH_TIMEOUT_MINS = 15;
-
     /**
      * Không tìm được ai vòng này — hẹn quét lại toàn thành phố sau 15 giây
      * (có thể lúc đó đã có tài xế di chuyển vào phạm vi, vừa bật online, hoặc
-     * vừa giao xong đơn cũ rảnh trở lại). Quá 15 phút kể từ lúc bắt đầu tìm
+     * vừa giao xong đơn cũ rảnh trở lại). Quá thời gian cấu hình kể từ lúc bắt đầu tìm
      * thì mới thật sự bỏ cuộc, báo admin xử lý tay.
      */
     private function scheduleRetryOrGiveUp(Order $order): void
@@ -406,7 +405,7 @@ class DispatchService
 
         if ($order->dispatch_started_at) {
             $elapsed = (int) abs(now()->diffInMinutes($order->dispatch_started_at));
-            if ($elapsed >= self::DISPATCH_TIMEOUT_MINS) {
+            if ($elapsed >= OperationalSettings::dispatchTimeoutMinutes()) {
                 Log::info("╟── [Dispatch] Đơn #{$order->id}: Quá {$elapsed} phút không có tài xế → dừng dispatch, giữ pending");
                 $this->cancelNoDriver($order);
                 return;
@@ -417,13 +416,14 @@ class DispatchService
         // tự tham số 'EX', giây, 'NX' — xem chú thích chi tiết ở
         // DispatchOfferSender::send() (thứ tự 'NX','EX',giây trực giác nhưng
         // sai chữ ký thật, khoá không hoạt động).
-        if (!Redis::set($this->retryKey($order->id), 1, 'EX', 20, 'NX')) {
+        $retrySeconds = OperationalSettings::dispatchRetrySeconds();
+        if (!Redis::set($this->retryKey($order->id), 1, 'EX', $retrySeconds + 5, 'NX')) {
             Log::debug("╟── [Dispatch] Đơn #{$order->id}: Retry đã được lên lịch, bỏ qua");
             return;
         }
 
-        Log::info("╟── [Dispatch] Đơn #{$order->id}: Chưa có ai → quét lại sau 15s");
-        DispatchOrderRetryJob::dispatch($order->id)->delay(now()->addSeconds(15));
+        Log::info("╟── [Dispatch] Đơn #{$order->id}: Chưa có ai → quét lại sau {$retrySeconds}s");
+        DispatchOrderRetryJob::dispatch($order->id)->delay(now()->addSeconds($retrySeconds));
     }
 
 

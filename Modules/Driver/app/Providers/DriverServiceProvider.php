@@ -39,7 +39,7 @@ class DriverServiceProvider extends ModuleServiceProvider
         $schedule->command('drivers:daily-decay')->dailyAt('23:59');
         // Thứ Hai 00:02 — chốt điểm tuần (sau daily-decay 23:59)
         $schedule->command('drivers:weekly-score')->weeklyOn(1, '00:02');
-        // Mỗi giờ — đánh dấu quá hạn nợ chưa đóng sau 24 tiếng
+        // Mỗi giờ — đánh dấu quá hạn nợ chưa đóng theo cấu hình vận hành.
         $schedule->command('driver:mark-overdue-debts')->hourly();
         // Thứ Hai 00:05 — tạo phí tuần mới (sau weekly-score)
         $schedule->command('driver:generate-weekly-fees')->weeklyOn(1, '00:05');

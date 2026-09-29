@@ -2,11 +2,10 @@
 
 namespace Modules\Order\Services;
 
+use Modules\Core\Services\OperationalSettings;
+
 class UnviewedOfferWindowPolicy
 {
-    public const WINDOW_SIZE = 5;
-    public const UNVIEWED_LIMIT = 3;
-
     /**
      * Đầu vào phải được sắp từ offer mới nhất đến cũ nhất và chỉ gồm các
      * offer điện thoại đã ACK. Offer hết hạn mà chưa từng mở mới là bỏ lỡ.
@@ -19,7 +18,7 @@ class UnviewedOfferWindowPolicy
         $unviewed = 0;
 
         foreach ($offers as $offer) {
-            if ($total >= self::WINDOW_SIZE) {
+            if ($total >= OperationalSettings::unviewedWindowSize()) {
                 break;
             }
 
@@ -35,8 +34,8 @@ class UnviewedOfferWindowPolicy
         return [
             'total' => $total,
             'unviewed' => $unviewed,
-            'should_warn' => $unviewed === self::UNVIEWED_LIMIT - 1,
-            'should_offline' => $unviewed >= self::UNVIEWED_LIMIT,
+            'should_warn' => $unviewed === OperationalSettings::unviewedLimit() - 1,
+            'should_offline' => $unviewed >= OperationalSettings::unviewedLimit(),
         ];
     }
 }

@@ -3,6 +3,7 @@
 namespace Modules\Shop\Services;
 
 use Modules\Core\Services\GoogleMapService;
+use Modules\Core\Services\OperationalSettings;
 use Modules\Shop\Models\ShopPricingConfig;
 
 class ShopPricingService
@@ -133,9 +134,6 @@ class ShopPricingService
 
     private static function nightSurcharge(): int
     {
-        $hour = (int) now()->format('G');
-        if ($hour === 23 || $hour === 0) return 5_000;
-        if ($hour >= 1 && $hour <= 3)   return 10_000;
-        return 0;
+        return OperationalSettings::nightSurcharge();
     }
 }

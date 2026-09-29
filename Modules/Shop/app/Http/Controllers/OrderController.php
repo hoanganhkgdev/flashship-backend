@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 use Modules\Core\Models\Voucher;
 use Modules\Core\Models\VoucherUsage;
+use Modules\Core\Services\OperationalSettings;
 use Modules\Core\Services\VoucherService;
 use Modules\Order\Models\Order;
 use Modules\Order\Services\OrderService;
@@ -455,8 +456,8 @@ class OrderController extends Controller
         if ($order->driver_rating) {
             return response()->json(['success' => false, 'message' => 'Bạn đã đánh giá đơn hàng này rồi.'], 400);
         }
-        if ($order->completed_at && $order->completed_at->diffInHours(now()) > 24) {
-            return response()->json(['success' => false, 'message' => 'Đã quá 24 giờ, không thể đánh giá đơn hàng này.'], 400);
+        if ($order->completed_at && $order->completed_at->diffInHours(now()) > OperationalSettings::ratingWindowHours()) {
+            return response()->json(['success' => false, 'message' => 'Đã quá '.OperationalSettings::ratingWindowHours().' giờ, không thể đánh giá đơn hàng này.'], 400);
         }
 
         // whereNull('driver_rating') giữ vai trò khoá atomic chống double-rate

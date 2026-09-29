@@ -5,6 +5,7 @@ use Carbon\Carbon;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
 use Modules\Core\Services\FCMService;
+use Modules\Core\Services\OperationalSettings;
 use Modules\Driver\Models\DriverDebt;
 
 class MarkOverdueDebtsCommand extends Command
@@ -15,14 +16,14 @@ class MarkOverdueDebtsCommand extends Command
     public function handle(): int
     {
         $today  = Carbon::today()->toDateString();
-        $cutoff = Carbon::now()->subHours(24);
+        $cutoff = Carbon::now()->subHours(OperationalSettings::penaltyDebtOverdueHours());
 
         $debts = DriverDebt::with('driver')
             ->where('status', 'pending')
             ->where(function ($q) use ($today, $cutoff) {
                 // Công nợ tuần: quá hạn khi week_end đã qua
                 $q->whereNull('ref_id')->where('week_end', '<=', $today);
-                // Công nợ phạt điểm: quá hạn sau 24 tiếng.
+                // Công nợ phạt điểm: quá hạn theo cấu hình vận hành.
                 $q->orWhere(function ($q2) use ($cutoff) {
                     $q2->where('ref_id', 'like', 'score_penalty_%')
                         ->where('created_at', '<=', $cutoff);

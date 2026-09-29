@@ -5,6 +5,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
 use Modules\Core\Models\User;
 use Modules\Core\Services\GoogleMapService;
+use Modules\Core\Services\OperationalSettings;
 use Modules\Driver\Services\DriverLocationService;
 use Modules\Driver\Services\DriverScoreService;
 use Modules\Order\Models\Order;
@@ -22,17 +23,12 @@ class DispatchCandidateFinder
     // Ghép đơn tự động trong find() — điều kiện: điểm lấy 2 đơn gần nhau VÀ
     // điểm giao 2 đơn cũng gần nhau (cùng khu vực lấy, cùng khu vực giao mới
     // hợp lý để 1 tài xế chạy được cả 2 mà không vòng vèo quá xa).
-    const BATCH_MAX_PICKUP_KM   = StackedOrderPolicy::MAX_PICKUP_KM;
-    const BATCH_MAX_DELIVERY_KM = StackedOrderPolicy::MAX_DELIVERY_KM;
-
     // Không còn khái niệm "bán kính tìm kiếm" (2km/4km đường chim bay) — quét
     // TOÀN BỘ tài xế online đủ điều kiện trong thành phố ngay từ đầu, tính
     // khoảng cách đường đi thật (Google Distance Matrix, 1 lần cho cả lô) cho
     // tất cả, rồi lọc thẳng ai vượt trần này. Không ai trong trần thì coi như
     // không có tài xế, KHÔNG gán đại người xa — gán xa chỉ dời vấn đề sang lúc
     // tài xế huỷ/không chạy, không giải quyết được gì thêm.
-    const MAX_ROAD_DISTANCE_KM = DispatchRadiusPolicy::MAX_ROAD_DISTANCE_KM;
-
     public function __construct(
         private readonly DriverLocationService $locationService,
         private readonly DispatchScoringCalculator $scoringCalculator,
@@ -40,7 +36,7 @@ class DispatchCandidateFinder
 
     public function find(Order $order, array $excludeIds = [], ?float $maxRoadDistanceKm = null): Collection
     {
-        $maxRoadDistanceKm ??= self::MAX_ROAD_DISTANCE_KM;
+        $maxRoadDistanceKm ??= DispatchRadiusPolicy::radiusForElapsedSeconds(0);
         if (!$order->city_id) {
             Log::warning("[Dispatch] Đơn #{$order->id} không có city_id → không thể tìm tài xế");
             return collect();
@@ -53,7 +49,7 @@ class DispatchCandidateFinder
             ->whereIn('status', ['assigned', 'processing'])
             ->whereNotNull('delivery_man_id')
             ->groupBy('delivery_man_id')
-            ->havingRaw('cnt >= 2')
+            ->having('cnt', '>=', OperationalSettings::maxActiveOrdersPerDriver())
             ->pluck('delivery_man_id');
 
         $receivingOfferIds = Order::where('status', 'pending')
@@ -120,8 +116,8 @@ class DispatchCandidateFinder
         }
 
         // ── 4. Ghép đơn: giữ tài xế rảnh HOẶC có 1 đơn mà đơn đang chạy "cùng
-        // tuyến" với đơn mới — điểm lấy 2 đơn ≤ BATCH_MAX_PICKUP_KM VÀ điểm
-        // giao 2 đơn ≤ BATCH_MAX_DELIVERY_KM (cả 2 điều kiện, không phải 1).
+        // tuyến" với đơn mới — điểm lấy và điểm giao đều phải nằm trong
+        // khoảng cách ghép đơn đang cấu hình (cả 2 điều kiện, không phải 1).
         $activeOrders = Order::whereIn('status', ['assigned', 'processing'])
             ->whereIn('delivery_man_id', $afterLicense->pluck('id'))
             ->get(['delivery_man_id', 'status', 'pickup_lat', 'pickup_lng', 'delivery_lat', 'delivery_lng'])

@@ -6,10 +6,10 @@ use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\DB;
 use Modules\Core\Services\RTDBService;
+use Modules\Core\Services\OperationalSettings;
 use Modules\Order\Jobs\DispatchOrderJob;
 use Modules\Order\Models\Order;
 use Modules\Order\Models\OrderDispatchLog;
-use Modules\Order\Services\DispatchOfferSender;
 use Modules\Order\Services\OrderService;
 
 class OrderController extends Controller
@@ -91,7 +91,7 @@ class OrderController extends Controller
         }
 
         $effectiveViewedAt = $updated ? $viewedAt : $fresh->offer_viewed_at;
-        $expiresAt = $effectiveViewedAt->copy()->addSeconds(DispatchOfferSender::APP_DECISION_SECS);
+        $expiresAt = $effectiveViewedAt->copy()->addSeconds(OperationalSettings::offerDecisionSeconds());
         if ($updated) {
             DB::table('order_dispatch_logs')->where('id', $dispatchLog->id)
                 ->where('result', 'pending')->whereNull('viewed_at')
@@ -160,7 +160,7 @@ class OrderController extends Controller
 
         $effectiveExpiresAt = null;
         if ($updated) {
-            $expiresAt = $viewedAt->copy()->addSeconds(DispatchOfferSender::APP_DECISION_SECS);
+            $expiresAt = $viewedAt->copy()->addSeconds(OperationalSettings::offerDecisionSeconds());
             $effectiveExpiresAt = $expiresAt->timestamp;
 
             // Ghi thêm vào đúng dòng log offer này (khác cột chung ở trên) —
@@ -172,10 +172,10 @@ class OrderController extends Controller
                 ->whereNull('viewed_at')
                 ->update(['received_at' => DB::raw('COALESCE(received_at, CURRENT_TIMESTAMP)'), 'viewed_at' => $viewedAt]);
 
-            // Reset đồng hồ RTDB về APP_DECISION_SECS — giống ShopeeFood
+            // Reset đồng hồ RTDB về thời gian quyết định đang cấu hình.
             RTDBService::updateDriverOfferExpiry($driver->id, $order->id, $expiresAt->timestamp);
 
-            // Job timeout tính từ lúc driver MỞ APP, dùng APP_DECISION_SECS (30s)
+            // Job timeout tính từ lúc driver mở app.
             DispatchOrderJob::dispatch($order->id, $driver->id, true)
                 ->delay($expiresAt);
         } else {
@@ -188,7 +188,7 @@ class OrderController extends Controller
             if ($fresh?->offer_viewed_at) {
                 $effectiveExpiresAt = $fresh->offer_viewed_at
                     ->copy()
-                    ->addSeconds(DispatchOfferSender::APP_DECISION_SECS)
+                    ->addSeconds(OperationalSettings::offerDecisionSeconds())
                     ->timestamp;
             }
         }

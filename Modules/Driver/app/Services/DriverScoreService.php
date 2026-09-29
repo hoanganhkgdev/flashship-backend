@@ -4,28 +4,13 @@ namespace Modules\Driver\Services;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Modules\Core\Services\RTDBService;
+use Modules\Core\Services\OperationalSettings;
 
 class DriverScoreService
 {
     const DEFAULT_SCORE        = 100;
     const MIN_SCORE            = 0;
     const MAX_SCORE            = 140;
-
-    const SCORE_DECLINE        = -2;
-    const SCORE_VIEWED_TIMEOUT = -2;
-    const SCORE_UNVIEWED_X3    = -2;
-
-    const STREAK_MILESTONES    = [3 => 1, 6 => 2, 10 => 4];
-    const STREAK_RESET_AT      = 10;
-
-    const DAILY_BONUS_CAP      = 10;
-
-    // 140 khớp đúng ngưỡng "Xuất sắc" của label() — trước đây neo ở kịch
-    // trần 150 khiến tài xế được xếp "Xuất sắc" vẫn có thể nhận 0đ thưởng.
-    const WEEKLY_BONUS_SCORE   = 140;
-    const WEEKLY_PENALTY_SCORE = 70;
-    const WEEKLY_BONUS_AMOUNT  = 200_000;
-    const WEEKLY_PENALTY_AMOUNT= 100_000;
 
     // ─── Triggers ────────────────────────────────────────────────────────────────
 
@@ -39,9 +24,10 @@ class DriverScoreService
                 ->first();
 
             $streak     = (int) ($driver->consecutive_completed ?? 0) + 1;
-            $bonusDelta = self::STREAK_MILESTONES[$streak] ?? 0;
+            $milestones = self::streakMilestones();
+            $bonusDelta = $milestones[$streak] ?? 0;
 
-            $newStreak = $streak >= self::STREAK_RESET_AT ? 0 : $streak;
+            $newStreak = $streak >= max(array_keys($milestones)) ? 0 : $streak;
 
             DB::table('users')->where('id', $driverId)->update([
                 'consecutive_completed'   => $newStreak,
@@ -65,7 +51,7 @@ class DriverScoreService
 
     public static function onDecline(int $driverId): void
     {
-        self::adjustWithStreakReset($driverId, self::SCORE_DECLINE, 'decline');
+        self::adjustWithStreakReset($driverId, self::declinePenalty(), 'decline');
     }
 
     /**
@@ -74,7 +60,7 @@ class DriverScoreService
      */
     public static function onViewedTimeout(int $driverId): void
     {
-        self::adjustWithStreakReset($driverId, self::SCORE_VIEWED_TIMEOUT, 'viewed_timeout');
+        self::adjustWithStreakReset($driverId, self::viewedTimeoutPenalty(), 'viewed_timeout');
     }
 
     /**
@@ -82,18 +68,20 @@ class DriverScoreService
      * thay cho luật "8h/ngày" cũ VÀ luật "không hoạt động cả ngày" cũ
      * (onInactivity, đã bỏ — dư thừa vì không đăng ký ca đã coi là nghỉ
      * không phạt, có đăng ký mà 0% đã bị tier <50% xử lý nặng hơn mức cũ).
-     * Không còn mốc cộng điểm — 85-100% chỉ trung lập (0đ), vì online đủ ca
+     * Không còn mốc cộng điểm — tầng online cao nhất chỉ trung lập (0đ), vì online đủ ca
      * là kỳ vọng tối thiểu chứ không phải thành tích để thưởng thêm.
      * Gọi từ ScoreShiftSessionsCommand.
      */
     public static function onShiftOnlineRate(int $driverId, float $percent): void
     {
+        $thresholds = OperationalSettings::shiftOnlineThresholds();
+        $penalties = OperationalSettings::shiftOnlinePenalties();
         [$delta, $reason] = match (true) {
-            $percent >= 0.85 => [0,   'shift_online_normal'],
-            $percent >= 0.70 => [-3,  'shift_online_reduced'],
-            $percent >= 0.60 => [-5,  'shift_online_mid'],
-            $percent >= 0.50 => [-10, 'shift_online_low'],
-            default          => [-15, 'shift_online_critical'],
+            $percent >= $thresholds['normal'] => [0, 'shift_online_normal'],
+            $percent >= $thresholds['reduced'] => [$penalties['reduced'], 'shift_online_reduced'],
+            $percent >= $thresholds['mid'] => [$penalties['mid'], 'shift_online_mid'],
+            $percent >= $thresholds['low'] => [$penalties['low'], 'shift_online_low'],
+            default => [$penalties['critical'], 'shift_online_critical'],
         };
 
         // Khoá dòng driver trước khi cộng/trừ điểm — các hàm chấm điểm khác
@@ -110,7 +98,7 @@ class DriverScoreService
     /** Gọi khi đã xác nhận có 3 offer không mở trong cửa sổ 5 offer ACK. */
     public static function onUnviewedOfferWindowLimit(int $driverId): void
     {
-        self::adjustWithStreakReset($driverId, self::SCORE_UNVIEWED_X3, 'offer_unviewed_x3');
+        self::adjustWithStreakReset($driverId, self::unviewedPenalty(), 'offer_unviewed_x3');
     }
 
     // ─── Weekly Reset ────────────────────────────────────────────────────────────
@@ -173,7 +161,7 @@ class DriverScoreService
                 ->first();
 
             $earned = ($row?->daily_bonus_date === $today) ? (int) ($row->daily_bonus_points ?? 0) : 0;
-            $remaining = self::DAILY_BONUS_CAP - $earned;
+            $remaining = self::dailyBonusCap() - $earned;
 
             if ($remaining <= 0) {
                 Log::info("[DriverScore] Driver #{$driverId} daily cap reached — {$reason} blocked.");
@@ -228,25 +216,72 @@ class DriverScoreService
     public static function label(int $score): string
     {
         return match (true) {
-            $score >= self::WEEKLY_BONUS_SCORE => 'Xuất sắc',
+            $score >= self::weeklyBonusScore() => 'Xuất sắc',
             $score >= 110 => 'Tốt',
             $score >= 90  => 'Khá',
-            $score >= 70  => 'Trung bình',
+            $score > self::weeklyPenaltyScore() => 'Trung bình',
             default       => 'Cần cải thiện',
         };
     }
 
     public static function tips(int $score): array
     {
-        $bonusAmount   = number_format(self::WEEKLY_BONUS_AMOUNT, 0, ',', '.') . '₫';
-        $penaltyAmount = number_format(self::WEEKLY_PENALTY_AMOUNT, 0, ',', '.') . '₫';
+        $bonusScore = self::weeklyBonusScore();
+        $penaltyScore = self::weeklyPenaltyScore();
+        $bonusAmount   = number_format(self::weeklyBonusAmount(), 0, ',', '.') . '₫';
+        $penaltyAmount = number_format(self::weeklyPenaltyAmount(), 0, ',', '.') . '₫';
 
-        if ($score >= self::WEEKLY_BONUS_SCORE) {
-            return ['Bạn đã đạt ' . self::WEEKLY_BONUS_SCORE . ' điểm — tiếp tục duy trì để nhận thưởng ' . $bonusAmount . ' cuối tuần!'];
+        if ($score >= $bonusScore) {
+            return ['Bạn đã đạt ' . $bonusScore . ' điểm — tiếp tục duy trì để nhận thưởng ' . $bonusAmount . ' cuối tuần!'];
         }
-        if ($score <= self::WEEKLY_PENALTY_SCORE) {
-            return ['Điểm dưới ' . self::WEEKLY_PENALTY_SCORE . ' — cố gắng cải thiện để tránh bị phạt ' . $penaltyAmount . ' cuối tuần.'];
+        if ($score <= $penaltyScore) {
+            return ['Điểm từ ' . $penaltyScore . ' trở xuống — cố gắng cải thiện để tránh bị phạt ' . $penaltyAmount . ' cuối tuần.'];
         }
-        return ['Cần thêm ' . (self::WEEKLY_BONUS_SCORE - $score) . ' điểm để đạt thưởng ' . $bonusAmount . ' cuối tuần.'];
+        return ['Cần thêm ' . ($bonusScore - $score) . ' điểm để đạt thưởng ' . $bonusAmount . ' cuối tuần.'];
+    }
+
+    public static function streakMilestones(): array
+    {
+        return OperationalSettings::streakMilestones();
+    }
+
+    public static function dailyBonusCap(): int
+    {
+        return OperationalSettings::dailyBonusCap();
+    }
+
+    public static function weeklyBonusScore(): int
+    {
+        return OperationalSettings::weeklyBonusScore();
+    }
+
+    public static function weeklyPenaltyScore(): int
+    {
+        return OperationalSettings::weeklyPenaltyScore();
+    }
+
+    public static function weeklyBonusAmount(): int
+    {
+        return OperationalSettings::weeklyBonusAmount();
+    }
+
+    public static function weeklyPenaltyAmount(): int
+    {
+        return OperationalSettings::weeklyPenaltyAmount();
+    }
+
+    public static function declinePenalty(): int
+    {
+        return OperationalSettings::scoreDeclinePenalty();
+    }
+
+    public static function viewedTimeoutPenalty(): int
+    {
+        return OperationalSettings::scoreViewedTimeoutPenalty();
+    }
+
+    public static function unviewedPenalty(): int
+    {
+        return OperationalSettings::scoreUnviewedPenalty();
     }
 }

@@ -5,11 +5,12 @@ namespace Modules\Order\Console\Commands;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 use Modules\Core\Services\FCMService;
+use Modules\Core\Services\OperationalSettings;
 
 class RemindDelayedDeliveryCommand extends Command
 {
     protected $signature   = 'order:remind-delayed-delivery';
-    protected $description = 'Nhắc tài xế bấm hoàn thành sau 15 phút đang giao';
+    protected $description = 'Nhắc tài xế bấm hoàn thành khi đơn đang giao quá thời gian cấu hình';
 
     public function handle(): void
     {
@@ -17,7 +18,7 @@ class RemindDelayedDeliveryCommand extends Command
         $orders = DB::table('orders')
             ->join('users', 'orders.delivery_man_id', '=', 'users.id')
             ->where('orders.status', 'processing')
-            ->where('orders.updated_at', '<', now()->subMinutes(15))
+            ->where('orders.updated_at', '<', now()->subMinutes(OperationalSettings::delayedReminderMinutes()))
             ->whereNull('orders.delivery_reminder_sent_at')
             ->whereNotNull('users.fcm_token')
             ->select('orders.id', 'orders.code', 'users.fcm_token', 'users.name as driver_name')

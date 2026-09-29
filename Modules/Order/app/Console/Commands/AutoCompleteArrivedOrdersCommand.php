@@ -7,14 +7,13 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Modules\Core\Services\FCMService;
 use Modules\Core\Services\GoogleMapService;
+use Modules\Core\Services\OperationalSettings;
 use Modules\Driver\Services\DriverLocationService;
 use Modules\Order\Models\Order;
 use Modules\Order\Services\OrderService;
 
 class AutoCompleteArrivedOrdersCommand extends Command
 {
-    const AUTO_COMPLETE_GRACE_MINUTES = 3;
-
     protected $signature = 'orders:auto-complete-arrived';
 
     protected $description = 'Tự hoàn thành đơn sau khi tài xế đã ở gần điểm giao nhưng không bấm hoàn thành';
@@ -36,7 +35,7 @@ class AutoCompleteArrivedOrdersCommand extends Command
 
         foreach ($processing as $order) {
             if ($order->delivery_arrived_at
-                && $order->delivery_arrived_at->lte(now()->subMinutes(self::AUTO_COMPLETE_GRACE_MINUTES))) {
+                && $order->delivery_arrived_at->lte(now()->subMinutes(OperationalSettings::autoCompleteGraceMinutes()))) {
                 $result = $orders->completeOrder($order, $order->driver, true);
                 if ($result['success']) {
                     DB::table('orders')->where('id', $order->id)->update(['auto_completed_at' => now()]);
@@ -63,7 +62,7 @@ class AutoCompleteArrivedOrdersCommand extends Command
                 (float) $order->delivery_lat,
                 (float) $order->delivery_lng,
             );
-            if ($distanceKm > OrderService::COMPLETION_RADIUS_KM) {
+            if ($distanceKm > OperationalSettings::completionRadiusKm()) {
                 continue;
             }
 

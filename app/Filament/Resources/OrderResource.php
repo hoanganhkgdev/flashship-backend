@@ -17,6 +17,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\HtmlString;
 use Modules\Core\Models\ServiceType;
 use Modules\Core\Models\User;
+use Modules\Core\Services\OperationalSettings;
 use Modules\Core\Services\FCMService;
 use Modules\Core\Services\RTDBService;
 use Modules\Order\Models\Order;
@@ -183,9 +184,9 @@ class OrderResource extends Resource
             ])
             ->orderBy('name')
             ->get()
-            ->filter(fn (User $driver) => $driver->active_orders_count < 2)
+            ->filter(fn (User $driver) => $driver->active_orders_count < OperationalSettings::maxActiveOrdersPerDriver())
             ->mapWithKeys(fn (User $driver) => [
-                $driver->id => trim("{$driver->name} · {$driver->phone} · {$driver->active_orders_count}/2 đơn đang chạy"),
+                $driver->id => trim("{$driver->name} · {$driver->phone} · {$driver->active_orders_count}/".OperationalSettings::maxActiveOrdersPerDriver().' đơn đang chạy'),
             ])
             ->all();
     }

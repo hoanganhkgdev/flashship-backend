@@ -15,6 +15,7 @@ use Filament\Tables;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
+use Modules\Core\Services\OperationalSettings;
 use Modules\Driver\Models\DriverWallet;
 use Modules\Driver\Services\DriverWalletService;
 
@@ -100,7 +101,7 @@ class DriverWalletResource extends Resource
                         ->label('Số dư hiện tại')
                         ->formatStateUsing(fn ($state) => number_format($state, 0, ',', '.').' ₫')
                         ->size('lg')
-                        ->color(fn ($state) => $state < 100_000 ? 'danger' : 'success'),
+                        ->color(fn ($state) => $state < OperationalSettings::lowWalletBalanceThreshold() ? 'danger' : 'success'),
 
                     Infolists\Components\TextEntry::make('updated_at')
                         ->label('Cập nhật lần cuối')
@@ -149,7 +150,7 @@ class DriverWalletResource extends Resource
                     ->label('Số dư')
                     ->alignCenter()
                     ->formatStateUsing(fn ($state) => number_format($state, 0, ',', '.').' ₫')
-                    ->color(fn ($state) => $state < 100_000 ? 'danger' : 'success'),
+                    ->color(fn ($state) => $state < OperationalSettings::lowWalletBalanceThreshold() ? 'danger' : 'success'),
 
                 Tables\Columns\TextColumn::make('credit_today')
                     ->label('Hôm nay')
@@ -181,14 +182,14 @@ class DriverWalletResource extends Resource
             ->filters([
                 Tables\Filters\SelectFilter::make('balance_range')
                     ->label('Số dư')
-                    ->options([
-                        'low' => 'Dưới 100.000₫',
-                        'normal' => 'Từ 100.000₫',
+                    ->options(fn () => [
+                        'low' => 'Dưới '.number_format(OperationalSettings::lowWalletBalanceThreshold()).'₫',
+                        'normal' => 'Từ '.number_format(OperationalSettings::lowWalletBalanceThreshold()).'₫',
                         'high' => 'Từ 1.000.000₫',
                     ])
                     ->query(fn (Builder $query, array $data) => match ($data['value'] ?? null) {
-                        'low' => $query->where('balance', '<', 100_000),
-                        'normal' => $query->whereBetween('balance', [100_000, 999_999]),
+                        'low' => $query->where('balance', '<', OperationalSettings::lowWalletBalanceThreshold()),
+                        'normal' => $query->whereBetween('balance', [OperationalSettings::lowWalletBalanceThreshold(), 999_999]),
                         'high' => $query->where('balance', '>=', 1_000_000),
                         default => $query,
                     }),

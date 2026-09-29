@@ -9,6 +9,7 @@ use Modules\Core\Models\Voucher;
 use Modules\Core\Models\VoucherUsage;
 use Modules\Core\Services\FCMService;
 use Modules\Core\Services\GoogleMapService;
+use Modules\Core\Services\OperationalSettings;
 use Modules\Customer\Http\Controllers\CustomerNotificationController;
 use Modules\Core\Services\RTDBService;
 use Modules\Driver\Services\DriverScoreService;
@@ -22,14 +23,10 @@ use Illuminate\Support\Facades\Redis;
 
 class OrderService
 {
-    const COMPLETION_RADIUS_KM = 0.3;
-
     // Thưởng thêm khi tài xế nhận đơn lúc thành phố đang bật chế độ trời mưa
     // (xem rain_bonus_eligible ở acceptOrder()) — 1 nguồn duy nhất cho cả số
     // tiền cộng thật (completeOrder()) lẫn số tiền xem trước gửi kèm offer
     // (DispatchOfferSender::commitOffer()), tránh lệch nếu sau này đổi giá trị.
-    const RAIN_BONUS_AMOUNT = 5000;
-
     /**
      * Hủy một đơn còn pending theo một quy tắc duy nhất cho customer/shop.
      * Trạng thái đơn, dispatch log và hoàn lượt voucher commit cùng nhau.
@@ -187,7 +184,7 @@ class OrderService
             'bonus_fee'        => (int) ($order->bonus_fee       ?? 0),
             'night_surcharge'  => (int) ($order->night_surcharge ?? 0),
             'rain_bonus_eligible' => (bool) ($order->rain_bonus_eligible ?? false),
-            'rain_bonus_amount'   => $order->rain_bonus_eligible ? self::RAIN_BONUS_AMOUNT : 0,
+            'rain_bonus_amount'   => $order->rain_bonus_eligible ? ($order->rain_bonus_amount ?? OperationalSettings::rainBonusAmount()) : 0,
             'discount_amount'  => (int) ($order->discount_amount ?? 0),
             'voucher_code'     => $order->voucher_code ?? null,
             'payment_method'   => $order->payment_method ?? 'prepaid',
@@ -249,21 +246,21 @@ class OrderService
         $assignment = DB::transaction(function () use ($order, $user) {
             // Khóa tài xế là chốt nghiệp vụ chung cho accept từ app và gán
             // tay từ tổng đài. Hai luồng không thể cùng đếm activeCount cũ
-            // rồi cùng gán vượt giới hạn 2 đơn.
+            // rồi cùng gán vượt giới hạn đơn active.
             User::where('id', $user->id)->lockForUpdate()->firstOrFail();
 
             $activeOrders = Order::where('delivery_man_id', $user->id)
                 ->whereIn('status', ['assigned', 'processing'])
                 ->lockForUpdate()
                 ->get();
-            if ($activeOrders->count() >= 2
+            if ($activeOrders->count() >= OperationalSettings::maxActiveOrdersPerDriver()
                 || ($activeOrders->count() === 1
                     && ! StackedOrderPolicy::allows($order, $activeOrders->first()))) {
                 OrderDispatchLog::where('order_id', $order->id)
                     ->where('driver_id', $user->id)
                     ->where('result', 'pending')
                     // Enum DB chỉ có pending/accepted/declined/expired.
-                    // Đây là offer không còn hợp lệ do tài xế vừa đủ 2 đơn,
+                    // Đây là offer không còn hợp lệ do tài xế vừa đạt trần đơn,
                     // không phải hành vi từ chối để bị trừ điểm.
                     ->update(['result' => 'expired', 'responded_at' => now()]);
                 DB::table('orders')->where('id', $order->id)
@@ -271,7 +268,7 @@ class OrderService
                     ->where('dispatching_to_driver_id', $user->id)
                     ->update(['dispatching_to_driver_id' => null, 'updated_at' => now()]);
 
-                return $activeOrders->count() >= 2 ? 'busy' : 'not_stackable';
+                return $activeOrders->count() >= OperationalSettings::maxActiveOrdersPerDriver() ? 'busy' : 'not_stackable';
             }
 
             return DB::table('orders')
@@ -301,7 +298,7 @@ class OrderService
             })->afterResponse();
 
             $message = $assignment === 'busy'
-                ? 'Bạn đang có 2 đơn hàng chưa hoàn thành. Vui lòng hoàn thành bớt trước.'
+                ? 'Bạn đang có đủ '.OperationalSettings::maxActiveOrdersPerDriver().' đơn hàng chưa hoàn thành. Vui lòng hoàn thành bớt trước.'
                 : 'Đơn ghép không còn phù hợp vì bạn đã lấy đơn trước. Hệ thống sẽ chuyển đơn cho tài xế khác.';
 
             return ['success' => false, 'message' => $message, 'status' => 409];
@@ -316,7 +313,10 @@ class OrderService
         // hiện tại nữa dù sau đó tắt/bật lại giữa chừng (tài xế nhận lúc mưa
         // thì được thưởng, dù giao xong trời đã tạnh).
         if (\Modules\Core\Models\City::where('id', $order->city_id)->value('is_rain_mode')) {
-            DB::table('orders')->where('id', $order->id)->update(['rain_bonus_eligible' => true]);
+            DB::table('orders')->where('id', $order->id)->update([
+                'rain_bonus_eligible' => true,
+                'rain_bonus_amount' => OperationalSettings::rainBonusAmount(),
+            ]);
         }
 
         \Illuminate\Support\Facades\Redis::del("dispatch:lock:driver:{$user->id}");
@@ -527,8 +527,9 @@ class OrderService
             if ($bonusFee > 0) {
                 DriverWalletService::adjust($user->id, $bonusFee, 'credit', "Bonus #{$fresh->id}", "order_{$fresh->id}_bonus");
             }
-            if ($fresh->rain_bonus_eligible) {
-                DriverWalletService::adjust($user->id, self::RAIN_BONUS_AMOUNT, 'credit', "Thưởng trời mưa #{$fresh->id}", "order_{$fresh->id}_rain");
+            $rainBonusAmount = $fresh->rain_bonus_amount ?? OperationalSettings::rainBonusAmount();
+            if ($fresh->rain_bonus_eligible && $rainBonusAmount > 0) {
+                DriverWalletService::adjust($user->id, $rainBonusAmount, 'credit', "Thưởng trời mưa #{$fresh->id}", "order_{$fresh->id}_rain");
             }
 
             // cod_amount chỉ là số tiền shop báo để tài xế chuẩn bị ứng khi
@@ -607,12 +608,12 @@ class OrderService
             (float) $targetLat,
             (float) $targetLng,
         );
-        if ($distanceKm > self::COMPLETION_RADIUS_KM) {
+        if ($distanceKm > OperationalSettings::completionRadiusKm()) {
             $distanceM = (int) round($distanceKm * 1000);
             return [
                 'success' => false,
                 'reason_code' => 'TOO_FAR_FROM_DELIVERY',
-                'message' => "Hệ thống ghi nhận bạn đang cách điểm giao {$distanceM} m. Cần ở trong phạm vi 300 m để hoàn thành.",
+                'message' => "Hệ thống ghi nhận bạn đang cách điểm giao {$distanceM} m. Cần ở trong phạm vi ".OperationalSettings::completionRadiusMeters().' m để hoàn thành.',
                 'distance_m' => $distanceM,
                 'status' => 422,
             ];

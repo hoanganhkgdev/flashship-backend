@@ -11,12 +11,18 @@ use Modules\Driver\Services\DriverWalletService;
 class WeeklyScoreCommand extends Command
 {
     protected $signature   = 'drivers:weekly-score';
-    protected $description = 'Chốt điểm cuối tuần (thưởng 200k / phạt 100k vào ví) rồi reset về 100 cho tuần mới';
+    protected $description = 'Chốt thưởng/phạt điểm cuối tuần theo cấu hình vận hành rồi reset điểm cho tuần mới';
 
     public function handle(): void
     {
         $weekStart = Carbon::now()->subWeek()->startOfWeek()->toDateString();
         $weekEnd   = Carbon::now()->subWeek()->endOfWeek()->toDateString();
+        // Chụp cấu hình một lần để toàn bộ tài xế trong cùng kỳ được áp dụng
+        // đúng một chính sách, kể cả admin lưu thay đổi lúc command đang chạy.
+        $bonusScore = DriverScoreService::weeklyBonusScore();
+        $penaltyScore = DriverScoreService::weeklyPenaltyScore();
+        $bonusAmount = DriverScoreService::weeklyBonusAmount();
+        $penaltyAmount = DriverScoreService::weeklyPenaltyAmount();
 
         // Guard: chỉ chạy 1 lần/tuần
         $ran = DB::table('driver_score_settlements')
@@ -41,13 +47,13 @@ class WeeklyScoreCommand extends Command
         foreach ($drivers as $driver) {
             $score = (int) ($driver->driver_score ?? DriverScoreService::DEFAULT_SCORE);
 
-            if ($score >= DriverScoreService::WEEKLY_BONUS_SCORE) {
+            if ($score >= $bonusScore) {
                 // Unique (driver_id, week_start, type) chặn xử lý trùng nếu lệnh
                 // vô tình chạy 2 lần cho cùng tuần — bắt riêng từng tài xế để 1
                 // lỗi trùng không làm crash cả vòng lặp (và mất luôn bước reset
                 // điểm cuối hàm).
                 try {
-                    DB::transaction(function () use ($driver, $score, $weekStart, $weekEnd, $now) {
+                    DB::transaction(function () use ($driver, $score, $weekStart, $weekEnd, $now, $bonusAmount) {
                         $ref = "score_bonus_{$driver->id}_{$weekStart}";
 
                         // Tạo settlement TRƯỚC — nếu trùng (đã chốt tuần này rồi),
@@ -55,7 +61,7 @@ class WeeklyScoreCommand extends Command
                         DB::table('driver_score_settlements')->insert([
                             'driver_id'           => $driver->id,
                             'type'                => 'bonus',
-                            'amount'              => DriverScoreService::WEEKLY_BONUS_AMOUNT,
+                            'amount'              => $bonusAmount,
                             'score_at_settlement' => $score,
                             'week_start'          => $weekStart,
                             'week_end'            => $weekEnd,
@@ -66,7 +72,7 @@ class WeeklyScoreCommand extends Command
 
                         DriverWalletService::adjust(
                             driverId: $driver->id,
-                            amount:   DriverScoreService::WEEKLY_BONUS_AMOUNT,
+                            amount:   $bonusAmount,
                             type:     'credit',
                             desc:     "Thưởng điểm tuần {$weekStart} — {$weekEnd} (điểm: {$score})",
                             ref:      $ref,
@@ -77,9 +83,9 @@ class WeeklyScoreCommand extends Command
                     Log::warning("[WeeklyScore] Bỏ qua thưởng driver #{$driver->id} (có thể đã xử lý): " . $e->getMessage());
                 }
 
-            } elseif ($score <= DriverScoreService::WEEKLY_PENALTY_SCORE) {
+            } elseif ($score <= $penaltyScore) {
                 try {
-                    DB::transaction(function () use ($driver, $score, $weekStart, $weekEnd, $now) {
+                    DB::transaction(function () use ($driver, $score, $weekStart, $weekEnd, $now, $penaltyAmount) {
                         $ref = "score_penalty_{$driver->id}_{$weekStart}";
 
                         // Cũng tạo settlement TRƯỚC cùng lý do — nếu trùng thì
@@ -87,7 +93,7 @@ class WeeklyScoreCommand extends Command
                         DB::table('driver_score_settlements')->insert([
                             'driver_id'           => $driver->id,
                             'type'                => 'penalty',
-                            'amount'              => DriverScoreService::WEEKLY_PENALTY_AMOUNT,
+                            'amount'              => $penaltyAmount,
                             'score_at_settlement' => $score,
                             'week_start'          => $weekStart,
                             'week_end'            => $weekEnd,
@@ -99,7 +105,7 @@ class WeeklyScoreCommand extends Command
                         DB::table('driver_debts')->insert([
                             'driver_id'  => $driver->id,
                             'status'     => 'pending',
-                            'amount_due' => DriverScoreService::WEEKLY_PENALTY_AMOUNT,
+                            'amount_due' => $penaltyAmount,
                             'amount_paid'=> 0,
                             'week_start' => $weekStart,
                             'week_end'   => $weekEnd,

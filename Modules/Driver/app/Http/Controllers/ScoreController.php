@@ -8,6 +8,7 @@ use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\DB;
 use Modules\Driver\Services\DriverScoreService;
+use Modules\Core\Services\OperationalSettings;
 
 class ScoreController extends Controller
 {
@@ -31,7 +32,7 @@ class ScoreController extends Controller
 
         // Mốc streak tiếp theo (để hiển thị cho tài xế biết còn cần bao nhiêu đơn)
         $nextMilestone = null;
-        foreach (DriverScoreService::STREAK_MILESTONES as $at => $bonus) {
+        foreach (DriverScoreService::streakMilestones() as $at => $bonus) {
             if ($streak < $at) {
                 $nextMilestone = ['at' => $at, 'bonus' => $bonus, 'remaining' => $at - $streak];
                 break;
@@ -53,10 +54,10 @@ class ScoreController extends Controller
                 ],
 
                 'week' => [
-                    'bonus_at'       => DriverScoreService::WEEKLY_BONUS_SCORE,
-                    'penalty_at'     => DriverScoreService::WEEKLY_PENALTY_SCORE,
-                    'bonus_amount'   => DriverScoreService::WEEKLY_BONUS_AMOUNT,
-                    'penalty_amount' => DriverScoreService::WEEKLY_PENALTY_AMOUNT,
+                    'bonus_at'       => DriverScoreService::weeklyBonusScore(),
+                    'penalty_at'     => DriverScoreService::weeklyPenaltyScore(),
+                    'bonus_amount'   => DriverScoreService::weeklyBonusAmount(),
+                    'penalty_amount' => DriverScoreService::weeklyPenaltyAmount(),
                     'week_start'     => $weekStart,
                     'settlement'     => $settlement ? [
                         'type'   => $settlement->type,
@@ -115,6 +116,9 @@ class ScoreController extends Controller
      */
     private static function reasonLabel(string $reason): string
     {
+        $thresholds = OperationalSettings::shiftOnlineThresholds();
+        $percent = fn (float $value): int => (int) round($value * 100);
+
         return match (true) {
             $reason === 'decline'          => 'Từ chối đơn',
             $reason === 'timeout' || $reason === 'viewed_timeout'
@@ -123,18 +127,18 @@ class ScoreController extends Controller
             $reason === 'weekly_reset'     => 'Reset điểm đầu tuần',
             $reason === 'shift_violation'  => 'Vi phạm ca làm việc',
             // 5 mốc hiện hành (onShiftOnlineRate) — % thời gian online/ca.
-            $reason === 'shift_online_normal'   => 'Online 85–100% ca',
-            $reason === 'shift_online_reduced'  => 'Online 70–84% ca',
-            $reason === 'shift_online_mid'      => 'Online 60–69% ca',
-            $reason === 'shift_online_low'      => 'Online 50–59% ca',
-            $reason === 'shift_online_critical' => 'Online dưới 50% ca',
+            $reason === 'shift_online_normal' => 'Online '.$percent($thresholds['normal']).'–100% ca',
+            $reason === 'shift_online_reduced' => 'Online '.$percent($thresholds['reduced']).'–'.($percent($thresholds['normal']) - 1).'% ca',
+            $reason === 'shift_online_mid' => 'Online '.$percent($thresholds['mid']).'–'.($percent($thresholds['reduced']) - 1).'% ca',
+            $reason === 'shift_online_low' => 'Online '.$percent($thresholds['low']).'–'.($percent($thresholds['mid']) - 1).'% ca',
+            $reason === 'shift_online_critical' => 'Online dưới '.$percent($thresholds['low']).'% ca',
             // Mốc cũ trước đợt đổi ngưỡng ở trên — giữ lại chỉ để hiển thị
             // đúng cho các dòng lịch sử đã ghi từ trước, không còn được tạo
             // mới.
             $reason === 'shift_never_online'   => 'Không online suốt cả ca',
             $reason === 'shift_online_high'    => 'Online ≥ 90% thời lượng ca',
             $reason === 'shift_online_neutral' => 'Online 70–89% thời lượng ca',
-            $reason === 'offer_unviewed_x3'  => 'Bỏ lỡ 3/5 đơn gần nhất',
+            $reason === 'offer_unviewed_x3' => 'Bỏ lỡ '.OperationalSettings::unviewedLimit().'/'.OperationalSettings::unviewedWindowSize().' đơn gần nhất',
             $reason === 'streak_bonus'     => 'Thưởng chuỗi đơn liên tiếp',
             $reason === 'inactive_1_day' || $reason === 'inactivity_1d'
                 => 'Không giao đơn 1 ngày',
@@ -151,7 +155,7 @@ class ScoreController extends Controller
             str_starts_with($reason, 'rated_') && str_ends_with($reason, '_stars')
                 => 'Khách đánh giá ' . str_replace(['rated_', '_stars'], '', $reason) . ' sao',
             str_starts_with($reason, 'cap_blocked:')
-                => 'Đã đạt giới hạn +10đ/ngày (' . self::reasonLabel(str_replace('cap_blocked:', '', $reason)) . ')',
+                => 'Đã đạt giới hạn +'.DriverScoreService::dailyBonusCap().'đ/ngày ('.self::reasonLabel(str_replace('cap_blocked:', '', $reason)).')',
             $reason === 'refund_wrong_penalty' => 'Hoàn lại điểm bị trừ nhầm',
             str_starts_with($reason, 'refund_') => 'Hoàn lại điểm',
             default => $reason,

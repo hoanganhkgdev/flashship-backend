@@ -146,7 +146,7 @@ class RTDBService
     }
 
     /**
-     * Cập nhật expires_at khi driver mở app — đồng hồ đếm ngược reset về APP_DECISION_SECS.
+     * Cập nhật expires_at khi driver mở app — đồng hồ đếm ngược theo cấu hình.
      */
     public static function updateDriverOfferExpiry(int $driverId, int $orderId, int $expiresAt): bool
     {

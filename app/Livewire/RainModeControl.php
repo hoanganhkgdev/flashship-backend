@@ -12,7 +12,7 @@ use Modules\Core\Models\City;
  * chuyển tenant qua bộ chọn khu vực trên topbar. Các user_type khác không
  * thấy component này (ẩn hẳn, xem canManage()).
  *
- * Bật lên: mỗi đơn tài xế NHẬN trong lúc đang bật được cộng thêm 5.000đ vào
+ * Bật lên: mỗi đơn tài xế nhận trong lúc đang bật được cộng mức thưởng cấu hình vào
  * ví lúc hoàn thành (xem OrderService::completeOrder(), rain_bonus_eligible
  * được chụp lại ngay lúc nhận đơn — không đổi theo trạng thái mưa hiện tại
  * nữa dù tắt/bật lại giữa chừng), đồng thời tạm miễn phạt điểm "lơ đơn" cho

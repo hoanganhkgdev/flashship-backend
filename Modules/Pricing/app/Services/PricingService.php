@@ -3,6 +3,7 @@
 namespace Modules\Pricing\Services;
 
 use Modules\Core\Services\GoogleMapService;
+use Modules\Core\Services\OperationalSettings;
 use Modules\Pricing\Models\PricingConfig;
 
 class PricingService
@@ -113,10 +114,7 @@ class PricingService
 
     public static function nightSurcharge(): int
     {
-        $hour = (int) now()->format('G');
-        if ($hour === 23 || $hour === 0) return 5_000;
-        if ($hour >= 1 && $hour <= 3)   return 10_000;
-        return 0;
+        return OperationalSettings::nightSurcharge();
     }
 
     public static function estimate(string $serviceType, float $distanceKm, ?int $cityId = null): array

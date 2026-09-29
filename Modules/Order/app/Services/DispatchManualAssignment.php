@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\Redis;
 use Modules\Core\Models\User;
 use Modules\Core\Services\FCMService;
 use Modules\Core\Services\RTDBService;
+use Modules\Core\Services\OperationalSettings;
 use Modules\Customer\Http\Controllers\CustomerNotificationController;
 use Modules\Order\Models\Order;
 use Modules\Order\Models\OrderDispatchLog;
@@ -21,7 +22,7 @@ class DispatchManualAssignment
      * tài xế qua điện thoại, không cần hỏi lại lần nữa qua app.
      *
      * Vẫn kiểm tra các điều kiện an toàn cơ bản (đúng thành phố, không nợ
-     * quá hạn, đủ bằng lái, không bận ≥2 đơn) trước khi gán — chỉ bỏ qua
+     * quá hạn, đủ bằng lái, chưa đạt trần đơn active) trước khi gán — chỉ bỏ qua
      * bước "chờ tài xế bấm nhận", không bỏ qua kiểm tra hợp lệ.
      *
      * @return array{success: bool, message: string}
@@ -60,9 +61,9 @@ class DispatchManualAssignment
 
         // Khoá theo driver (chung key với luồng offer bình thường,
         // DispatchOfferSender::send()) trong lúc đếm + gán — nếu không, 2
-        // tổng đài (hoặc bấm 2 lần rất nhanh) gán liên tiếp 2 đơn khác nhau
+        // tổng đài (hoặc bấm 2 lần rất nhanh) gán liên tiếp nhiều đơn khác nhau
         // cho cùng 1 tài xế có thể cùng đọc thấy activeCount cũ (chưa thấy
-        // đơn kia) và cùng pass, vượt quá giới hạn 2 đơn active.
+        // đơn kia) và cùng pass, vượt quá giới hạn đơn active.
         $lockKey = "dispatch:lock:driver:{$driver->id}";
         if (!Redis::set($lockKey, $order->id, 'EX', 10, 'NX')) {
             return ['success' => false, 'message' => "Tài xế {$driver->name} đang được xử lý gán đơn khác, thử lại sau."];
@@ -83,7 +84,7 @@ class DispatchManualAssignment
                 $activeCount = Order::where('delivery_man_id', $driver->id)
                     ->whereIn('status', ['assigned', 'processing'])
                     ->count();
-                if ($activeCount >= 2) {
+                if ($activeCount >= OperationalSettings::maxActiveOrdersPerDriver()) {
                     return ['busy' => $activeCount, 'affected' => 0, 'previous_driver_id' => null, 'reused_log' => false];
                 }
 
@@ -148,7 +149,10 @@ class DispatchManualAssignment
         // không — khoá giá trị cho đơn, không đổi theo trạng thái mưa hiện
         // tại nữa dù sau đó tắt/bật lại giữa chừng.
         if (\Modules\Core\Models\City::where('id', $order->city_id)->value('is_rain_mode')) {
-            DB::table('orders')->where('id', $order->id)->update(['rain_bonus_eligible' => true]);
+            DB::table('orders')->where('id', $order->id)->update([
+                'rain_bonus_eligible' => true,
+                'rain_bonus_amount' => OperationalSettings::rainBonusAmount(),
+            ]);
         }
 
         // Ghi lại như 1 dòng "accepted" bình thường — để lên báo cáo/lịch sử

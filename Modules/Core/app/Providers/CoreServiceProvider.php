@@ -44,7 +44,7 @@ class CoreServiceProvider extends ModuleServiceProvider
      */
     protected function configureSchedules(Schedule $schedule): void
     {
-        // Mỗi 15 phút — tự tắt trời mưa cho thành phố đã bật quá 6 tiếng
+        // Mỗi 15 phút — tự tắt trời mưa theo giới hạn trong cấu hình vận hành.
         // (đề phòng admin quên tắt tay).
         $schedule->command('cities:rain-mode-auto-off')->everyFifteenMinutes();
     }

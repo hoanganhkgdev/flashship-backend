@@ -5,22 +5,22 @@ namespace Modules\Core\Console\Commands;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
 use Modules\Core\Models\City;
+use Modules\Core\Services\OperationalSettings;
 
 /**
- * Tự tắt chế độ trời mưa sau 6 tiếng nếu admin/city_manager quên tắt tay —
+ * Tự tắt chế độ trời mưa theo thời gian cấu hình nếu admin/city_manager quên tắt tay —
  * tránh bật quên cả ngày gây tốn tiền thưởng oan và miễn phạt điểm quá lâu.
  */
 class RainModeAutoOffCommand extends Command
 {
-    const MAX_HOURS = 6;
-
     protected $signature   = 'cities:rain-mode-auto-off';
-    protected $description = "Tự tắt chế độ trời mưa cho thành phố đã bật quá " . self::MAX_HOURS . " tiếng";
+    protected $description = 'Tự tắt chế độ trời mưa khi đã bật quá thời gian cấu hình';
 
     public function handle(): int
     {
+        $maxHours = OperationalSettings::rainModeAutoOffHours();
         $cities = City::where('is_rain_mode', true)
-            ->where('rain_mode_started_at', '<=', now()->subHours(self::MAX_HOURS))
+            ->where('rain_mode_started_at', '<=', now()->subHours($maxHours))
             ->get();
 
         foreach ($cities as $city) {
@@ -29,7 +29,7 @@ class RainModeAutoOffCommand extends Command
                 'rain_mode_started_at' => null,
                 'rain_mode_by'         => null,
             ]);
-            Log::info("[RainMode] Tự tắt chế độ trời mưa cho thành phố #{$city->id} {$city->name} — đã bật quá " . self::MAX_HOURS . " tiếng, có thể admin quên tắt.");
+            Log::info("[RainMode] Tự tắt chế độ trời mưa cho thành phố #{$city->id} {$city->name} — đã bật quá {$maxHours} tiếng, có thể admin quên tắt.");
         }
 
         if ($cities->isNotEmpty()) {

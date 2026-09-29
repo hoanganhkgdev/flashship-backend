@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\Redis;
 use Modules\Core\Models\User;
 use Modules\Core\Services\FCMService;
 use Modules\Core\Services\GoogleMapService;
+use Modules\Core\Services\OperationalSettings;
 use Modules\Core\Services\RTDBService;
 use Modules\Driver\Services\DriverScoreService;
 use Modules\Order\Jobs\DispatchOrderJob;
@@ -24,10 +25,6 @@ use App\Events\DispatchStateChanged;
  */
 class DispatchOfferSender
 {
-    const DRIVER_OFFER_SECS  = 25;   // giây để mở app (trước khi offer_viewed_at set)
-    const APP_DECISION_SECS  = 30;   // giây để đọc & quyết định SAU KHI mở app (như ShopeeFood)
-    const FCM_TTL_SECS       = 25;
-
     public function __construct(
         private readonly DispatchScoringCalculator $scoringCalculator,
     ) {}
@@ -59,7 +56,7 @@ class DispatchOfferSender
             ->whereIn('status', ['assigned', 'processing'])
             ->get();
         $activeCount = $activeOrders->count();
-        if ($activeCount >= 2) {
+        if ($activeCount >= OperationalSettings::maxActiveOrdersPerDriver()) {
             Redis::del($lockKey);
             Log::debug("│  Skip #{$driver->id} {$driver->name}: đã có {$activeCount} đơn active");
             return false;
@@ -71,7 +68,7 @@ class DispatchOfferSender
         }
 
         // Không cần kiểm tra lại trần khoảng cách ở đây — DispatchCandidateFinder::find()
-        // đã tính khoảng cách đường thật và lọc ≤ MAX_ROAD_DISTANCE_KM cho MỌI ứng
+        // đã tính khoảng cách đường thật và lọc theo trần cấu hình cho MỌI ứng
         // viên trước khi trả về, không chỉ một nhóm nhỏ như cách cũ.
         $now  = now();
         $dist = $driver->_road_km !== null
@@ -83,7 +80,7 @@ class DispatchOfferSender
 
         $scoreScore = round($this->scoringCalculator->scoreComponent($driver), 1);
         $waitScore  = round($this->scoringCalculator->waitTimeScore($driver), 1);
-        $distanceCap = (float) ($driver->_distance_cap_km ?? DispatchCandidateFinder::MAX_ROAD_DISTANCE_KM);
+        $distanceCap = (float) ($driver->_distance_cap_km ?? DispatchRadiusPolicy::radiusForElapsedSeconds(0));
         $distScore  = round($this->scoringCalculator->distanceComponent(
             $driver->_road_km ?? $distanceCap,
             $distanceCap
@@ -144,15 +141,16 @@ class DispatchOfferSender
         }
 
         $offeredAt = $now->timestamp;
-        $expiresAt = $offeredAt + self::DRIVER_OFFER_SECS;
+        $offerSeconds = OperationalSettings::offerOpenSeconds();
+        $expiresAt = $offeredAt + $offerSeconds;
         $receiptUrl = URL::temporarySignedRoute(
             'api.dispatch.offer.received',
-            now()->addSeconds(self::DRIVER_OFFER_SECS + 10),
+            now()->addSeconds($offerSeconds + 10),
             ['dispatchLog' => $dispatchLog->id],
         );
         $viewUrl = URL::temporarySignedRoute(
             'api.dispatch.offer.viewed',
-            now()->addSeconds(self::DRIVER_OFFER_SECS + 10),
+            now()->addSeconds($offerSeconds + 10),
             ['dispatchLog' => $dispatchLog->id],
         );
 
@@ -200,7 +198,7 @@ class DispatchOfferSender
             'is_rain_mode'      => $isRainMode,
             'receipt_url'       => $receiptUrl,
             'view_url'          => $viewUrl,
-            ...($isRainMode ? ['rain_bonus_amount' => OrderService::RAIN_BONUS_AMOUNT] : []),
+            ...($isRainMode ? ['rain_bonus_amount' => OperationalSettings::rainBonusAmount()] : []),
         ]);
 
         if (!$rtdbOk) {
@@ -233,7 +231,7 @@ class DispatchOfferSender
         }
 
         DispatchOrderJob::dispatch($order->id, $driver->id)
-            ->delay(now()->addSeconds(self::DRIVER_OFFER_SECS));
+            ->delay(now()->addSeconds($offerSeconds));
 
         broadcast(new DispatchStateChanged());
 

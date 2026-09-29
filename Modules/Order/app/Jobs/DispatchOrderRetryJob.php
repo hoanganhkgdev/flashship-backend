@@ -10,6 +10,7 @@ use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Redis;
+use Modules\Core\Services\OperationalSettings;
 
 class DispatchOrderRetryJob implements ShouldQueue
 {
@@ -32,8 +33,9 @@ class DispatchOrderRetryJob implements ShouldQueue
             return;
         }
 
-        if ($order->dispatch_started_at && (int) abs(now()->diffInMinutes($order->dispatch_started_at)) >= DispatchService::DISPATCH_TIMEOUT_MINS) {
-            Log::info("╟── [Dispatch] Đơn #{$order->id}: Quá " . DispatchService::DISPATCH_TIMEOUT_MINS . " phút → dừng quét");
+        $timeoutMinutes = OperationalSettings::dispatchTimeoutMinutes();
+        if ($order->dispatch_started_at && (int) abs(now()->diffInMinutes($order->dispatch_started_at)) >= $timeoutMinutes) {
+            Log::info("╟── [Dispatch] Đơn #{$order->id}: Quá {$timeoutMinutes} phút → dừng quét");
             $dispatch->markNoDriver($order);
             return;
         }

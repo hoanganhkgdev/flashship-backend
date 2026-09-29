@@ -17,6 +17,7 @@ use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 use Modules\Core\Models\User;
+use Modules\Core\Services\OperationalSettings;
 use Modules\Driver\Services\DriverScoreService;
 
 class DriverScoreResource extends Resource
@@ -132,7 +133,7 @@ class DriverScoreResource extends Resource
                     Infolists\Components\TextEntry::make('daily_bonus_points')
                         ->label('Thưởng bonus hôm nay')
                         ->state(fn (User $r) => self::bonusTodayLabel($r))
-                        ->color(fn (User $r) => ($r->daily_bonus_date === now()->toDateString() && ($r->daily_bonus_points ?? 0) >= DriverScoreService::DAILY_BONUS_CAP) ? 'warning' : 'gray'),
+                        ->color(fn (User $r) => ($r->daily_bonus_date === now()->toDateString() && ($r->daily_bonus_points ?? 0) >= DriverScoreService::dailyBonusCap()) ? 'warning' : 'gray'),
                 ]),
 
             Infolists\Components\Section::make('Tuần hiện tại')
@@ -248,27 +249,27 @@ class DriverScoreResource extends Resource
 
                 SelectFilter::make('score_range')
                     ->label('Xếp loại')
-                    ->options([
-                        'excellent' => 'Xuất sắc (140)',
-                        'good' => 'Tốt (110–139)',
+                    ->options(fn () => [
+                        'excellent' => 'Xuất sắc (≥'.DriverScoreService::weeklyBonusScore().')',
+                        'good' => 'Tốt (110–'.(DriverScoreService::weeklyBonusScore() - 1).')',
                         'average' => 'Khá (90–109)',
-                        'below' => 'Trung bình (70–89)',
-                        'poor' => 'Cần cải thiện (<70)',
+                        'below' => 'Trung bình ('.(DriverScoreService::weeklyPenaltyScore() + 1).'–89)',
+                        'poor' => 'Cần cải thiện (≤'.DriverScoreService::weeklyPenaltyScore().')',
                     ])
                     ->query(fn (Builder $q, array $data) => match ($data['value'] ?? null) {
-                        'excellent' => $q->where('driver_score', '>=', DriverScoreService::WEEKLY_BONUS_SCORE),
-                        'good' => $q->whereBetween('driver_score', [110, DriverScoreService::WEEKLY_BONUS_SCORE - 1]),
+                        'excellent' => $q->where('driver_score', '>=', DriverScoreService::weeklyBonusScore()),
+                        'good' => $q->whereBetween('driver_score', [110, DriverScoreService::weeklyBonusScore() - 1]),
                         'average' => $q->whereBetween('driver_score', [90, 109]),
-                        'below' => $q->whereBetween('driver_score', [70, 89]),
-                        'poor' => $q->where('driver_score', '<', 70),
+                        'below' => $q->whereBetween('driver_score', [DriverScoreService::weeklyPenaltyScore() + 1, 89]),
+                        'poor' => $q->where('driver_score', '<=', DriverScoreService::weeklyPenaltyScore()),
                         default => $q,
                     }),
 
                 SelectFilter::make('weekly_settlement')
                     ->label('Chốt điểm tuần')
-                    ->options([
-                        'bonus' => 'Được thưởng 50k',
-                        'penalty' => 'Bị phạt 50k',
+                    ->options(fn () => [
+                        'bonus' => 'Được thưởng '.number_format(DriverScoreService::weeklyBonusAmount()).'₫',
+                        'penalty' => 'Bị phạt '.number_format(DriverScoreService::weeklyPenaltyAmount()).'₫',
                         'none' => 'Chưa chốt',
                     ])
                     ->query(function (Builder $q, array $data) {
@@ -311,10 +312,10 @@ class DriverScoreResource extends Resource
     public static function scoreColor(int $score): string
     {
         return match (true) {
-            $score >= DriverScoreService::WEEKLY_BONUS_SCORE => 'success',
+            $score >= DriverScoreService::weeklyBonusScore() => 'success',
             $score >= 110 => 'info',
             $score >= 90 => 'primary',
-            $score >= 70 => 'gray',
+            $score > DriverScoreService::weeklyPenaltyScore() => 'gray',
             default => 'danger',
         };
     }
@@ -324,22 +325,25 @@ class DriverScoreResource extends Resource
         $today = now()->toDateString();
         $points = ($r->daily_bonus_date === $today) ? ($r->daily_bonus_points ?? 0) : 0;
 
-        return "+{$points} / ".DriverScoreService::DAILY_BONUS_CAP.' hôm nay';
+        return "+{$points} / ".DriverScoreService::dailyBonusCap().' hôm nay';
     }
 
     public static function reasonLabel(string $reason): string
     {
+        $thresholds = OperationalSettings::shiftOnlineThresholds();
+        $percent = fn (float $value): int => (int) round($value * 100);
+
         return match (true) {
             $reason === 'complete' => 'Hoàn thành đơn',
             $reason === 'decline' => 'Từ chối đơn',
             $reason === 'viewed_timeout' => 'Xem đơn nhưng không nhận',
-            $reason === 'offer_unviewed_x3' => 'Không xem 3/5 đơn gần nhất',
+            $reason === 'offer_unviewed_x3' => 'Không xem '.OperationalSettings::unviewedLimit().'/'.OperationalSettings::unviewedWindowSize().' đơn gần nhất',
             str_starts_with($reason, 'streak_') => 'Thưởng chuỗi '.str_replace('streak_', '', $reason).' đơn',
-            $reason === 'shift_online_normal' => 'Online đủ ca (85–100%)',
-            $reason === 'shift_online_reduced' => 'Online 70–84% ca',
-            $reason === 'shift_online_mid' => 'Online 60–69% ca',
-            $reason === 'shift_online_low' => 'Online 50–59% ca',
-            $reason === 'shift_online_critical' => 'Online dưới 50% ca',
+            $reason === 'shift_online_normal' => 'Online đủ ca ('.$percent($thresholds['normal']).'–100%)',
+            $reason === 'shift_online_reduced' => 'Online '.$percent($thresholds['reduced']).'–'.($percent($thresholds['normal']) - 1).'% ca',
+            $reason === 'shift_online_mid' => 'Online '.$percent($thresholds['mid']).'–'.($percent($thresholds['reduced']) - 1).'% ca',
+            $reason === 'shift_online_low' => 'Online '.$percent($thresholds['low']).'–'.($percent($thresholds['mid']) - 1).'% ca',
+            $reason === 'shift_online_critical' => 'Online dưới '.$percent($thresholds['low']).'% ca',
             $reason === 'shift_never_online' => 'Không online trong ca',
             $reason === 'shift_online_high' => 'Online từ 90% ca',
             $reason === 'shift_online_neutral' => 'Online 70–90% ca',
