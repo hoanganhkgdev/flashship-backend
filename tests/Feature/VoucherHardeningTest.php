@@ -141,6 +141,25 @@ class VoucherHardeningTest extends TestCase
         $this->assertSame('processing', Order::findOrFail($orderId)->status);
     }
 
+    public function test_order_without_delivery_point_completes_without_location_check(): void
+    {
+        $orderId = $this->makeOrder('processing');
+        DB::table('orders')->where('id', $orderId)->update([
+            'delivery_man_id' => $this->customer->id,
+            'platform' => 'call_center',
+            'delivery_lat' => null,
+            'delivery_lng' => null,
+        ]);
+        // Không có điểm giao để so thì không được đòi vị trí tài xế.
+        $this->mock(DriverLocationService::class)->shouldNotReceive('freshLocationsFor');
+
+        $result = app(OrderService::class)
+            ->completeOrder(Order::findOrFail($orderId), $this->customer);
+
+        $this->assertTrue($result['success']);
+        $this->assertSame('completed', Order::findOrFail($orderId)->status);
+    }
+
     public function test_completion_rejects_missing_fresh_driver_location(): void
     {
         $locations = $this->mock(DriverLocationService::class);

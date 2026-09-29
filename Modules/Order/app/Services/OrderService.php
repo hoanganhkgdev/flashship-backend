@@ -457,9 +457,23 @@ class OrderService
             return ['success' => true, 'message' => 'Đơn này đã hoàn thành trước đó.', 'data' => $order, 'status' => 200];
         }
 
-        if (! $proximityAlreadyVerified) {
-            $target = $this->completionTarget($order);
-            $proximityError = $this->checkDriverProximity($user, $target['lat'] ?? null, $target['lng'] ?? null, $order->city_id);
+        $target = $this->completionTarget($order);
+        $hasTarget = is_numeric($target['lat'] ?? null) && is_numeric($target['lng'] ?? null);
+
+        // Đơn không có toạ độ điểm giao (thường là đơn tổng đài chở người hoặc
+        // chưa biết điểm đến lúc đặt) thì không có gì để so vị trí — cho hoàn
+        // thành thay vì chặn tài xế vô thời hạn; ghi log để theo dõi.
+        if (! $proximityAlreadyVerified && ! $hasTarget) {
+            Log::info('[OrderComplete] no delivery point, proximity check skipped', [
+                'order_id' => $order->id,
+                'driver_id' => $user->id,
+                'platform' => $order->platform,
+                'service_type' => $order->service_type,
+            ]);
+        }
+
+        if (! $proximityAlreadyVerified && $hasTarget) {
+            $proximityError = $this->checkDriverProximity($user, $target['lat'], $target['lng'], $order->city_id);
             if ($proximityError) {
                 Log::warning('[OrderComplete] proximity rejected', [
                     'order_id' => $order->id,
