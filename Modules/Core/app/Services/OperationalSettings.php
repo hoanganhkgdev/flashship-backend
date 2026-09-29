@@ -4,10 +4,20 @@ namespace Modules\Core\Services;
 
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
+/**
+ * Cấu hình vận hành theo từng khu vực (city). Mỗi khu vực giữ trọn bộ giá trị
+ * riêng trong city_operational_settings — sửa khu vực này không ảnh hưởng
+ * khu vực khác. Thứ tự đọc: dòng của khu vực → bảng settings chung (giá trị
+ * trước khi tách khu vực) → DEFAULTS. $cityId null (không xác định được khu
+ * vực) chỉ dùng hai tầng sau.
+ */
 class OperationalSettings
 {
     public const CACHE_KEY = 'settings:operations';
+
+    public const CITY_TABLE = 'city_operational_settings';
 
     public const DEFAULTS = [
         'dispatch.max_road_distance_km' => '4',
@@ -54,17 +64,17 @@ class OperationalSettings
         'wallet.low_balance_threshold' => '100000',
     ];
 
-    public static function dispatchMaxRoadDistanceKm(): float
+    public static function dispatchMaxRoadDistanceKm(?int $cityId): float
     {
-        return (float) self::value('dispatch.max_road_distance_km');
+        return (float) self::value('dispatch.max_road_distance_km', $cityId);
     }
 
     /** @return array<int, int> Số đơn liên tiếp => điểm cộng. */
-    public static function streakMilestones(): array
+    public static function streakMilestones(?int $cityId): array
     {
         $milestones = [];
 
-        foreach (explode(',', (string) self::value('driver_score.streak_milestones')) as $item) {
+        foreach (explode(',', (string) self::value('driver_score.streak_milestones', $cityId)) as $item) {
             [$orders, $points] = array_pad(explode(':', trim($item), 2), 2, null);
             if (is_numeric($orders) && is_numeric($points) && (int) $orders > 0 && (int) $points > 0) {
                 $milestones[(int) $orders] = (int) $points;
@@ -80,231 +90,250 @@ class OperationalSettings
         return $milestones;
     }
 
-    public static function dailyBonusCap(): int
+    public static function dailyBonusCap(?int $cityId): int
     {
-        return (int) self::value('driver_score.daily_bonus_cap');
+        return (int) self::value('driver_score.daily_bonus_cap', $cityId);
     }
 
-    public static function weeklyBonusScore(): int
+    public static function weeklyBonusScore(?int $cityId): int
     {
-        return (int) self::value('driver_score.weekly_bonus_score');
+        return (int) self::value('driver_score.weekly_bonus_score', $cityId);
     }
 
-    public static function weeklyPenaltyScore(): int
+    public static function weeklyPenaltyScore(?int $cityId): int
     {
-        return (int) self::value('driver_score.weekly_penalty_score');
+        return (int) self::value('driver_score.weekly_penalty_score', $cityId);
     }
 
-    public static function weeklyBonusAmount(): int
+    public static function weeklyBonusAmount(?int $cityId): int
     {
-        return (int) self::value('driver_score.weekly_bonus_amount');
+        return (int) self::value('driver_score.weekly_bonus_amount', $cityId);
     }
 
-    public static function weeklyPenaltyAmount(): int
+    public static function weeklyPenaltyAmount(?int $cityId): int
     {
-        return (int) self::value('driver_score.weekly_penalty_amount');
+        return (int) self::value('driver_score.weekly_penalty_amount', $cityId);
     }
 
-    public static function scoreDeclinePenalty(): int
+    public static function scoreDeclinePenalty(?int $cityId): int
     {
-        return (int) self::value('driver_score.decline_penalty');
+        return (int) self::value('driver_score.decline_penalty', $cityId);
     }
 
-    public static function scoreViewedTimeoutPenalty(): int
+    public static function scoreViewedTimeoutPenalty(?int $cityId): int
     {
-        return (int) self::value('driver_score.viewed_timeout_penalty');
+        return (int) self::value('driver_score.viewed_timeout_penalty', $cityId);
     }
 
-    public static function scoreUnviewedPenalty(): int
+    public static function scoreUnviewedPenalty(?int $cityId): int
     {
-        return (int) self::value('driver_score.unviewed_penalty');
+        return (int) self::value('driver_score.unviewed_penalty', $cityId);
     }
 
-    public static function unviewedWindowSize(): int
+    public static function unviewedWindowSize(?int $cityId): int
     {
-        return (int) self::value('driver_score.unviewed_window_size');
+        return (int) self::value('driver_score.unviewed_window_size', $cityId);
     }
 
-    public static function unviewedLimit(): int
+    public static function unviewedLimit(?int $cityId): int
     {
-        return (int) self::value('driver_score.unviewed_limit');
+        return (int) self::value('driver_score.unviewed_limit', $cityId);
     }
 
     /** @return array{normal: float, reduced: float, mid: float, low: float} */
-    public static function shiftOnlineThresholds(): array
+    public static function shiftOnlineThresholds(?int $cityId): array
     {
         return [
-            'normal' => (int) self::value('driver_score.shift_normal_min_percent') / 100,
-            'reduced' => (int) self::value('driver_score.shift_reduced_min_percent') / 100,
-            'mid' => (int) self::value('driver_score.shift_mid_min_percent') / 100,
-            'low' => (int) self::value('driver_score.shift_low_min_percent') / 100,
+            'normal' => (int) self::value('driver_score.shift_normal_min_percent', $cityId) / 100,
+            'reduced' => (int) self::value('driver_score.shift_reduced_min_percent', $cityId) / 100,
+            'mid' => (int) self::value('driver_score.shift_mid_min_percent', $cityId) / 100,
+            'low' => (int) self::value('driver_score.shift_low_min_percent', $cityId) / 100,
         ];
     }
 
     /** @return array{reduced: int, mid: int, low: int, critical: int} */
-    public static function shiftOnlinePenalties(): array
+    public static function shiftOnlinePenalties(?int $cityId): array
     {
         return [
-            'reduced' => (int) self::value('driver_score.shift_reduced_penalty'),
-            'mid' => (int) self::value('driver_score.shift_mid_penalty'),
-            'low' => (int) self::value('driver_score.shift_low_penalty'),
-            'critical' => (int) self::value('driver_score.shift_critical_penalty'),
+            'reduced' => (int) self::value('driver_score.shift_reduced_penalty', $cityId),
+            'mid' => (int) self::value('driver_score.shift_mid_penalty', $cityId),
+            'low' => (int) self::value('driver_score.shift_low_penalty', $cityId),
+            'critical' => (int) self::value('driver_score.shift_critical_penalty', $cityId),
         ];
     }
 
-    public static function rainBonusAmount(): int
+    public static function rainBonusAmount(?int $cityId): int
     {
-        return (int) self::value('order.rain_bonus_amount');
+        return (int) self::value('order.rain_bonus_amount', $cityId);
     }
 
-    public static function completionRadiusKm(): float
+    public static function completionRadiusKm(?int $cityId): float
     {
-        return (int) self::value('order.completion_radius_meters') / 1000;
+        return (int) self::value('order.completion_radius_meters', $cityId) / 1000;
     }
 
-    public static function completionRadiusMeters(): int
+    public static function completionRadiusMeters(?int $cityId): int
     {
-        return (int) self::value('order.completion_radius_meters');
+        return (int) self::value('order.completion_radius_meters', $cityId);
     }
 
-    public static function autoCompleteGraceMinutes(): int
+    public static function autoCompleteGraceMinutes(?int $cityId): int
     {
-        return (int) self::value('order.auto_complete_grace_minutes');
+        return (int) self::value('order.auto_complete_grace_minutes', $cityId);
     }
 
-    public static function maxOrderDistanceKm(): float
+    public static function maxOrderDistanceKm(?int $cityId): float
     {
-        return (float) self::value('order.max_distance_km');
+        return (float) self::value('order.max_distance_km', $cityId);
     }
 
-    public static function ratingWindowHours(): int
+    public static function ratingWindowHours(?int $cityId): int
     {
-        return (int) self::value('order.rating_window_hours');
+        return (int) self::value('order.rating_window_hours', $cityId);
     }
 
-    public static function delayedReminderMinutes(): int
+    public static function delayedReminderMinutes(?int $cityId): int
     {
-        return (int) self::value('order.delayed_reminder_minutes');
+        return (int) self::value('order.delayed_reminder_minutes', $cityId);
     }
 
-    public static function maxActiveOrdersPerDriver(): int
+    public static function maxActiveOrdersPerDriver(?int $cityId): int
     {
-        return (int) self::value('order.max_active_per_driver');
+        return (int) self::value('order.max_active_per_driver', $cityId);
     }
 
-    public static function stackMaxPickupKm(): float
+    public static function stackMaxPickupKm(?int $cityId): float
     {
-        return (float) self::value('order.stack_max_pickup_km');
+        return (float) self::value('order.stack_max_pickup_km', $cityId);
     }
 
-    public static function stackMaxDeliveryKm(): float
+    public static function stackMaxDeliveryKm(?int $cityId): float
     {
-        return (float) self::value('order.stack_max_delivery_km');
+        return (float) self::value('order.stack_max_delivery_km', $cityId);
     }
 
-    public static function nightSurcharge(?int $hour = null): int
+    public static function nightSurcharge(?int $cityId, ?int $hour = null): int
     {
         $hour ??= (int) now()->format('G');
 
         return match (true) {
-            $hour === 23 || $hour === 0 => (int) self::value('pricing.night_23_00_amount'),
-            $hour >= 1 && $hour <= 3 => (int) self::value('pricing.night_01_03_amount'),
+            $hour === 23 || $hour === 0 => (int) self::value('pricing.night_23_00_amount', $cityId),
+            $hour >= 1 && $hour <= 3 => (int) self::value('pricing.night_01_03_amount', $cityId),
             default => 0,
         };
     }
 
-    public static function offerOpenSeconds(): int
+    public static function offerOpenSeconds(?int $cityId): int
     {
-        return (int) self::value('dispatch.offer_open_seconds');
+        return (int) self::value('dispatch.offer_open_seconds', $cityId);
     }
 
-    public static function offerDecisionSeconds(): int
+    public static function offerDecisionSeconds(?int $cityId): int
     {
-        return (int) self::value('dispatch.offer_decision_seconds');
+        return (int) self::value('dispatch.offer_decision_seconds', $cityId);
     }
 
-    public static function dispatchTimeoutMinutes(): int
+    public static function dispatchTimeoutMinutes(?int $cityId): int
     {
-        return (int) self::value('dispatch.total_timeout_minutes');
+        return (int) self::value('dispatch.total_timeout_minutes', $cityId);
     }
 
-    public static function dispatchRetrySeconds(): int
+    public static function dispatchRetrySeconds(?int $cityId): int
     {
-        return (int) self::value('dispatch.retry_seconds');
+        return (int) self::value('dispatch.retry_seconds', $cityId);
     }
 
     /** @return array{score: float, wait: float, distance: float} */
-    public static function dispatchWeights(): array
+    public static function dispatchWeights(?int $cityId): array
     {
         return [
-            'score' => (float) self::value('dispatch.score_weight'),
-            'wait' => (float) self::value('dispatch.wait_weight'),
-            'distance' => (float) self::value('dispatch.distance_weight'),
+            'score' => (float) self::value('dispatch.score_weight', $cityId),
+            'wait' => (float) self::value('dispatch.wait_weight', $cityId),
+            'distance' => (float) self::value('dispatch.distance_weight', $cityId),
         ];
     }
 
-    public static function dispatchWaitCapMinutes(): int
+    public static function dispatchWaitCapMinutes(?int $cityId): int
     {
-        return (int) self::value('dispatch.wait_cap_minutes');
+        return (int) self::value('dispatch.wait_cap_minutes', $cityId);
     }
 
-    public static function rainModeAutoOffHours(): int
+    public static function rainModeAutoOffHours(?int $cityId): int
     {
-        return (int) self::value('rain_mode.auto_off_hours');
+        return (int) self::value('rain_mode.auto_off_hours', $cityId);
     }
 
-    public static function penaltyDebtOverdueHours(): int
+    public static function penaltyDebtOverdueHours(?int $cityId): int
     {
-        return (int) self::value('debt.penalty_overdue_hours');
+        return (int) self::value('debt.penalty_overdue_hours', $cityId);
     }
 
-    public static function lowWalletBalanceThreshold(): int
+    public static function lowWalletBalanceThreshold(?int $cityId): int
     {
-        return (int) self::value('wallet.low_balance_threshold');
+        return (int) self::value('wallet.low_balance_threshold', $cityId);
     }
 
     /** Giữ bản cấu hình trong bộ nhớ process để vòng chấm điểm tài xế không đọc cache liên tục. */
     private const MEMO_SECONDS = 15;
 
-    /** @var array<string, string>|null */
-    private static ?array $memo = null;
+    /** @var array<string, array{values: array<string, string>, expires: int}> */
+    private static array $memo = [];
 
-    private static int $memoExpiresAt = 0;
-
-    public static function value(string $key): string
+    public static function value(string $key, ?int $cityId): string
     {
-        $default = self::DEFAULTS[$key] ?? '';
+        return (string) (self::all($cityId)[$key] ?? self::DEFAULTS[$key] ?? '');
+    }
 
-        if (self::$memo !== null && time() < self::$memoExpiresAt) {
-            return (string) (self::$memo[$key] ?? $default);
+    /** @return array<string, string> Trọn bộ giá trị đã hợp nhất cho khu vực. */
+    public static function all(?int $cityId): array
+    {
+        $memoKey = (string) ($cityId ?? 'global');
+        if (isset(self::$memo[$memoKey]) && time() < self::$memo[$memoKey]['expires']) {
+            return self::$memo[$memoKey]['values'];
         }
 
         try {
-            $values = Cache::remember(self::CACHE_KEY, now()->addMinute(), fn () => DB::table('settings')
+            $values = array_merge(self::DEFAULTS, Cache::remember(self::CACHE_KEY, now()->addMinute(), fn () => DB::table('settings')
                 ->whereIn('key', array_keys(self::DEFAULTS))
                 ->pluck('value', 'key')
-                ->all());
+                ->all()));
         } catch (\Throwable) {
             // Cho phép command/test khởi động an toàn trước khi migration settings chạy.
-            return $default;
+            return self::DEFAULTS;
+        }
+
+        if ($cityId !== null) {
+            try {
+                $values = array_merge($values, Cache::remember(self::cityCacheKey($cityId), now()->addMinute(), fn () => DB::table(self::CITY_TABLE)
+                    ->where('city_id', $cityId)
+                    ->whereIn('key', array_keys(self::DEFAULTS))
+                    ->pluck('value', 'key')
+                    ->all()));
+            } catch (\Throwable) {
+                // Bảng khu vực chưa migrate (vài giây lúc deploy): dùng giá trị
+                // chung đang áp dụng, không rơi về DEFAULTS; không memo để lần
+                // sau đọc lại ngay khi bảng đã có.
+                return $values;
+            }
         }
 
         // Worker chạy lâu (queue:work) sẽ nhận giá trị mới tối đa sau MEMO_SECONDS.
-        self::$memo = $values;
-        self::$memoExpiresAt = time() + self::MEMO_SECONDS;
+        self::$memo[$memoKey] = ['values' => $values, 'expires' => time() + self::MEMO_SECONDS];
 
-        return (string) ($values[$key] ?? $default);
+        return $values;
     }
 
-    public static function flush(): void
+    public static function flush(?int $cityId = null): void
     {
-        self::$memo = null;
-        self::$memoExpiresAt = 0;
+        self::$memo = [];
         Cache::forget(self::CACHE_KEY);
+        if ($cityId !== null) {
+            Cache::forget(self::cityCacheKey($cityId));
+        }
     }
 
     /** @param array<string, int|float|string> $values */
-    public static function put(array $values): void
+    public static function put(array $values, int $cityId): void
     {
         $now = now();
         $rows = [];
@@ -315,15 +344,46 @@ class OperationalSettings
             }
 
             $rows[] = [
+                'city_id' => $cityId,
                 'key' => $key,
                 'value' => (string) $value,
-                'group' => 'operations',
                 'created_at' => $now,
                 'updated_at' => $now,
             ];
         }
 
-        DB::table('settings')->upsert($rows, ['key'], ['value', 'group', 'updated_at']);
-        self::flush();
+        DB::table(self::CITY_TABLE)->upsert($rows, ['city_id', 'key'], ['value', 'updated_at']);
+        self::flush($cityId);
+    }
+
+    /**
+     * Tạo bộ cấu hình riêng cho khu vực từ giá trị chung hiện hành. Không ghi
+     * đè dòng đã có — gọi lại an toàn.
+     */
+    public static function initializeCity(int $cityId): void
+    {
+        // Khu vực tạo trước khi migration bảng này chạy được migration khởi tạo sau.
+        if (! Schema::hasTable(self::CITY_TABLE)) {
+            return;
+        }
+
+        $now = now();
+        $rows = [];
+        foreach (self::all(null) as $key => $value) {
+            $rows[] = ['city_id' => $cityId, 'key' => $key, 'value' => (string) $value, 'created_at' => $now, 'updated_at' => $now];
+        }
+
+        DB::table(self::CITY_TABLE)->insertOrIgnore($rows);
+        self::flush($cityId);
+    }
+
+    public static function lastUpdatedAt(int $cityId): ?string
+    {
+        return DB::table(self::CITY_TABLE)->where('city_id', $cityId)->max('updated_at');
+    }
+
+    private static function cityCacheKey(int $cityId): string
+    {
+        return self::CACHE_KEY.':city:'.$cityId;
     }
 }

@@ -308,7 +308,7 @@ class CallCenterPage extends Page implements HasForms
 
         $this->nearbyDrivers = $drivers
             ->filter(fn (User $d) => ($roadDistances[$d->id] ?? null) !== null
-                && $roadDistances[$d->id] <= DispatchRadiusPolicy::radiusForElapsedSeconds(0))
+                && $roadDistances[$d->id] <= DispatchRadiusPolicy::radiusForElapsedSeconds(0, (int) $cityId))
             ->map(fn (User $d) => [
                 'id' => $d->id,
                 'lat' => $origins[$d->id]['lat'],

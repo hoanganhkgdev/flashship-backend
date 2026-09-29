@@ -34,7 +34,7 @@ class PricingController extends Controller
 
         if ($data['service_type'] === 'topup') {
             $amount    = (int) ($data['topup_amount'] ?? 0);
-            $surcharge = PricingService::nightSurcharge();
+            $surcharge = PricingService::nightSurcharge($cityId);
             return response()->json(['success' => true, 'data' => [
                 'service_type'    => 'topup',
                 'distance_km'     => 0,

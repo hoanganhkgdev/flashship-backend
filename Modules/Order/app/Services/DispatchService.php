@@ -132,17 +132,19 @@ class DispatchService
             ->where('dispatching_to_driver_id', $driverId)
             ->update(['dispatching_to_driver_id' => null, 'updated_at' => now()]);
 
+        // Điểm phạt/cửa sổ bỏ lỡ là luật của tài xế → theo khu vực của tài xế.
+        $driverCityId = DriverScoreService::cityOf($driverId);
         if ($timedOutLog->viewed_at || $order->offer_viewed_at) {
             DriverScoreService::onViewedTimeout($driverId);
-            Log::info("⏱  [Dispatch] Đơn #{$order->id}: Tài xế {$name} xem đơn nhưng không nhận → " . DriverScoreService::viewedTimeoutPenalty() . " điểm, pop tiếp");
+            Log::info("⏱  [Dispatch] Đơn #{$order->id}: Tài xế {$name} xem đơn nhưng không nhận → " . DriverScoreService::viewedTimeoutPenalty($driverCityId) . " điểm, pop tiếp");
         } elseif ($timedOutLog->received_at) {
-            $window = $this->unviewedOfferWindow($driverId, $driver?->online_since);
+            $window = $this->unviewedOfferWindow($driverId, $driver?->online_since, $driverCityId);
             Log::info("⏱  [Dispatch] Đơn #{$order->id}: app tài xế {$name} đã ACK nhưng không mở → {$window['unviewed']}/{$window['total']} offer ACK gần nhất bị bỏ lỡ, pop tiếp");
             if ($window['should_warn'] && $driver?->fcm_token) {
                 FCMService::getInstance()->sendDriverNotice(
                     $driver->fcm_token,
                     'Bạn sắp đạt giới hạn bỏ lỡ đơn',
-                    'Nếu bỏ lỡ thêm 1 trong '.OperationalSettings::unviewedWindowSize().' đơn gần nhất, hệ thống sẽ trừ '.abs(DriverScoreService::unviewedPenalty()).' điểm và chuyển bạn Offline.',
+                    'Nếu bỏ lỡ thêm 1 trong '.OperationalSettings::unviewedWindowSize($driverCityId).' đơn gần nhất, hệ thống sẽ trừ '.abs(DriverScoreService::unviewedPenalty($driverCityId)).' điểm và chuyển bạn Offline.',
                     ['type' => 'missed_offers_warning'],
                 );
             } elseif ($window['should_offline']) {
@@ -217,11 +219,12 @@ class DispatchService
         }
 
         $driver = $result['driver'];
+        $driverCityId = DriverScoreService::cityOf($driverId);
         if ($driver->fcm_token) {
             FCMService::getInstance()->sendDriverNotice(
                 $driver->fcm_token,
                 'Đã chuyển Offline',
-                'Bạn đã không mở '.OperationalSettings::unviewedLimit().' trong '.OperationalSettings::unviewedWindowSize().' đơn gần nhất. Hãy bật Online lại khi sẵn sàng nhận đơn.',
+                'Bạn đã không mở '.OperationalSettings::unviewedLimit($driverCityId).' trong '.OperationalSettings::unviewedWindowSize($driverCityId).' đơn gần nhất. Hãy bật Online lại khi sẵn sàng nhận đơn.',
                 ['type' => 'driver_auto_offline', 'reason' => 'unviewed_offers'],
             );
         }
@@ -232,20 +235,20 @@ class DispatchService
         ]);
     }
 
-    private function unviewedOfferWindow(int $driverId, mixed $onlineSince): array
+    private function unviewedOfferWindow(int $driverId, mixed $onlineSince, ?int $cityId): array
     {
         if (! $onlineSince) {
-            return UnviewedOfferWindowPolicy::evaluate([]);
+            return UnviewedOfferWindowPolicy::evaluate([], $cityId);
         }
 
         $offers = OrderDispatchLog::where('driver_id', $driverId)
             ->whereNotNull('received_at')
             ->where('offered_at', '>=', $onlineSince)
             ->orderByDesc('offered_at')
-            ->limit(OperationalSettings::unviewedWindowSize())
+            ->limit(OperationalSettings::unviewedWindowSize($cityId))
             ->get(['viewed_at', 'result']);
 
-        return UnviewedOfferWindowPolicy::evaluate($offers);
+        return UnviewedOfferWindowPolicy::evaluate($offers, $cityId);
     }
 
     public function handleAccepted(Order $order, User $driver): void
@@ -312,7 +315,7 @@ class DispatchService
         foreach ($admins as $admin) {
             \Filament\Notifications\Notification::make()
                 ->title("Đơn #{$order->code} — Không tìm được tài xế")
-                ->body("Đơn từ {$order->pickup_address} đã quá ".OperationalSettings::dispatchTimeoutMinutes().' phút không có tài xế nhận. Vui lòng xử lý thủ công.')
+                ->body("Đơn từ {$order->pickup_address} đã quá ".OperationalSettings::dispatchTimeoutMinutes($order->city_id).' phút không có tài xế nhận. Vui lòng xử lý thủ công.')
                 ->danger()
                 ->sendToDatabase($admin);
 
@@ -325,7 +328,7 @@ class DispatchService
             }
         }
 
-        Log::info("╟── [Dispatch] Đơn #{$order->id}: Không tìm được tài xế sau ".OperationalSettings::dispatchTimeoutMinutes().' phút → giữ pending, dừng dispatch');
+        Log::info("╟── [Dispatch] Đơn #{$order->id}: Không tìm được tài xế sau ".OperationalSettings::dispatchTimeoutMinutes($order->city_id).' phút → giữ pending, dừng dispatch');
     }
 
     public function offerToNext(Order $order): void
@@ -357,7 +360,7 @@ class DispatchService
             $elapsedSeconds = $order->dispatch_started_at
                 ? (int) abs(now()->diffInSeconds($order->dispatch_started_at))
                 : 0;
-            $radiusKm = DispatchRadiusPolicy::radiusForElapsedSeconds($elapsedSeconds);
+            $radiusKm = DispatchRadiusPolicy::radiusForElapsedSeconds($elapsedSeconds, $order->city_id);
 
             Log::info("┌─ [Dispatch] Đơn #{$order->id} | Vòng {$radiusKm}km đường thật | Đã chờ: {$elapsedSeconds}s | Đã hỏi: " . count($alreadyOffered));
 
@@ -405,7 +408,7 @@ class DispatchService
 
         if ($order->dispatch_started_at) {
             $elapsed = (int) abs(now()->diffInMinutes($order->dispatch_started_at));
-            if ($elapsed >= OperationalSettings::dispatchTimeoutMinutes()) {
+            if ($elapsed >= OperationalSettings::dispatchTimeoutMinutes($order->city_id)) {
                 Log::info("╟── [Dispatch] Đơn #{$order->id}: Quá {$elapsed} phút không có tài xế → dừng dispatch, giữ pending");
                 $this->cancelNoDriver($order);
                 return;
@@ -416,7 +419,7 @@ class DispatchService
         // tự tham số 'EX', giây, 'NX' — xem chú thích chi tiết ở
         // DispatchOfferSender::send() (thứ tự 'NX','EX',giây trực giác nhưng
         // sai chữ ký thật, khoá không hoạt động).
-        $retrySeconds = OperationalSettings::dispatchRetrySeconds();
+        $retrySeconds = OperationalSettings::dispatchRetrySeconds($order->city_id);
         if (!Redis::set($this->retryKey($order->id), 1, 'EX', $retrySeconds + 5, 'NX')) {
             Log::debug("╟── [Dispatch] Đơn #{$order->id}: Retry đã được lên lịch, bỏ qua");
             return;

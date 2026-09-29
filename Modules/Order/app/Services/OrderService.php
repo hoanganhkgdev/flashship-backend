@@ -184,7 +184,7 @@ class OrderService
             'bonus_fee'        => (int) ($order->bonus_fee       ?? 0),
             'night_surcharge'  => (int) ($order->night_surcharge ?? 0),
             'rain_bonus_eligible' => (bool) ($order->rain_bonus_eligible ?? false),
-            'rain_bonus_amount'   => $order->rain_bonus_eligible ? ($order->rain_bonus_amount ?? OperationalSettings::rainBonusAmount()) : 0,
+            'rain_bonus_amount'   => $order->rain_bonus_eligible ? ($order->rain_bonus_amount ?? OperationalSettings::rainBonusAmount($order->city_id)) : 0,
             'discount_amount'  => (int) ($order->discount_amount ?? 0),
             'voucher_code'     => $order->voucher_code ?? null,
             'payment_method'   => $order->payment_method ?? 'prepaid',
@@ -253,7 +253,7 @@ class OrderService
                 ->whereIn('status', ['assigned', 'processing'])
                 ->lockForUpdate()
                 ->get();
-            if ($activeOrders->count() >= OperationalSettings::maxActiveOrdersPerDriver()
+            if ($activeOrders->count() >= OperationalSettings::maxActiveOrdersPerDriver($order->city_id)
                 || ($activeOrders->count() === 1
                     && ! StackedOrderPolicy::allows($order, $activeOrders->first()))) {
                 OrderDispatchLog::where('order_id', $order->id)
@@ -268,7 +268,7 @@ class OrderService
                     ->where('dispatching_to_driver_id', $user->id)
                     ->update(['dispatching_to_driver_id' => null, 'updated_at' => now()]);
 
-                return $activeOrders->count() >= OperationalSettings::maxActiveOrdersPerDriver() ? 'busy' : 'not_stackable';
+                return $activeOrders->count() >= OperationalSettings::maxActiveOrdersPerDriver($order->city_id) ? 'busy' : 'not_stackable';
             }
 
             return DB::table('orders')
@@ -298,7 +298,7 @@ class OrderService
             })->afterResponse();
 
             $message = $assignment === 'busy'
-                ? 'Bạn đang có đủ '.OperationalSettings::maxActiveOrdersPerDriver().' đơn hàng chưa hoàn thành. Vui lòng hoàn thành bớt trước.'
+                ? 'Bạn đang có đủ '.OperationalSettings::maxActiveOrdersPerDriver($order->city_id).' đơn hàng chưa hoàn thành. Vui lòng hoàn thành bớt trước.'
                 : 'Đơn ghép không còn phù hợp vì bạn đã lấy đơn trước. Hệ thống sẽ chuyển đơn cho tài xế khác.';
 
             return ['success' => false, 'message' => $message, 'status' => 409];
@@ -315,7 +315,7 @@ class OrderService
         if (\Modules\Core\Models\City::where('id', $order->city_id)->value('is_rain_mode')) {
             DB::table('orders')->where('id', $order->id)->update([
                 'rain_bonus_eligible' => true,
-                'rain_bonus_amount' => OperationalSettings::rainBonusAmount(),
+                'rain_bonus_amount' => OperationalSettings::rainBonusAmount($order->city_id),
             ]);
         }
 
@@ -459,7 +459,7 @@ class OrderService
 
         if (! $proximityAlreadyVerified) {
             $target = $this->completionTarget($order);
-            $proximityError = $this->checkDriverProximity($user, $target['lat'] ?? null, $target['lng'] ?? null);
+            $proximityError = $this->checkDriverProximity($user, $target['lat'] ?? null, $target['lng'] ?? null, $order->city_id);
             if ($proximityError) {
                 Log::warning('[OrderComplete] proximity rejected', [
                     'order_id' => $order->id,
@@ -527,7 +527,7 @@ class OrderService
             if ($bonusFee > 0) {
                 DriverWalletService::adjust($user->id, $bonusFee, 'credit', "Bonus #{$fresh->id}", "order_{$fresh->id}_bonus");
             }
-            $rainBonusAmount = $fresh->rain_bonus_amount ?? OperationalSettings::rainBonusAmount();
+            $rainBonusAmount = $fresh->rain_bonus_amount ?? OperationalSettings::rainBonusAmount($fresh->city_id);
             if ($fresh->rain_bonus_eligible && $rainBonusAmount > 0) {
                 DriverWalletService::adjust($user->id, $rainBonusAmount, 'credit', "Thưởng trời mưa #{$fresh->id}", "order_{$fresh->id}_rain");
             }
@@ -580,7 +580,8 @@ class OrderService
         return ['success' => true, 'message' => 'Hoàn thành đơn thành công', 'data' => $order->fresh(), 'status' => 200];
     }
 
-    public function checkDriverProximity(User $driver, mixed $targetLat, mixed $targetLng): ?array
+    /** $cityId: khu vực của đơn — bán kính hoàn thành theo cấu hình khu vực đó. */
+    public function checkDriverProximity(User $driver, mixed $targetLat, mixed $targetLng, ?int $cityId): ?array
     {
         if (! is_numeric($targetLat) || ! is_numeric($targetLng)) {
             return [
@@ -608,12 +609,12 @@ class OrderService
             (float) $targetLat,
             (float) $targetLng,
         );
-        if ($distanceKm > OperationalSettings::completionRadiusKm()) {
+        if ($distanceKm > OperationalSettings::completionRadiusKm($cityId)) {
             $distanceM = (int) round($distanceKm * 1000);
             return [
                 'success' => false,
                 'reason_code' => 'TOO_FAR_FROM_DELIVERY',
-                'message' => "Hệ thống ghi nhận bạn đang cách điểm giao {$distanceM} m. Cần ở trong phạm vi ".OperationalSettings::completionRadiusMeters().' m để hoàn thành.',
+                'message' => "Hệ thống ghi nhận bạn đang cách điểm giao {$distanceM} m. Cần ở trong phạm vi ".OperationalSettings::completionRadiusMeters($cityId).' m để hoàn thành.',
                 'distance_m' => $distanceM,
                 'status' => 422,
             ];

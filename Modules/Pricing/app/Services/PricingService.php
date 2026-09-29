@@ -112,9 +112,9 @@ class PricingService
 
     // ── Public API ─────────────────────────────────────────────────────────────
 
-    public static function nightSurcharge(): int
+    public static function nightSurcharge(?int $cityId): int
     {
-        return OperationalSettings::nightSurcharge();
+        return OperationalSettings::nightSurcharge($cityId);
     }
 
     public static function estimate(string $serviceType, float $distanceKm, ?int $cityId = null): array
@@ -127,7 +127,7 @@ class PricingService
             default                => self::slabFee($distanceKm, 'delivery', $cityId),
         };
 
-        $surcharge = self::nightSurcharge();
+        $surcharge = self::nightSurcharge($cityId);
 
         return [
             'service_type'   => $serviceType,

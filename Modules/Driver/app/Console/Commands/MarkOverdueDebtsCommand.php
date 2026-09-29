@@ -16,20 +16,19 @@ class MarkOverdueDebtsCommand extends Command
     public function handle(): int
     {
         $today  = Carbon::today()->toDateString();
-        $cutoff = Carbon::now()->subHours(OperationalSettings::penaltyDebtOverdueHours());
-
         $debts = DriverDebt::with('driver')
             ->where('status', 'pending')
-            ->where(function ($q) use ($today, $cutoff) {
+            ->where(function ($q) use ($today) {
                 // Công nợ tuần: quá hạn khi week_end đã qua
                 $q->whereNull('ref_id')->where('week_end', '<=', $today);
-                // Công nợ phạt điểm: quá hạn theo cấu hình vận hành.
-                $q->orWhere(function ($q2) use ($cutoff) {
-                    $q2->where('ref_id', 'like', 'score_penalty_%')
-                        ->where('created_at', '<=', $cutoff);
-                });
+                // Công nợ phạt điểm: lọc hạn theo khu vực của tài xế bên dưới.
+                $q->orWhere('ref_id', 'like', 'score_penalty_%');
             })
-            ->get();
+            ->get()
+            ->filter(fn (DriverDebt $debt) => $debt->ref_id === null
+                || $debt->created_at->lte(Carbon::now()->subHours(
+                    OperationalSettings::penaltyDebtOverdueHours($debt->driver?->city_id)
+                )));
 
         $count = 0;
         $fcm   = FCMService::getInstance();

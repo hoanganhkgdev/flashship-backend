@@ -45,7 +45,7 @@ class StackedOrderPolicy
             (float) $active->delivery_lng,
         );
 
-        return $pickupDistance <= OperationalSettings::stackMaxPickupKm()
-            && $deliveryDistance <= OperationalSettings::stackMaxDeliveryKm();
+        return $pickupDistance <= OperationalSettings::stackMaxPickupKm($incoming->city_id)
+            && $deliveryDistance <= OperationalSettings::stackMaxDeliveryKm($incoming->city_id);
     }
 }

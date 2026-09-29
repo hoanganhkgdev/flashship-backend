@@ -35,7 +35,7 @@ class AutoCompleteArrivedOrdersCommand extends Command
 
         foreach ($processing as $order) {
             if ($order->delivery_arrived_at
-                && $order->delivery_arrived_at->lte(now()->subMinutes(OperationalSettings::autoCompleteGraceMinutes()))) {
+                && $order->delivery_arrived_at->lte(now()->subMinutes(OperationalSettings::autoCompleteGraceMinutes($order->city_id)))) {
                 $result = $orders->completeOrder($order, $order->driver, true);
                 if ($result['success']) {
                     DB::table('orders')->where('id', $order->id)->update(['auto_completed_at' => now()]);
@@ -62,7 +62,7 @@ class AutoCompleteArrivedOrdersCommand extends Command
                 (float) $order->delivery_lat,
                 (float) $order->delivery_lng,
             );
-            if ($distanceKm > OperationalSettings::completionRadiusKm()) {
+            if ($distanceKm > OperationalSettings::completionRadiusKm($order->city_id)) {
                 continue;
             }
 

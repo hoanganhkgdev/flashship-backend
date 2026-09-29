@@ -56,7 +56,7 @@ class DispatchOfferSender
             ->whereIn('status', ['assigned', 'processing'])
             ->get();
         $activeCount = $activeOrders->count();
-        if ($activeCount >= OperationalSettings::maxActiveOrdersPerDriver()) {
+        if ($activeCount >= OperationalSettings::maxActiveOrdersPerDriver($order->city_id)) {
             Redis::del($lockKey);
             Log::debug("│  Skip #{$driver->id} {$driver->name}: đã có {$activeCount} đơn active");
             return false;
@@ -78,12 +78,13 @@ class DispatchOfferSender
                 (float) $order->pickup_lat, (float) $order->pickup_lng
             ), 2);
 
-        $scoreScore = round($this->scoringCalculator->scoreComponent($driver), 1);
-        $waitScore  = round($this->scoringCalculator->waitTimeScore($driver), 1);
-        $distanceCap = (float) ($driver->_distance_cap_km ?? DispatchRadiusPolicy::radiusForElapsedSeconds(0));
+        $scoreScore = round($this->scoringCalculator->scoreComponent($driver, $order->city_id), 1);
+        $waitScore  = round($this->scoringCalculator->waitTimeScore($driver, $order->city_id), 1);
+        $distanceCap = (float) ($driver->_distance_cap_km ?? DispatchRadiusPolicy::radiusForElapsedSeconds(0, $order->city_id));
         $distScore  = round($this->scoringCalculator->distanceComponent(
             $driver->_road_km ?? $distanceCap,
-            $distanceCap
+            $distanceCap,
+            $order->city_id,
         ), 1);
         $total      = round($scoreScore + $waitScore + $distScore, 1);
 
@@ -141,7 +142,7 @@ class DispatchOfferSender
         }
 
         $offeredAt = $now->timestamp;
-        $offerSeconds = OperationalSettings::offerOpenSeconds();
+        $offerSeconds = OperationalSettings::offerOpenSeconds($order->city_id);
         $expiresAt = $offeredAt + $offerSeconds;
         $receiptUrl = URL::temporarySignedRoute(
             'api.dispatch.offer.received',
@@ -198,7 +199,7 @@ class DispatchOfferSender
             'is_rain_mode'      => $isRainMode,
             'receipt_url'       => $receiptUrl,
             'view_url'          => $viewUrl,
-            ...($isRainMode ? ['rain_bonus_amount' => OperationalSettings::rainBonusAmount()] : []),
+            ...($isRainMode ? ['rain_bonus_amount' => OperationalSettings::rainBonusAmount($order->city_id)] : []),
         ]);
 
         if (!$rtdbOk) {

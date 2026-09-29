@@ -17,8 +17,9 @@ class ScoreController extends Controller
         $driver = $request->user();
         $row    = DB::table('users')
             ->where('id', $driver->id)
-            ->select('driver_score', 'consecutive_completed')
+            ->select('driver_score', 'consecutive_completed', 'city_id')
             ->first();
+        $cityId = $row?->city_id;
 
         $score  = (int) ($row->driver_score          ?? DriverScoreService::DEFAULT_SCORE);
         $streak = (int) ($row->consecutive_completed ?? 0);
@@ -32,7 +33,7 @@ class ScoreController extends Controller
 
         // Mốc streak tiếp theo (để hiển thị cho tài xế biết còn cần bao nhiêu đơn)
         $nextMilestone = null;
-        foreach (DriverScoreService::streakMilestones() as $at => $bonus) {
+        foreach (DriverScoreService::streakMilestones($cityId) as $at => $bonus) {
             if ($streak < $at) {
                 $nextMilestone = ['at' => $at, 'bonus' => $bonus, 'remaining' => $at - $streak];
                 break;
@@ -45,8 +46,8 @@ class ScoreController extends Controller
                 'score'     => $score,
                 'min_score' => DriverScoreService::MIN_SCORE,
                 'max_score' => DriverScoreService::MAX_SCORE,
-                'label'     => DriverScoreService::label($score),
-                'tips'      => DriverScoreService::tips($score),
+                'label'     => DriverScoreService::label($score, $cityId),
+                'tips'      => DriverScoreService::tips($score, $cityId),
 
                 'streak' => [
                     'count'          => $streak,
@@ -54,10 +55,10 @@ class ScoreController extends Controller
                 ],
 
                 'week' => [
-                    'bonus_at'       => DriverScoreService::weeklyBonusScore(),
-                    'penalty_at'     => DriverScoreService::weeklyPenaltyScore(),
-                    'bonus_amount'   => DriverScoreService::weeklyBonusAmount(),
-                    'penalty_amount' => DriverScoreService::weeklyPenaltyAmount(),
+                    'bonus_at'       => DriverScoreService::weeklyBonusScore($cityId),
+                    'penalty_at'     => DriverScoreService::weeklyPenaltyScore($cityId),
+                    'bonus_amount'   => DriverScoreService::weeklyBonusAmount($cityId),
+                    'penalty_amount' => DriverScoreService::weeklyPenaltyAmount($cityId),
                     'week_start'     => $weekStart,
                     'settlement'     => $settlement ? [
                         'type'   => $settlement->type,
@@ -86,11 +87,12 @@ class ScoreController extends Controller
             ->limit($perPage)
             ->get(['delta', 'score_before', 'score_after', 'reason', 'created_at'])
             ->map(fn ($log) => [
+                // Nhãn theo cấu hình hiện tại của khu vực tài xế.
                 'delta'        => (int) $log->delta,
                 'score_before' => (int) $log->score_before,
                 'score_after'  => (int) $log->score_after,
                 'reason'       => $log->reason,
-                'label'        => self::reasonLabel($log->reason),
+                'label'        => self::reasonLabel($log->reason, $driver->city_id),
                 'created_at'   => $log->created_at,
             ]);
 
@@ -114,9 +116,9 @@ class ScoreController extends Controller
      * đã chiếm hơn 1/3 tổng số dòng vì mọi đơn hoàn thành không trúng mốc
      * streak đều ghi log reason='complete'.
      */
-    private static function reasonLabel(string $reason): string
+    private static function reasonLabel(string $reason, ?int $cityId): string
     {
-        $thresholds = OperationalSettings::shiftOnlineThresholds();
+        $thresholds = OperationalSettings::shiftOnlineThresholds($cityId);
         $percent = fn (float $value): int => (int) round($value * 100);
 
         return match (true) {
@@ -138,7 +140,7 @@ class ScoreController extends Controller
             $reason === 'shift_never_online'   => 'Không online suốt cả ca',
             $reason === 'shift_online_high'    => 'Online ≥ 90% thời lượng ca',
             $reason === 'shift_online_neutral' => 'Online 70–89% thời lượng ca',
-            $reason === 'offer_unviewed_x3' => 'Bỏ lỡ '.OperationalSettings::unviewedLimit().'/'.OperationalSettings::unviewedWindowSize().' đơn gần nhất',
+            $reason === 'offer_unviewed_x3' => 'Bỏ lỡ '.OperationalSettings::unviewedLimit($cityId).'/'.OperationalSettings::unviewedWindowSize($cityId).' đơn gần nhất',
             $reason === 'streak_bonus'     => 'Thưởng chuỗi đơn liên tiếp',
             $reason === 'inactive_1_day' || $reason === 'inactivity_1d'
                 => 'Không giao đơn 1 ngày',
@@ -155,7 +157,7 @@ class ScoreController extends Controller
             str_starts_with($reason, 'rated_') && str_ends_with($reason, '_stars')
                 => 'Khách đánh giá ' . str_replace(['rated_', '_stars'], '', $reason) . ' sao',
             str_starts_with($reason, 'cap_blocked:')
-                => 'Đã đạt giới hạn +'.DriverScoreService::dailyBonusCap().'đ/ngày ('.self::reasonLabel(str_replace('cap_blocked:', '', $reason)).')',
+                => 'Đã đạt giới hạn +'.DriverScoreService::dailyBonusCap($cityId).'đ/ngày ('.self::reasonLabel(str_replace('cap_blocked:', '', $reason), $cityId).')',
             $reason === 'refund_wrong_penalty' => 'Hoàn lại điểm bị trừ nhầm',
             str_starts_with($reason, 'refund_') => 'Hoàn lại điểm',
             default => $reason,

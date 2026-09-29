@@ -150,6 +150,7 @@ class VoucherHardeningTest extends TestCase
             $this->customer,
             10.0000000,
             105.0000000,
+            null,
         );
 
         $this->assertSame('DRIVER_LOCATION_UNAVAILABLE', $result['reason_code']);
@@ -167,6 +168,7 @@ class VoucherHardeningTest extends TestCase
             $this->customer,
             10.0000000,
             105.0000000,
+            null,
         );
 
         $this->assertNull($result);

@@ -184,9 +184,9 @@ class OrderResource extends Resource
             ])
             ->orderBy('name')
             ->get()
-            ->filter(fn (User $driver) => $driver->active_orders_count < OperationalSettings::maxActiveOrdersPerDriver())
+            ->filter(fn (User $driver) => $driver->active_orders_count < OperationalSettings::maxActiveOrdersPerDriver($record->city_id))
             ->mapWithKeys(fn (User $driver) => [
-                $driver->id => trim("{$driver->name} · {$driver->phone} · {$driver->active_orders_count}/".OperationalSettings::maxActiveOrdersPerDriver().' đơn đang chạy'),
+                $driver->id => trim("{$driver->name} · {$driver->phone} · {$driver->active_orders_count}/".OperationalSettings::maxActiveOrdersPerDriver($record->city_id).' đơn đang chạy'),
             ])
             ->all();
     }

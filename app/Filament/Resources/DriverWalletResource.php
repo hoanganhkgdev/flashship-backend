@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources;
 
+use Filament\Facades\Filament;
 use App\Filament\Resources\DriverWalletResource\Pages;
 use App\Filament\Resources\DriverWalletResource\RelationManagers;
 use App\Filament\Traits\RestrictToFullAdmin;
@@ -101,7 +102,7 @@ class DriverWalletResource extends Resource
                         ->label('Số dư hiện tại')
                         ->formatStateUsing(fn ($state) => number_format($state, 0, ',', '.').' ₫')
                         ->size('lg')
-                        ->color(fn ($state) => $state < OperationalSettings::lowWalletBalanceThreshold() ? 'danger' : 'success'),
+                        ->color(fn ($state) => $state < OperationalSettings::lowWalletBalanceThreshold(Filament::getTenant()?->getKey()) ? 'danger' : 'success'),
 
                     Infolists\Components\TextEntry::make('updated_at')
                         ->label('Cập nhật lần cuối')
@@ -150,7 +151,7 @@ class DriverWalletResource extends Resource
                     ->label('Số dư')
                     ->alignCenter()
                     ->formatStateUsing(fn ($state) => number_format($state, 0, ',', '.').' ₫')
-                    ->color(fn ($state) => $state < OperationalSettings::lowWalletBalanceThreshold() ? 'danger' : 'success'),
+                    ->color(fn ($state) => $state < OperationalSettings::lowWalletBalanceThreshold(Filament::getTenant()?->getKey()) ? 'danger' : 'success'),
 
                 Tables\Columns\TextColumn::make('credit_today')
                     ->label('Hôm nay')
@@ -183,13 +184,13 @@ class DriverWalletResource extends Resource
                 Tables\Filters\SelectFilter::make('balance_range')
                     ->label('Số dư')
                     ->options(fn () => [
-                        'low' => 'Dưới '.number_format(OperationalSettings::lowWalletBalanceThreshold()).'₫',
-                        'normal' => 'Từ '.number_format(OperationalSettings::lowWalletBalanceThreshold()).'₫',
+                        'low' => 'Dưới '.number_format(OperationalSettings::lowWalletBalanceThreshold(Filament::getTenant()?->getKey())).'₫',
+                        'normal' => 'Từ '.number_format(OperationalSettings::lowWalletBalanceThreshold(Filament::getTenant()?->getKey())).'₫',
                         'high' => 'Từ 1.000.000₫',
                     ])
                     ->query(fn (Builder $query, array $data) => match ($data['value'] ?? null) {
-                        'low' => $query->where('balance', '<', OperationalSettings::lowWalletBalanceThreshold()),
-                        'normal' => $query->whereBetween('balance', [OperationalSettings::lowWalletBalanceThreshold(), 999_999]),
+                        'low' => $query->where('balance', '<', OperationalSettings::lowWalletBalanceThreshold(Filament::getTenant()?->getKey())),
+                        'normal' => $query->whereBetween('balance', [OperationalSettings::lowWalletBalanceThreshold(Filament::getTenant()?->getKey()), 999_999]),
                         'high' => $query->where('balance', '>=', 1_000_000),
                         default => $query,
                     }),

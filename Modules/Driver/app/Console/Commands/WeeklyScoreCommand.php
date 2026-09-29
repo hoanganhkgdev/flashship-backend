@@ -17,12 +17,17 @@ class WeeklyScoreCommand extends Command
     {
         $weekStart = Carbon::now()->subWeek()->startOfWeek()->toDateString();
         $weekEnd   = Carbon::now()->subWeek()->endOfWeek()->toDateString();
-        // Chụp cấu hình một lần để toàn bộ tài xế trong cùng kỳ được áp dụng
-        // đúng một chính sách, kể cả admin lưu thay đổi lúc command đang chạy.
-        $bonusScore = DriverScoreService::weeklyBonusScore();
-        $penaltyScore = DriverScoreService::weeklyPenaltyScore();
-        $bonusAmount = DriverScoreService::weeklyBonusAmount();
-        $penaltyAmount = DriverScoreService::weeklyPenaltyAmount();
+        // Chụp cấu hình mỗi khu vực một lần ngay đầu lệnh để mọi tài xế cùng
+        // khu vực trong kỳ được áp đúng một chính sách, kể cả khi admin lưu
+        // thay đổi lúc command đang chạy.
+        $policies = DB::table('cities')->pluck('id')->push(null)
+            ->mapWithKeys(fn ($cityId) => [(string) $cityId => [
+                'bonus_score' => DriverScoreService::weeklyBonusScore($cityId),
+                'penalty_score' => DriverScoreService::weeklyPenaltyScore($cityId),
+                'bonus_amount' => DriverScoreService::weeklyBonusAmount($cityId),
+                'penalty_amount' => DriverScoreService::weeklyPenaltyAmount($cityId),
+            ]])
+            ->all();
 
         // Guard: chỉ chạy 1 lần/tuần
         $ran = DB::table('driver_score_settlements')
@@ -37,7 +42,7 @@ class WeeklyScoreCommand extends Command
         $drivers = DB::table('users')
             ->where('user_type', 'driver')
             ->where('status', 1)
-            ->select('id', 'driver_score')
+            ->select('id', 'driver_score', 'city_id')
             ->get();
 
         $bonusCount   = 0;
@@ -46,6 +51,12 @@ class WeeklyScoreCommand extends Command
 
         foreach ($drivers as $driver) {
             $score = (int) ($driver->driver_score ?? DriverScoreService::DEFAULT_SCORE);
+            [
+                'bonus_score' => $bonusScore,
+                'penalty_score' => $penaltyScore,
+                'bonus_amount' => $bonusAmount,
+                'penalty_amount' => $penaltyAmount,
+            ] = $policies[(string) $driver->city_id] ?? $policies[''];
 
             if ($score >= $bonusScore) {
                 // Unique (driver_id, week_start, type) chặn xử lý trùng nếu lệnh

@@ -12,7 +12,7 @@ class UnviewedOfferWindowPolicyTest extends TestCase
         $result = UnviewedOfferWindowPolicy::evaluate([
             ['result' => 'expired', 'viewed_at' => null],
             ['result' => 'expired', 'viewed_at' => null],
-        ]);
+        ], null);
 
         $this->assertTrue($result['should_warn']);
         $this->assertFalse($result['should_offline']);
@@ -25,7 +25,7 @@ class UnviewedOfferWindowPolicyTest extends TestCase
             ['result' => 'expired', 'viewed_at' => now()],
             ['result' => 'expired', 'viewed_at' => null],
             ['result' => 'expired', 'viewed_at' => null],
-        ]);
+        ], null);
 
         $this->assertSame(3, $result['unviewed']);
         $this->assertTrue($result['should_offline']);
@@ -39,7 +39,7 @@ class UnviewedOfferWindowPolicyTest extends TestCase
             ['result' => 'declined', 'viewed_at' => now()],
             ['result' => 'expired', 'viewed_at' => now()],
             ['result' => 'expired', 'viewed_at' => null],
-        ]);
+        ], null);
 
         $this->assertSame(2, $result['unviewed']);
         $this->assertFalse($result['should_offline']);
@@ -54,7 +54,7 @@ class UnviewedOfferWindowPolicyTest extends TestCase
             ['result' => 'expired', 'viewed_at' => null],
             ['result' => 'accepted', 'viewed_at' => now()],
             ['result' => 'expired', 'viewed_at' => null],
-        ]);
+        ], null);
 
         $this->assertSame(5, $result['total']);
         $this->assertSame(2, $result['unviewed']);

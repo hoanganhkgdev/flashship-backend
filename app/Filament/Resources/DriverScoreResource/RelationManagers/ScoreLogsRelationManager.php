@@ -37,7 +37,7 @@ class ScoreLogsRelationManager extends RelationManager
 
                 Tables\Columns\TextColumn::make('reason')
                     ->label('Lý do')
-                    ->formatStateUsing(fn ($state) => DriverScoreResource::reasonLabel($state))
+                    ->formatStateUsing(fn ($state) => DriverScoreResource::reasonLabel($state, $this->getOwnerRecord()->city_id))
                     ->color(fn ($state) => DriverScoreResource::reasonColor($state)),
 
                 Tables\Columns\TextColumn::make('created_at')

@@ -108,7 +108,7 @@ class ShopPricingService
             $weightSurcharge = (int) (ceil($weightKg) * $weightPerKg);
         }
 
-        $nightSurcharge = self::nightSurcharge();
+        $nightSurcharge = self::nightSurcharge($cityId);
 
         return [
             'cargo_type'       => $cargoType,
@@ -132,8 +132,8 @@ class ShopPricingService
         return (int) $last['fee'] + (int) (ceil($overKm) * $overMaxPerKm);
     }
 
-    private static function nightSurcharge(): int
+    private static function nightSurcharge(?int $cityId): int
     {
-        return OperationalSettings::nightSurcharge();
+        return OperationalSettings::nightSurcharge($cityId);
     }
 }

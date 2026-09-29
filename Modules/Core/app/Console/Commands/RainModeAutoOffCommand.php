@@ -18,12 +18,15 @@ class RainModeAutoOffCommand extends Command
 
     public function handle(): int
     {
-        $maxHours = OperationalSettings::rainModeAutoOffHours();
+        // Mỗi khu vực có giới hạn giờ riêng.
         $cities = City::where('is_rain_mode', true)
-            ->where('rain_mode_started_at', '<=', now()->subHours($maxHours))
-            ->get();
+            ->whereNotNull('rain_mode_started_at')
+            ->get()
+            ->filter(fn (City $city) => $city->rain_mode_started_at
+                ->lte(now()->subHours(OperationalSettings::rainModeAutoOffHours($city->id))));
 
         foreach ($cities as $city) {
+            $maxHours = OperationalSettings::rainModeAutoOffHours($city->id);
             $city->update([
                 'is_rain_mode'         => false,
                 'rain_mode_started_at' => null,

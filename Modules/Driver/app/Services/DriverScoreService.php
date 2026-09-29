@@ -20,11 +20,11 @@ class DriverScoreService
             $driver = DB::table('users')
                 ->where('id', $driverId)
                 ->lockForUpdate()
-                ->select('driver_score', 'consecutive_completed')
+                ->select('driver_score', 'consecutive_completed', 'city_id')
                 ->first();
 
             $streak     = (int) ($driver->consecutive_completed ?? 0) + 1;
-            $milestones = self::streakMilestones();
+            $milestones = self::streakMilestones($driver->city_id);
             $bonusDelta = $milestones[$streak] ?? 0;
 
             $newStreak = $streak >= max(array_keys($milestones)) ? 0 : $streak;
@@ -51,7 +51,7 @@ class DriverScoreService
 
     public static function onDecline(int $driverId): void
     {
-        self::adjustWithStreakReset($driverId, self::declinePenalty(), 'decline');
+        self::adjustWithStreakReset($driverId, self::declinePenalty(self::cityOf($driverId)), 'decline');
     }
 
     /**
@@ -60,7 +60,7 @@ class DriverScoreService
      */
     public static function onViewedTimeout(int $driverId): void
     {
-        self::adjustWithStreakReset($driverId, self::viewedTimeoutPenalty(), 'viewed_timeout');
+        self::adjustWithStreakReset($driverId, self::viewedTimeoutPenalty(self::cityOf($driverId)), 'viewed_timeout');
     }
 
     /**
@@ -74,8 +74,9 @@ class DriverScoreService
      */
     public static function onShiftOnlineRate(int $driverId, float $percent): void
     {
-        $thresholds = OperationalSettings::shiftOnlineThresholds();
-        $penalties = OperationalSettings::shiftOnlinePenalties();
+        $cityId = self::cityOf($driverId);
+        $thresholds = OperationalSettings::shiftOnlineThresholds($cityId);
+        $penalties = OperationalSettings::shiftOnlinePenalties($cityId);
         [$delta, $reason] = match (true) {
             $percent >= $thresholds['normal'] => [0, 'shift_online_normal'],
             $percent >= $thresholds['reduced'] => [$penalties['reduced'], 'shift_online_reduced'],
@@ -98,7 +99,7 @@ class DriverScoreService
     /** Gọi khi đã xác nhận có 3 offer không mở trong cửa sổ 5 offer ACK. */
     public static function onUnviewedOfferWindowLimit(int $driverId): void
     {
-        self::adjustWithStreakReset($driverId, self::unviewedPenalty(), 'offer_unviewed_x3');
+        self::adjustWithStreakReset($driverId, self::unviewedPenalty(self::cityOf($driverId)), 'offer_unviewed_x3');
     }
 
     // ─── Weekly Reset ────────────────────────────────────────────────────────────
@@ -157,11 +158,11 @@ class DriverScoreService
         if ($delta > 0) {
             $row = DB::table('users')
                 ->where('id', $driverId)
-                ->select('daily_bonus_points', 'daily_bonus_date')
+                ->select('daily_bonus_points', 'daily_bonus_date', 'city_id')
                 ->first();
 
             $earned = ($row?->daily_bonus_date === $today) ? (int) ($row->daily_bonus_points ?? 0) : 0;
-            $remaining = self::dailyBonusCap() - $earned;
+            $remaining = self::dailyBonusCap($row?->city_id) - $earned;
 
             if ($remaining <= 0) {
                 Log::info("[DriverScore] Driver #{$driverId} daily cap reached — {$reason} blocked.");
@@ -213,23 +214,23 @@ class DriverScoreService
         Log::info("[DriverScore] Driver #{$driverId} reset: {$current} → " . self::DEFAULT_SCORE);
     }
 
-    public static function label(int $score): string
+    public static function label(int $score, ?int $cityId): string
     {
         return match (true) {
-            $score >= self::weeklyBonusScore() => 'Xuất sắc',
+            $score >= self::weeklyBonusScore($cityId) => 'Xuất sắc',
             $score >= 110 => 'Tốt',
             $score >= 90  => 'Khá',
-            $score > self::weeklyPenaltyScore() => 'Trung bình',
+            $score > self::weeklyPenaltyScore($cityId) => 'Trung bình',
             default       => 'Cần cải thiện',
         };
     }
 
-    public static function tips(int $score): array
+    public static function tips(int $score, ?int $cityId): array
     {
-        $bonusScore = self::weeklyBonusScore();
-        $penaltyScore = self::weeklyPenaltyScore();
-        $bonusAmount   = number_format(self::weeklyBonusAmount(), 0, ',', '.') . '₫';
-        $penaltyAmount = number_format(self::weeklyPenaltyAmount(), 0, ',', '.') . '₫';
+        $bonusScore = self::weeklyBonusScore($cityId);
+        $penaltyScore = self::weeklyPenaltyScore($cityId);
+        $bonusAmount   = number_format(self::weeklyBonusAmount($cityId), 0, ',', '.') . '₫';
+        $penaltyAmount = number_format(self::weeklyPenaltyAmount($cityId), 0, ',', '.') . '₫';
 
         if ($score >= $bonusScore) {
             return ['Bạn đã đạt ' . $bonusScore . ' điểm — tiếp tục duy trì để nhận thưởng ' . $bonusAmount . ' cuối tuần!'];
@@ -240,48 +241,56 @@ class DriverScoreService
         return ['Cần thêm ' . ($bonusScore - $score) . ' điểm để đạt thưởng ' . $bonusAmount . ' cuối tuần.'];
     }
 
-    public static function streakMilestones(): array
+    public static function streakMilestones(?int $cityId): array
     {
-        return OperationalSettings::streakMilestones();
+        return OperationalSettings::streakMilestones($cityId);
     }
 
-    public static function dailyBonusCap(): int
+    public static function dailyBonusCap(?int $cityId): int
     {
-        return OperationalSettings::dailyBonusCap();
+        return OperationalSettings::dailyBonusCap($cityId);
     }
 
-    public static function weeklyBonusScore(): int
+    public static function weeklyBonusScore(?int $cityId): int
     {
-        return OperationalSettings::weeklyBonusScore();
+        return OperationalSettings::weeklyBonusScore($cityId);
     }
 
-    public static function weeklyPenaltyScore(): int
+    public static function weeklyPenaltyScore(?int $cityId): int
     {
-        return OperationalSettings::weeklyPenaltyScore();
+        return OperationalSettings::weeklyPenaltyScore($cityId);
     }
 
-    public static function weeklyBonusAmount(): int
+    public static function weeklyBonusAmount(?int $cityId): int
     {
-        return OperationalSettings::weeklyBonusAmount();
+        return OperationalSettings::weeklyBonusAmount($cityId);
     }
 
-    public static function weeklyPenaltyAmount(): int
+    public static function weeklyPenaltyAmount(?int $cityId): int
     {
-        return OperationalSettings::weeklyPenaltyAmount();
+        return OperationalSettings::weeklyPenaltyAmount($cityId);
     }
 
-    public static function declinePenalty(): int
+    public static function declinePenalty(?int $cityId): int
     {
-        return OperationalSettings::scoreDeclinePenalty();
+        return OperationalSettings::scoreDeclinePenalty($cityId);
     }
 
-    public static function viewedTimeoutPenalty(): int
+    public static function viewedTimeoutPenalty(?int $cityId): int
     {
-        return OperationalSettings::scoreViewedTimeoutPenalty();
+        return OperationalSettings::scoreViewedTimeoutPenalty($cityId);
     }
 
-    public static function unviewedPenalty(): int
+    public static function unviewedPenalty(?int $cityId): int
     {
-        return OperationalSettings::scoreUnviewedPenalty();
+        return OperationalSettings::scoreUnviewedPenalty($cityId);
+    }
+
+    /** Khu vực của tài xế — điểm/ví/công nợ tính theo cấu hình khu vực đó. */
+    public static function cityOf(int $driverId): ?int
+    {
+        $cityId = DB::table('users')->where('id', $driverId)->value('city_id');
+
+        return $cityId !== null ? (int) $cityId : null;
     }
 }

@@ -11,7 +11,7 @@ class DispatchRadiusPolicyTest extends TestCase
     #[DataProvider('radiusCases')]
     public function test_dispatch_scans_full_safe_radius_immediately(int $seconds, float $expected): void
     {
-        $this->assertSame($expected, DispatchRadiusPolicy::radiusForElapsedSeconds($seconds));
+        $this->assertSame($expected, DispatchRadiusPolicy::radiusForElapsedSeconds($seconds, null));
     }
 
     public static function radiusCases(): array

@@ -9,6 +9,12 @@ class City extends Model
     protected $fillable = ['name', 'slug', 'lat', 'lng', 'is_active', 'weekly_fee', 'is_rain_mode', 'rain_mode_started_at', 'rain_mode_by'];
     protected $casts = ['is_active' => 'boolean', 'weekly_fee' => 'integer', 'is_rain_mode' => 'boolean', 'rain_mode_started_at' => 'datetime'];
 
+    protected static function booted(): void
+    {
+        // Khu vực mới có ngay bộ cấu hình vận hành riêng, độc lập với khu vực khác.
+        static::created(fn (City $city) => \Modules\Core\Services\OperationalSettings::initializeCity($city->id));
+    }
+
     public function scopeActive(Builder $q): Builder { return $q->where('is_active', true); }
 
     public function users(): HasMany

@@ -91,7 +91,7 @@ class OrderController extends Controller
         }
 
         $effectiveViewedAt = $updated ? $viewedAt : $fresh->offer_viewed_at;
-        $expiresAt = $effectiveViewedAt->copy()->addSeconds(OperationalSettings::offerDecisionSeconds());
+        $expiresAt = $effectiveViewedAt->copy()->addSeconds(OperationalSettings::offerDecisionSeconds($order->city_id));
         if ($updated) {
             DB::table('order_dispatch_logs')->where('id', $dispatchLog->id)
                 ->where('result', 'pending')->whereNull('viewed_at')
@@ -160,7 +160,7 @@ class OrderController extends Controller
 
         $effectiveExpiresAt = null;
         if ($updated) {
-            $expiresAt = $viewedAt->copy()->addSeconds(OperationalSettings::offerDecisionSeconds());
+            $expiresAt = $viewedAt->copy()->addSeconds(OperationalSettings::offerDecisionSeconds($order->city_id));
             $effectiveExpiresAt = $expiresAt->timestamp;
 
             // Ghi thêm vào đúng dòng log offer này (khác cột chung ở trên) —
@@ -188,7 +188,7 @@ class OrderController extends Controller
             if ($fresh?->offer_viewed_at) {
                 $effectiveExpiresAt = $fresh->offer_viewed_at
                     ->copy()
-                    ->addSeconds(OperationalSettings::offerDecisionSeconds())
+                    ->addSeconds(OperationalSettings::offerDecisionSeconds($order->city_id))
                     ->timestamp;
             }
         }
@@ -287,6 +287,7 @@ class OrderController extends Controller
             $driver,
             $requestedStop['lat'] ?? null,
             $requestedStop['lng'] ?? null,
+            $order->city_id,
         );
         if ($proximityError) {
             $status = $proximityError['status'];

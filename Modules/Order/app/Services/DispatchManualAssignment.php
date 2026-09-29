@@ -84,7 +84,7 @@ class DispatchManualAssignment
                 $activeCount = Order::where('delivery_man_id', $driver->id)
                     ->whereIn('status', ['assigned', 'processing'])
                     ->count();
-                if ($activeCount >= OperationalSettings::maxActiveOrdersPerDriver()) {
+                if ($activeCount >= OperationalSettings::maxActiveOrdersPerDriver($order->city_id)) {
                     return ['busy' => $activeCount, 'affected' => 0, 'previous_driver_id' => null, 'reused_log' => false];
                 }
 
@@ -151,7 +151,7 @@ class DispatchManualAssignment
         if (\Modules\Core\Models\City::where('id', $order->city_id)->value('is_rain_mode')) {
             DB::table('orders')->where('id', $order->id)->update([
                 'rain_bonus_eligible' => true,
-                'rain_bonus_amount' => OperationalSettings::rainBonusAmount(),
+                'rain_bonus_amount' => OperationalSettings::rainBonusAmount($order->city_id),
             ]);
         }
 

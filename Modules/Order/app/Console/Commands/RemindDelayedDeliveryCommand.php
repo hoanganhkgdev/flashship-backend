@@ -2,6 +2,7 @@
 
 namespace Modules\Order\Console\Commands;
 
+use Carbon\Carbon;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 use Modules\Core\Services\FCMService;
@@ -18,11 +19,13 @@ class RemindDelayedDeliveryCommand extends Command
         $orders = DB::table('orders')
             ->join('users', 'orders.delivery_man_id', '=', 'users.id')
             ->where('orders.status', 'processing')
-            ->where('orders.updated_at', '<', now()->subMinutes(OperationalSettings::delayedReminderMinutes()))
             ->whereNull('orders.delivery_reminder_sent_at')
             ->whereNotNull('users.fcm_token')
-            ->select('orders.id', 'orders.code', 'users.fcm_token', 'users.name as driver_name')
-            ->get();
+            ->select('orders.id', 'orders.code', 'orders.city_id', 'orders.updated_at', 'users.fcm_token', 'users.name as driver_name')
+            ->get()
+            // Mỗi khu vực một mốc nhắc riêng — lọc sau khi lấy (ít đơn đang giao).
+            ->filter(fn ($order) => Carbon::parse($order->updated_at)
+                ->lt(now()->subMinutes(OperationalSettings::delayedReminderMinutes($order->city_id))));
 
         foreach ($orders as $order) {
             try {

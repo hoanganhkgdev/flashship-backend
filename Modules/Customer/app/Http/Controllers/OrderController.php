@@ -79,7 +79,7 @@ class OrderController extends Controller
                     * sin($dlng / 2) ** 2;
                 $distKm = 6371 * 2 * atan2(sqrt($a), sqrt(1 - $a));
 
-                if ($distKm > OperationalSettings::maxOrderDistanceKm()) {
+                if ($distKm > OperationalSettings::maxOrderDistanceKm($user->city_id)) {
                     return response()->json([
                         'success' => false,
                         'message' => 'Địa chỉ lấy hàng nằm ngoài vùng phục vụ. Vui lòng kiểm tra lại địa chỉ.',
@@ -92,7 +92,7 @@ class OrderController extends Controller
             $cityId = $user->city_id;
 
             if ($data['service_type'] === 'topup') {
-                $surcharge = PricingService::nightSurcharge();
+                $surcharge = PricingService::nightSurcharge($cityId);
                 $pricing = [
                     'fee' => PricingService::topupFee((int) ($data['topup_amount'] ?? 0), $cityId) + $surcharge,
                     'distance_km' => 0,
@@ -290,8 +290,8 @@ class OrderController extends Controller
         if ($order->driver_rating) {
             return response()->json(['success' => false, 'message' => 'Bạn đã đánh giá đơn hàng này rồi.'], 400);
         }
-        if ($order->completed_at && $order->completed_at->diffInHours(now()) > OperationalSettings::ratingWindowHours()) {
-            return response()->json(['success' => false, 'message' => 'Đã quá '.OperationalSettings::ratingWindowHours().' giờ, không thể đánh giá đơn hàng này.'], 400);
+        if ($order->completed_at && $order->completed_at->diffInHours(now()) > OperationalSettings::ratingWindowHours($order->city_id)) {
+            return response()->json(['success' => false, 'message' => 'Đã quá '.OperationalSettings::ratingWindowHours($order->city_id).' giờ, không thể đánh giá đơn hàng này.'], 400);
         }
 
         // Atomic update — chỉ apply nếu chưa có rating (tránh race condition

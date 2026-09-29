@@ -23,32 +23,33 @@ class DispatchScoringCalculator
     // (luật riêng — % online trong ca, cuối ca), không còn ảnh hưởng thứ tự
     // nhận đơn nữa (trước đây có cộng điểm ưu tiên mềm W_IN_SHIFT, đã bỏ).
 
-    public function scoreComponent(User $driver): float
+    // $cityId là khu vực của đơn — trọng số xếp hạng theo cấu hình khu vực đó.
+    public function scoreComponent(User $driver, ?int $cityId): float
     {
         return ($driver->driver_score ?? DriverScoreService::DEFAULT_SCORE)
             / DriverScoreService::MAX_SCORE
-            * OperationalSettings::dispatchWeights()['score'];
+            * OperationalSettings::dispatchWeights($cityId)['score'];
     }
 
-    public function waitTimeScore(User $driver): float
+    public function waitTimeScore(User $driver, ?int $cityId): float
     {
         $since = $driver->last_order_completed_at ?? $driver->online_since;
         if (!$since) return 0;
-        $waitCap = OperationalSettings::dispatchWaitCapMinutes();
+        $waitCap = OperationalSettings::dispatchWaitCapMinutes($cityId);
         $waitMins = min($waitCap, abs(now()->diffInMinutes(Carbon::parse($since))));
-        return ($waitMins / $waitCap) * OperationalSettings::dispatchWeights()['wait'];
+        return ($waitMins / $waitCap) * OperationalSettings::dispatchWeights($cityId)['wait'];
     }
 
-    public function distanceComponent(float $distanceKm, float $distanceCapKm): float
+    public function distanceComponent(float $distanceKm, float $distanceCapKm, ?int $cityId): float
     {
         return (1 - min($distanceKm, $distanceCapKm) / $distanceCapKm)
-            * OperationalSettings::dispatchWeights()['distance'];
+            * OperationalSettings::dispatchWeights($cityId)['distance'];
     }
 
-    public function composite(User $driver, float $distanceKm, float $distanceCapKm): float
+    public function composite(User $driver, float $distanceKm, float $distanceCapKm, ?int $cityId): float
     {
-        return $this->scoreComponent($driver)
-            + $this->waitTimeScore($driver)
-            + $this->distanceComponent($distanceKm, $distanceCapKm);
+        return $this->scoreComponent($driver, $cityId)
+            + $this->waitTimeScore($driver, $cityId)
+            + $this->distanceComponent($distanceKm, $distanceCapKm, $cityId);
     }
 }
