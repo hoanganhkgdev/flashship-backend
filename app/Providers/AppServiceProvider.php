@@ -9,7 +9,17 @@ use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
 {
-    public function register(): void {}
+    public function register(): void
+    {
+        // Web (php-fpm, www-data) và CLI (queue/cron, deploy) chạy bằng hai
+        // user khác nhau: dùng chung một file log theo ngày thì file do bên
+        // nào tạo trước, bên kia không ghi được. Tách file cho CLI. Luôn đặt
+        // lại lúc chạy cho cả hai phía: config:cache chạy ở CLI sẽ lưu cả giá
+        // trị này vào cache, nên không được dựa vào giá trị trong config.
+        config(['logging.channels.daily.path' => storage_path(
+            $this->app->runningInConsole() ? 'logs/laravel-cli.log' : 'logs/laravel.log'
+        )]);
+    }
 
     public function boot(): void
     {

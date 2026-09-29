@@ -67,6 +67,8 @@ return [
 
         'daily' => [
             'driver' => 'daily',
+            // CLI (queue/cron) đổi sang laravel-cli.log lúc chạy — xem
+            // AppServiceProvider::register().
             'path' => storage_path('logs/laravel.log'),
             'level' => env('LOG_LEVEL', 'debug'),
             'days' => env('LOG_DAILY_DAYS', 14),
