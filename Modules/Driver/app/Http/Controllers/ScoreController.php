@@ -45,7 +45,7 @@ class ScoreController extends Controller
             'data'    => [
                 'score'     => $score,
                 'min_score' => DriverScoreService::MIN_SCORE,
-                'max_score' => DriverScoreService::MAX_SCORE,
+                'max_score' => DriverScoreService::maxScore($cityId),
                 'label'     => DriverScoreService::label($score, $cityId),
                 'tips'      => DriverScoreService::tips($score, $cityId),
 

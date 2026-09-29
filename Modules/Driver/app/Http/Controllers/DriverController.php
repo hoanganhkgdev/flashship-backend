@@ -442,7 +442,7 @@ class DriverController extends Controller
 
         return response()->json(['success' => true, 'data' => [
             'score'     => $score,
-            'max_score' => DriverScoreService::MAX_SCORE,
+            'max_score' => DriverScoreService::maxScore($user->city_id),
             'label'     => DriverScoreService::label($score, $user->city_id),
             'tips'      => DriverScoreService::tips($score, $user->city_id),
         ]]);

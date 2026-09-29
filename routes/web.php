@@ -2,7 +2,9 @@
 
 use Illuminate\Support\Facades\Route;
 
-Route::get('/', fn() => view('welcome'));
+// Vào tên miền gốc là tới trang quản trị: chưa đăng nhập thì Filament chuyển sang
+// trang login, đã đăng nhập thì vào thẳng dashboard.
+Route::redirect('/', '/admin');
 
 Route::get('/privacy', function () {
     return response(view('legal.privacy'))->header('Content-Type', 'text/html');

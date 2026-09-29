@@ -23,6 +23,7 @@ class OperationalSettings
         'dispatch.max_road_distance_km' => '4',
         'driver_score.streak_milestones' => '3:1,6:2,10:4',
         'driver_score.daily_bonus_cap' => '10',
+        'driver_score.max_score' => '140',
         'driver_score.weekly_bonus_score' => '140',
         'driver_score.weekly_penalty_score' => '70',
         'driver_score.weekly_bonus_amount' => '200000',
@@ -49,8 +50,8 @@ class OperationalSettings
         'order.max_active_per_driver' => '2',
         'order.stack_max_pickup_km' => '1',
         'order.stack_max_delivery_km' => '1.5',
-        'pricing.night_23_00_amount' => '5000',
-        'pricing.night_01_03_amount' => '10000',
+        // Danh sách khung giờ phụ phí đêm; "to" không tính, khung được vắt qua nửa đêm.
+        'pricing.night_windows' => '[{"from":"23:00","to":"01:00","amount":5000},{"from":"01:00","to":"04:00","amount":10000}]',
         'dispatch.offer_open_seconds' => '25',
         'dispatch.offer_decision_seconds' => '30',
         'dispatch.total_timeout_minutes' => '15',
@@ -93,6 +94,12 @@ class OperationalSettings
     public static function dailyBonusCap(?int $cityId): int
     {
         return (int) self::value('driver_score.daily_bonus_cap', $cityId);
+    }
+
+    /** Trần điểm tài xế — điểm không vượt quá mức này. */
+    public static function maxDriverScore(?int $cityId): int
+    {
+        return (int) self::value('driver_score.max_score', $cityId);
     }
 
     public static function weeklyBonusScore(?int $cityId): int
@@ -212,15 +219,65 @@ class OperationalSettings
         return (float) self::value('order.stack_max_delivery_km', $cityId);
     }
 
-    public static function nightSurcharge(?int $cityId, ?int $hour = null): int
+    public static function nightSurcharge(?int $cityId, ?\DateTimeInterface $at = null): int
     {
-        $hour ??= (int) now()->format('G');
+        $at ??= now();
+        $minute = (int) $at->format('G') * 60 + (int) $at->format('i');
 
-        return match (true) {
-            $hour === 23 || $hour === 0 => (int) self::value('pricing.night_23_00_amount', $cityId),
-            $hour >= 1 && $hour <= 3 => (int) self::value('pricing.night_01_03_amount', $cityId),
-            default => 0,
-        };
+        foreach (self::nightWindows($cityId) as $window) {
+            if (self::minuteInWindow($minute, self::toMinute($window['from']), self::toMinute($window['to']))) {
+                return $window['amount'];
+            }
+        }
+
+        return 0;
+    }
+
+    /** @return list<array{from: string, to: string, amount: int}> */
+    public static function nightWindows(?int $cityId): array
+    {
+        $windows = self::parseNightWindows(self::value('pricing.night_windows', $cityId));
+
+        // Chuỗi hỏng (sửa tay DB) thì dùng khung mặc định, không bỏ mất phụ phí.
+        return $windows ?? self::parseNightWindows(self::DEFAULTS['pricing.night_windows']);
+    }
+
+    /** @return list<array{from: string, to: string, amount: int}>|null */
+    public static function parseNightWindows(string $json): ?array
+    {
+        $decoded = json_decode($json, true);
+        if (! is_array($decoded)) {
+            return null;
+        }
+
+        $windows = [];
+        foreach ($decoded as $window) {
+            if (! is_array($window)
+                || ! preg_match('/^([01]\d|2[0-3]):[0-5]\d$/', (string) ($window['from'] ?? ''))
+                || ! preg_match('/^([01]\d|2[0-3]):[0-5]\d$/', (string) ($window['to'] ?? ''))
+                || ! is_numeric($window['amount'] ?? null)) {
+                return null;
+            }
+            $windows[] = ['from' => $window['from'], 'to' => $window['to'], 'amount' => (int) $window['amount']];
+        }
+
+        return $windows;
+    }
+
+    /** Phút trong ngày (0–1439) từ chuỗi "HH:MM". */
+    public static function toMinute(string $time): int
+    {
+        [$hour, $minute] = array_map('intval', explode(':', $time));
+
+        return $hour * 60 + $minute;
+    }
+
+    /** Khung [from, to) — from > to nghĩa là vắt qua nửa đêm. */
+    public static function minuteInWindow(int $minute, int $from, int $to): bool
+    {
+        return $from < $to
+            ? $minute >= $from && $minute < $to
+            : $minute >= $from || $minute < $to;
     }
 
     public static function offerOpenSeconds(?int $cityId): int

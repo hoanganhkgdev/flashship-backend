@@ -115,7 +115,7 @@ class DriverScoreResource extends Resource
                 ->schema([
                     Infolists\Components\TextEntry::make('driver_score')
                         ->label('Điểm hiện tại')
-                        ->formatStateUsing(fn ($state) => ($state ?? DriverScoreService::DEFAULT_SCORE).' / '.DriverScoreService::MAX_SCORE)
+                        ->formatStateUsing(fn ($state, User $record) => ($state ?? DriverScoreService::DEFAULT_SCORE).' / '.DriverScoreService::maxScore($record->city_id))
                         ->weight('bold')
                         ->size('lg')
                         ->color(fn ($state, User $record) => self::scoreColor($state ?? DriverScoreService::DEFAULT_SCORE, $record->city_id)),
@@ -198,7 +198,7 @@ class DriverScoreResource extends Resource
                 Tables\Columns\TextColumn::make('driver_score')
                     ->label('Điểm')
                     ->alignCenter()
-                    ->formatStateUsing(fn ($state) => ($state ?? DriverScoreService::DEFAULT_SCORE).' / '.DriverScoreService::MAX_SCORE)
+                    ->formatStateUsing(fn ($state, User $record) => ($state ?? DriverScoreService::DEFAULT_SCORE).' / '.DriverScoreService::maxScore($record->city_id))
                     ->color(fn ($state, User $record) => self::scoreColor($state ?? DriverScoreService::DEFAULT_SCORE, $record->city_id))
                     ->description(fn (User $r) => DriverScoreService::label($r->driver_score ?? DriverScoreService::DEFAULT_SCORE, $r->city_id))
                     ->sortable(),

@@ -14,6 +14,7 @@ use Filament\Forms\Components\Section;
 use Filament\Forms\Components\Tabs;
 use Filament\Forms\Components\Tabs\Tab;
 use Filament\Forms\Components\TextInput;
+use Filament\Forms\Components\TimePicker;
 use Filament\Forms\Concerns\InteractsWithForms;
 use Filament\Forms\Contracts\HasForms;
 use Filament\Forms\Form;
@@ -43,10 +44,11 @@ class OperationalSettingsPage extends Page implements HasForms
 
     protected static string $view = 'filament.pages.operational-settings';
 
-    /** Ô form => key trong bảng settings (trừ streak_milestones, xử lý riêng). */
+    /** Ô form => key trong bảng settings (trừ streak_milestones và night_windows, xử lý riêng). */
     private const FIELDS = [
         'dispatch_max_road_distance_km' => 'dispatch.max_road_distance_km',
         'daily_bonus_cap' => 'driver_score.daily_bonus_cap',
+        'max_score' => 'driver_score.max_score',
         'weekly_bonus_score' => 'driver_score.weekly_bonus_score',
         'weekly_penalty_score' => 'driver_score.weekly_penalty_score',
         'weekly_bonus_amount' => 'driver_score.weekly_bonus_amount',
@@ -73,8 +75,6 @@ class OperationalSettingsPage extends Page implements HasForms
         'max_active_orders_per_driver' => 'order.max_active_per_driver',
         'stack_max_pickup_km' => 'order.stack_max_pickup_km',
         'stack_max_delivery_km' => 'order.stack_max_delivery_km',
-        'night_23_00_amount' => 'pricing.night_23_00_amount',
-        'night_01_03_amount' => 'pricing.night_01_03_amount',
         'offer_open_seconds' => 'dispatch.offer_open_seconds',
         'offer_decision_seconds' => 'dispatch.offer_decision_seconds',
         'dispatch_timeout_minutes' => 'dispatch.total_timeout_minutes',
@@ -124,7 +124,11 @@ class OperationalSettingsPage extends Page implements HasForms
                 ->requiresConfirmation()
                 ->modalDescription('Điền lại form bằng giá trị mặc định. Chưa lưu cho tới khi bạn bấm "Lưu cấu hình".')
                 ->action(function (): void {
-                    $this->fillFrom(fn (string $key) => OperationalSettings::DEFAULTS[$key], [3 => 1, 6 => 2, 10 => 4]);
+                    $this->fillFrom(
+                        fn (string $key) => OperationalSettings::DEFAULTS[$key],
+                        [3 => 1, 6 => 2, 10 => 4],
+                        OperationalSettings::parseNightWindows(OperationalSettings::DEFAULTS['pricing.night_windows']),
+                    );
                     Notification::make()->title('Đã điền giá trị mặc định — kiểm tra rồi bấm Lưu')->info()->send();
                 }),
             Action::make('copyFromCity')
@@ -280,6 +284,15 @@ class OperationalSettingsPage extends Page implements HasForms
         return Tab::make('Chốt tuần')
             ->icon('heroicon-o-trophy')
             ->schema([
+                Section::make('Thang điểm')
+                    ->icon('heroicon-o-chart-bar')
+                    ->description('Điểm tài xế không vượt quá trần. Đầu tuần mọi tài xế về '.\Modules\Driver\Services\DriverScoreService::DEFAULT_SCORE.' điểm.')
+                    ->columns(['sm' => 2, 'lg' => 4])
+                    ->schema([
+                        $this->integer('max_score', 'Trần điểm tài xế', 'điểm', 111, 1000)
+                            ->live(onBlur: true),
+                    ]),
+
                 Section::make('Thưởng/phạt cuối tuần')
                     ->icon('heroicon-o-trophy')
                     ->description('Lệnh chốt tuần đọc cấu hình một lần lúc bắt đầu (Thứ Hai 00:02), cả kỳ dùng chung một chính sách.')
@@ -289,7 +302,8 @@ class OperationalSettingsPage extends Page implements HasForms
                             ->compact()
                             ->columnSpan(1)
                             ->schema([
-                                $this->integer('weekly_bonus_score', 'Khi đạt từ', 'điểm', 111, 140),
+                                $this->integer('weekly_bonus_score', 'Khi đạt từ', 'điểm', 111, 1000)
+                                    ->helperText(fn (Get $get) => 'Tối đa bằng trần điểm ('.((int) $get('max_score')).')'),
                                 $this->money('weekly_bonus_amount', 'Số tiền cộng vào ví', 1000),
                             ]),
                         Section::make('Phạt')
@@ -319,27 +333,36 @@ class OperationalSettingsPage extends Page implements HasForms
                         $this->integer('rating_window_hours', 'Thời hạn khách đánh giá', 'giờ', 1, 720),
                     ]),
 
-                Grid::make(['lg' => 2])->schema([
-                    Section::make('Trời mưa')
-                        ->columnSpan(1)
-                        ->icon('heroicon-o-cloud')
-                        ->description('Mức thưởng được khoá theo từng đơn ngay khi tài xế nhận.')
-                        ->columns(2)
-                        ->schema([
-                            $this->money('rain_bonus_amount', 'Thưởng tài xế / đơn', 0),
-                            $this->integer('rain_mode_auto_off_hours', 'Tự tắt chế độ mưa sau', 'giờ', 1, 24),
-                        ]),
+                Section::make('Trời mưa')
+                    ->icon('heroicon-o-cloud')
+                    ->description('Mức thưởng được khoá theo từng đơn ngay khi tài xế nhận.')
+                    ->columns(['sm' => 2, 'lg' => 3])
+                    ->schema([
+                        $this->money('rain_bonus_amount', 'Thưởng tài xế / đơn', 0),
+                        $this->integer('rain_mode_auto_off_hours', 'Tự tắt chế độ mưa sau', 'giờ', 1, 24),
+                    ]),
 
-                    Section::make('Phụ phí đêm')
-                        ->columnSpan(1)
-                        ->icon('heroicon-o-moon')
-                        ->description('Cộng vào phí ship của khách và cửa hàng.')
-                        ->columns(2)
-                        ->schema([
-                            $this->money('night_23_00_amount', '23:00 – 00:59', 0),
-                            $this->money('night_01_03_amount', '01:00 – 03:59', 0),
-                        ]),
-                ]),
+                Section::make('Phụ phí đêm')
+                    ->icon('heroicon-o-moon')
+                    ->description('Cộng vào phí ship của khách và cửa hàng khi đặt đơn trong khung giờ. Giờ kết thúc không tính; khung được vắt qua nửa đêm (ví dụ 23:00 → 01:00).')
+                    ->schema([
+                        Repeater::make('night_windows')
+                            ->hiddenLabel()
+                            ->schema([
+                                TimePicker::make('from')->label('Từ')->seconds(false)->format('H:i')->required(),
+                                TimePicker::make('to')->label('Đến trước')->seconds(false)->format('H:i')->required(),
+                                $this->money('amount', 'Phụ phí', 0),
+                            ])
+                            ->itemLabel(fn (array $state): string => filled($state['from'] ?? null) && filled($state['to'] ?? null)
+                                ? substr($state['from'], 0, 5).' → '.substr($state['to'], 0, 5)
+                                : 'Khung mới')
+                            ->columns(3)
+                            ->grid(['lg' => 2])
+                            ->defaultItems(0)
+                            ->maxItems(6)
+                            ->reorderable(false)
+                            ->addActionLabel('Thêm khung giờ'),
+                    ]),
             ]);
     }
 
@@ -418,14 +441,19 @@ class OperationalSettingsPage extends Page implements HasForms
 
     private function fillFromCity(int $cityId): void
     {
-        $this->fillFrom(fn (string $key) => OperationalSettings::value($key, $cityId), OperationalSettings::streakMilestones($cityId));
+        $this->fillFrom(
+            fn (string $key) => OperationalSettings::value($key, $cityId),
+            OperationalSettings::streakMilestones($cityId),
+            OperationalSettings::nightWindows($cityId),
+        );
     }
 
     /**
      * @param  callable(string): string  $value
      * @param  array<int, int>  $milestones
+     * @param  list<array{from: string, to: string, amount: int}>  $nightWindows
      */
-    private function fillFrom(callable $value, array $milestones): void
+    private function fillFrom(callable $value, array $milestones, array $nightWindows): void
     {
         $state = [];
         foreach (self::FIELDS as $field => $key) {
@@ -436,8 +464,51 @@ class OperationalSettingsPage extends Page implements HasForms
         $state['streak_milestones'] = collect($milestones)
             ->map(fn (int $points, int $orders) => ['orders' => $orders, 'points' => $points])
             ->values()->all();
+        $state['night_windows'] = $nightWindows;
 
         $this->form->fill($state);
+    }
+
+    /**
+     * Chuẩn hoá "HH:MM", chặn khung rỗng (từ = đến) và khung chồng nhau —
+     * nếu chồng, một thời điểm sẽ khớp nhiều mức phí.
+     *
+     * @return list<array{from: string, to: string, amount: int}>
+     */
+    private function validatedNightWindows(array $rows): array
+    {
+        $windows = [];
+        $covered = array_fill(0, 1440, false);
+
+        foreach (array_values($rows) as $row) {
+            $from = substr((string) $row['from'], 0, 5);
+            $to = substr((string) $row['to'], 0, 5);
+            $fromMinute = OperationalSettings::toMinute($from);
+            $toMinute = OperationalSettings::toMinute($to);
+
+            if ($fromMinute === $toMinute) {
+                throw ValidationException::withMessages([
+                    'data.night_windows' => "Khung {$from} → {$to}: giờ bắt đầu và kết thúc phải khác nhau.",
+                ]);
+            }
+
+            for ($minute = 0; $minute < 1440; $minute++) {
+                if (! OperationalSettings::minuteInWindow($minute, $fromMinute, $toMinute)) {
+                    continue;
+                }
+                if ($covered[$minute]) {
+                    throw ValidationException::withMessages([
+                        'data.night_windows' => "Khung {$from} → {$to} bị chồng lên khung khác.",
+                    ]);
+                }
+                $covered[$minute] = true;
+            }
+
+            $windows[] = ['from' => $from, 'to' => $to, 'amount' => (int) $row['amount']];
+        }
+
+        // Giữ thứ tự admin nhập — khung đêm thường đọc 23:00 rồi mới 01:00.
+        return $windows;
     }
 
     public function save(): void
@@ -450,6 +521,12 @@ class OperationalSettingsPage extends Page implements HasForms
         if ($milestones->count() !== count($values['streak_milestones'])) {
             throw ValidationException::withMessages([
                 'data.streak_milestones' => 'Số đơn của mỗi mốc thưởng không được trùng nhau.',
+            ]);
+        }
+
+        if ((int) $values['weekly_bonus_score'] > (int) $values['max_score']) {
+            throw ValidationException::withMessages([
+                'data.weekly_bonus_score' => 'Mốc thưởng không được cao hơn trần điểm ('.((int) $values['max_score']).') — tài xế sẽ không bao giờ đạt được.',
             ]);
         }
 
@@ -488,7 +565,12 @@ class OperationalSettingsPage extends Page implements HasForms
             ]);
         }
 
-        $settings = ['driver_score.streak_milestones' => $milestones->map(fn ($points, $orders) => "{$orders}:{$points}")->implode(',')];
+        $nightWindows = $this->validatedNightWindows($values['night_windows'] ?? []);
+
+        $settings = [
+            'driver_score.streak_milestones' => $milestones->map(fn ($points, $orders) => "{$orders}:{$points}")->implode(','),
+            'pricing.night_windows' => json_encode($nightWindows),
+        ];
         foreach (self::FIELDS as $field => $key) {
             $settings[$key] = $values[$field];
         }

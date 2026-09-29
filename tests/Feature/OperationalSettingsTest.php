@@ -91,9 +91,9 @@ class OperationalSettingsTest extends TestCase
         $this->assertSame(-2, DriverScoreService::declinePenalty($this->cityA));
         $this->assertSame(5_000, OperationalSettings::rainBonusAmount($this->cityA));
         $this->assertSame(300, OperationalSettings::completionRadiusMeters($this->cityA));
-        $this->assertSame(5_000, OperationalSettings::nightSurcharge($this->cityA, 23));
-        $this->assertSame(10_000, OperationalSettings::nightSurcharge($this->cityA, 2));
-        $this->assertSame(0, OperationalSettings::nightSurcharge($this->cityA, 12));
+        $this->assertSame(5_000, OperationalSettings::nightSurcharge($this->cityA, $this->at('23:00')));
+        $this->assertSame(10_000, OperationalSettings::nightSurcharge($this->cityA, $this->at('02:00')));
+        $this->assertSame(0, OperationalSettings::nightSurcharge($this->cityA, $this->at('12:00')));
     }
 
     public function test_changing_one_city_does_not_affect_another(): void
@@ -107,7 +107,7 @@ class OperationalSettingsTest extends TestCase
             'driver_score.shift_low_min_percent' => 55,
             'order.rain_bonus_amount' => 8_000,
             'order.completion_radius_meters' => 450,
-            'pricing.night_23_00_amount' => 7_000,
+            'pricing.night_windows' => '[{"from":"23:00","to":"01:00","amount":7000}]',
             'dispatch.score_weight' => 20,
         ], $this->cityA);
 
@@ -117,7 +117,7 @@ class OperationalSettingsTest extends TestCase
         $this->assertSame(0.55, OperationalSettings::shiftOnlineThresholds($this->cityA)['low']);
         $this->assertSame(8_000, OperationalSettings::rainBonusAmount($this->cityA));
         $this->assertSame(0.45, OperationalSettings::completionRadiusKm($this->cityA));
-        $this->assertSame(7_000, OperationalSettings::nightSurcharge($this->cityA, 23));
+        $this->assertSame(7_000, OperationalSettings::nightSurcharge($this->cityA, $this->at('23:00')));
         $this->assertSame(20.0, OperationalSettings::dispatchWeights($this->cityA)['score']);
         $this->assertTrue(UnviewedOfferWindowPolicy::evaluate([
             ['result' => 'expired', 'viewed_at' => null],
@@ -129,7 +129,7 @@ class OperationalSettingsTest extends TestCase
         $this->assertSame([3 => 1, 6 => 2, 10 => 4], DriverScoreService::streakMilestones($this->cityB));
         $this->assertSame(200_000, DriverScoreService::weeklyBonusAmount($this->cityB));
         $this->assertSame(5_000, OperationalSettings::rainBonusAmount($this->cityB));
-        $this->assertSame(5_000, OperationalSettings::nightSurcharge($this->cityB, 23));
+        $this->assertSame(5_000, OperationalSettings::nightSurcharge($this->cityB, $this->at('23:00')));
         $this->assertFalse(UnviewedOfferWindowPolicy::evaluate([
             ['result' => 'expired', 'viewed_at' => null],
             ['result' => 'expired', 'viewed_at' => null],
@@ -156,5 +156,40 @@ class OperationalSettingsTest extends TestCase
 
         $this->assertSame(350, OperationalSettings::completionRadiusMeters($cityC));
         $this->assertSame(300, OperationalSettings::completionRadiusMeters($this->cityA));
+    }
+
+    public function test_night_windows_follow_configured_minutes_and_cross_midnight(): void
+    {
+        OperationalSettings::put([
+            'pricing.night_windows' => '[{"from":"22:30","to":"00:15","amount":6000},{"from":"00:15","to":"05:00","amount":12000}]',
+        ], $this->cityA);
+
+        $this->assertSame(0, OperationalSettings::nightSurcharge($this->cityA, $this->at('22:29')));
+        $this->assertSame(6_000, OperationalSettings::nightSurcharge($this->cityA, $this->at('22:30')));
+        $this->assertSame(6_000, OperationalSettings::nightSurcharge($this->cityA, $this->at('00:14')));
+        $this->assertSame(12_000, OperationalSettings::nightSurcharge($this->cityA, $this->at('00:15')));
+        $this->assertSame(12_000, OperationalSettings::nightSurcharge($this->cityA, $this->at('04:59')));
+        $this->assertSame(0, OperationalSettings::nightSurcharge($this->cityA, $this->at('05:00')));
+
+        // Khu vực khác vẫn khung cũ.
+        $this->assertSame(0, OperationalSettings::nightSurcharge($this->cityB, $this->at('22:45')));
+        $this->assertSame(10_000, OperationalSettings::nightSurcharge($this->cityB, $this->at('03:59')));
+        $this->assertSame(0, OperationalSettings::nightSurcharge($this->cityB, $this->at('04:00')));
+    }
+
+    public function test_no_night_windows_means_no_surcharge_and_broken_value_falls_back(): void
+    {
+        OperationalSettings::put(['pricing.night_windows' => '[]'], $this->cityA);
+        $this->assertSame(0, OperationalSettings::nightSurcharge($this->cityA, $this->at('23:30')));
+
+        OperationalSettings::put(['pricing.night_windows' => 'not-json'], $this->cityB);
+        $this->assertSame(5_000, OperationalSettings::nightSurcharge($this->cityB, $this->at('23:30')));
+    }
+
+    private function at(string $time): \Illuminate\Support\Carbon
+    {
+        [$hour, $minute] = explode(':', $time);
+
+        return now()->setTime((int) $hour, (int) $minute);
     }
 }

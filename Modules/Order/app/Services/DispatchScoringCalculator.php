@@ -27,7 +27,7 @@ class DispatchScoringCalculator
     public function scoreComponent(User $driver, ?int $cityId): float
     {
         return ($driver->driver_score ?? DriverScoreService::DEFAULT_SCORE)
-            / DriverScoreService::MAX_SCORE
+            / DriverScoreService::maxScore($cityId)
             * OperationalSettings::dispatchWeights($cityId)['score'];
     }
 

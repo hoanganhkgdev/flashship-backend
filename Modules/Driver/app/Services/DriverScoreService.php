@@ -10,7 +10,6 @@ class DriverScoreService
 {
     const DEFAULT_SCORE        = 100;
     const MIN_SCORE            = 0;
-    const MAX_SCORE            = 140;
 
     // ─── Triggers ────────────────────────────────────────────────────────────────
 
@@ -153,16 +152,17 @@ class DriverScoreService
     private static function adjust(int $driverId, int $delta, string $reason, ?int $knownCurrent = null): void
     {
         $today   = now()->toDateString();
+        $cityId  = self::cityOf($driverId);
         $current = $knownCurrent ?? (int) (DB::table('users')->where('id', $driverId)->value('driver_score') ?? self::DEFAULT_SCORE);
 
         if ($delta > 0) {
             $row = DB::table('users')
                 ->where('id', $driverId)
-                ->select('daily_bonus_points', 'daily_bonus_date', 'city_id')
+                ->select('daily_bonus_points', 'daily_bonus_date')
                 ->first();
 
             $earned = ($row?->daily_bonus_date === $today) ? (int) ($row->daily_bonus_points ?? 0) : 0;
-            $remaining = self::dailyBonusCap($row?->city_id) - $earned;
+            $remaining = self::dailyBonusCap($cityId) - $earned;
 
             if ($remaining <= 0) {
                 Log::info("[DriverScore] Driver #{$driverId} daily cap reached — {$reason} blocked.");
@@ -185,7 +185,7 @@ class DriverScoreService
             ]);
         }
 
-        $newScore = max(self::MIN_SCORE, min(self::MAX_SCORE, $current + $delta));
+        $newScore = max(self::MIN_SCORE, min(self::maxScore($cityId), $current + $delta));
 
         DB::table('users')->where('id', $driverId)->update(['driver_score' => $newScore]);
 
@@ -239,6 +239,11 @@ class DriverScoreService
             return ['Điểm từ ' . $penaltyScore . ' trở xuống — cố gắng cải thiện để tránh bị phạt ' . $penaltyAmount . ' cuối tuần.'];
         }
         return ['Cần thêm ' . ($bonusScore - $score) . ' điểm để đạt thưởng ' . $bonusAmount . ' cuối tuần.'];
+    }
+
+    public static function maxScore(?int $cityId): int
+    {
+        return OperationalSettings::maxDriverScore($cityId);
     }
 
     public static function streakMilestones(?int $cityId): array
