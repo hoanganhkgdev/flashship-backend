@@ -119,7 +119,12 @@ class ZaloTokenService
         }
     }
 
-    public static function sendTemplate(string $phone, string $templateId, array $templateData, string $trackingId = ''): bool
+    /**
+     * Gửi tin ZNS theo template. Trả mã lỗi của Zalo: 0 = gửi thành công,
+     * số âm = Zalo từ chối (vd -118 số chưa có Zalo, -108 số không hợp lệ),
+     * null = không gọi được Zalo (thiếu token, lỗi mạng).
+     */
+    public static function sendTemplate(string $phone, string $templateId, array $templateData, string $trackingId = ''): ?int
     {
         $zaloPhone = '84' . ltrim(preg_replace('/\D/', '', $phone), '0');
 
@@ -128,7 +133,7 @@ class ZaloTokenService
 
             if (!$token) {
                 Log::error('[ZaloToken] Không có access token');
-                return false;
+                return null;
             }
 
             try {
@@ -141,24 +146,24 @@ class ZaloTokenService
                     ]);
                 $error = $res->json('error');
 
-                if ($error === 0) return true;
+                if ($error === 0) return 0;
 
                 if ($error === -124 && $attempt === 0) {
                     Log::warning('[ZaloToken] Token hết hạn (error -124), đang refresh...');
-                    if (!self::refresh()) return false;
+                    if (!self::refresh()) return null;
                     continue;
                 }
 
                 Log::warning('[ZNS] Gửi thất bại (error=' . $error . '): ' . $res->body());
-                return false;
+                return is_int($error) ? $error : null;
 
             } catch (\Throwable $e) {
                 Log::error('[ZNS] Exception: ' . $e->getMessage());
-                return false;
+                return null;
             }
         }
 
-        return false;
+        return null;
     }
 
     private static function notifyAdminByEmail(string $reason): void

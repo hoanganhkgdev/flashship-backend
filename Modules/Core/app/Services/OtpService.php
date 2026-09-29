@@ -1,7 +1,7 @@
 <?php
 namespace Modules\Core\Services;
 
-use App\Services\EsmsService;
+use App\Exceptions\OtpDeliveryException;
 use App\Services\ZaloTokenService;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\RateLimiter;
@@ -34,7 +34,7 @@ class OtpService
             ? '123456'
             : str_pad(random_int(0, 999999), 6, '0', STR_PAD_LEFT);
 
-        PhoneOtp::create([
+        $otp = PhoneOtp::create([
             'phone'      => $phone,
             'otp'        => $code,
             'type'       => $type,
@@ -48,7 +48,13 @@ class OtpService
             Log::info("[OTP] phone=$phone type=$type — đã gửi");
         }
 
-        self::dispatch($phone, $code);
+        $result = self::dispatch($phone, $code);
+        if ($result !== 0) {
+            // Mã chưa tới được người dùng — vô hiệu luôn; dòng vẫn tính vào
+            // giới hạn 60 giây để không dò/spam nhiều số liên tục.
+            $otp->update(['used' => true]);
+            throw OtpDeliveryException::fromZaloError($result);
+        }
 
         return $code;
     }
@@ -69,38 +75,28 @@ class OtpService
     }
 
     /**
-     * Zalo ZNS trước, thất bại thì fallback SMS (eSMS) — đồng bộ với luồng
-     * OTP của customer; trước đây driver chỉ có Zalo, Zalo trượt là mất mã.
+     * OTP chỉ gửi qua Zalo ZNS — cố ý không có SMS dự phòng: số phải gắn
+     * tài khoản Zalo mới nhận được mã, chặn bớt số ảo/số dùng để phá.
+     * Trả mã lỗi Zalo (0 = đã gửi), null = không gọi được Zalo.
      */
-    private static function dispatch(string $phone, string $code): void
+    private static function dispatch(string $phone, string $code): ?int
     {
-        if (self::isTestPhone($phone)) return;
+        if (self::isTestPhone($phone)) return 0;
 
         $templateId = config('services.zalo_zns.otp_template_id');
-        $zaloSent   = false;
-
-        if ($templateId) {
-            $zaloSent = ZaloTokenService::sendTemplate($phone, $templateId, [
-                'otp'    => $code,
-                'expiry' => '10 phút',
-            ]);
-        } else {
-            Log::warning("[OTP] Chưa cấu hình Zalo ZNS template → $phone");
+        if (!$templateId) {
+            Log::error("[OTP] Chưa cấu hình Zalo ZNS template → $phone");
+            return null;
         }
 
-        if ($zaloSent) {
+        $result = ZaloTokenService::sendTemplate($phone, $templateId, ['otp' => $code]);
+        if ($result === 0) {
             Log::info("[OTP] Zalo ZNS → $phone OK");
-            return;
-        }
-
-        Log::warning("[OTP] Zalo ZNS thất bại → $phone, fallback sang SMS");
-
-        $smsSent = EsmsService::sendOtp($phone, $code);
-        if ($smsSent) {
-            Log::info("[OTP] SMS fallback → $phone OK");
         } else {
-            Log::error("[OTP] Cả Zalo và SMS đều thất bại → $phone");
+            Log::warning("[OTP] Zalo ZNS thất bại → $phone (error=" . var_export($result, true) . ')');
         }
+
+        return $result;
     }
 
     // Trước đây không giới hạn số lần thử sai — OTP 6 số + endpoint verify ở

@@ -1,6 +1,7 @@
 <?php
 namespace Modules\Customer\Http\Controllers;
 
+use App\Exceptions\OtpDeliveryException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
@@ -126,7 +127,12 @@ class AuthController extends Controller
         }
 
         if ($exists) {
-            OtpService::send($phone, 'forgot_password');
+            try {
+                OtpService::send($phone, 'forgot_password');
+            } catch (OtpDeliveryException) {
+                // Giữ nguyên câu trả lời chung — báo lỗi Zalo riêng ở đây sẽ
+                // lộ ra số này có tài khoản (đã ghi log ở OtpService).
+            }
         }
 
         return response()->json(['success' => true, 'message' => 'Nếu số điện thoại này đã đăng ký, mã OTP đã được gửi tới ' . $phone]);
