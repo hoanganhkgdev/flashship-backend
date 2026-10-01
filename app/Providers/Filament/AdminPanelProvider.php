@@ -36,7 +36,7 @@ class AdminPanelProvider extends PanelProvider
             ->login()
             ->tenant(City::class)
             ->brandName('FlashShip Admin')
-            ->font('Roboto', provider: GoogleFontProvider::class)
+            ->font('Inter',provider: GoogleFontProvider::class)
             ->renderHook(
                 PanelsRenderHook::STYLES_AFTER,
                 fn (): HtmlString => new HtmlString(

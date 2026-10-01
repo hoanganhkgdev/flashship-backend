@@ -67,20 +67,25 @@ class OrderResource extends Resource
         'wallet' => 'Ví',
     ];
 
+    private static function sourceLabel(Order $record): string
+    {
+        return match ($record->platform) {
+            'customer_app' => 'App khách',
+            'shop_app' => 'App shop',
+            'call_center' => 'Tổng đài',
+            default => $record->platform ?: 'Chưa rõ',
+        };
+    }
+
     private static function journeySummary(Order $record): string
     {
-        $source = match ($record->platform) {
-            'customer_app' => 'Khách hàng'.($record->sender?->name ? ' · '.$record->sender->name : ''),
-            'shop_app' => 'Shop'.($record->sender?->name ? ' · '.$record->sender->name : ''),
-            'call_center' => 'Tổng đài',
-            default => $record->platform ?: 'Chưa xác định',
-        };
+        $sender = $record->sender?->name;
 
         return '<div class="fs-order-journey">'
-            .'<div><b class="fs-order-journey__pickup">Điểm lấy:</b><span>'.e($record->pickup_address ?: '—').'</span></div>'
-            .'<div><b class="fs-order-journey__delivery">Điểm giao:</b><span>'.e($record->delivery_address ?: '—').'</span></div>'
-            .'<div class="fs-order-journey__note-row"><b class="fs-order-journey__note" aria-label="Ghi chú"></b><span>'.e($record->order_note ?: '—').'</span></div>'
-            .'<div class="fs-order-journey__meta"><span title="'.e($source).'"><b class="fs-order-journey__source">Nguồn đơn:</b><em>'.e($source).'</em></span><strong class="fs-order-journey__fee">'.number_format((int) $record->shipping_fee, 0, ',', '.').'đ</strong></div>'
+            .'<div class="fs-order-journey__stop fs-order-journey__stop--pickup"><span>'.e($record->pickup_address ?: '—').'</span></div>'
+            .'<div class="fs-order-journey__stop fs-order-journey__stop--delivery"><span>'.e($record->delivery_address ?: '—').'</span></div>'
+            .($record->order_note ? '<p class="fs-order-journey__note" title="'.e($record->order_note).'">'.e($record->order_note).'</p>' : '')
+            .'<div class="fs-order-journey__source">'.e(self::sourceLabel($record)).($sender ? ' · '.e($sender) : '').'</div>'
             .'</div>';
     }
 
@@ -89,27 +94,44 @@ class OrderResource extends Resource
         $service = self::serviceLabels()[$record->service_type] ?? $record->service_type;
 
         return '<div class="fs-order-summary">'
-            .'<div><b class="fs-order-summary__code">Mã đơn:</b><span>#'.e($record->code).'</span></div>'
-            .'<div><b class="fs-order-summary__service">Dịch vụ:</b><span>'.e($service ?: '—').'</span></div>'
-            .'<div><b class="fs-order-summary__time">Tạo lúc:</b><span>'.$record->created_at?->format('d/m H:i').'</span></div>'
+            .'<strong class="fs-order-summary__code">#'.e($record->code).'</strong>'
+            .'<span class="fs-order-summary__service">'.e($service ?: '—').'</span>'
+            .'<span class="fs-order-summary__time" title="'.e($record->created_at?->format('d/m/Y H:i:s')).'">'.e($record->created_at?->format('H:i · d/m')).'</span>'
+            .'</div>';
+    }
+
+    private static function paymentSummary(Order $record): string
+    {
+        $payment = self::$paymentLabels[$record->payment_method] ?? $record->payment_method ?: '—';
+        $cod = (int) $record->cod_amount;
+
+        return '<div class="fs-order-payment">'
+            .'<strong class="fs-order-payment__fee">'.number_format((int) $record->shipping_fee, 0, ',', '.').'đ</strong>'
+            .'<span class="fs-order-chip">'.e($payment).'</span>'
+            .($cod > 0 ? '<span class="fs-order-payment__cod">Thu hộ '.number_format($cod, 0, ',', '.').'đ</span>' : '')
             .'</div>';
     }
 
     private static function statusSummary(Order $record): string
     {
+        $color = self::$statusColors[$record->status] ?? 'gray';
         $status = self::$statusLabels[$record->status] ?? $record->status;
-        $driverName = $record->driver?->name ?: 'Đang tìm tài xế';
-        $driverPhone = $record->driver?->phone ?: '—';
-        $warning = match (true) {
-            $record->status === 'pending' && $record->cancel_reason === 'no_driver' => 'Không tìm được tài xế',
-            default => null,
-        };
+        $warning = null;
+
+        if ($record->status === 'pending') {
+            $warning = $record->cancel_reason === 'no_driver'
+                ? 'Không tìm được tài xế'
+                : 'Chờ '.max(0, (int) $record->created_at?->diffInMinutes(now())).' phút';
+        }
+
+        $driver = $record->driver
+            ? '<div class="fs-order-assignment__driver"><span title="'.e($record->driver->name).'">'.e($record->driver->name).'</span><small>'.e($record->driver->phone ?: '—').'</small></div>'
+            : '<div class="fs-order-assignment__driver fs-order-assignment__driver--empty">Chưa có tài xế</div>';
 
         return '<div class="fs-order-assignment">'
-            .'<div><b class="fs-order-assignment__status" aria-label="Trạng thái"></b><span class="fs-order-status-text fs-order-status-text--'.e(self::$statusColors[$record->status] ?? 'gray').'">'.e($status).'</span></div>'
-            .'<div><b class="fs-order-assignment__driver">Tài xế:</b><span title="'.e($driverName).'">'.e($driverName).'</span></div>'
-            .'<div><b class="fs-order-assignment__phone">SĐT:</b><span>'.e($driverPhone).'</span></div>'
-            .($warning ? '<strong class="fs-order-assignment__warning">'.e($warning).'</strong>' : '')
+            .'<span class="fs-order-pill fs-order-pill--'.e($color).'">'.e($status).'</span>'
+            .$driver
+            .($warning ? '<em class="fs-order-assignment__warning'.($record->cancel_reason === 'no_driver' ? ' is-alert' : '').'">'.e($warning).'</em>' : '')
             .'</div>';
     }
 
@@ -504,16 +526,22 @@ class OrderResource extends Resource
                     }),
 
                 Tables\Columns\TextColumn::make('journey_summary')
-                    ->label('Hành trình & phụ trách')
+                    ->label('Hành trình')
                     ->state(fn (Order $record): string => self::journeySummary($record))
                     ->html(),
 
+                Tables\Columns\TextColumn::make('payment_summary')
+                    ->label('Phí & thanh toán')
+                    ->state(fn (Order $record): string => self::paymentSummary($record))
+                    ->html(),
+
                 Tables\Columns\TextColumn::make('status')
-                    ->label('Trạng thái')
+                    ->label('Trạng thái & tài xế')
                     ->formatStateUsing(fn ($state, Order $record): string => self::statusSummary($record))
                     ->html(),
 
             ])
+            ->recordClasses(fn (Order $record): string => 'fs-order-row fs-order-row--'.(self::$statusColors[$record->status] ?? 'gray'))
             ->recordUrl(fn (Order $record): string => static::getUrl('view', ['record' => $record]))
             ->filters([
                 Tables\Filters\Filter::make('created_at')
