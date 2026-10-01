@@ -15,25 +15,13 @@ use Tests\TestCase;
 
 class ShopOrderDataIntegrityTest extends TestCase
 {
-    private const TEST_CONNECTION = [
-        'driver' => 'mysql',
-        'host' => '127.0.0.1',
-        'port' => '3306',
-        'database' => 'flashship_backend_test',
-        'username' => 'root',
-        'password' => 'Nika221124@',
-        'charset' => 'utf8mb4',
-        'collation' => 'utf8mb4_unicode_ci',
-        'strict' => true,
-    ];
-
     private string $prefix;
 
     protected function setUp(): void
     {
         parent::setUp();
 
-        config(['database.connections.mysql' => self::TEST_CONNECTION]);
+        config(['database.connections.mysql' => self::mysqlTestConnection()]);
         config(['database.default' => 'mysql']);
         DB::purge('mysql');
 
@@ -77,7 +65,7 @@ class ShopOrderDataIntegrityTest extends TestCase
 
         try {
             DB::transaction(function () use ($controller, $method, $user): void {
-                $method->invoke($controller, strtoupper($this->prefix).'-VOUCHER', $user, 50_000);
+                $method->invoke($controller, strtoupper($this->prefix).'-VOUCHER', $user, 50_000, 5.0);
                 throw new RuntimeException('Simulate order persistence failure');
             });
         } catch (RuntimeException) {

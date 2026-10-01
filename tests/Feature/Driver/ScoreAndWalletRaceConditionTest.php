@@ -52,18 +52,6 @@ use Tests\TestCase;
  */
 class ScoreAndWalletRaceConditionTest extends TestCase
 {
-    private const TEST_CONNECTION = [
-        'driver'    => 'mysql',
-        'host'      => '127.0.0.1',
-        'port'      => '3306',
-        'database'  => 'flashship_backend_test',
-        'username'  => 'root',
-        'password'  => 'Nika221124@',
-        'charset'   => 'utf8mb4',
-        'collation' => 'utf8mb4_unicode_ci',
-        'strict'    => true,
-    ];
-
     protected function setUp(): void
     {
         parent::setUp();
@@ -71,7 +59,7 @@ class ScoreAndWalletRaceConditionTest extends TestCase
         // Trỏ connection mặc định ("mysql", nơi DriverScoreService/
         // DriverWalletService thật sự chạy) vào DB test riêng — không đụng
         // DB dev/production.
-        config(['database.connections.mysql' => self::TEST_CONNECTION]);
+        config(['database.connections.mysql' => self::mysqlTestConnection()]);
         config(['database.default' => 'mysql']);
         DB::purge('mysql');
 
@@ -147,7 +135,7 @@ class ScoreAndWalletRaceConditionTest extends TestCase
         // cứng — nên phải override CẢ database.default lẫn config kết nối
         // "mysql", không chỉ mỗi config kết nối (nếu không, DB::table(...)
         // không chỉ định connection cụ thể vẫn âm thầm rơi về sqlite).
-        $db = self::TEST_CONNECTION;
+        $db = self::mysqlTestConnection();
         return "config(['database.default' => 'mysql', 'database.connections.mysql' => ['driver'=>'{$db['driver']}','host'=>'{$db['host']}',"
             . "'port'=>'{$db['port']}','database'=>'{$db['database']}','username'=>'{$db['username']}',"
             . "'password'=>'{$db['password']}','charset'=>'{$db['charset']}']]);"
