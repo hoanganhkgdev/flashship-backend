@@ -8,6 +8,7 @@ use Modules\Driver\Http\Controllers\DebtController;
 use Modules\Driver\Http\Controllers\OrderController;
 use Modules\Driver\Http\Controllers\ScoreController;
 use Modules\Driver\Http\Controllers\PaymentController;
+use Modules\Driver\Http\Controllers\ReferralController;
 use Modules\Driver\Http\Controllers\SupportController;
 // Webhook PayOS — public, không cần auth
 Route::post('/payment/webhook/payos', [PaymentController::class, 'webhook']);
@@ -49,6 +50,7 @@ Route::middleware(['auth:sanctum', 'user_type:driver', 'driver.active'])->group(
         Route::post('/delete-account/request',       [DriverController::class, 'requestDeleteAccount']);
         Route::post('/delete-account/cancel',        [DriverController::class, 'cancelDeleteAccount']);
         Route::get('/support',                       [SupportController::class, 'index']);
+        Route::get('/referral',                      [ReferralController::class, 'index']);
     });
 
     Route::prefix('orders')->group(function () {

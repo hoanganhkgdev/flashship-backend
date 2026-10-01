@@ -15,6 +15,7 @@ use Modules\Core\Services\RTDBService;
 use Modules\Driver\Services\DriverScoreService;
 use Modules\Driver\Services\DriverLocationService;
 use Modules\Driver\Services\DriverWalletService;
+use Modules\Driver\Services\ReferralService;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -549,6 +550,13 @@ class OrderService
             // cod_amount chỉ là số tiền shop báo để tài xế chuẩn bị ứng khi
             // lấy hàng và thu lại từ khách. Shop và tài xế tự đối soát khoản
             // này ngoài hệ thống, nên hoàn tất đơn không được tạo công nợ.
+
+            // Thưởng giới thiệu là phụ: lỗi ở đây không được làm hỏng việc hoàn thành đơn.
+            try {
+                ReferralService::onOrderCompleted($fresh);
+            } catch (\Throwable $e) {
+                Log::error('[Referral] reward failed', ['order_id' => $fresh->id, 'error' => $e->getMessage()]);
+            }
 
             DriverScoreService::onComplete($user->id);
             DB::table('users')->where('id', $user->id)->update([

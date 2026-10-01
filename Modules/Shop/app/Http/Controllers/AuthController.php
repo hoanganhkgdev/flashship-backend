@@ -5,11 +5,13 @@ namespace Modules\Shop\Http\Controllers;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 use Modules\Core\Models\User;
 use Modules\Customer\Services\OtpService;
+use Modules\Driver\Services\ReferralService;
 use Modules\Order\Models\Order;
 
 class AuthController extends Controller
@@ -43,6 +45,7 @@ class AuthController extends Controller
             'address' => 'nullable|string|max:500',
             'password' => 'required|string|min:6',
             'city_id' => 'required|integer|exists:cities,id',
+            'referral_code' => 'sometimes|nullable|string|max:20',
             'lat' => 'sometimes|nullable|numeric',
             'lng' => 'sometimes|nullable|numeric',
             'device_name' => 'sometimes|nullable|string|max:255',
@@ -50,6 +53,17 @@ class AuthController extends Controller
         ]);
 
         $phone = $this->normalizePhone($data['phone']);
+
+        // Kiểm tra mã giới thiệu trước khi xác minh OTP để mã sai không làm mất OTP.
+        if (! empty($data['referral_code'])) {
+            $referrer = ReferralService::findDriverByCode($data['referral_code']);
+            if (! $referrer) {
+                return response()->json(['success' => false, 'message' => 'Mã giới thiệu không tồn tại hoặc không còn hiệu lực'], 422);
+            }
+            if (ReferralService::isSamePerson($referrer->phone, $phone)) {
+                return response()->json(['success' => false, 'message' => 'Không thể dùng mã giới thiệu của chính bạn'], 422);
+            }
+        }
 
         if (! OtpService::verify($phone, $data['otp'], 'register')) {
             return response()->json(['success' => false, 'message' => 'Mã OTP không hợp lệ hoặc đã hết hạn'], 422);
@@ -59,17 +73,25 @@ class AuthController extends Controller
             return response()->json(['success' => false, 'message' => 'Số điện thoại đã được đăng ký shop'], 422);
         }
 
-        $user = User::create([
-            'name' => $data['name'],
-            'phone' => $phone,
-            'address' => $data['address'] ?? null,
-            'password' => bcrypt($data['password']),
-            'user_type' => 'shop',
-            'city_id' => $data['city_id'] ?? null,
-            'status' => 1,
-            'latitude' => $data['lat'] ?? null,
-            'longitude' => $data['lng'] ?? null,
-        ]);
+        $user = DB::transaction(function () use ($data, $phone) {
+            $user = User::create([
+                'name' => $data['name'],
+                'phone' => $phone,
+                'address' => $data['address'] ?? null,
+                'password' => bcrypt($data['password']),
+                'user_type' => 'shop',
+                'city_id' => $data['city_id'] ?? null,
+                'status' => 1,
+                'latitude' => $data['lat'] ?? null,
+                'longitude' => $data['lng'] ?? null,
+            ]);
+
+            if (! empty($data['referral_code'])) {
+                ReferralService::attachShop($user, $data['referral_code']);
+            }
+
+            return $user;
+        });
 
         $token = $this->issueToken($user, 'shop_token', $data);
 

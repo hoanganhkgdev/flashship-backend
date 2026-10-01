@@ -139,6 +139,16 @@ class DriverResource extends Resource
                         ->extraInputAttributes(['style' => 'text-transform: uppercase']),
                 ])->columns(2),
 
+            Forms\Components\Section::make('Giới thiệu shop')
+                ->description('Mã tài xế đưa cho chủ shop nhập khi đăng ký để nhận thưởng')
+                ->icon('heroicon-o-gift')
+                ->schema([
+                    Forms\Components\TextInput::make('referral_code')
+                        ->label('Mã giới thiệu')
+                        ->disabled()
+                        ->dehydrated(false),
+                ])->columns(2),
+
             Forms\Components\Section::make('Ca làm việc')->icon('heroicon-o-calendar-days')->schema([
                 Forms\Components\Select::make('registeredShifts')
                     ->label('Ca đang đăng ký')

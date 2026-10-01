@@ -63,6 +63,8 @@ class OperationalSettings
         'rain_mode.auto_off_hours' => '6',
         'debt.penalty_overdue_hours' => '24',
         'wallet.low_balance_threshold' => '100000',
+        'referral.reward_amount' => '50000',
+        'referral.min_orders' => '1',
     ];
 
     public static function dispatchMaxRoadDistanceKm(?int $cityId): float
@@ -167,6 +169,16 @@ class OperationalSettings
             'low' => (int) self::value('driver_score.shift_low_penalty', $cityId),
             'critical' => (int) self::value('driver_score.shift_critical_penalty', $cityId),
         ];
+    }
+
+    public static function referralRewardAmount(?int $cityId): int
+    {
+        return max(0, (int) self::value('referral.reward_amount', $cityId));
+    }
+
+    public static function referralMinOrders(?int $cityId): int
+    {
+        return max(1, (int) self::value('referral.min_orders', $cityId));
     }
 
     public static function rainBonusAmount(?int $cityId): int

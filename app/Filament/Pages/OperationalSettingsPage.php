@@ -86,6 +86,8 @@ class OperationalSettingsPage extends Page implements HasForms
         'rain_mode_auto_off_hours' => 'rain_mode.auto_off_hours',
         'penalty_debt_overdue_hours' => 'debt.penalty_overdue_hours',
         'low_wallet_balance_threshold' => 'wallet.low_balance_threshold',
+        'referral_reward_amount' => 'referral.reward_amount',
+        'referral_min_orders' => 'referral.min_orders',
     ];
 
     public array $data = [];
@@ -378,6 +380,17 @@ class OperationalSettingsPage extends Page implements HasForms
                         $this->money('low_wallet_balance_threshold', 'Cảnh báo số dư ví thấp dưới', 0, 999_999)
                             ->helperText('Tô đỏ số dư trong trang Ví tài xế'),
                         $this->integer('penalty_debt_overdue_hours', 'Công nợ phạt điểm quá hạn sau', 'giờ', 1, 720),
+                    ]),
+
+                Section::make('Giới thiệu shop')
+                    ->icon('heroicon-o-gift')
+                    ->description('Tài xế được cộng vào ví khi shop nhập mã giới thiệu của họ lúc đăng ký và đủ số đơn hoàn thành.')
+                    ->columns(2)
+                    ->schema([
+                        $this->money('referral_reward_amount', 'Thưởng tài xế / shop', 0, 10_000_000)
+                            ->helperText('Đặt 0 để tắt thưởng'),
+                        $this->integer('referral_min_orders', 'Trả thưởng sau số đơn hoàn thành', 'đơn', 1, 100)
+                            ->helperText('Chỉ tính đơn không do chính tài xế giới thiệu giao'),
                     ]),
             ]);
     }
