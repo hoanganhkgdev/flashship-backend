@@ -117,11 +117,15 @@ class OrderResource extends Resource
         $color = self::$statusColors[$record->status] ?? 'gray';
         $status = self::$statusLabels[$record->status] ?? $record->status;
         $warning = null;
+        $alert = false;
 
         if ($record->status === 'pending') {
-            $warning = $record->cancel_reason === 'no_driver'
-                ? 'Không tìm được tài xế'
-                : 'Chờ '.max(0, (int) $record->created_at?->diffInMinutes(now())).' phút';
+            $waited = max(0, (int) $record->created_at?->diffInMinutes(now()));
+            // Chờ đủ thời gian cấu hình mà vẫn chưa ai nhận (hoặc hệ thống đã dừng
+            // tìm) thì đổi "Chờ N phút" thành cảnh báo đỏ cho tổng đài/admin.
+            $alert = $record->cancel_reason === 'no_driver'
+                || $waited >= OperationalSettings::dispatchTimeoutMinutes($record->city_id);
+            $warning = $alert ? 'Không có tài xế' : 'Chờ '.$waited.' phút';
         }
 
         $driver = $record->driver
@@ -131,7 +135,7 @@ class OrderResource extends Resource
         return '<div class="fs-order-assignment">'
             .'<span class="fs-order-pill fs-order-pill--'.e($color).'">'.e($status).'</span>'
             .$driver
-            .($warning ? '<em class="fs-order-assignment__warning'.($record->cancel_reason === 'no_driver' ? ' is-alert' : '').'">'.e($warning).'</em>' : '')
+            .($warning ? '<em class="fs-order-assignment__warning'.($alert ? ' is-alert' : '').'">'.e($warning).'</em>' : '')
             .'</div>';
     }
 
@@ -331,6 +335,19 @@ class OrderResource extends Resource
     public static function infolist(Infolist $infolist): Infolist
     {
         return $infolist->schema([
+            Infolists\Components\Section::make('Chưa có tài xế')
+                ->icon('heroicon-o-exclamation-triangle')
+                ->iconColor('danger')
+                ->visible(fn (Order $record): bool => $record->status === 'pending' && $record->cancel_reason === 'no_driver')
+                ->schema([
+                    Infolists\Components\TextEntry::make('no_driver_alert')
+                        ->hiddenLabel()
+                        ->state(fn (Order $record): string => 'Quá '.OperationalSettings::dispatchTimeoutMinutes($record->city_id)
+                            .' phút chưa có tài xế nhận. Hệ thống đã dừng tự động tìm — vui lòng gán tài xế thủ công hoặc liên hệ khách.')
+                        ->weight('bold')
+                        ->color('danger'),
+                ]),
+
             Infolists\Components\Section::make('Tổng quan đơn hàng')
                 ->description('Thông tin nhận diện và tiến trình xử lý hiện tại')
                 ->icon('heroicon-o-clipboard-document-list')
@@ -497,7 +514,8 @@ class OrderResource extends Resource
                         ])
                         ->columns(3),
                 ])
-                ->collapsed(),
+                // Mở sẵn khi đơn đang cần tổng đài xử lý để dòng log hiện ngay.
+                ->collapsed(fn (Order $record): bool => $record->cancel_reason !== 'no_driver'),
         ]);
     }
 

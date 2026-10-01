@@ -6,6 +6,7 @@ use Modules\Driver\Models\DriverShiftSession;
 use Modules\Order\Jobs\DispatchOrderRetryJob;
 use Modules\Order\Models\Order;
 use Modules\Order\Models\OrderDispatchLog;
+use Modules\Order\Models\OrderHistory;
 use Modules\Core\Models\User;
 use Modules\Core\Services\FCMService;
 use Modules\Core\Services\OperationalSettings;
@@ -287,13 +288,39 @@ class DispatchService
         $this->cancelNoDriver($order);
     }
 
+    /**
+     * Ai cần biết đơn không có tài xế: tổng đài và quản lý đúng khu vực của đơn,
+     * cùng admin phụ trách khu vực đó hoặc admin toàn hệ thống (không gắn khu
+     * vực nào). Lọc cứng theo city_id từng khiến admin toàn hệ thống không bao
+     * giờ nhận được thông báo.
+     *
+     * @return \Illuminate\Support\Collection<int, User>
+     */
+    public function noDriverRecipients(Order $order): \Illuminate\Support\Collection
+    {
+        return User::query()
+            ->where(function ($query) use ($order) {
+                $query->where(fn ($q) => $q
+                    ->whereIn('user_type', ['call_center', 'city_manager'])
+                    ->where('city_id', $order->city_id))
+                    ->orWhere(fn ($q) => $q
+                        ->whereIn('user_type', ['admin', 'subadmin'])
+                        ->where(fn ($w) => $w->where('city_id', $order->city_id)->orWhereNull('city_id')));
+            })
+            ->get();
+    }
+
     private function cancelNoDriver(Order $order): void
     {
         // Giữ đơn ở trạng thái pending, không hủy
         // Chỉ dừng dispatch và thông báo cho admin xử lý thủ công
+        // Đã đánh dấu rồi (retry job và vòng quét có thể cùng chạm mốc) thì
+        // không ghi lịch sử / gửi thông báo lần hai; startDispatch xoá dấu này
+        // khi tổng đài cho tìm lại.
         $updated = DB::table('orders')
             ->where('id', $order->id)
             ->where('status', 'pending')
+            ->where(fn ($q) => $q->whereNull('cancel_reason')->orWhere('cancel_reason', '!=', 'no_driver'))
             ->update([
                 'dispatching_to_driver_id' => null,
                 'cancel_reason'            => 'no_driver',
@@ -305,16 +332,22 @@ class DispatchService
         $this->clearDispatchCache($order->id);
         broadcast(new DispatchStateChanged());
 
-        $admins = User::whereIn('user_type', ['admin', 'call_center', 'city_manager'])
-            ->where('city_id', $order->city_id)
-            ->get();
+        $timeout = OperationalSettings::dispatchTimeoutMinutes($order->city_id);
 
-        foreach ($admins as $admin) {
+        // Dòng log trong lịch sử đơn — tổng đài/admin mở đơn lên là thấy.
+        OrderHistory::create([
+            'order_id'    => $order->id,
+            'type'        => 'no_driver',
+            'description' => "Quá {$timeout} phút chưa có tài xế nhận — hệ thống đã dừng tự động tìm, cần tổng đài xử lý",
+            'metadata'    => ['timeout_minutes' => $timeout, 'dispatch_attempts' => (int) $order->dispatch_attempts],
+        ]);
+
+        foreach ($this->noDriverRecipients($order) as $staff) {
             \Filament\Notifications\Notification::make()
                 ->title("Đơn #{$order->code} — Không tìm được tài xế")
-                ->body("Đơn từ {$order->pickup_address} đã quá ".OperationalSettings::dispatchTimeoutMinutes($order->city_id).' phút không có tài xế nhận. Vui lòng xử lý thủ công.')
+                ->body("Đơn từ {$order->pickup_address} đã quá {$timeout} phút không có tài xế nhận. Vui lòng xử lý thủ công.")
                 ->danger()
-                ->sendToDatabase($admin);
+                ->sendToDatabase($staff);
         }
 
         Log::info("╟── [Dispatch] Đơn #{$order->id}: Không tìm được tài xế sau ".OperationalSettings::dispatchTimeoutMinutes($order->city_id).' phút → giữ pending, dừng dispatch');

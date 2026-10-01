@@ -34,6 +34,9 @@ class AdminPanelProvider extends PanelProvider
             ->id('admin')
             ->path('admin')
             ->login()
+            // Chuông thông báo trong panel — nơi đơn không có tài xế báo cho admin/tổng đài.
+            ->databaseNotifications()
+            ->databaseNotificationsPolling('10s')
             ->tenant(City::class)
             ->brandName('FlashShip Admin')
             ->font('Inter',provider: GoogleFontProvider::class)
