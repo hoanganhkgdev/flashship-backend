@@ -65,6 +65,12 @@ class OperationalSettings
         'wallet.low_balance_threshold' => '100000',
         'referral.reward_amount' => '50000',
         'referral.min_orders' => '1',
+        // Shop giới thiệu shop: điểm cho người giới thiệu, số đơn shop mới cần hoàn
+        // thành, và voucher chào mừng tặng shop mới (0 = không tặng).
+        'shop_referral.points' => '100',
+        'shop_referral.min_orders' => '3',
+        'shop_referral.welcome_amount' => '20000',
+        'shop_referral.welcome_days' => '30',
     ];
 
     public static function dispatchMaxRoadDistanceKm(?int $cityId): float
@@ -179,6 +185,26 @@ class OperationalSettings
     public static function referralMinOrders(?int $cityId): int
     {
         return max(1, (int) self::value('referral.min_orders', $cityId));
+    }
+
+    public static function shopReferralPoints(?int $cityId): int
+    {
+        return max(0, (int) self::value('shop_referral.points', $cityId));
+    }
+
+    public static function shopReferralMinOrders(?int $cityId): int
+    {
+        return max(1, (int) self::value('shop_referral.min_orders', $cityId));
+    }
+
+    public static function shopReferralWelcomeAmount(?int $cityId): int
+    {
+        return max(0, (int) self::value('shop_referral.welcome_amount', $cityId));
+    }
+
+    public static function shopReferralWelcomeDays(?int $cityId): int
+    {
+        return max(1, (int) self::value('shop_referral.welcome_days', $cityId));
     }
 
     public static function rainBonusAmount(?int $cityId): int

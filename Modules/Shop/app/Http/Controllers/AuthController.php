@@ -12,6 +12,7 @@ use Illuminate\Validation\ValidationException;
 use Modules\Core\Models\User;
 use Modules\Customer\Services\OtpService;
 use Modules\Driver\Services\ReferralService;
+use Modules\Shop\Services\ShopReferralService;
 use Modules\Order\Models\Order;
 
 class AuthController extends Controller
@@ -56,7 +57,9 @@ class AuthController extends Controller
 
         // Kiểm tra mã giới thiệu trước khi xác minh OTP để mã sai không làm mất OTP.
         if (! empty($data['referral_code'])) {
-            $referrer = ReferralService::findDriverByCode($data['referral_code']);
+            // Một ô nhập chung: mã tài xế hoặc mã của shop khác (mã không trùng nhau).
+            $referrer = ReferralService::findDriverByCode($data['referral_code'])
+                ?? ShopReferralService::findShopByCode($data['referral_code']);
             if (! $referrer) {
                 return response()->json(['success' => false, 'message' => 'Mã giới thiệu không tồn tại hoặc không còn hiệu lực'], 422);
             }
@@ -87,7 +90,12 @@ class AuthController extends Controller
             ]);
 
             if (! empty($data['referral_code'])) {
-                ReferralService::attachShop($user, $data['referral_code']);
+                // Mã thuộc tài xế thì tính cho tài xế, ngược lại tính cho shop giới thiệu.
+                if (ReferralService::findDriverByCode($data['referral_code'])) {
+                    ReferralService::attachShop($user, $data['referral_code']);
+                } else {
+                    ShopReferralService::attachShop($user, $data['referral_code']);
+                }
             }
 
             return $user;

@@ -4,6 +4,7 @@ use Illuminate\Support\Facades\Route;
 use Modules\Shop\Http\Controllers\AuthController;
 use Modules\Shop\Http\Controllers\OrderController;
 use Modules\Shop\Http\Controllers\PricingController;
+use Modules\Shop\Http\Controllers\ReferralController;
 use Modules\Shop\Http\Controllers\ShopAddressController;
 use Modules\Shop\Http\Controllers\ShopNotificationController;
 use Modules\Shop\Http\Controllers\VoucherController;
@@ -62,6 +63,12 @@ Route::prefix('shop')->middleware(TrackShopEvent::class)->group(function () {
         Route::prefix('vouchers')->group(function () {
             Route::get('/',          [VoucherController::class, 'index']);
             Route::post('/validate', [VoucherController::class, 'validate']);
+        });
+
+        Route::prefix('referral')->group(function () {
+            Route::get('/',          [ReferralController::class, 'show']);
+            Route::get('/rewards',   [ReferralController::class, 'rewards']);
+            Route::post('/redeem',   [ReferralController::class, 'redeem']);
         });
 
         Route::prefix('orders')->group(function () {

@@ -88,6 +88,10 @@ class OperationalSettingsPage extends Page implements HasForms
         'low_wallet_balance_threshold' => 'wallet.low_balance_threshold',
         'referral_reward_amount' => 'referral.reward_amount',
         'referral_min_orders' => 'referral.min_orders',
+        'shop_referral_points' => 'shop_referral.points',
+        'shop_referral_min_orders' => 'shop_referral.min_orders',
+        'shop_referral_welcome_amount' => 'shop_referral.welcome_amount',
+        'shop_referral_welcome_days' => 'shop_referral.welcome_days',
     ];
 
     public array $data = [];
@@ -391,6 +395,20 @@ class OperationalSettingsPage extends Page implements HasForms
                             ->helperText('Đặt 0 để tắt thưởng'),
                         $this->integer('referral_min_orders', 'Trả thưởng sau số đơn hoàn thành', 'đơn', 1, 100)
                             ->helperText('Chỉ tính đơn không do chính tài xế giới thiệu giao'),
+                    ]),
+
+                Section::make('Shop giới thiệu shop')
+                    ->icon('heroicon-o-user-plus')
+                    ->description('Shop nhập mã của shop khác lúc đăng ký. Khi shop mới hoàn thành đủ số đơn, shop giới thiệu được cộng điểm (đổi voucher trong Danh mục đổi điểm) và shop mới nhận voucher chào mừng.')
+                    ->columns(2)
+                    ->schema([
+                        $this->integer('shop_referral_points', 'Điểm cho shop giới thiệu', 'điểm', 0, 100_000)
+                            ->helperText('Đặt 0 để không cộng điểm'),
+                        $this->integer('shop_referral_min_orders', 'Cộng điểm sau số đơn hoàn thành', 'đơn', 1, 100)
+                            ->helperText('Tính trên đơn của shop mới được giới thiệu'),
+                        $this->money('shop_referral_welcome_amount', 'Voucher chào mừng cho shop mới', 0, 1_000_000)
+                            ->helperText('Giảm phí ship cố định. Đặt 0 để không tặng'),
+                        $this->integer('shop_referral_welcome_days', 'Hạn dùng voucher chào mừng', 'ngày', 1, 365),
                     ]),
             ]);
     }

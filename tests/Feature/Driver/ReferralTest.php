@@ -42,7 +42,10 @@ class ReferralTest extends TestCase
 
         $this->assertMatchesRegularExpression('/^[A-HJ-NP-Z2-9]{6}$/', $a->fresh()->referral_code);
         $this->assertNotSame($a->fresh()->referral_code, $b->fresh()->referral_code);
-        $this->assertNull($this->makeUser('shop')->fresh()->referral_code);
+        // Shop cũng có mã (dùng cho giới thiệu shop → shop), duy nhất toàn bảng users.
+        $shopCode = $this->makeUser('shop')->fresh()->referral_code;
+        $this->assertMatchesRegularExpression('/^[A-HJ-NP-Z2-9]{6}$/', $shopCode);
+        $this->assertNotSame($a->fresh()->referral_code, $shopCode);
     }
 
     public function test_find_driver_by_code_ignores_case_and_inactive_drivers(): void

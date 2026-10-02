@@ -557,6 +557,11 @@ class OrderService
             } catch (\Throwable $e) {
                 Log::error('[Referral] reward failed', ['order_id' => $fresh->id, 'error' => $e->getMessage()]);
             }
+            try {
+                \Modules\Shop\Services\ShopReferralService::onOrderCompleted($fresh);
+            } catch (\Throwable $e) {
+                Log::error('[ShopReferral] reward failed', ['order_id' => $fresh->id, 'error' => $e->getMessage()]);
+            }
 
             DriverScoreService::onComplete($user->id);
             DB::table('users')->where('id', $user->id)->update([

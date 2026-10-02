@@ -47,6 +47,8 @@ class User extends Authenticatable implements FilamentUser, HasDefaultTenant, Ha
         'phone',
         'referral_code',
         'referred_by_driver_id',
+        'referred_by_shop_id',
+        'reward_points',
         'address',
         'cccd',
         'cccd_image_path',
@@ -85,9 +87,9 @@ class User extends Authenticatable implements FilamentUser, HasDefaultTenant, Ha
 
     protected static function booted(): void
     {
-        // Mỗi tài xế có một mã giới thiệu cố định ngay khi được tạo.
+        // Mỗi tài xế và mỗi shop có một mã giới thiệu cố định ngay khi được tạo.
         static::creating(function (User $user) {
-            if ($user->user_type === 'driver' && empty($user->referral_code)) {
+            if (in_array($user->user_type, ['driver', 'shop'], true) && empty($user->referral_code)) {
                 $user->referral_code = \Modules\Driver\Services\ReferralService::generateUniqueCode();
             }
         });
