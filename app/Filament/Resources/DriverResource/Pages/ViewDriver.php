@@ -26,6 +26,7 @@ class ViewDriver extends ViewRecord
     {
         return [
             Actions\EditAction::make()->label('Chỉnh sửa hồ sơ')->icon('heroicon-o-pencil-square'),
+            tap(Actions\DeleteAction::make()->label('Xóa tài xế')->successRedirectUrl(DriverResource::getUrl('index')), fn ($a) => DriverResource::configureDeleteAction($a)),
         ];
     }
 

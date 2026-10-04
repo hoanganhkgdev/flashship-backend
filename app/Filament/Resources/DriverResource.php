@@ -69,6 +69,41 @@ class DriverResource extends Resource
             ]);
     }
 
+    /**
+     * Cấu hình dùng chung cho nút Xóa tài xế (bảng + trang hồ sơ).
+     * Xóa cứng: kéo theo ví, công nợ, lịch sử điểm, ca; đơn đã xong mất tham chiếu tài xế.
+     */
+    public static function configureDeleteAction(Tables\Actions\DeleteAction|\Filament\Actions\DeleteAction $action): void
+    {
+        $action
+            ->modalHeading('Xóa tài xế')
+            ->modalDescription('Xóa vĩnh viễn tài khoản tài xế cùng ví, công nợ, lịch sử điểm và ca làm việc. Các đơn cũ sẽ không còn thông tin tài xế. Không thể khôi phục.')
+            ->before(function (User $record, $action) {
+                $busy = Order::where(fn ($q) => $q->where('delivery_man_id', $record->id)->whereIn('status', ['assigned', 'processing'])
+                    ->orWhere(fn ($q) => $q->where('dispatching_to_driver_id', $record->id)->where('status', 'pending')))
+                    ->first(['id', 'code']);
+
+                if ($busy) {
+                    Notification::make()
+                        ->title("Không thể xóa: tài xế đang giữ/được đề nghị đơn #{$busy->code}")
+                        ->body('Hãy hoàn tất hoặc điều phối lại đơn trước khi xóa tài xế.')
+                        ->danger()->send();
+                    $action->cancel();
+                }
+            })
+            ->after(function (User $record) {
+                $record->tokens()->delete();
+                RTDBService::removeDriverLocation($record->id);
+                RTDBService::setAccountLocked($record->id, true);
+                try {
+                    Redis::del("dispatch:lock:driver:{$record->id}");
+                } catch (\Throwable $e) {
+                    \Illuminate\Support\Facades\Log::warning('[DriverDelete] Redis cleanup failed: '.$e->getMessage());
+                }
+            })
+            ->successNotificationTitle('Đã xóa tài xế');
+    }
+
     private static function accountSummary(User $record): string
     {
         [$status, $statusClass] = match ((int) $record->status) {
@@ -358,6 +393,7 @@ class DriverResource extends Resource
 
                 Tables\Actions\ViewAction::make()->label('')->tooltip('Xem hồ sơ'),
                 Tables\Actions\EditAction::make()->label('')->tooltip('Chỉnh sửa'),
+                tap(Tables\Actions\DeleteAction::make()->label('')->tooltip('Xóa tài xế'), fn ($a) => static::configureDeleteAction($a)),
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([
