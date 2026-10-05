@@ -127,6 +127,7 @@ class ScoreController extends Controller
                 => 'Để đơn trôi qua',
             $reason === 'complete'         => 'Hoàn thành đơn',
             $reason === 'weekly_reset'     => 'Reset điểm đầu tuần',
+            $reason === 'manual_reset'     => 'Quản trị viên đặt lại điểm',
             $reason === 'shift_violation'  => 'Vi phạm ca làm việc',
             // 5 mốc hiện hành (onShiftOnlineRate) — % thời gian online/ca.
             $reason === 'shift_online_normal' => 'Online '.$percent($thresholds['normal']).'–100% ca',

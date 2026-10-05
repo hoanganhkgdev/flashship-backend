@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\ServiceTypeResource\Pages;
 
 use App\Filament\Resources\ServiceTypeResource;
+use App\Services\CatalogService;
 use Filament\Actions;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\EditRecord;
@@ -39,6 +40,22 @@ class EditServiceType extends EditRecord
                     }
                 }),
         ];
+    }
+
+    private const TRACKED = ['label' => 'Tên', 'sort_order' => 'Thứ tự', 'is_active' => 'Hiển thị', 'icon_url' => 'Icon'];
+
+    private array $before = [];
+
+    protected function mutateFormDataBeforeSave(array $data): array
+    {
+        $this->before = $this->record->only(array_keys(self::TRACKED));
+
+        return $data;
+    }
+
+    protected function afterSave(): void
+    {
+        CatalogService::logChanges('service_type', $this->record->id, $this->before, $this->record->refresh()->only(array_keys(self::TRACKED)), self::TRACKED, auth()->id());
     }
 
     protected function getRedirectUrl(): string

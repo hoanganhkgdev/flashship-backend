@@ -23,6 +23,9 @@ use Modules\Core\Services\RTDBService;
 use Modules\Order\Models\Order;
 use Modules\Order\Services\DispatchService;
 use Modules\Order\Services\OrderService;
+use Modules\Order\Services\OrderTimeline;
+use App\Support\OrderListPresenter as P;
+use Filament\Tables\Enums\FiltersLayout;
 
 class OrderResource extends Resource
 {
@@ -31,6 +34,8 @@ class OrderResource extends Resource
     protected static ?string $navigationIcon = 'heroicon-o-shopping-bag';
 
     protected static ?string $navigationGroup = 'Vận hành đơn hàng';
+
+    protected static ?string $navigationLabel = 'Đơn hàng';
 
     protected static ?string $modelLabel = 'Đơn hàng';
 
@@ -132,6 +137,10 @@ class OrderResource extends Resource
             ? '<div class="fs-order-assignment__driver"><span title="'.e($record->driver->name).'">'.e($record->driver->name).'</span><small>'.e($record->driver->phone ?: '—').'</small></div>'
             : '<div class="fs-order-assignment__driver fs-order-assignment__driver--empty">Chưa có tài xế</div>';
 
+        if ($record->status === 'cancelled') {
+            $warning = OrderTimeline::cancelReasonLabel($record->cancel_reason);
+        }
+
         return '<div class="fs-order-assignment">'
             .'<span class="fs-order-pill fs-order-pill--'.e($color).'">'.e($status).'</span>'
             .$driver
@@ -145,7 +154,14 @@ class OrderResource extends Resource
             'city:id,name',
             'driver:id,name,phone',
             'sender:id,name,phone',
+            'creator:id,name',
         ]);
+    }
+
+    /** Đơn đã kết thúc (hoàn thành hoặc hủy): chỉ cho sửa ghi chú, tránh lệch tiền và lịch sử. */
+    public static function isFinished(?Order $record): bool
+    {
+        return in_array($record?->status, ['completed', 'cancelled'], true);
     }
 
     public static function manualAssignmentForm(Order $record): array
@@ -194,7 +210,8 @@ class OrderResource extends Resource
         return $result['success'];
     }
 
-    private static function manualAssignmentDriverOptions(Order $record): array
+    /** Tài xế đủ điều kiện nhận gán tay cho đơn này (id => nhãn): online, không nợ quá hạn, không bị khóa điểm/nghỉ phép, chưa đủ đơn. */
+    public static function manualAssignmentDriverOptions(Order $record): array
     {
         $now = now();
 
@@ -247,29 +264,31 @@ class OrderResource extends Resource
                     ])->columns(2),
 
                 Forms\Components\Section::make('Điểm lấy hàng')->icon('heroicon-o-arrow-up-circle')->schema([
-                    Forms\Components\TextInput::make('pickup_address')->label('Địa chỉ lấy')
+                    Forms\Components\TextInput::make('pickup_address')->label('Địa chỉ lấy')->disabled(fn (?Order $record) => self::isFinished($record))
                         ->extraInputAttributes(['id' => 'edit-pickup-addr', 'autocomplete' => 'off'])
                         ->suffixActions([
                             Forms\Components\Actions\Action::make('pickupMap')
                                 ->label('Bản đồ')->icon('heroicon-o-map-pin')->color('warning')
                                 ->action(fn ($livewire) => $livewire->dispatch('openEditPickupMap')),
                         ]),
-                    Forms\Components\TextInput::make('pickup_phone')->label('SĐT lấy hàng'),
+                    Forms\Components\TextInput::make('pickup_phone')->label('SĐT lấy hàng')->disabled(fn (?Order $record) => self::isFinished($record)),
                 ])->columns(2),
 
                 Forms\Components\Section::make('Điểm giao hàng')->icon('heroicon-o-arrow-down-circle')->schema([
-                    Forms\Components\TextInput::make('delivery_address')->label('Địa chỉ giao')
+                    Forms\Components\TextInput::make('delivery_address')->label('Địa chỉ giao')->disabled(fn (?Order $record) => self::isFinished($record))
                         ->extraInputAttributes(['id' => 'edit-delivery-addr', 'autocomplete' => 'off'])
                         ->suffixActions([
                             Forms\Components\Actions\Action::make('deliveryMap')
                                 ->label('Bản đồ')->icon('heroicon-o-map-pin')->color('warning')
                                 ->action(fn ($livewire) => $livewire->dispatch('openEditDeliveryMap')),
                         ]),
-                    Forms\Components\TextInput::make('delivery_phone')->label('SĐT giao hàng'),
+                    Forms\Components\TextInput::make('delivery_phone')->label('SĐT giao hàng')->disabled(fn (?Order $record) => self::isFinished($record)),
                 ])->columns(2),
 
                 Forms\Components\Section::make('Phí & thanh toán')->icon('heroicon-o-banknotes')->schema([
-                    Forms\Components\TextInput::make('shipping_fee')->label('Phí ship')->numeric()->suffix('đ'),
+                    Forms\Components\TextInput::make('shipping_fee')->label('Phí ship')->numeric()->suffix('đ')
+                        ->disabled(fn (?Order $record) => self::isFinished($record))
+                        ->helperText(fn (?Order $record) => self::isFinished($record) ? 'Đơn đã hoàn thành hoặc hủy: không sửa được địa chỉ, số điện thoại và phí (chỉ sửa ghi chú).' : 'Mọi thay đổi được ghi vào dòng thời gian của đơn.'),
                 ])->columns(1),
 
                 Forms\Components\Section::make('Ghi chú')->icon('heroicon-o-chat-bubble-left-ellipsis')->schema([
@@ -495,28 +514,227 @@ class OrderResource extends Resource
                 ])->columns(2)->collapsible(),
 
             Infolists\Components\Section::make('Lịch sử xử lý')
-                ->description('Các sự kiện mới nhất của đơn hàng')
+                ->description('Mọi sự kiện của đơn: tạo, phát, nhận, lấy hàng, hoàn thành, hủy, sửa — kèm người thực hiện')
                 ->icon('heroicon-o-clock')
                 ->schema([
-                    Infolists\Components\RepeatableEntry::make('histories')
+                    Infolists\Components\RepeatableEntry::make('timeline')
                         ->label('')
+                        ->state(fn (Order $record): array => OrderTimeline::for($record)->map(fn ($e) => [
+                            'text' => $e['text'],
+                            'who' => $e['who'] ?: 'Hệ thống',
+                            'when' => $e['at']?->format('H:i:s · d/m/Y'),
+                        ])->all())
                         ->schema([
-                            Infolists\Components\TextEntry::make('description')
-                                ->label('Sự kiện')
-                                ->weight('bold'),
-                            Infolists\Components\TextEntry::make('type')
-                                ->label('Loại')
-                                ->badge()
-                                ->color('gray'),
-                            Infolists\Components\TextEntry::make('created_at')
-                                ->label('Thời gian')
-                                ->dateTime('H:i · d/m/Y'),
+                            Infolists\Components\TextEntry::make('text')->label('Sự kiện')->weight('bold'),
+                            Infolists\Components\TextEntry::make('who')->label('Bởi')->badge()->color('gray'),
+                            Infolists\Components\TextEntry::make('when')->label('Thời gian'),
                         ])
                         ->columns(3),
                 ])
                 // Mở sẵn khi đơn đang cần tổng đài xử lý để dòng log hiện ngay.
-                ->collapsed(fn (Order $record): bool => $record->cancel_reason !== 'no_driver'),
+                ->collapsed(false),
         ]);
+    }
+
+    // ─── Thao tác dùng chung cho bảng và trang chi tiết ──────────────────────────
+
+    public static function assignAction($action)
+    {
+        return $action
+            ->label('Gán tài xế')
+            ->icon('heroicon-o-user-plus')
+            ->color('info')
+            // $record null khi đơn vừa rời khỏi bảng trong lúc hộp thoại đang mở.
+            ->visible(fn (?Order $record) => $record?->status === 'pending')
+            ->modalHeading(fn (?Order $record) => $record ? 'Gán tài xế cho đơn #'.$record->code : 'Gán tài xế')
+            ->modalDescription('Đơn sẽ ngừng tìm tự động và chuyển thẳng vào danh sách đã nhận của tài xế.')
+            ->form(fn (?Order $record): array => $record ? self::manualAssignmentForm($record) : [])
+            ->action(fn (?Order $record, array $data) => $record ? self::assignDriverManually($record, $data) : self::notifyRecordGone());
+    }
+
+    /** Hủy đơn: bắt buộc chọn lý do, ghi người hủy và dòng thời gian. */
+    public static function cancelAction($action)
+    {
+        return $action
+            ->label('Hủy đơn')
+            ->icon('heroicon-o-x-circle')
+            ->color('danger')
+            ->visible(fn (?Order $record) => in_array($record?->status, ['pending', 'assigned'], true))
+            ->modalHeading(fn (?Order $record) => $record ? 'Hủy đơn #'.$record->code : 'Hủy đơn')
+            ->modalDescription('Lý do hủy được lưu lại để thống kê và đối soát.')
+            ->form([
+                Forms\Components\Select::make('reason')->label('Lý do hủy')->options(OrderTimeline::CANCEL_REASONS)->required()->live(),
+                Forms\Components\Textarea::make('note')->label('Ghi chú')->rows(2)->maxLength(250)
+                    ->required(fn (Forms\Get $get) => $get('reason') === 'other')->minLength(3),
+            ])
+            ->action(fn (?Order $record, array $data) => self::cancelOrder($record, $data['reason'], $data['note'] ?? null));
+    }
+
+    public static function cancelOrder(?Order $record, string $reason, ?string $note): bool
+    {
+        $fresh = $record?->fresh();
+        if (! $fresh) {
+            return self::notifyRecordGone();
+        }
+        $by = auth()->id();
+
+        if ($fresh->status === 'pending') {
+            $result = app(OrderService::class)->cancelPendingOrder($fresh, $reason, $note, $by);
+        } elseif ($fresh->status === 'assigned') {
+            $result = app(OrderService::class)->cancelAssignedOrderByAdmin($fresh, $reason, $note, $by);
+            if ($result['success']) {
+                RTDBService::clearOrder($fresh->code);
+                if ($fresh->driver?->fcm_token) {
+                    FCMService::getInstance()->sendDriverNotice(
+                        $fresh->driver->fcm_token,
+                        "Đơn #{$fresh->code} đã bị hủy",
+                        'Tổng đài đã hủy đơn hàng này.',
+                        ['type' => 'order_status', 'order_code' => $fresh->code, 'status' => 'cancelled'],
+                    );
+                }
+            }
+        } else {
+            Notification::make()->title('Chỉ có thể hủy đơn đang chờ hoặc đã nhận.')->danger()->send();
+
+            return false;
+        }
+
+        Notification::make()->title($result['success'] ? 'Đã hủy đơn '.$fresh->code : $result['message'])->{$result['success'] ? 'warning' : 'danger'}()->send();
+
+        return $result['success'];
+    }
+
+    public static function completeAction($action)
+    {
+        return $action
+            ->label('Hoàn thành đơn')
+            ->icon('heroicon-o-check-circle')
+            ->color('success')
+            ->visible(fn (?Order $record) => $record?->status === 'processing')
+            ->requiresConfirmation()
+            ->modalHeading('Hoàn thành đơn hàng')
+            ->modalDescription(fn (?Order $record) => $record
+                ? 'Xác nhận tài xế đã giao xong đơn '.$record->code.'? Điểm, ví, voucher và các khoản thưởng sẽ được xử lý đầy đủ. Việc này được ghi lại là nhân viên xác nhận.'
+                : null)
+            ->action(function (?Order $record) {
+                $fresh = $record?->fresh(['driver']);
+                if (! $fresh) {
+                    self::notifyRecordGone();
+
+                    return;
+                }
+                if (! $fresh->driver) {
+                    Notification::make()->title('Đơn không có tài xế phụ trách.')->danger()->send();
+
+                    return;
+                }
+                $result = app(OrderService::class)->completeOrder($fresh, $fresh->driver, true);
+                Notification::make()->title($result['message'])->color($result['success'] ? 'success' : 'danger')->send();
+            });
+    }
+
+    // ─── Danh sách đơn: dòng gọn ─────────────────────────────────────────────
+
+    private static function cityName(Order $o): ?string
+    {
+        return $o->city?->name;
+    }
+
+    private static function minutesLabel(int $m): string
+    {
+        return $m >= 1440 ? intdiv($m, 1440).' ngày' : ($m >= 60 ? intdiv($m, 60).'g'.str_pad((string) ($m % 60), 2, '0', STR_PAD_LEFT) : $m.' phút');
+    }
+
+    private static function colOrder(Order $o): string
+    {
+        $service = self::serviceLabels()[$o->service_type] ?? $o->service_type;
+        $age = $o->status === 'pending'
+            ? ' · <span class="fs-ol-wait'.(self::isStaleWait($o) ? ' is-alert' : '').'">chờ '.self::minutesLabel((int) $o->created_at->diffInMinutes(now())).'</span>'
+            : ($o->status === 'completed' && $o->completed_at ? ' · giao '.self::minutesLabel((int) $o->created_at->diffInMinutes($o->completed_at)) : '');
+
+        return '<div class="fs-ol-order"><span class="fs-ol-l1"><b>#'.e($o->code).'</b><span class="fs-ol-svc" title="'.e($service).'">'.e(\Illuminate\Support\Str::limit((string) ($service ?: '—'), 14)).'</span></span>'
+            .'<span class="fs-ol-dim" title="'.e($o->created_at?->format('d/m/Y H:i:s')).'">'.e($o->created_at?->format('H:i · d/m')).$age.'</span></div>';
+    }
+
+    private static function isStaleWait(Order $o): bool
+    {
+        static $cache = [];
+        $min = $cache[$o->city_id] ??= OperationalSettings::dispatchTimeoutMinutes($o->city_id);
+
+        return $o->cancel_reason === 'no_driver' || $o->created_at->diffInMinutes(now()) >= $min;
+    }
+
+    private static function colJourney(Order $o): string
+    {
+        $note = trim((string) $o->order_note);
+
+        return '<div class="fs-ol-journey"><span class="fs-ol-from" title="'.e($o->pickup_address).'">'.e(trim((string) $o->pickup_address) ?: '—').'</span>'
+            .'<span class="fs-ol-to" title="'.e($o->delivery_address).'">'.(trim((string) $o->delivery_address) !== '' ? e(trim((string) $o->delivery_address)) : '<i class="fs-ol-nodel">Chưa có điểm giao</i>').'</span>'
+            .($note !== '' ? '<span class="fs-ol-note"><svg viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M3 4a2 2 0 012-2h10a2 2 0 012 2v8a2 2 0 01-2 2H9l-4 3v-3a2 2 0 01-2-2V4z"/></svg><b>Ghi chú</b><span class="fs-ol-note__txt">'.e($note).'</span><span class="fs-ol-note__pop">'.e($note).'</span></span>' : '').'</div>';
+    }
+
+    private static function colCustomer(Order $o): string
+    {
+        $phone = P::contactPhone($o);
+        $by = $o->platform === 'call_center'
+            ? 'Tổng đài'.($o->creator && mb_strtolower(trim($o->creator->name)) !== 'tổng đài' ? ' · '.$o->creator->name : '')
+            : self::sourceLabel($o);
+
+        return '<div class="fs-ol-customer"><b>'.e(P::customerName($o)).'</b>'
+            .'<span class="fs-ol-dim">'.($phone ? '<span class="fs-ol-phone" title="Bấm để sao chép" onclick="navigator.clipboard&&navigator.clipboard.writeText(\''.e(preg_replace('/\D+/', '', $phone)).'\');event.stopPropagation()">'.e(P::phone($phone)).'</span>' : 'Chưa có SĐT').' · '.e($by).'</span></div>';
+    }
+
+    private static function colStatus(Order $o): string
+    {
+        $color = self::$statusColors[$o->status] ?? 'gray';
+        $label = self::$statusLabels[$o->status] ?? $o->status;
+        $second = $o->status === 'cancelled'
+            ? '<span class="fs-ol-reason" title="'.e($o->cancel_note).'">'.e(OrderTimeline::cancelReasonLabel($o->cancel_reason)).'</span>'
+            : ($o->driver
+                ? '<span class="fs-ol-driver"><b>'.e($o->driver->name).'</b> <small>'.e(P::phone($o->driver->phone)).'</small></span>'
+                : '<span class="fs-ol-dim">Chưa có tài xế</span>');
+
+        return '<div class="fs-ol-status"><span class="fs-order-pill fs-order-pill--'.e($color).'">'.e($label).'</span>'.$second.'</div>';
+    }
+
+    private static function colMoney(Order $o): string
+    {
+        $payment = self::$paymentLabels[$o->payment_method] ?? $o->payment_method ?: '—';
+        $cod = (int) $o->cod_amount;
+        $flags = ($o->is_freeship ? '<span class="fs-order-chip" title="Khách không trả phí ship">Freeship</span>' : '')
+            .($o->fee_note ? '<span class="fs-order-chip" title="'.e($o->fee_note).'">Phí đã chỉnh</span>' : '');
+
+        return '<div class="fs-ol-money"><span class="fs-ol-l1"><b>'.number_format((int) $o->shipping_fee, 0, ',', '.').'đ</b>'.$flags.'</span>'
+            .'<span class="fs-ol-dim">'.e($payment).($cod > 0 ? ' · thu hộ '.number_format($cod, 0, ',', '.').'đ' : '').'</span></div>';
+    }
+
+    /** Tìm thông minh: SĐT / mã đơn / địa chỉ-tài xế-ghi chú. */
+    public static function smartSearch(Builder $query, string $search): Builder
+    {
+        $s = trim($search);
+        $digits = preg_replace('/\D+/', '', $s);
+
+        // Chỉ gồm số và ký tự phân cách → SĐT (đầy đủ hoặc vài số cuối) hoặc mã đơn.
+        if ($digits !== '' && preg_match('/^[\d\s.+\-]+$/', $s)) {
+            $tail = strlen($digits) >= 9 ? substr($digits, -9) : $digits;
+
+            return $query->where(fn (Builder $q) => $q
+                ->where('code', 'like', "%{$digits}%")
+                ->orWhere('pickup_phone', 'like', "%{$tail}")
+                ->orWhere('delivery_phone', 'like', "%{$tail}")
+                ->orWhereHas('driver', fn (Builder $d) => $d->where('phone', 'like', "%{$tail}"))
+                ->orWhereHas('sender', fn (Builder $d) => $d->where('phone', 'like', "%{$tail}")));
+        }
+
+        return $query->where(fn (Builder $q) => $q
+            ->where('code', 'like', "%{$s}%")
+            ->orWhere('pickup_address', 'like', "%{$s}%")
+            ->orWhere('delivery_address', 'like', "%{$s}%")
+            ->orWhere('order_note', 'like', "%{$s}%")
+            ->orWhere('sender_name', 'like', "%{$s}%")
+            ->orWhere('receiver_name', 'like', "%{$s}%")
+            ->orWhereHas('driver', fn (Builder $d) => $d->where('name', 'like', "%{$s}%"))
+            ->orWhereHas('sender', fn (Builder $d) => $d->where('name', 'like', "%{$s}%")));
     }
 
     public static function table(Table $table): Table
@@ -524,46 +742,62 @@ class OrderResource extends Resource
         return $table
             ->columns([
                 Tables\Columns\TextColumn::make('code')
-                    ->label('Đơn hàng')
-                    ->formatStateUsing(fn ($state, Order $record): string => self::orderSummary($record))
+                    ->label('Đơn')
+                    ->formatStateUsing(fn ($state, Order $record): string => self::colOrder($record))
                     ->html()
-                    ->copyable()
                     ->sortable()
-                    ->searchable(query: function (Builder $query, string $search): Builder {
-                        return $query->where(function (Builder $query) use ($search) {
-                            $query->where('code', 'like', "%{$search}%")
-                                ->orWhere('pickup_phone', 'like', "%{$search}%")
-                                ->orWhere('delivery_phone', 'like', "%{$search}%")
-                                ->orWhere('pickup_address', 'like', "%{$search}%")
-                                ->orWhere('delivery_address', 'like', "%{$search}%")
-                                ->orWhere('order_note', 'like', "%{$search}%")
-                                ->orWhereHas('driver', fn (Builder $query) => $query
-                                    ->where('name', 'like', "%{$search}%")
-                                    ->orWhere('phone', 'like', "%{$search}%"));
-                        });
-                    }),
+                    ->searchable(query: fn (Builder $query, string $search): Builder => self::smartSearch($query, $search)),
 
-                Tables\Columns\TextColumn::make('journey_summary')
+                Tables\Columns\TextColumn::make('journey')
                     ->label('Hành trình')
-                    ->state(fn (Order $record): string => self::journeySummary($record))
+                    ->state(fn (Order $record): string => self::colJourney($record))
                     ->html(),
 
-                Tables\Columns\TextColumn::make('payment_summary')
-                    ->label('Phí & thanh toán')
-                    ->state(fn (Order $record): string => self::paymentSummary($record))
+                Tables\Columns\TextColumn::make('customer')
+                    ->label('Khách')
+                    ->state(fn (Order $record): string => self::colCustomer($record))
                     ->html(),
 
                 Tables\Columns\TextColumn::make('status')
-                    ->label('Trạng thái & tài xế')
-                    ->formatStateUsing(fn ($state, Order $record): string => self::statusSummary($record))
+                    ->label('Trạng thái')
+                    ->formatStateUsing(fn ($state, Order $record): string => self::colStatus($record))
                     ->html(),
 
+                Tables\Columns\TextColumn::make('money')
+                    ->label('Tiền')
+                    ->state(fn (Order $record): string => self::colMoney($record))
+                    ->html(),
             ])
-            ->recordClasses(fn (Order $record): string => 'fs-order-row fs-order-row--'.(self::$statusColors[$record->status] ?? 'gray'))
-            ->recordUrl(fn (Order $record): string => static::getUrl('view', ['record' => $record]))
+            ->recordClasses(fn (Order $record): string => 'fs-ol-row fs-order-row--'.(self::$statusColors[$record->status] ?? 'gray'))
+            ->filtersLayout(FiltersLayout::AboveContentCollapsible)
+            ->filtersFormColumns(4)
             ->filters([
+                SelectFilter::make('period')
+                    ->label('Thời gian')
+                    ->options(['today' => 'Hôm nay', 'yesterday' => 'Hôm qua', '7d' => '7 ngày qua', '30d' => '30 ngày qua'])
+                    ->query(fn (Builder $query, array $data): Builder => match ($data['value'] ?? null) {
+                        'today' => $query->whereDate('created_at', today()),
+                        'yesterday' => $query->whereDate('created_at', today()->subDay()),
+                        '7d' => $query->where('created_at', '>=', now()->subDays(7)->startOfDay()),
+                        '30d' => $query->where('created_at', '>=', now()->subDays(30)->startOfDay()),
+                        default => $query,
+                    }),
+                SelectFilter::make('service_type')->label('Dịch vụ')->options(fn (): array => self::serviceLabels()),
+                SelectFilter::make('platform')->label('Nguồn đơn')->options(['customer_app' => 'App khách hàng', 'shop_app' => 'App cửa hàng', 'call_center' => 'Tổng đài']),
+                SelectFilter::make('created_by')
+                    ->label('Người tạo đơn')
+                    ->options(fn (): array => User::whereIn('id', \Illuminate\Support\Facades\DB::table('orders')->whereNotNull('created_by')->where('created_at', '>=', now()->subDays(90))->distinct()->pluck('created_by'))->orderBy('name')->pluck('name', 'id')->all()),
+                SelectFilter::make('delivery_man_id')
+                    ->label('Tài xế')
+                    ->relationship('driver', 'name')
+                    ->searchable()
+                    ->preload(),
+                SelectFilter::make('payment_method')->label('Thanh toán')->options(self::$paymentLabels),
+                SelectFilter::make('cancel_reason')
+                    ->label('Lý do hủy')
+                    ->options(fn (): array => collect(OrderTimeline::CANCEL_REASONS)->merge(['admin' => 'Admin hủy (chưa ghi lý do)', 'no_driver' => 'Hệ thống: hết thời gian tìm tài xế', 'customer' => 'Khách/cửa hàng hủy trong app'])->all()),
                 Tables\Filters\Filter::make('created_at')
-                    ->label('Ngày tạo đơn')
+                    ->label('Khoảng ngày tuỳ chọn')
                     ->form([
                         Forms\Components\DatePicker::make('from')->label('Từ ngày'),
                         Forms\Components\DatePicker::make('until')->label('Đến ngày'),
@@ -572,160 +806,52 @@ class OrderResource extends Resource
                     ->query(fn (Builder $query, array $data): Builder => $query
                         ->when($data['from'] ?? null, fn (Builder $query, $date): Builder => $query->whereDate('created_at', '>=', $date))
                         ->when($data['until'] ?? null, fn (Builder $query, $date): Builder => $query->whereDate('created_at', '<=', $date))),
-                SelectFilter::make('service_type')
-                    ->label('Dịch vụ')
-                    ->options(fn (): array => self::serviceLabels()),
-                SelectFilter::make('platform')
-                    ->label('Nguồn đơn')
-                    ->options([
-                        'customer_app' => 'App khách hàng',
-                        'shop_app' => 'App cửa hàng',
-                        'call_center' => 'Tổng đài',
-                    ]),
-                SelectFilter::make('payment_method')
-                    ->label('Thanh toán')
-                    ->options(self::$paymentLabels),
-                Tables\Filters\TernaryFilter::make('delivery_man_id')
-                    ->label('Phân công tài xế')
-                    ->placeholder('Tất cả đơn')
-                    ->trueLabel('Đã có tài xế')
-                    ->falseLabel('Chưa có tài xế')
-                    ->queries(
-                        true: fn (Builder $query): Builder => $query->whereNotNull('delivery_man_id'),
-                        false: fn (Builder $query): Builder => $query->whereNull('delivery_man_id'),
-                    ),
             ])
             ->actions([
-                Tables\Actions\ViewAction::make()
-                    ->label('')
-                    ->tooltip('Xem chi tiết'),
-                Tables\Actions\EditAction::make()->label(''),
-
-                Tables\Actions\DeleteAction::make()->label(''),
-
-                Tables\Actions\Action::make('assignDriver')
-                    ->label('')
-                    ->icon('heroicon-o-user-plus')
-                    ->color('info')
-                    ->tooltip('Gán tài xế')
-                    // $record null khi đơn vừa rời khỏi bảng (bảng tự làm mới 15s, tab
-                    // lọc theo trạng thái) trong lúc hộp thoại đang mở.
-                    ->visible(fn (?Order $record) => $record?->status === 'pending')
-                    ->modalHeading(fn (?Order $record) => $record ? 'Gán tài xế cho đơn #'.$record->code : 'Gán tài xế')
-                    ->modalDescription('Đơn sẽ ngừng tìm tự động và chuyển thẳng vào danh sách đã nhận của tài xế.')
-                    ->form(fn (?Order $record): array => $record ? self::manualAssignmentForm($record) : [])
-                    ->action(fn (?Order $record, array $data) => $record
-                        ? self::assignDriverManually($record, $data)
-                        : self::notifyRecordGone()),
-
-                Tables\Actions\Action::make('cancel')
-                    ->label('')
-                    ->icon('heroicon-o-x-circle')
-                    ->color('danger')
-                    ->tooltip('Huỷ đơn')
-                    ->visible(fn (?Order $record) => in_array($record?->status, ['pending', 'assigned'], true))
-                    ->requiresConfirmation()
-                    ->modalHeading('Huỷ đơn hàng')
-                    ->modalDescription(fn (?Order $record) => $record ? 'Xác nhận huỷ đơn '.$record->code.'?' : null)
-                    ->action(function (?Order $record) {
-                        $fresh = $record?->fresh();
-                        if (! $fresh) {
-                            self::notifyRecordGone();
-
-                            return;
-                        }
-                        if ($fresh->status === 'pending') {
-                            $result = app(OrderService::class)->cancelPendingOrder($fresh);
-                            if (! $result['success']) {
-                                Notification::make()->title($result['message'])->danger()->send();
-
-                                return;
-                            }
-                            Order::whereKey($fresh->id)->update(['cancel_reason' => 'admin']);
-                        } elseif ($fresh->status === 'assigned') {
-                            $result = app(OrderService::class)->cancelAssignedOrderByAdmin($fresh);
-                            if (! $result['success']) {
-                                Notification::make()->title($result['message'])->danger()->send();
-
-                                return;
-                            }
-                            RTDBService::clearOrder($fresh->code);
-                            $driver = $fresh->driver;
-                            if ($driver?->fcm_token) {
-                                FCMService::getInstance()->sendDriverNotice(
-                                    $driver->fcm_token,
-                                    "Đơn #{$fresh->code} đã bị hủy",
-                                    'Tổng đài đã hủy đơn hàng này.',
-                                    ['type' => 'order_status', 'order_code' => $fresh->code, 'status' => 'cancelled'],
-                                );
-                            }
-                        } else {
-                            Notification::make()->title('Chỉ có thể hủy đơn đang chờ hoặc đã nhận.')->danger()->send();
-
-                            return;
-                        }
-                        Notification::make()->title('Đã huỷ đơn '.$record->code)->warning()->send();
-                    }),
-
-                Tables\Actions\Action::make('complete')
-                    ->label('')
-                    ->icon('heroicon-o-check-circle')
-                    ->color('success')
-                    ->tooltip('Hoàn thành đơn')
-                    ->visible(fn (?Order $record) => $record?->status === 'processing')
-                    ->requiresConfirmation()
-                    ->modalHeading('Hoàn thành đơn hàng')
-                    ->modalDescription(fn (?Order $record) => $record
-                        ? 'Xác nhận tài xế đã giao xong đơn '.$record->code.'? Điểm, ví, voucher và các khoản thưởng sẽ được xử lý đầy đủ.'
-                        : null)
-                    ->action(function (?Order $record) {
-                        $fresh = $record?->fresh(['driver']);
-                        if (! $fresh) {
-                            self::notifyRecordGone();
-
-                            return;
-                        }
-                        if (! $fresh->driver) {
-                            Notification::make()->title('Đơn không có tài xế phụ trách.')->danger()->send();
-
-                            return;
-                        }
-
-                        $result = app(OrderService::class)->completeOrder($fresh, $fresh->driver, true);
-                        Notification::make()
-                            ->title($result['message'])
-                            ->color($result['success'] ? 'success' : 'danger')
-                            ->send();
-                    }),
-
-                Tables\Actions\Action::make('reorder')
-                    ->label('')
-                    ->icon('heroicon-o-arrow-path')
-                    ->color('success')
-                    ->tooltip('Đặt lại')
-                    ->visible(fn (Order $record) => in_array($record->status, ['cancelled', 'completed']))
-                    ->url(fn (Order $record) => CallCenterPage::getUrl().'?'.http_build_query(array_filter([
-                        'reorder' => $record->id,
-                        'service' => $record->service_type,
-                        'city_id' => $record->city_id,
-                        'pickup_address' => $record->pickup_address,
-                        'pickup_phone' => $record->pickup_phone,
-                        'pickup_lat' => $record->pickup_lat,
-                        'pickup_lng' => $record->pickup_lng,
-                        'delivery_address' => $record->delivery_address,
-                        'delivery_phone' => $record->delivery_phone,
-                        'delivery_lat' => $record->delivery_lat,
-                        'delivery_lng' => $record->delivery_lng,
-                        'order_note' => $record->order_note,
-                    ]))),
-
+                // Thao tác hay dùng nhất hiện sẵn ngay trên dòng; phần còn lại trong "⋯".
+                self::assignAction(Tables\Actions\Action::make('assignDriver'))->label('Gán')->button()->size('xs')->outlined(),
+                self::completeAction(Tables\Actions\Action::make('complete'))->label('Hoàn thành')->button()->size('xs')->outlined(),
+                self::cancelAction(Tables\Actions\Action::make('cancel'))->label('Hủy')->button()->size('xs')->outlined(),
+                Tables\Actions\ActionGroup::make([
+                    Tables\Actions\ViewAction::make()->label('Xem nhanh')->icon('heroicon-o-eye')
+                        ->slideOver()
+                        ->modalHeading(fn (Order $r) => 'Đơn #'.$r->code)
+                        ->extraModalFooterActions(fn (Order $r): array => [
+                            Tables\Actions\Action::make('openPage')->label('Mở trang đầy đủ')->icon('heroicon-o-arrow-top-right-on-square')->color('gray')
+                                ->url(static::getUrl('view', ['record' => $r])),
+                        ]),
+                    Tables\Actions\Action::make('openPageLink')->label('Mở trang đầy đủ')->icon('heroicon-o-arrow-top-right-on-square')
+                        ->url(fn (Order $r) => static::getUrl('view', ['record' => $r])),
+                    Tables\Actions\EditAction::make()->label('Sửa đơn'),
+                    Tables\Actions\Action::make('reorder')
+                        ->label('Đặt lại')
+                        ->icon('heroicon-o-arrow-path')
+                        ->color('success')
+                        ->visible(fn (Order $record) => in_array($record->status, ['cancelled', 'completed']))
+                        ->url(fn (Order $record) => CallCenterPage::getUrl().'?'.http_build_query(array_filter([
+                            'reorder' => $record->id,
+                            'service' => $record->service_type,
+                            'city_id' => $record->city_id,
+                            'pickup_address' => $record->pickup_address,
+                            'pickup_phone' => $record->pickup_phone,
+                            'pickup_lat' => $record->pickup_lat,
+                            'pickup_lng' => $record->pickup_lng,
+                            'delivery_address' => $record->delivery_address,
+                            'delivery_phone' => $record->delivery_phone,
+                            'delivery_lat' => $record->delivery_lat,
+                            'delivery_lng' => $record->delivery_lng,
+                            'order_note' => $record->order_note,
+                        ]))),
+                ])->icon('heroicon-m-ellipsis-horizontal')->label(''),
             ])
+            // Bấm dòng mở ngăn kéo xem nhanh (dòng thời gian, hành trình, tiền); "Mở trang đầy đủ" trong ngăn kéo hoặc menu ⋯.
+            ->recordUrl(null)
+            ->recordAction(Tables\Actions\ViewAction::class)
             ->bulkActions([])
             ->actionsAlignment('end')
             ->defaultSort('created_at', 'desc')
-            ->defaultPaginationPageOption(12)
-            ->paginationPageOptions([12, 24, 48])
-            ->poll('15s');
+            ->defaultPaginationPageOption(25)
+            ->paginationPageOptions([25, 50, 100]);
     }
 
     public static function getRelations(): array

@@ -6,10 +6,14 @@ class DriverDebt extends Model
 {
     protected $fillable = [
         'driver_id', 'debt_type', 'status', 'amount_due', 'amount_paid',
-        'week_start', 'week_end', 'date', 'ref_id', 'note',
+        'week_start', 'week_end', 'date', 'ref_id', 'note', 'paid_at', 'paid_via',
     ];
 
+    protected $casts = ['paid_at' => 'datetime'];
+
     public function driver() { return $this->belongsTo(\Modules\Core\Models\User::class, 'driver_id'); }
+
+    public function logs() { return $this->hasMany(DriverDebtLog::class, 'debt_id')->latest('id'); }
 
     public function scopeByStatus($q, $s) { return $s && $s !== 'all' ? $q->where('status', $s) : $q; }
 }

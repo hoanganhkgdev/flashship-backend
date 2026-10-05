@@ -303,6 +303,7 @@ class OrderController extends Controller
             ->update([
                 'driver_rating' => $data['rating'],
                 'driver_rating_note' => $data['note'] ?? null,
+                'rated_at' => now(),
                 'updated_at' => now(),
             ]);
 

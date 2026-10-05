@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\SupportConfigResource\Pages;
 
 use App\Filament\Resources\SupportConfigResource;
+use App\Services\CatalogService;
 use Filament\Resources\Pages\CreateRecord;
 use Illuminate\Database\Eloquent\Model;
 
@@ -18,6 +19,16 @@ class CreateSupportConfig extends CreateRecord
     public function getSubheading(): ?string
     {
         return 'Thiết lập thông tin liên hệ và khu vực hiển thị trên ứng dụng.';
+    }
+
+    protected function afterCreate(): void
+    {
+        CatalogService::log('support_config', $this->record->id, 'created', auth()->id(), $this->record->title.' ('.$this->record->value.')');
+    }
+
+    protected function getRedirectUrl(): string
+    {
+        return $this->getResource()::getUrl('index');
     }
 
     /**

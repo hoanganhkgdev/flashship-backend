@@ -4,6 +4,7 @@ namespace App\Filament\Resources\BannerResource\Pages;
 
 use App\Filament\Resources\BannerResource;
 use Filament\Actions;
+use Filament\Facades\Filament;
 use Filament\Resources\Pages\EditRecord;
 
 class EditBanner extends EditRecord
@@ -18,6 +19,21 @@ class EditBanner extends EditRecord
     public function getSubheading(): ?string
     {
         return $this->record->title;
+    }
+
+    protected function mutateFormDataBeforeFill(array $data): array
+    {
+        $data['scope'] = $data['city_id'] ? 'city' : 'all';
+
+        return $data;
+    }
+
+    protected function mutateFormDataBeforeSave(array $data): array
+    {
+        $data['city_id'] = ($data['scope'] ?? 'city') === 'all' ? null : ($this->record->city_id ?? Filament::getTenant()?->id);
+        unset($data['scope']);
+
+        return $data;
     }
 
     protected function getHeaderActions(): array

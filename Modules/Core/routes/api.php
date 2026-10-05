@@ -40,18 +40,20 @@ Route::prefix('auth')->group(function () {
 | Public endpoints
 |----------------------------------------------------------------------
 */
-Route::get('/cities', fn() => response()->json(['success' => true, 'data' => City::where('is_active', true)->get()]));
+// Chỉ trả đúng các trường app cần; không lộ phí tuần, id admin hay mốc thời gian nội bộ.
+Route::get('/cities', fn() => response()->json(['success' => true, 'data' => City::public()
+    ->get(['id', 'name', 'slug', 'lat', 'lng', 'is_rain_mode'])]));
 
 Route::get('/cities/nearest', function (\Illuminate\Http\Request $request) {
     $lat = (float) $request->query('lat', 0);
     $lng = (float) $request->query('lng', 0);
 
-    $cities = City::where('is_active', true)
+    $cities = City::public()
         ->whereNotNull('lat')->whereNotNull('lng')
         ->get(['id', 'name', 'lat', 'lng']);
 
     if ($cities->isEmpty()) {
-        $city = City::where('is_active', true)->first(['id', 'name']);
+        $city = City::public()->first(['id', 'name']);
         return response()->json(['success' => true, 'data' => $city]);
     }
 
@@ -98,18 +100,26 @@ Route::get('/app-version', function (\Illuminate\Http\Request $request) {
 });
 
 Route::get('/banners', function (\Illuminate\Http\Request $request) {
-    $cityId = $request->query('city_id');
+    // App khách không gửi city_id, nên lấy khu vực từ tài khoản đang đăng nhập (token là tuỳ chọn).
+    // Không biết khu vực thì chỉ trả banner dùng cho mọi khu vực, tránh hiện nhầm banner của nơi khác.
+    $cityId = $request->query('city_id') ?: $request->user('sanctum')?->city_id;
 
-    $banners = \Modules\Admin\Models\Banner::where('is_active', true)
-        ->when($cityId, fn ($q) => $q->where(fn ($q2) => $q2->where('city_id', $cityId)->orWhereNull('city_id')))
+    $banners = \Modules\Admin\Models\Banner::live()
+        ->where(fn ($q) => $cityId
+            ? $q->where('city_id', $cityId)->orWhereNull('city_id')
+            : $q->whereNull('city_id'))
         ->orderBy('sort_order')
         ->get();
 
     return response()->json(['success' => true, 'data' => $banners]);
 });
 
-Route::get('/support-configs', function () {
-    return response()->json(['success' => true, 'data' => \Modules\Admin\Models\SupportConfig::where('is_active', true)->orderBy('priority')->get()]);
+// Công khai (chưa đăng nhập): lọc theo khu vực (city_id) và đối tượng (audience, mặc định khách hàng).
+Route::get('/support-configs', function (\Illuminate\Http\Request $request) {
+    $audience = in_array($request->query('audience'), ['customer', 'driver', 'shop'], true) ? $request->query('audience') : 'customer';
+    $cityId = $request->query('city_id') ? (int) $request->query('city_id') : null;
+
+    return response()->json(['success' => true, 'data' => \App\Services\SupportChannelService::forApp($audience, $cityId)]);
 });
 
 Route::get('/pages/{slug}', function (string $slug) {

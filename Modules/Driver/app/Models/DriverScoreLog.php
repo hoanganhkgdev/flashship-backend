@@ -8,7 +8,7 @@ class DriverScoreLog extends Model
 {
     public $timestamps = false;
 
-    protected $fillable = ['driver_id', 'delta', 'score_before', 'score_after', 'reason'];
+    protected $fillable = ['driver_id', 'delta', 'score_before', 'score_after', 'reason', 'note', 'performed_by'];
 
     protected $casts = ['created_at' => 'datetime'];
 

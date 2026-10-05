@@ -16,6 +16,8 @@ class Shift extends Model
             ->withTimestamps();
     }
 
+    public function logs() { return $this->hasMany(ShiftLog::class)->latest('id'); }
+
     public function scopeActive(Builder $q): Builder { return $q->where('is_active', true); }
     public function scopeForCity(Builder $q, int $cityId): Builder { return $q->where('city_id', $cityId); }
 

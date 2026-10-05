@@ -3,7 +3,9 @@
 namespace App\Filament\Resources;
 
 use App\Filament\Resources\LegalPageResource\Pages;
+use App\Filament\Resources\LegalPageResource\RelationManagers;
 use App\Filament\Traits\HideFromCityManager;
+use App\Services\LegalPageService;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Resources\Resource;
@@ -29,6 +31,8 @@ class LegalPageResource extends Resource
 
     protected static ?string $navigationGroup = 'Hệ thống';
 
+    protected static ?string $navigationLabel = 'Trang pháp lý';
+
     protected static ?string $modelLabel = 'Trang pháp lý';
 
     protected static ?string $pluralModelLabel = 'Trang pháp lý';
@@ -50,9 +54,10 @@ class LegalPageResource extends Resource
 
                     Forms\Components\TextInput::make('slug')
                         ->label('Slug')
-                        ->helperText('Ví dụ: privacy-policy, terms-of-service')
+                        ->helperText('Không đổi được: các app và trang web truy cập nội dung theo slug này.')
                         ->required()
-                        ->unique(ignoreRecord: true),
+                        ->unique(ignoreRecord: true)
+                        ->disabledOn('edit'),
 
                     Forms\Components\Toggle::make('is_active')
                         ->label('Hiển thị')
@@ -70,30 +75,41 @@ class LegalPageResource extends Resource
     {
         return $table
             ->columns([
-                Tables\Columns\TextColumn::make('title')
-                    ->label('Tiêu đề')
-                    ->searchable()
-                    ->weight('semibold'),
+                Tables\Columns\TextColumn::make('title')->label('Trang')->searchable()->weight('semibold')
+                    ->description(fn (Page $p) => 'Slug: '.$p->slug),
 
-                Tables\Columns\TextColumn::make('slug')
-                    ->label('Slug')
-                    ->badge()
-                    ->color('gray'),
-
-                Tables\Columns\IconColumn::make('is_active')
-                    ->label('Hiển thị')
-                    ->boolean(),
+                Tables\Columns\TextColumn::make('where')
+                    ->label('Hiển thị ở')
+                    ->state(fn (Page $p) => 'App khách, tài xế, cửa hàng'.(LegalPageService::webPathFor($p->slug) ? ' · web '.url(LegalPageService::webPathFor($p->slug)) : '')),
 
                 Tables\Columns\TextColumn::make('updated_at')
                     ->label('Cập nhật')
                     ->dateTime('d/m/Y H:i')
-                    ->sortable(),
+                    ->sortable()
+                    ->description(fn (Page $p) => LegalPageService::isStale($p) ? 'Đã hơn '.LegalPageService::STALE_DAYS.' ngày chưa rà soát' : null)
+                    ->color(fn (Page $p) => LegalPageService::isStale($p) ? 'warning' : null),
+
+                Tables\Columns\TextColumn::make('status')
+                    ->label('Trạng thái')
+                    ->badge()
+                    ->state(fn (Page $p) => $p->is_active ? 'Đang hiển thị' : 'Đã ẩn')
+                    ->color(fn (Page $p) => $p->is_active ? 'success' : 'gray'),
             ])
             ->actions([
-                Tables\Actions\EditAction::make()->label('Sửa'),
+                Tables\Actions\ActionGroup::make([
+                    Tables\Actions\EditAction::make()->label('Chỉnh sửa & lịch sử'),
+                    Tables\Actions\Action::make('web')->label('Xem trên web')->icon('heroicon-o-arrow-top-right-on-square')
+                        ->visible(fn (Page $p) => (bool) LegalPageService::webPathFor($p->slug))
+                        ->url(fn (Page $p) => url(LegalPageService::webPathFor($p->slug)))->openUrlInNewTab(),
+                ])->icon('heroicon-m-ellipsis-horizontal')->label(''),
             ])
             ->recordAction('edit')
             ->defaultSort('slug');
+    }
+
+    public static function getRelations(): array
+    {
+        return [RelationManagers\VersionsRelationManager::class];
     }
 
     public static function getPages(): array

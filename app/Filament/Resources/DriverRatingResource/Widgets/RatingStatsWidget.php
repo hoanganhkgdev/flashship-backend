@@ -2,30 +2,26 @@
 
 namespace App\Filament\Resources\DriverRatingResource\Widgets;
 
-use App\Filament\Resources\DriverRatingResource;
+use App\Filament\Resources\DriverResource;
+use App\Services\DriverRatingService;
+use Filament\Facades\Filament;
 use Filament\Widgets\Widget;
 
 class RatingStatsWidget extends Widget
 {
-    protected static string $view = 'filament.widgets.rating-stats';
+    protected static string $view = 'filament.resources.driver-rating-resource.widgets.rating-stats';
 
     protected int|string|array $columnSpan = 'full';
 
+    protected static bool $isLazy = false;
+
     protected function getViewData(): array
     {
-        $base = DriverRatingResource::getEloquentQuery()->reorder();
+        $cityId = Filament::getTenant()?->id;
 
-        $total = (clone $base)->count();
-        $average = $total > 0 ? round((clone $base)->avg('driver_rating'), 1) : 0;
-        $low = (clone $base)->where('driver_rating', '<=', 2)->count();
-
-        $distribution = [];
-        foreach ([5, 4, 3, 2, 1] as $star) {
-            $distribution[$star] = (clone $base)->where('driver_rating', $star)->count();
-        }
-
-        $averageColor = $average >= 4.5 ? '#22c55e' : ($average >= 3.5 ? '#f59e0b' : '#ef4444');
-
-        return compact('total', 'average', 'low', 'distribution', 'averageColor');
+        return [
+            's' => DriverRatingService::summary($cityId, 30),
+            'watch' => DriverRatingService::watchList($cityId, 90)->map(fn ($w) => $w + ['url' => DriverResource::getUrl('view', ['record' => $w['id']])]),
+        ];
     }
 }

@@ -59,7 +59,7 @@ class VoucherService
                 'Số điện thoại này đang được dùng cho tài khoản tài xế nên không áp dụng mã giảm giá.'
             );
         }
-        if (! in_array($voucher->audience, ['all', $audience], true)
+        if ($voucher->audience !== $audience
             || ($voucher->user_id && (int) $voucher->user_id !== (int) $user->id)) {
             return $invalid('NOT_ELIGIBLE', 'Mã giảm giá không áp dụng cho tài khoản này');
         }

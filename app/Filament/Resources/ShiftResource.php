@@ -3,7 +3,9 @@
 namespace App\Filament\Resources;
 
 use App\Filament\Resources\ShiftResource\Pages;
+use App\Services\ShiftService;
 use Filament\Facades\Filament;
+use Filament\Notifications\Notification;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Resources\Resource;
@@ -23,9 +25,11 @@ class ShiftResource extends Resource
 
     protected static ?string $navigationIcon = 'heroicon-o-clock';
 
-    protected static ?string $navigationGroup = 'Ca làm việc';
+    protected static ?string $navigationGroup = 'Tài xế';
 
-    protected static ?int $navigationSort = 1;
+    protected static ?string $navigationLabel = 'Ca làm việc';
+
+    protected static ?int $navigationSort = 7;
 
     protected static ?string $label = 'Ca làm việc';
 
@@ -36,7 +40,9 @@ class ShiftResource extends Resource
         return parent::getEloquentQuery()
             ->withCount('users')
             ->withCount([
-                'users as online_users_count' => fn (Builder $query) => $query->where('is_online', true),
+                'users as active_users_count' => fn (Builder $q) => $q->where('users.status', 1),
+                'users as locked_users_count' => fn (Builder $q) => $q->where('users.status', 2),
+                'users as online_users_count' => fn (Builder $q) => $q->where('users.status', 1)->where('users.is_online', true),
             ]);
     }
 
@@ -73,10 +79,22 @@ class ShiftResource extends Resource
                         ->label('Kết thúc')
                         ->seconds(false)
                         ->required()
+                        ->rule(fn (Forms\Get $get, ?Shift $record) => function (string $attribute, $value, \Closure $fail) use ($get, $record) {
+                            $start = (string) $get('start_time');
+                            if ($start === '' || substr($start, 0, 5) === substr((string) $value, 0, 5)) {
+                                $start !== '' && $fail('Giờ kết thúc phải khác giờ bắt đầu.');
+
+                                return;
+                            }
+                            if ($get('is_active') && ($c = ShiftService::conflictingShift((int) Filament::getTenant()?->id, $start, (string) $value, $record?->id))) {
+                                $fail('Trùng giờ với "'.$c->name.'" ('.substr($c->start_time, 0, 5).'–'.substr($c->end_time, 0, 5).') đang kích hoạt.');
+                            }
+                        })
                         ->helperText('Chọn 00:00 nếu ca kết thúc lúc nửa đêm. Cùng lưu ý như giờ bắt đầu — tránh đổi giữa/ngay sau khi ca hôm nay đang chạy.'),
 
                     Forms\Components\Toggle::make('is_active')
                         ->label('Kích hoạt')
+                        ->live()
                         ->helperText('Tắt ca sẽ ngừng cho tài xế đăng ký mới; các liên kết ca hiện có vẫn được giữ lại.')
                         ->default(true)
                         ->inline(false),
@@ -91,47 +109,80 @@ class ShiftResource extends Resource
                 Tables\Columns\TextColumn::make('name')
                     ->label('Tên ca')
                     ->searchable()
-                    ->description(fn (Shift $record) => 'Mã ca: '.$record->code),
+                    ->description(fn (Shift $r) => 'Mã ca: '.$r->code),
 
                 Tables\Columns\TextColumn::make('schedule')
                     ->label('Khung giờ')
-                    ->state(fn (Shift $record) => substr($record->start_time, 0, 5).' → '.substr($record->end_time, 0, 5))
-                    ->description(fn (Shift $record) => self::scheduleDescription($record)),
+                    ->state(fn (Shift $r) => substr($r->start_time, 0, 5).' → '.substr($r->end_time, 0, 5))
+                    ->description(fn (Shift $r) => self::scheduleDescription($r)),
 
-                Tables\Columns\TextColumn::make('users_count')
-                    ->label('Tài xế đăng ký')
-                    ->formatStateUsing(fn ($state) => number_format((int) $state).' tài xế')
-                    ->description(fn (Shift $record) => number_format((int) $record->online_users_count).' đang online'),
+                Tables\Columns\TextColumn::make('active_users_count')
+                    ->label('Tài xế hoạt động')
+                    ->alignCenter()
+                    ->formatStateUsing(fn ($state) => number_format((int) $state))
+                    ->description(fn (Shift $r) => number_format((int) $r->online_users_count).' online'.($r->locked_users_count ? ' · '.number_format((int) $r->locked_users_count).' đã khóa' : '')),
 
-                Tables\Columns\TextColumn::make('current_status')
-                    ->label('Thời điểm hiện tại')
-                    ->state(fn (Shift $record) => $record->is_active && $record->isNowInShift() ? 'Đang trong ca' : 'Ngoài giờ ca')
-                    ->color(fn (Shift $record) => $record->is_active && $record->isNowInShift() ? 'success' : 'gray')
-                    ->description(fn (Shift $record) => $record->is_active ? 'Ca đang được sử dụng' : 'Ca đã tắt'),
-
-                Tables\Columns\ToggleColumn::make('is_active')
-                    ->label('Kích hoạt')
-                    ->alignCenter(),
+                Tables\Columns\TextColumn::make('status')
+                    ->label('Trạng thái')
+                    ->badge()
+                    ->state(fn (Shift $r) => ! $r->is_active ? 'Đã tắt' : ($r->isNowInShift() ? 'Đang trong ca' : 'Ngoài giờ ca'))
+                    ->color(fn (Shift $r) => ! $r->is_active ? 'gray' : ($r->isNowInShift() ? 'success' : 'info')),
             ])
             ->filters([
-                Tables\Filters\SelectFilter::make('is_active')
-                    ->label('Trạng thái')
-                    ->options([1 => 'Đang kích hoạt', 0 => 'Đã tắt']),
-                Tables\Filters\Filter::make('current')
-                    ->label('Đang trong giờ ca')
-                    ->query(fn (Builder $query) => self::scopeCurrentShifts($query)),
+                Tables\Filters\SelectFilter::make('is_active')->label('Trạng thái')->options([1 => 'Đang kích hoạt', 0 => 'Đã tắt']),
+                Tables\Filters\Filter::make('current')->label('Đang trong giờ ca')->query(fn (Builder $query) => self::scopeCurrentShifts($query)),
             ])
             ->defaultSort('start_time')
             ->actions([
-                Tables\Actions\EditAction::make()->label('')->tooltip('Chỉnh sửa ca'),
-                Tables\Actions\DeleteAction::make()
-                    ->label('')
-                    ->tooltip('Xóa ca')
-                    ->visible(fn (Shift $record) => (int) $record->users_count === 0)
-                    ->modalDescription('Chỉ nên xóa ca chưa có tài xế đăng ký.'),
+                Tables\Actions\ActionGroup::make([
+                    Tables\Actions\ViewAction::make()->label('Xem tài xế & tải đơn')->icon('heroicon-o-users'),
+                    self::editAction(Tables\Actions\Action::make('edit_time')),
+                    self::toggleAction(Tables\Actions\Action::make('toggle')),
+                    Tables\Actions\DeleteAction::make()
+                        ->visible(fn (Shift $r) => (int) $r->users_count === 0)
+                        ->modalDescription('Chỉ xóa được ca chưa có tài xế đăng ký.')
+                        ->after(fn (Shift $r) => ShiftService::log($r->id, 'deleted', auth()->id(), $r->name)),
+                ])->icon('heroicon-m-ellipsis-horizontal')->label(''),
             ])
-            ->recordAction('edit')
+            ->recordUrl(fn (Shift $r): string => static::getUrl('view', ['record' => $r]))
             ->paginated(false);
+    }
+
+    /** Sửa ca: bị chặn khi ca đang diễn ra vì điểm cuối ca tính theo giờ hiện tại. */
+    public static function editAction($action)
+    {
+        return $action->label('Sửa ca')->icon('heroicon-o-pencil-square')
+            ->url(fn (Shift $r) => static::getUrl('edit', ['record' => $r]))
+            ->disabled(fn (Shift $r) => ShiftService::inProgress($r))
+            ->tooltip(fn (Shift $r) => ShiftService::inProgress($r) ? 'Ca đang diễn ra, không sửa được' : null);
+    }
+
+    public static function toggleAction($action)
+    {
+        return $action
+            ->label(fn (Shift $r) => $r->is_active ? 'Tắt ca' : 'Bật ca')
+            ->icon(fn (Shift $r) => $r->is_active ? 'heroicon-o-pause-circle' : 'heroicon-o-play-circle')
+            ->color(fn (Shift $r) => $r->is_active ? 'danger' : 'success')
+            ->requiresConfirmation()
+            ->modalHeading(fn (Shift $r) => ($r->is_active ? 'Tắt ' : 'Bật ').$r->name)
+            ->modalDescription(function (Shift $r) {
+                if (! $r->is_active) {
+                    return 'Ca sẽ được chấm điểm và cho tài xế đăng ký lại.';
+                }
+                $n = $r->users()->where('users.status', 1)->count();
+
+                return 'Tắt ca sẽ DỪNG chấm điểm cuối ca và ngừng cho tài xế đăng ký mới. Hiện có '.$n.' tài xế hoạt động đang đăng ký ca này.';
+            })
+            ->action(function (Shift $record): void {
+                if ($record->is_active) {
+                    $n = ShiftService::deactivate($record, auth()->id());
+                    Notification::make()->warning()->title('Đã tắt ca ('.$n.' tài xế hoạt động bị ảnh hưởng)')->send();
+                } elseif ($err = ShiftService::activate($record, auth()->id())) {
+                    Notification::make()->danger()->title($err)->send();
+                } else {
+                    Notification::make()->success()->title('Đã bật ca')->send();
+                }
+            });
     }
 
     public static function scheduleDescription(Shift $shift): string
@@ -174,6 +225,7 @@ class ShiftResource extends Resource
         return [
             'index' => Pages\ListShifts::route('/'),
             'create' => Pages\CreateShift::route('/create'),
+            'view' => Pages\ViewShift::route('/{record}'),
             'edit' => Pages\EditShift::route('/{record}/edit'),
         ];
     }

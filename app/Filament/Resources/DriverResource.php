@@ -5,6 +5,7 @@ namespace App\Filament\Resources;
 use App\Filament\Resources\DriverResource\Pages;
 use App\Filament\Resources\DriverResource\RelationManagers;
 use App\Filament\Traits\HideFromCityManager;
+use App\Services\DriverAccountService;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Notifications\Notification;
@@ -14,6 +15,7 @@ use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Redis;
+use Illuminate\Support\HtmlString;
 use Modules\Core\Models\User;
 use Modules\Core\Services\RTDBService;
 use Modules\Driver\Models\DriverShiftSession;
@@ -34,7 +36,9 @@ class DriverResource extends Resource
 
     protected static ?string $navigationIcon = 'heroicon-o-truck';
 
-    protected static ?string $navigationGroup = 'Người dùng & đối tác';
+    protected static ?string $navigationGroup = 'Tài xế';
+
+    protected static ?string $navigationLabel = 'Tài xế';
 
     protected static ?string $modelLabel = 'Tài xế';
 
@@ -42,7 +46,19 @@ class DriverResource extends Resource
 
     protected static ?string $slug = 'drivers';
 
-    protected static ?int $navigationSort = 2;
+    protected static ?int $navigationSort = 1;
+
+    /** Tài xế dưới ngưỡng điểm này (đang hoạt động) bị gắn nhãn "điểm thấp". */
+    public const LOW_SCORE = 60;
+
+    /**
+     * Tài xế tự đăng ký trên app (OTP + CCCD + bằng lái) rồi chờ duyệt. Admin không tạo hộ: form cũ không có mật khẩu,
+     * không OTP và không giấy tờ nên tài khoản tạo ra không đăng nhập được và bỏ qua mọi bước xác minh.
+     */
+    public static function canCreate(): bool
+    {
+        return false;
+    }
 
     public static function getNavigationBadge(): ?string
     {
@@ -62,6 +78,13 @@ class DriverResource extends Resource
                 'registeredShifts' => fn ($query) => $query->select(['shifts.id', 'shifts.name']),
                 'latestDriverCccdImage',
                 'latestDriverLicense',
+            ])
+            ->select('users.*')
+            ->addSelect([
+                'orders_30d' => DB::table('orders')->selectRaw('COUNT(*)')->whereColumn('orders.delivery_man_id', 'users.id')
+                    ->where('orders.status', 'completed')->where('orders.completed_at', '>=', now()->subDays(30)),
+                'last_locked_at' => DB::table('driver_status_logs')->select('created_at')->whereColumn('driver_id', 'users.id')->where('action', 'locked')->orderByDesc('id')->limit(1),
+                'last_lock_reason' => DB::table('driver_status_logs')->select('reason')->whereColumn('driver_id', 'users.id')->where('action', 'locked')->orderByDesc('id')->limit(1),
             ])
             ->withCount([
                 'orders as active_orders_count' => fn (Builder $query) => $query->whereIn('status', ['assigned', 'processing']),
@@ -203,15 +226,25 @@ class DriverResource extends Resource
         ]);
     }
 
+    /** Dòng mô tả dưới nhãn trạng thái: chờ bao lâu, đang chạy đơn gì, hay bị khóa vì sao. */
+    private static function statusNote(User $record): string
+    {
+        return match ((int) $record->status) {
+            0 => 'Chờ '.(int) $record->created_at->diffInDays(now()).' ngày',
+            2 => ($record->last_locked_at ? 'Khóa '.\Carbon\Carbon::parse($record->last_locked_at)->format('d/m/Y') : 'Khóa (chưa ghi lý do)')
+                .($record->last_lock_reason ? ' · '.\Illuminate\Support\Str::limit($record->last_lock_reason, 26) : ''),
+            default => $record->active_orders_count > 0
+                ? $record->active_orders_count.' đơn đang chạy'
+                : ($record->is_online ? 'Cờ online' : 'Offline'),
+        };
+    }
+
     public static function table(Table $table): Table
     {
+        $service = app(DriverAccountService::class);
+
         return $table
             ->columns([
-                Tables\Columns\TextColumn::make('index')
-                    ->label('#')
-                    ->rowIndex()
-                    ->width(40),
-
                 Tables\Columns\ImageColumn::make('profile_photo_path')
                     ->label('')
                     ->disk('public')
@@ -223,43 +256,49 @@ class DriverResource extends Resource
                     ->label('Tài xế')
                     ->searchable(['name', 'phone', 'cccd', 'license_plate'])
                     ->sortable()
-                    ->description(fn (User $record) => $record->phone),
+                    ->limit(28)
+                    ->description(fn (User $record) => $record->phone.($record->license_plate ? ' · '.$record->license_plate : ($record->vehicle_type ? ' · '.$record->vehicle_type : ''))),
 
-                Tables\Columns\TextColumn::make('account_summary')
-                    ->label('Trạng thái vận hành')
-                    ->state(fn (User $record): string => self::accountSummary($record))
-                    ->html(),
-
-                Tables\Columns\TextColumn::make('driver_score')
-                    ->label('Điểm & ca làm việc')
-                    ->formatStateUsing(fn ($state): string => (string) ($state ?? 80).' điểm')
-                    ->description(fn (User $record): string => $record->registeredShifts->pluck('name')->implode(', ') ?: 'Chưa đăng ký ca')
-                    ->sortable(),
+                Tables\Columns\TextColumn::make('status')
+                    ->label('Trạng thái')
+                    ->badge()
+                    ->sortable()
+                    ->formatStateUsing(fn ($state) => match ((int) $state) {
+                        0 => 'Chờ duyệt', 1 => 'Hoạt động', 2 => 'Bị khóa', default => 'Không rõ',
+                    })
+                    ->color(fn ($state) => match ((int) $state) {
+                        0 => 'warning', 1 => 'success', 2 => 'danger', default => 'gray',
+                    })
+                    ->description(fn (User $record): string => self::statusNote($record)),
 
                 Tables\Columns\TextColumn::make('document_summary')
                     ->label('Hồ sơ xác minh')
                     ->state(fn (User $record): string => self::documentSummary($record))
                     ->html(),
 
-                Tables\Columns\TextColumn::make('vehicle_type')
-                    ->label('Phương tiện')
-                    ->placeholder('Chưa cập nhật')
-                    ->description(fn (User $record): string => $record->license_plate ?: 'Chưa có biển số'),
-
                 Tables\Columns\TextColumn::make('completed_orders_count')
                     ->label('Đơn hoàn thành')
-                    ->alignCenter()
+                    ->numeric()
+                    ->sortable()
+                    ->description(fn (User $record): string => number_format((int) $record->orders_30d).' trong 30 ngày'),
+
+                Tables\Columns\TextColumn::make('driver_score')
+                    ->label('Điểm')
+                    ->formatStateUsing(fn ($state): string => (string) ($state ?? 80))
+                    ->color(fn ($state): ?string => ($state ?? 80) < self::LOW_SCORE ? 'danger' : null)
+                    ->description(fn (User $record): string => \Illuminate\Support\Str::limit($record->registeredShifts->pluck('name')->implode(', ') ?: 'Chưa đăng ký ca', 20))
                     ->sortable(),
 
                 Tables\Columns\TextColumn::make('created_at')
                     ->label('Ngày đăng ký')
-                    ->alignCenter()
-                    ->dateTime('d/m/Y'),
+                    ->date('d/m/Y')
+                    ->sortable()
+                    ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
                 Tables\Filters\TernaryFilter::make('is_online')
-                    ->label('Trạng thái kết nối')
-                    ->trueLabel('Đang online')
+                    ->label('Cờ online (chưa kiểm tra GPS)')
+                    ->trueLabel('Đang bật online')
                     ->falseLabel('Đang offline'),
                 Tables\Filters\SelectFilter::make('document_status')
                     ->label('Hồ sơ xác minh')
@@ -281,134 +320,78 @@ class DriverResource extends Resource
                     ->preload(),
             ])
             ->actions([
+                Tables\Actions\ViewAction::make()->label('')->tooltip('Xem hồ sơ'),
+
                 Tables\Actions\Action::make('approve')
-                    ->label('')
+                    ->label('Duyệt')
                     ->icon('heroicon-o-check-circle')
                     ->color('success')
-                    ->tooltip('Duyệt tài xế')
                     ->visible(fn (User $record) => $record->status == 0)
                     ->requiresConfirmation()
-                    ->action(function (User $record) {
-                        $record->update(['status' => 1]);
-                        Notification::make()->title('Đã duyệt tài xế '.$record->name)->success()->send();
+                    ->modalHeading('Duyệt tài xế')
+                    ->modalDescription(fn (User $record): HtmlString => self::approvalDescription($service->approvalCheck($record)))
+                    ->action(function (User $record) use ($service) {
+                        $result = $service->approve($record, auth()->id());
+                        Notification::make()->title($result['message'])
+                            ->body($result['warnings'] ? 'Lưu ý: '.implode('; ', $result['warnings']) : null)
+                            ->{$result['ok'] ? 'success' : 'danger'}()->send();
                     }),
 
-                Tables\Actions\Action::make('block')
-                    ->label('')
-                    ->icon('heroicon-o-lock-closed')
-                    ->color('danger')
-                    ->tooltip('Khóa tài xế')
-                    ->visible(fn (User $record) => $record->status == 1)
-                    ->modalHeading('Khóa tài khoản')
-                    ->form([
-                        Forms\Components\Textarea::make('reason')
-                            ->label('Lý do khóa (tuỳ chọn)')
-                            ->rows(2),
-                    ])
-                    ->action(function (User $record, array $data) {
-                        $result = DB::transaction(function () use ($record) {
-                            $driver = User::whereKey($record->id)->lockForUpdate()->firstOrFail();
+                Tables\Actions\ActionGroup::make([
+                    Tables\Actions\EditAction::make()->label('Chỉnh sửa'),
 
-                            $activeOrder = Order::where('delivery_man_id', $driver->id)
-                                ->whereIn('status', ['assigned', 'processing'])
-                                ->lockForUpdate()
-                                ->first(['id', 'code']);
+                    Tables\Actions\Action::make('block')
+                        ->label('Khóa tài khoản')
+                        ->icon('heroicon-m-lock-closed')
+                        ->color('danger')
+                        ->visible(fn (User $record) => $record->status == 1)
+                        ->modalHeading('Khóa tài khoản')
+                        ->modalDescription('Lý do được lưu vào lịch sử tài khoản để lần sau biết vì sao tài xế bị khóa.')
+                        ->form([
+                            Forms\Components\Textarea::make('reason')->label('Lý do khóa')->required()->minLength(3)->maxLength(500)->rows(2),
+                        ])
+                        ->action(function (User $record, array $data) use ($service) {
+                            $result = $service->lock($record, $data['reason'], auth()->id());
+                            Notification::make()->title($result['message'])->{$result['ok'] ? 'warning' : 'danger'}()->send();
+                        }),
 
-                            if ($activeOrder) {
-                                return ['blocked' => false, 'active_order' => $activeOrder];
-                            }
+                    Tables\Actions\Action::make('unblock')
+                        ->label('Mở khóa')
+                        ->icon('heroicon-m-lock-open')
+                        ->color('info')
+                        ->visible(fn (User $record) => $record->status == 2)
+                        ->modalHeading('Mở khóa tài khoản')
+                        ->form([
+                            Forms\Components\Textarea::make('reason')->label('Ghi chú (tuỳ chọn)')->maxLength(500)->rows(2),
+                        ])
+                        ->action(function (User $record, array $data) use ($service) {
+                            $result = $service->unlock($record, $data['reason'] ?? null, auth()->id());
+                            Notification::make()->title($result['message'])->success()->send();
+                        }),
 
-                            $offers = Order::where('dispatching_to_driver_id', $driver->id)
-                                ->where('status', 'pending')
-                                ->lockForUpdate()
-                                ->get();
-
-                            foreach ($offers as $offer) {
-                                $offer->update([
-                                    'dispatching_to_driver_id' => null,
-                                    'offer_viewed_at' => null,
-                                ]);
-                                OrderDispatchLog::where('order_id', $offer->id)
-                                    ->where('driver_id', $driver->id)
-                                    ->where('result', 'pending')
-                                    ->update(['result' => 'expired', 'responded_at' => now()]);
-                            }
-
-                            DriverShiftSession::where('driver_id', $driver->id)
-                                ->whereNull('ended_at')
-                                ->lockForUpdate()
-                                ->update(['ended_at' => now()]);
-
-                            $driver->update([
-                                'status' => 2,
-                                'is_online' => false,
-                                'online_since' => null,
-                                'fcm_token' => null,
-                            ]);
-
-                            return ['blocked' => true, 'offers' => $offers];
-                        });
-
-                        if (! $result['blocked']) {
-                            $order = $result['active_order'];
-                            Notification::make()
-                                ->title("Không thể khóa: tài xế đang giữ đơn #{$order->code}")
-                                ->body('Hãy hoàn tất hoặc điều phối đơn đang chạy trước khi khóa tài khoản.')
-                                ->danger()->send();
-
-                            return;
-                        }
-
-                        $record->tokens()->delete();
-                        RTDBService::removeDriverLocation($record->id);
-                        RTDBService::setAccountLocked($record->id, true);
-                        Redis::del("dispatch:lock:driver:{$record->id}");
-
-                        foreach ($result['offers'] as $offer) {
-                            RTDBService::clearDriverOffer($record->id, $offer->id);
-                            app(DispatchService::class)->sendToNextDriver($offer->fresh());
-                        }
-
-                        Notification::make()->title('Đã khóa tài xế '.$record->name)->warning()->send();
-                    }),
-
-                Tables\Actions\Action::make('unblock')
-                    ->label('')
-                    ->icon('heroicon-o-lock-open')
-                    ->color('info')
-                    ->tooltip('Mở khóa tài xế')
-                    ->visible(fn (User $record) => $record->status == 2)
-                    ->requiresConfirmation()
-                    ->action(function (User $record) {
-                        DB::transaction(function () use ($record) {
-                            User::whereKey($record->id)->lockForUpdate()->update([
-                                'status' => 1,
-                                'is_online' => false,
-                                'online_since' => null,
-                            ]);
-                        });
-                        RTDBService::setAccountLocked($record->id, false);
-                        Notification::make()->title('Đã mở khóa tài xế '.$record->name)->success()->send();
-                    }),
-
-                Tables\Actions\ViewAction::make()->label('')->tooltip('Xem hồ sơ'),
-                Tables\Actions\EditAction::make()->label('')->tooltip('Chỉnh sửa'),
-                tap(Tables\Actions\DeleteAction::make()->label('')->tooltip('Xóa tài xế'), fn ($a) => static::configureDeleteAction($a)),
+                    // Tài xế đã có đơn, ví hoặc công nợ thì không được xóa hẳn: hãy khóa để giữ lịch sử tài chính.
+                    tap(Tables\Actions\DeleteAction::make()->label('Xóa')->visible(fn (User $record): bool => ! $service->hasHistory($record)), fn ($a) => static::configureDeleteAction($a)),
+                ])->icon('heroicon-m-ellipsis-horizontal')->tooltip('Thao tác khác'),
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([
                     Tables\Actions\BulkAction::make('approve_all')
-                        ->label('Duyệt tất cả')
+                        ->label('Duyệt các tài xế đã chọn')
                         ->icon('heroicon-o-check-circle')
                         ->color('success')
                         ->requiresConfirmation()
-                        ->action(function ($records) {
-                            $pendingIds = $records->where('status', 0)->pluck('id');
-                            DB::transaction(fn () => User::whereIn('id', $pendingIds)
-                                ->where('user_type', 'driver')
-                                ->where('status', 0)
-                                ->update(['status' => 1]));
-                            Notification::make()->title('Đã duyệt '.$pendingIds->count().' tài xế đang chờ')->success()->send();
+                        ->modalDescription('Chỉ duyệt những tài xế đang chờ duyệt và đã có CCCD được duyệt. Hồ sơ chưa đủ sẽ được bỏ qua.')
+                        ->deselectRecordsAfterCompletion()
+                        ->action(function ($records) use ($service) {
+                            $ok = 0;
+                            $skipped = [];
+                            foreach ($records->where('status', 0) as $driver) {
+                                $result = $service->approve($driver, auth()->id());
+                                $result['ok'] ? $ok++ : $skipped[] = $driver->name;
+                            }
+                            Notification::make()->title("Đã duyệt {$ok} tài xế")
+                                ->body($skipped ? 'Bỏ qua '.count($skipped).' hồ sơ chưa đủ CCCD: '.implode(', ', array_slice($skipped, 0, 5)).(count($skipped) > 5 ? '…' : '') : null)
+                                ->{$ok ? 'success' : 'warning'}()->send();
                         }),
                 ]),
             ])
@@ -417,6 +400,23 @@ class DriverResource extends Resource
             ->defaultPaginationPageOption(25)
             ->paginationPageOptions([25, 50, 100])
             ->poll('30s');
+    }
+
+    /** Nội dung hộp xác nhận duyệt: nêu rõ giấy tờ nào chặn và giấy tờ nào chỉ là cảnh báo. */
+    public static function approvalDescription(array $check): HtmlString
+    {
+        $html = '';
+        foreach ($check['blockers'] as $b) {
+            $html .= '<div style="color:#dc2626">⛔ '.e($b).' — chưa thể duyệt.</div>';
+        }
+        foreach ($check['warnings'] as $w) {
+            $html .= '<div style="color:#d97706">⚠ '.e($w).'.</div>';
+        }
+        if ($check['ok'] && ! $check['warnings']) {
+            $html = '<div style="color:#16a34a">✓ CCCD và bằng lái đều đã được duyệt.</div>';
+        }
+
+        return new HtmlString($html ?: 'Xác nhận duyệt tài xế này?');
     }
 
     public static function getRelations(): array
@@ -431,7 +431,6 @@ class DriverResource extends Resource
     {
         return [
             'index' => Pages\ListDrivers::route('/'),
-            'create' => Pages\CreateDriver::route('/create'),
             'view' => Pages\ViewDriver::route('/{record}'),
             'edit' => Pages\EditDriver::route('/{record}/edit'),
         ];

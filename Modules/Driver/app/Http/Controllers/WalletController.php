@@ -37,9 +37,12 @@ class WalletController extends Controller
 
     public function withdraw(Request $request): JsonResponse
     {
-        $data = $request->validate(['amount' => 'required|numeric|min:50000']);
-
         $user   = $request->user();
+        $min    = \Modules\Core\Services\OperationalSettings::minWithdrawAmount($user->city_id);
+        $data   = $request->validate(['amount' => 'required|numeric|min:'.$min], [
+            'amount.min' => 'Số tiền rút tối thiểu là '.number_format($min, 0, ',', '.').'đ.',
+        ]);
+
         if ((int) $user->status !== 1) {
             return response()->json([
                 'success' => false,

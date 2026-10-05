@@ -29,13 +29,15 @@ class ShopPricingResource extends Resource
 
     protected static ?string $navigationIcon = 'heroicon-o-tag';
 
-    protected static ?string $navigationGroup = 'Giá & khu vực';
+    protected static ?string $navigationGroup = 'Cửa hàng';
+
+    protected static ?string $navigationLabel = 'Bảng giá cửa hàng';
 
     protected static ?string $modelLabel = 'Bảng giá cửa hàng';
 
     protected static ?string $pluralModelLabel = 'Bảng giá cửa hàng';
 
-    protected static ?int $navigationSort = 4;
+    protected static ?int $navigationSort = 3;
 
     private static array $cargoLabels = [
         'food' => 'Đồ ăn / Nước uống',

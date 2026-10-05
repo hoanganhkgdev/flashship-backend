@@ -4,12 +4,11 @@ namespace App\Filament\Resources;
 
 use App\Filament\Resources\DriverDebtResource\Pages;
 use App\Filament\Traits\RestrictToFullAdmin;
+use App\Services\DriverDebtService;
 use Carbon\Carbon;
 use Filament\Facades\Filament;
 use Filament\Forms;
 use Filament\Forms\Form;
-use Filament\Infolists;
-use Filament\Infolists\Infolist;
 use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
 use Filament\Tables;
@@ -19,7 +18,6 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Modules\Core\Models\User;
 use Modules\Driver\Models\DriverDebt;
-use Modules\Driver\Services\DriverWalletService;
 
 class DriverDebtResource extends Resource
 {
@@ -35,13 +33,15 @@ class DriverDebtResource extends Resource
 
     protected static ?string $navigationIcon = 'heroicon-o-document-minus';
 
-    protected static ?string $navigationGroup = 'Tài chính tài xế';
+    protected static ?string $navigationGroup = 'Tài xế';
+
+    protected static ?string $navigationLabel = 'Công nợ';
 
     protected static ?string $modelLabel = 'Công nợ';
 
     protected static ?string $pluralModelLabel = 'Công nợ';
 
-    protected static ?int $navigationSort = 3;
+    protected static ?int $navigationSort = 6;
 
     public static function getNavigationBadge(): ?string
     {
@@ -62,264 +62,185 @@ class DriverDebtResource extends Resource
         return parent::getEloquentQuery()->with(['driver.city', 'driver.wallet']);
     }
 
+    /** Form chỉ dùng để tạo khoản nợ tay. Sau khi tạo, mọi thay đổi đi qua các thao tác có nhật ký. */
     public static function form(Form $form): Form
     {
         return $form->schema([
-            Forms\Components\Section::make('Thông tin công nợ')
-                ->description('Thiết lập số tiền, kỳ đối soát và trạng thái thanh toán')
-                ->icon('heroicon-o-document-text')
+            Forms\Components\Section::make('Khoản nợ mới')
+                ->description('Ghi nhận khoản phải thu ngoài phí tuần và phạt điểm tự động.')
                 ->columns(2)
                 ->schema([
                     Forms\Components\Select::make('driver_id')
                         ->label('Tài xế')
-                        ->options(fn () => User::where('user_type', 'driver')
-                            ->where('status', 1)
-                            ->where('city_id', Filament::getTenant()?->id)
-                            ->orderBy('name')
-                            ->get()
-                            ->mapWithKeys(fn ($u) => [$u->id => $u->name.' — '.$u->phone]))
-                        ->searchable()
-                        ->required(),
-
-                    Forms\Components\TextInput::make('amount_due')
-                        ->label('Số tiền nợ')
-                        ->numeric()
-                        ->minValue(1000)
-                        ->required()
-                        ->live()
-                        ->suffix('₫'),
-
-                    Forms\Components\Select::make('debt_type')
-                        ->label('Loại công nợ')
-                        ->options([
-                            'weekly' => 'Phí tuần',
-                            'commission' => 'Phí hoa hồng',
-                        ])
-                        ->default('weekly')
-                        ->required(),
-
-                    Forms\Components\TextInput::make('amount_paid')
-                        ->label('Đã thanh toán')
-                        ->numeric()
-                        ->minValue(0)
-                        ->default(0)
-                        ->required()
-                        ->suffix('₫'),
-
-                    Forms\Components\DatePicker::make('week_start')
-                        ->label('Từ ngày')
-                        ->native(false)
-                        ->displayFormat('d/m/Y'),
-
-                    Forms\Components\DatePicker::make('week_end')
-                        ->label('Đến ngày')
-                        ->native(false)
-                        ->displayFormat('d/m/Y')
-                        ->afterOrEqual('week_start'),
-
-                    Forms\Components\TextInput::make('ref_id')
-                        ->label('Mã tham chiếu')
-                        ->placeholder('VD: weekly_2026_W22')
-                        ->maxLength(100),
-
-                    Forms\Components\Select::make('status')
-                        ->label('Trạng thái')
-                        ->options([
-                            'pending' => 'Chờ thanh toán',
-                            'paid' => 'Đã thanh toán',
-                            'overdue' => 'Quá hạn',
-                        ])
-                        ->default('pending')
-                        ->required()
-                        ->live()
-                        ->afterStateUpdated(function (string $state, callable $set, callable $get) {
-                            // Chọn "Đã thanh toán" thủ công → tự đồng bộ amount_paid
-                            // = amount_due, tránh tình trạng status=paid nhưng
-                            // "Còn lại" vẫn hiện nợ (giống hành vi nút Trừ ví).
-                            if ($state === 'paid') {
-                                $set('amount_paid', $get('amount_due'));
-                            }
-                        }),
-
-                    // Sửa status trực tiếp ở đây KHÔNG đụng ví tài xế — chỉ
-                    // nút "Trừ ví" ở danh sách mới thật sự trừ tiền qua
-                    // DriverWalletService::adjust(). Cảnh báo rõ để admin
-                    // không tưởng nhầm sửa status=paid là đã thu được tiền.
-                    Forms\Components\Placeholder::make('wallet_warning')
-                        ->label('')
-                        ->columnSpanFull()
-                        ->visible(fn (callable $get) => $get('status') === 'paid')
-                        ->content('⚠️ Đổi trạng thái ở đây KHÔNG tự trừ tiền trong ví tài xế — chỉ dùng khi công nợ đã được thu ngoài hệ thống (tiền mặt, chuyển khoản tay...). Muốn trừ thẳng vào ví, dùng nút "Trừ ví" ở danh sách công nợ.'),
-
-                    Forms\Components\Textarea::make('note')
-                        ->label('Ghi chú')
-                        ->rows(2)
-                        ->columnSpanFull(),
+                        ->options(fn () => User::where('user_type', 'driver')->where('status', 1)->where('city_id', Filament::getTenant()?->id)
+                            ->orderBy('name')->get()->mapWithKeys(fn ($u) => [$u->id => $u->name.' — '.$u->phone]))
+                        ->searchable()->required(),
+                    Forms\Components\Select::make('debt_type')->label('Loại')->options(DriverDebtService::TYPES)->default('commission')->required(),
+                    Forms\Components\TextInput::make('amount_due')->label('Số tiền nợ')->numeric()->minValue(1000)->required()->suffix('₫'),
+                    Forms\Components\Textarea::make('note')->label('Lý do')->required()->minLength(5)->maxLength(300)->rows(2)->columnSpanFull(),
                 ]),
         ]);
     }
 
-    public static function infolist(Infolist $infolist): Infolist
+    public static function debtTypeLabel(?string $type): string
     {
-        return $infolist->schema([
-            Infolists\Components\Section::make('Tài xế')
-                ->columns(3)
-                ->schema([
-                    Infolists\Components\TextEntry::make('driver.name')
-                        ->label('Tên tài xế')
-                        ->default('—'),
+        return DriverDebtService::TYPES[$type] ?? 'Công nợ khác';
+    }
 
-                    Infolists\Components\TextEntry::make('driver.phone')
-                        ->label('Số điện thoại')
-                        ->default('—'),
+    public static function statusLabel(string $status): array
+    {
+        return ['pending' => ['Chờ thanh toán', 'warning'], 'paid' => ['Đã thanh toán', 'success'], 'overdue' => ['Quá hạn', 'danger']][$status] ?? [$status, 'gray'];
+    }
 
-                    Infolists\Components\TextEntry::make('driver.city.name')
-                        ->label('Khu vực')
-                        ->default('—'),
-                ]),
+    /** Ngày đến hạn: hết kỳ với phí tuần, ngày tạo với khoản khác. */
+    public static function dueDate(DriverDebt $d): Carbon
+    {
+        return Carbon::parse($d->week_end ?? $d->date ?? $d->created_at);
+    }
 
-            Infolists\Components\Section::make('Chi tiết công nợ')
-                ->columns(3)
-                ->schema([
-                    Infolists\Components\TextEntry::make('amount_due')
-                        ->label('Số tiền nợ')
-                        ->formatStateUsing(fn ($state) => number_format($state, 0, ',', '.').' ₫')
-                        ->color('danger'),
+    public static function ageLabel(DriverDebt $d): ?string
+    {
+        if ($d->status === 'paid') {
+            return $d->paid_at ? 'Thu '.$d->paid_at->format('d/m/Y').($d->paid_via ? ' · '.(DriverDebtService::PAID_VIA[$d->paid_via] ?? '') : '') : null;
+        }
+        $days = (int) self::dueDate($d)->startOfDay()->diffInDays(now()->startOfDay(), false);
 
-                    Infolists\Components\TextEntry::make('amount_paid')
-                        ->label('Đã thanh toán')
-                        ->formatStateUsing(fn ($state) => number_format($state, 0, ',', '.').' ₫')
-                        ->color('success'),
+        return $d->status === 'overdue' ? 'Quá hạn '.max(0, $days).' ngày' : null;
+    }
 
-                    Infolists\Components\TextEntry::make('remaining')
-                        ->label('Còn lại')
-                        ->state(fn (DriverDebt $r) => number_format($r->amount_due - $r->amount_paid, 0, ',', '.').' ₫')
-                        ->color(fn (DriverDebt $r) => ($r->amount_due - $r->amount_paid) > 0 ? 'warning' : 'success'),
+    private static function money($v): string
+    {
+        return number_format((float) $v, 0, ',', '.').'₫';
+    }
 
-                    Infolists\Components\TextEntry::make('debt_type')
-                        ->label('Loại công nợ')
-                        ->formatStateUsing(fn ($state) => self::debtTypeLabel($state)),
+    // ─── Thao tác dùng chung cho bảng và trang chi tiết ──────────────────────────
 
-                    Infolists\Components\TextEntry::make('status')
-                        ->label('Trạng thái')
-                        ->badge()
-                        ->formatStateUsing(fn ($state) => match ($state) {
-                            'pending' => 'Chờ thanh toán',
-                            'paid' => 'Đã thanh toán',
-                            'overdue' => 'Quá hạn',
-                            default => $state,
-                        })
-                        ->color(fn ($state) => match ($state) {
-                            'pending' => 'warning',
-                            'paid' => 'success',
-                            'overdue' => 'danger',
-                            default => 'gray',
-                        }),
+    private static function open(DriverDebt $d): bool
+    {
+        return $d->status !== 'paid' && DriverDebtService::remaining($d) > 0;
+    }
 
-                    Infolists\Components\TextEntry::make('week_start')
-                        ->label('Từ ngày')
-                        ->date('d/m/Y')
-                        ->placeholder('—'),
+    private static function notify(array $res): void
+    {
+        Notification::make()->title($res['message'])->{$res['ok'] ? 'success' : 'danger'}()->send();
+    }
 
-                    Infolists\Components\TextEntry::make('week_end')
-                        ->label('Đến ngày')
-                        ->date('d/m/Y')
-                        ->placeholder('—'),
+    public static function walletAction($action)
+    {
+        return $action->label('Thu từ ví')->icon('heroicon-o-credit-card')->color('success')
+            ->visible(fn (DriverDebt $d) => self::open($d))
+            ->modalHeading('Thu từ ví tài xế')
+            ->modalDescription(fn (DriverDebt $d) => $d->driver?->name.': còn nợ '.self::money(DriverDebtService::remaining($d)).', ví có '.self::money($d->driver?->wallet?->balance ?? 0).'. Có thể thu một phần.')
+            ->form(fn (DriverDebt $d) => [
+                Forms\Components\TextInput::make('amount')->label('Số tiền thu')->numeric()->required()->suffix('₫')->minValue(1)
+                    ->default(min(DriverDebtService::remaining($d), (float) ($d->driver?->wallet?->balance ?? 0)) ?: null)
+                    ->maxValue(max(1, min(DriverDebtService::remaining($d), (float) ($d->driver?->wallet?->balance ?? 0)))),
+            ])
+            ->action(fn (DriverDebt $record, array $data) => self::notify(DriverDebtService::payFromWallet($record, (float) $data['amount'], auth()->id())));
+    }
 
-                    Infolists\Components\TextEntry::make('ref_id')
-                        ->label('Mã tham chiếu')
-                        ->default('—'),
+    public static function manualAction($action)
+    {
+        return $action->label('Đã thu ngoài hệ thống')->icon('heroicon-o-banknotes')->color('info')
+            ->visible(fn (DriverDebt $d) => self::open($d))
+            ->modalHeading('Ghi nhận khoản đã thu ngoài hệ thống')
+            ->modalDescription(fn (DriverDebt $d) => 'Chỉ ghi nhận, không động tới ví. Còn nợ '.self::money(DriverDebtService::remaining($d)).'.')
+            ->form(fn (DriverDebt $d) => [
+                Forms\Components\TextInput::make('amount')->label('Số tiền đã thu')->numeric()->required()->suffix('₫')->minValue(1)
+                    ->default(DriverDebtService::remaining($d))->maxValue(DriverDebtService::remaining($d)),
+                Forms\Components\Textarea::make('note')->label('Hình thức / mã giao dịch')->required()->minLength(3)->maxLength(300)->rows(2),
+            ])
+            ->action(fn (DriverDebt $record, array $data) => self::notify(DriverDebtService::collectManual($record, (float) $data['amount'], $data['note'], auth()->id())));
+    }
 
-                    Infolists\Components\TextEntry::make('note')
-                        ->label('Ghi chú')
-                        ->default('—')
-                        ->columnSpanFull(),
-                ]),
-        ]);
+    public static function waiveAction($action)
+    {
+        return $action->label('Miễn nợ')->icon('heroicon-o-hand-raised')->color('gray')
+            ->visible(fn (DriverDebt $d) => self::open($d))
+            ->modalHeading('Miễn phần còn lại')
+            ->modalDescription(fn (DriverDebt $d) => 'Miễn '.self::money(DriverDebtService::remaining($d)).' cho '.$d->driver?->name.'. Số phải thu của khoản này giảm tương ứng và được ghi vào nhật ký.')
+            ->form([Forms\Components\Textarea::make('reason')->label('Lý do')->required()->minLength(5)->maxLength(300)->rows(2)])
+            ->action(fn (DriverDebt $record, array $data) => self::notify(DriverDebtService::waive($record, $data['reason'], auth()->id())));
+    }
+
+    public static function adjustAction($action)
+    {
+        return $action->label('Điều chỉnh số nợ')->icon('heroicon-o-pencil-square')->color('warning')
+            ->visible(fn (DriverDebt $d) => $d->status !== 'paid')
+            ->modalHeading('Điều chỉnh số tiền nợ')
+            ->modalDescription(fn (DriverDebt $d) => 'Số nợ hiện tại '.self::money($d->amount_due).', đã thu '.self::money($d->amount_paid).'. Số mới không thấp hơn phần đã thu.')
+            ->form(fn (DriverDebt $d) => [
+                Forms\Components\TextInput::make('amount_due')->label('Số nợ mới')->numeric()->required()->suffix('₫')->minValue((float) $d->amount_paid)->default($d->amount_due),
+                Forms\Components\Textarea::make('reason')->label('Lý do')->required()->minLength(5)->maxLength(300)->rows(2),
+            ])
+            ->action(fn (DriverDebt $record, array $data) => self::notify(DriverDebtService::adjustAmount($record, (float) $data['amount_due'], $data['reason'], auth()->id())));
+    }
+
+    public static function remindAction($action)
+    {
+        return $action->label('Nhắc nợ')->icon('heroicon-o-bell-alert')->color('warning')
+            ->visible(fn (DriverDebt $d) => self::open($d))
+            ->requiresConfirmation()
+            ->modalHeading('Nhắc tài xế thanh toán')
+            ->modalDescription('Gửi thông báo đẩy kèm số tiền còn nợ. Mỗi khoản chỉ nhắc 1 lần mỗi '.DriverDebtService::REMIND_COOLDOWN_HOURS.' giờ.')
+            ->action(fn (DriverDebt $record) => self::notify(DriverDebtService::remind($record, auth()->id())));
+    }
+
+    public static function overdueAction($action)
+    {
+        return $action->label('Đánh dấu quá hạn')->icon('heroicon-o-exclamation-triangle')->color('danger')
+            ->visible(fn (DriverDebt $d) => $d->status === 'pending')
+            ->requiresConfirmation()
+            ->modalHeading('Đánh dấu quá hạn')
+            ->modalDescription('Tài xế sẽ không bật được online và không nhận được đơn cho đến khi thanh toán.')
+            ->action(fn (DriverDebt $record) => self::notify(DriverDebtService::markOverdue($record, auth()->id())));
     }
 
     public static function table(Table $table): Table
     {
         return $table
             ->columns([
-                Tables\Columns\TextColumn::make('index')
-                    ->rowIndex()
-                    ->label('#')
-                    ->alignCenter()
-                    ->width(40),
-
                 Tables\Columns\TextColumn::make('driver.name')
                     ->label('Tài xế')
                     ->searchable(query: fn (Builder $query, string $search): Builder => $query
-                        ->whereHas('driver', fn (Builder $driverQuery) => $driverQuery
-                            ->where('name', 'like', "%{$search}%")
-                            ->orWhere('phone', 'like', "%{$search}%")))
-                    ->description(fn (DriverDebt $r) => collect([
-                        $r->driver?->phone,
-                        $r->driver?->city?->name,
-                        'Ví '.number_format((float) ($r->driver?->wallet?->balance ?? 0), 0, ',', '.').' ₫',
-                    ])->filter()->join(' · ')),
+                        ->whereHas('driver', fn (Builder $q) => $q->where('name', 'like', "%{$search}%")->orWhere('phone', 'like', "%{$search}%")))
+                    ->description(fn (DriverDebt $d) => collect([$d->driver?->phone, 'Ví '.self::money($d->driver?->wallet?->balance ?? 0), (int) $d->driver?->status === 2 ? 'Đã khóa' : null])->filter()->join(' · ')),
 
                 Tables\Columns\TextColumn::make('period')
-                    ->label('Kỳ')
-                    ->state(fn (DriverDebt $r) => $r->week_start && $r->week_end
-                            ? Carbon::parse($r->week_start)->format('d/m').' – '.Carbon::parse($r->week_end)->format('d/m/Y')
-                            : ($r->date ? Carbon::parse($r->date)->format('d/m/Y') : 'Không theo kỳ')
-                    )
-                    ->description(fn (DriverDebt $r) => self::debtTypeLabel($r->debt_type).' · '.($r->ref_id ?: 'Không có mã tham chiếu')),
+                    ->label('Kỳ / loại')
+                    ->state(fn (DriverDebt $d) => $d->week_start && $d->week_end
+                        ? Carbon::parse($d->week_start)->format('d/m').' – '.Carbon::parse($d->week_end)->format('d/m/Y')
+                        : ($d->date ? Carbon::parse($d->date)->format('d/m/Y') : $d->created_at->format('d/m/Y')))
+                    ->description(fn (DriverDebt $d) => str_starts_with((string) $d->ref_id, 'score_penalty') ? 'Phạt điểm tuần' : self::debtTypeLabel($d->debt_type)),
 
                 Tables\Columns\TextColumn::make('amount_due')
                     ->label('Đối soát')
-                    ->formatStateUsing(fn ($state) => number_format($state, 0, ',', '.').' ₫ phải thu')
-                    ->color('gray')
-                    ->description(fn (DriverDebt $r) => number_format($r->amount_paid, 0, ',', '.').' ₫ đã thu · '.number_format(max(0, $r->amount_due - $r->amount_paid), 0, ',', '.').' ₫ còn lại'),
+                    ->html()
+                    ->alignEnd()
+                    ->state(function (DriverDebt $d) {
+                        $due = max(1, (float) $d->amount_due);
+                        $pct = (int) min(100, round($d->amount_paid / $due * 100));
+
+                        return '<b>'.self::money($d->amount_due).'</b><span class="fs-sc-meter" style="--bar:#16a34a;margin-left:auto"><i style="width:'.$pct.'%"></i></span>'
+                            .'<small>Đã thu '.self::money($d->amount_paid).' · còn '.self::money(DriverDebtService::remaining($d)).'</small>';
+                    }),
 
                 Tables\Columns\TextColumn::make('status')
                     ->label('Trạng thái')
-                    ->alignCenter()
                     ->badge()
-                    ->formatStateUsing(fn ($state) => match ($state) {
-                        'pending' => 'Chờ thanh toán',
-                        'paid' => 'Đã thanh toán',
-                        'overdue' => 'Quá hạn',
-                        default => $state,
-                    })
-                    ->color(fn ($state) => match ($state) {
-                        'pending' => 'warning',
-                        'paid' => 'success',
-                        'overdue' => 'danger',
-                        default => 'gray',
-                    })
-                    ->description(fn (DriverDebt $r) => $r->status === 'paid'
-                        ? 'Đã hoàn tất đối soát'
-                        : ($r->amount_paid > 0 ? 'Đã thanh toán một phần' : 'Chưa thanh toán')),
+                    ->formatStateUsing(fn ($state) => self::statusLabel($state)[0])
+                    ->color(fn ($state) => self::statusLabel($state)[1])
+                    ->description(fn (DriverDebt $d) => self::ageLabel($d)),
 
                 Tables\Columns\TextColumn::make('note')
                     ->label('Ghi chú')
-                    ->placeholder('Không có ghi chú')
-                    ->wrap(),
-
-                Tables\Columns\TextColumn::make('created_at')
-                    ->label('Ngày tạo')
-                    ->alignCenter()
-                    ->dateTime('d/m/Y H:i'),
+                    ->limit(40)
+                    ->tooltip(fn (DriverDebt $d) => $d->note)
+                    ->placeholder('—'),
             ])
             ->filters([
-                SelectFilter::make('status')
-                    ->label('Trạng thái')
-                    ->options([
-                        'pending' => 'Chờ thanh toán',
-                        'paid' => 'Đã thanh toán',
-                        'overdue' => 'Quá hạn',
-                    ]),
-
-                SelectFilter::make('debt_type')
-                    ->label('Loại công nợ')
-                    ->options([
-                        'weekly' => 'Phí tuần',
-                        'commission' => 'Phí hoa hồng',
-                    ]),
-
+                SelectFilter::make('status')->label('Trạng thái')->options(['pending' => 'Chờ thanh toán', 'paid' => 'Đã thanh toán', 'overdue' => 'Quá hạn']),
+                SelectFilter::make('debt_type')->label('Loại')->options(DriverDebtService::TYPES),
                 Tables\Filters\Filter::make('created_at')
                     ->form([
                         Forms\Components\DatePicker::make('from')->label('Từ ngày'),
@@ -330,63 +251,21 @@ class DriverDebtResource extends Resource
                         ->when($data['until'] ?? null, fn ($q, $date) => $q->whereDate('created_at', '<=', $date))),
             ])
             ->actions([
-                Tables\Actions\ViewAction::make()->label(''),
-
-                Tables\Actions\Action::make('pay_wallet')
-                    ->label('')
-                    ->icon('heroicon-o-credit-card')
-                    ->color('success')
-                    ->tooltip('Trừ ví & đánh dấu đã trả')
-                    ->visible(fn (DriverDebt $r) => $r->status !== 'paid' && $r->amount_due > $r->amount_paid)
-                    ->requiresConfirmation()
-                    ->modalHeading('Thanh toán qua ví')
-                    ->modalDescription(fn (DriverDebt $r) => 'Trừ '.number_format($r->amount_due - $r->amount_paid, 0, ',', '.').' ₫ từ ví tài xế '.$r->driver?->name.'. Số dư ví hiện tại: '.number_format((float) ($r->driver?->wallet?->balance ?? 0), 0, ',', '.').' ₫.')
-                    ->action(function (DriverDebt $record) {
-                        $remaining = $record->amount_due - $record->amount_paid;
-                        try {
-                            DriverWalletService::adjust(
-                                $record->driver_id, $remaining, 'debit',
-                                'Thanh toán công nợ #'.$record->id.' (admin)',
-                                'debt_admin_'.$record->id
-                            );
-                            $record->update(['amount_paid' => $record->amount_due, 'status' => 'paid']);
-                            Notification::make()->success()->title('Đã thanh toán công nợ.')->send();
-                        } catch (\Exception $e) {
-                            Notification::make()->danger()->title('Lỗi: '.$e->getMessage())->send();
-                        }
-                    }),
-
-                Tables\Actions\Action::make('mark_overdue')
-                    ->label('')
-                    ->icon('heroicon-o-exclamation-triangle')
-                    ->color('danger')
-                    ->tooltip('Đánh dấu quá hạn')
-                    ->visible(fn (DriverDebt $r) => $r->status === 'pending')
-                    ->requiresConfirmation()
-                    ->modalHeading('Đánh dấu quá hạn')
-                    ->action(fn (DriverDebt $r) => $r->update(['status' => 'overdue'])),
-
-                Tables\Actions\EditAction::make()->label(''),
-                Tables\Actions\DeleteAction::make()->label(''),
+                Tables\Actions\ActionGroup::make([
+                    Tables\Actions\ViewAction::make()->label('Xem chi tiết')->icon('heroicon-o-eye'),
+                    self::walletAction(Tables\Actions\Action::make('pay_wallet')),
+                    self::manualAction(Tables\Actions\Action::make('pay_manual')),
+                    self::remindAction(Tables\Actions\Action::make('remind')),
+                    self::waiveAction(Tables\Actions\Action::make('waive')),
+                    self::adjustAction(Tables\Actions\Action::make('adjust')),
+                    self::overdueAction(Tables\Actions\Action::make('mark_overdue')),
+                ])->icon('heroicon-m-ellipsis-horizontal')->label(''),
             ])
-            ->bulkActions([
-                Tables\Actions\BulkActionGroup::make([
-                    Tables\Actions\DeleteBulkAction::make(),
-                ]),
-            ])
+            ->bulkActions([])
             ->recordUrl(fn (DriverDebt $record): string => static::getUrl('view', ['record' => $record]))
             ->defaultSort('created_at', 'desc')
             ->defaultPaginationPageOption(25)
             ->paginationPageOptions([25, 50, 100]);
-    }
-
-    public static function debtTypeLabel(?string $type): string
-    {
-        return match ($type) {
-            'weekly' => 'Phí tuần',
-            'commission' => 'Phí hoa hồng',
-            default => 'Công nợ khác',
-        };
     }
 
     public static function getRelations(): array
@@ -400,7 +279,6 @@ class DriverDebtResource extends Resource
             'index' => Pages\ListDriverDebts::route('/'),
             'create' => Pages\CreateDriverDebt::route('/create'),
             'view' => Pages\ViewDriverDebt::route('/{record}'),
-            'edit' => Pages\EditDriverDebt::route('/{record}/edit'),
         ];
     }
 }

@@ -41,8 +41,6 @@ class EditOrder extends EditRecord
             Actions\ViewAction::make()
                 ->label('Xem chi tiết')
                 ->icon('heroicon-o-eye'),
-            Actions\DeleteAction::make()
-                ->label('Xoá đơn'),
         ];
     }
 
@@ -58,13 +56,42 @@ class EditOrder extends EditRecord
         return parent::getCancelFormAction()->label('Huỷ thay đổi');
     }
 
+    private array $before = [];
+
+    private const TRACKED = [
+        'pickup_address' => 'Địa chỉ lấy', 'pickup_phone' => 'SĐT lấy', 'delivery_address' => 'Địa chỉ giao',
+        'delivery_phone' => 'SĐT giao', 'shipping_fee' => 'Phí ship', 'order_note' => 'Ghi chú',
+    ];
+
     protected function mutateFormDataBeforeSave(array $data): array
     {
+        $this->before = $this->record->only(array_keys(self::TRACKED));
+
+        // Đơn đã hoàn thành/hủy chỉ cho sửa ghi chú; bỏ mọi trường khác dù payload gửi lên.
+        if (OrderResource::isFinished($this->record)) {
+            $data = array_intersect_key($data, ['order_note' => true]);
+        }
+
         // Trạng thái chỉ được đổi qua các action nghiệp vụ của OrderResource.
         // Không cho payload sửa form ghi thẳng status/cancel_reason rồi bỏ qua
         // hoàn voucher, điểm tài xế, ví, realtime và notification.
         unset($data['status'], $data['cancel_reason']);
 
         return $data;
+    }
+
+    protected function afterSave(): void
+    {
+        $after = $this->record->refresh()->only(array_keys(self::TRACKED));
+        $changes = [];
+        foreach (self::TRACKED as $key => $label) {
+            if ((string) ($this->before[$key] ?? '') !== (string) ($after[$key] ?? '')) {
+                $old = $this->before[$key] ?? '';
+                $changes[] = $label.': '.($old === '' || $old === null ? '—' : $old).' → '.(($after[$key] ?? '') === '' ? '—' : $after[$key]);
+            }
+        }
+        if ($changes) {
+            \Modules\Order\Services\OrderTimeline::record($this->record, 'edited', 'Sửa đơn — '.implode('; ', $changes), auth()->id());
+        }
     }
 }

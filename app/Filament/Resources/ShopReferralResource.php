@@ -29,13 +29,15 @@ class ShopReferralResource extends Resource
 
     protected static ?string $navigationIcon = 'heroicon-o-user-plus';
 
-    protected static ?string $navigationGroup = 'Marketing & CSKH';
+    protected static ?string $navigationGroup = 'Cửa hàng';
+
+    protected static ?string $navigationLabel = 'Shop giới thiệu shop';
 
     protected static ?string $modelLabel = 'Shop giới thiệu shop';
 
     protected static ?string $pluralModelLabel = 'Shop giới thiệu shop';
 
-    protected static ?int $navigationSort = 6;
+    protected static ?int $navigationSort = 5;
 
     private const STATUS_LABELS = [
         ShopReferral::PENDING => 'Chờ đủ đơn',

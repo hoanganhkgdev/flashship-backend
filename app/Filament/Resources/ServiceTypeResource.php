@@ -4,6 +4,7 @@ namespace App\Filament\Resources;
 
 use App\Filament\Resources\ServiceTypeResource\Pages;
 use App\Filament\Traits\HideFromCityManager;
+use App\Services\CatalogService;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Notifications\Notification;
@@ -30,6 +31,8 @@ class ServiceTypeResource extends Resource
     protected static ?string $navigationIcon = 'heroicon-o-squares-2x2';
 
     protected static ?string $navigationGroup = 'Giá & khu vực';
+
+    protected static ?string $navigationLabel = 'Dịch vụ';
 
     protected static ?int $navigationSort = 2;
 
@@ -101,37 +104,53 @@ class ServiceTypeResource extends Resource
     {
         return $table
             ->columns([
-                Tables\Columns\TextColumn::make('sort_order')
-                    ->label('#')
-                    ->alignCenter()
-                    ->width(50),
+                Tables\Columns\TextColumn::make('sort_order')->label('#')->alignCenter()->width(50),
 
                 Tables\Columns\ImageColumn::make('icon_url')
                     ->label('Icon')
                     ->disk('public')
                     ->alignCenter()
                     ->square()
-                    ->size(40),
+                    ->size(40)
+                    ->defaultImageUrl(fn () => null),
 
                 Tables\Columns\TextColumn::make('label')
                     ->label('Tên dịch vụ')
                     ->searchable()
-                    ->description(fn (ServiceType $record) => 'Mã: '.$record->key),
+                    ->description(fn (ServiceType $r) => 'Mã: '.$r->key.($r->icon_url ? '' : ' · chưa có icon'))
+                    ->color(fn (ServiceType $r) => $r->icon_url ? null : 'warning'),
 
-                Tables\Columns\TextColumn::make('pricing_configs_count')
-                    ->label('Bảng giá')
-                    ->formatStateUsing(fn ($state) => number_format((int) $state).' cấu hình')
-                    ->description(fn (ServiceType $record) => $record->active_pricing_configs_count.' đang hoạt động')
-                    ->color(fn (ServiceType $record) => $record->active_pricing_configs_count > 0 ? 'success' : 'danger'),
+                Tables\Columns\TextColumn::make('orders30')
+                    ->label('Đơn 30 ngày')
+                    ->alignEnd()
+                    ->state(function (ServiceType $r) {
+                        $o = self::orders();
+                        $n = $o['by'][$r->key] ?? 0;
 
-                Tables\Columns\TextColumn::make('orders_count')
-                    ->label('Đơn hàng')
-                    ->formatStateUsing(fn ($state) => number_format((int) $state).' đơn')
-                    ->description(fn (ServiceType $record) => number_format((int) $record->orders_today_count).' đơn hôm nay'),
+                        return number_format($n, 0, ',', '.').($o['total'] ? ' ('.round($n / $o['total'] * 100).'%)' : '');
+                    })
+                    ->description(fn (ServiceType $r) => number_format((int) $r->orders_count, 0, ',', '.').' đơn tổng'),
 
-                Tables\Columns\ToggleColumn::make('is_active')
-                    ->label('Hiển thị')
-                    ->alignCenter(),
+                Tables\Columns\TextColumn::make('coverage')
+                    ->label('Giá theo khu vực')
+                    ->state(function (ServiceType $r) {
+                        $cities = self::activeCityIds();
+                        $m = self::matrix();
+                        $ok = collect($cities)->filter(fn ($id) => $m[$id][$r->key] ?? false)->count();
+
+                        return $ok.'/'.count($cities).' khu vực có giá';
+                    })
+                    ->color(function (ServiceType $r) {
+                        $m = self::matrix();
+
+                        return collect(self::activeCityIds())->contains(fn ($id) => ! ($m[$id][$r->key] ?? false)) ? 'danger' : 'success';
+                    }),
+
+                Tables\Columns\TextColumn::make('status')
+                    ->label('Trạng thái')
+                    ->badge()
+                    ->state(fn (ServiceType $r) => $r->is_active ? 'Đang hiển thị' : 'Đã ẩn')
+                    ->color(fn (ServiceType $r) => $r->is_active ? 'success' : 'gray'),
             ])
             ->filters([
                 Tables\Filters\TernaryFilter::make('is_active')->label('Trạng thái hiển thị'),
@@ -142,22 +161,69 @@ class ServiceTypeResource extends Resource
             ->defaultSort('sort_order')
             ->reorderable('sort_order')
             ->actions([
-                Tables\Actions\EditAction::make()->label('')->tooltip('Chỉnh sửa dịch vụ'),
-                Tables\Actions\DeleteAction::make()
-                    ->label('')
-                    ->tooltip('Xóa dịch vụ')
-                    ->before(function (ServiceType $record, Tables\Actions\DeleteAction $action) {
-                        if ($record->orders_count > 0 || $record->pricing_configs_count > 0) {
-                            Notification::make()->danger()
-                                ->title('Không thể xóa dịch vụ này')
-                                ->body('Dịch vụ đang có '.$record->orders_count.' đơn hàng và '.$record->pricing_configs_count.' cấu hình giá. Hãy tắt hiển thị nếu không còn sử dụng.')
-                                ->send();
-                            $action->halt();
-                        }
-                    }),
+                Tables\Actions\ActionGroup::make([
+                    Tables\Actions\EditAction::make()->label('Chỉnh sửa'),
+                    self::toggleAction(Tables\Actions\Action::make('toggle')),
+                    Tables\Actions\DeleteAction::make()
+                        ->label('Xóa dịch vụ')
+                        ->before(function (ServiceType $record, Tables\Actions\DeleteAction $action) {
+                            if ($record->orders_count > 0 || $record->pricing_configs_count > 0) {
+                                Notification::make()->danger()
+                                    ->title('Không thể xóa dịch vụ này')
+                                    ->body('Dịch vụ đang có '.$record->orders_count.' đơn hàng và '.$record->pricing_configs_count.' cấu hình giá. Hãy ẩn dịch vụ nếu không còn sử dụng.')
+                                    ->send();
+                                $action->halt();
+                            }
+                        })
+                        ->after(fn (ServiceType $record) => CatalogService::log('service_type', $record->id, 'deleted', auth()->id(), $record->label)),
+                ])->icon('heroicon-m-ellipsis-horizontal')->label(''),
             ])
             ->recordAction('edit')
             ->paginated(false);
+    }
+
+    private static function orders(): array
+    {
+        static $o = null;
+
+        return $o ??= CatalogService::serviceOrders();
+    }
+
+    private static function matrix(): array
+    {
+        static $m = null;
+
+        return $m ??= CatalogService::pricingMatrix();
+    }
+
+    /** Các khu vực đang phục vụ khách thật (bật, không phải khu vực thử). */
+    private static function activeCityIds(): array
+    {
+        static $ids = null;
+
+        return $ids ??= \Modules\Core\Models\City::public()->pluck('id')->all();
+    }
+
+    /** Ẩn/hiện dịch vụ: có xác nhận, nêu số đơn gần đây và ghi nhật ký. */
+    public static function toggleAction($action)
+    {
+        return $action
+            ->label(fn (ServiceType $r) => $r->is_active ? 'Ẩn dịch vụ' : 'Hiện dịch vụ')
+            ->icon(fn (ServiceType $r) => $r->is_active ? 'heroicon-o-eye-slash' : 'heroicon-o-eye')
+            ->color(fn (ServiceType $r) => $r->is_active ? 'danger' : 'success')
+            ->requiresConfirmation()
+            ->modalHeading(fn (ServiceType $r) => ($r->is_active ? 'Ẩn ' : 'Hiện ').$r->label)
+            ->modalDescription(function (ServiceType $r) {
+                $n = (self::orders()['by'][$r->key] ?? 0);
+
+                return $r->is_active
+                    ? 'Khách và cửa hàng sẽ không còn thấy dịch vụ này trong app. 30 ngày qua dịch vụ có '.number_format($n, 0, ',', '.').' đơn. Đơn đang chạy không bị ảnh hưởng.'
+                    : 'Dịch vụ hiện lại trong app cho các khu vực có bảng giá hoạt động.';
+            })
+            ->action(function (ServiceType $record): void {
+                CatalogService::setServiceActive($record, ! $record->is_active, auth()->id());
+                Notification::make()->success()->title($record->fresh()->is_active ? 'Đã hiện dịch vụ' : 'Đã ẩn dịch vụ')->send();
+            });
     }
 
     public static function getPages(): array

@@ -4,7 +4,7 @@ use Illuminate\Database\Eloquent\Model;
 
 class DriverShiftChangeRequest extends Model
 {
-    protected $fillable = ['driver_id', 'shift_ids', 'status', 'admin_note', 'processed_by', 'processed_at'];
+    protected $fillable = ['driver_id', 'shift_ids', 'status', 'admin_note', 'reject_reason', 'processed_by', 'processed_at'];
 
     protected $casts = [
         'shift_ids'    => 'array',

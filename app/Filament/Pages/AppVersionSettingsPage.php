@@ -3,6 +3,9 @@
 namespace App\Filament\Pages;
 
 use App\Models\AppVersionSetting;
+use App\Services\AppVersionPolicy;
+use App\Services\CatalogService;
+use Filament\Actions\Action;
 use Filament\Forms;
 use Filament\Forms\Components\Section;
 use Filament\Forms\Components\Textarea;
@@ -24,7 +27,7 @@ class AppVersionSettingsPage extends Page implements HasForms
 
     protected static ?string $navigationGroup = 'Hệ thống';
 
-    protected static ?string $navigationLabel = 'Phiên bản App';
+    protected static ?string $navigationLabel = 'Phiên bản app';
 
     protected static ?string $title = 'Cài đặt phiên bản App';
 
@@ -142,9 +145,51 @@ class AppVersionSettingsPage extends Page implements HasForms
         ];
     }
 
+    protected function getHeaderActions(): array
+    {
+        return [$this->saveAction()];
+    }
+
+    /** Xác nhận nêu rõ app nào sẽ bị bắt cập nhật và phiên bản tối thiểu. */
+    public function saveAction(): Action
+    {
+        return Action::make('save')
+            ->label('Lưu cài đặt')
+            ->icon('heroicon-o-check')
+            ->requiresConfirmation()
+            ->modalHeading('Lưu chính sách phiên bản?')
+            ->modalDescription(function (): string {
+                $forced = collect(AppVersionPolicy::PLATFORMS)
+                    ->filter(fn ($label, $p) => ! empty($this->data["{$p}_force_update"]))
+                    ->map(fn ($label, $p) => $label.' (tối thiểu '.($this->data["{$p}_min_version"] ?: 'chưa đặt').')')
+                    ->implode(', ');
+
+                return $forced
+                    ? 'Bắt buộc cập nhật sẽ chặn người dùng chạy bản thấp hơn mức tối thiểu của: '.$forced.'. Chỉ lưu khi bản đó đã có trên Google Play và App Store.'
+                    : 'Không app nào bị bắt buộc cập nhật.';
+            })
+            ->action(fn () => $this->save());
+    }
+
     public function save(): void
     {
         $values = $this->form->getState();
+
+        // Tối thiểu không được cao hơn bản mới nhất trên cửa hàng.
+        foreach (array_keys(AppVersionPolicy::PLATFORMS) as $platform) {
+            $errors = AppVersionPolicy::conflicts(
+                $values["{$platform}_min_version"] ?: null,
+                $values["{$platform}_android_latest_version"] ?: null,
+                $values["{$platform}_ios_latest_version"] ?: null,
+            );
+            if ($errors) {
+                throw ValidationException::withMessages(collect($errors)->mapWithKeys(fn ($m, $k) => ["data.{$platform}_{$k}_version" => $m])->all());
+            }
+        }
+
+        $before = collect(array_keys(AppVersionPolicy::PLATFORMS))->mapWithKeys(fn ($p) => [$p => AppVersionSetting::forPlatform($p)->only([
+            'min_version', 'android_latest_version', 'ios_latest_version', 'android_url', 'ios_url', 'force_update', 'force_message',
+        ])])->all();
 
         foreach (['customer', 'driver', 'shop'] as $platform) {
             if (($values["{$platform}_force_update"] ?? false) && empty($values["{$platform}_android_url"])) {
@@ -172,11 +217,19 @@ class AppVersionSettingsPage extends Page implements HasForms
                     'ios_latest_version' => $iosLatest,
                     'android_url' => $values["{$platform}_android_url"] ?: null,
                     'ios_url' => $values["{$platform}_ios_url"] ?: null,
+                    'latest_version' => AppVersionPolicy::legacyLatest($androidLatest, $iosLatest) ?? AppVersionSetting::forPlatform($platform)->latest_version,
                     'force_update' => $values["{$platform}_force_update"],
-                    'force_message' => $values["{$platform}_force_message"] ?: null,
+                    // Cột không cho null: để trống thì dùng câu mặc định (trước đây lưu khi tắt bắt buộc cập nhật mà để trống nội dung sẽ lỗi 500).
+                    'force_message' => $values["{$platform}_force_message"] ?: 'Vui lòng cập nhật ứng dụng để tiếp tục sử dụng.',
                 ]);
             }
         });
+
+        $labels = ['min_version' => 'Tối thiểu', 'android_latest_version' => 'Mới nhất Android', 'ios_latest_version' => 'Mới nhất iOS', 'android_url' => 'Link Google Play', 'ios_url' => 'Link App Store', 'force_update' => 'Bắt buộc cập nhật', 'force_message' => 'Nội dung'];
+        foreach (AppVersionPolicy::PLATFORMS as $platform => $label) {
+            $after = AppVersionSetting::forPlatform($platform)->only(array_keys($labels));
+            CatalogService::logChanges('app_version', array_search($platform, array_keys(AppVersionPolicy::PLATFORMS)) + 1, $before[$platform], $after, collect($labels)->map(fn ($l) => $label.' · '.$l)->all(), auth()->id());
+        }
 
         Notification::make()
             ->title('Đã lưu cài đặt phiên bản')
@@ -196,6 +249,7 @@ class AppVersionSettingsPage extends Page implements HasForms
                     'android_latest' => $setting->android_latest_version ?: ($setting->latest_version ?: 'Chưa đặt'),
                     'ios_latest' => $setting->ios_latest_version ?: ($setting->latest_version ?: 'Chưa đặt'),
                     'forced' => (bool) $setting->force_update,
+                    'issues' => AppVersionPolicy::issues($setting),
                     'updated_at' => $setting->updated_at?->format('d/m/Y H:i'),
                 ];
             })->values()->all();

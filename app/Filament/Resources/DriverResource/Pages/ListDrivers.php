@@ -3,7 +3,7 @@
 namespace App\Filament\Resources\DriverResource\Pages;
 
 use App\Filament\Resources\DriverResource;
-use Filament\Actions;
+use App\Filament\Resources\DriverResource\Widgets\DriverStatsWidget;
 use Filament\Facades\Filament;
 use Filament\Resources\Components\Tab;
 use Filament\Resources\Pages\ListRecords;
@@ -20,44 +20,49 @@ class ListDrivers extends ListRecords
 
     public function getSubheading(): ?string
     {
-        return 'Duyệt hồ sơ, theo dõi trạng thái và quản lý tài xế trong khu vực.';
+        return 'Tài xế tự đăng ký trên app và chờ duyệt hồ sơ. Duyệt, khóa và mở khóa đều được ghi lịch sử.';
     }
 
-    protected function getHeaderActions(): array
+    protected function getHeaderWidgets(): array
     {
-        return [
-            Actions\CreateAction::make()
-                ->label('Thêm tài xế')
-                ->icon('heroicon-o-user-plus'),
-        ];
+        return [DriverStatsWidget::class];
+    }
+
+    public function getHeaderWidgetsColumns(): int|string|array
+    {
+        return 1;
     }
 
     public function getTabs(): array
     {
-        // Chọn khu vực nay dùng bộ chuyển tenant trên topbar — không cần tab
-        // theo thành phố ở đây nữa. Tách tab theo status để bấm chuyển nhanh
-        // giữa các trạng thái thay vì phải dùng bộ lọc.
-        $cityId = Filament::getTenant()?->id;
-
-        $countByStatus = fn (?int $status) => User::where('user_type', 'driver')
-            ->where('city_id', $cityId)
+        // Khu vực chọn ở bộ chuyển trên topbar, nên không cần tab theo thành phố.
+        $count = fn (?int $status, bool $low = false) => User::where('user_type', 'driver')
+            ->where('city_id', Filament::getTenant()?->id)
             ->when($status !== null, fn ($q) => $q->where('status', $status))
+            ->when($low, fn ($q) => $q->where('driver_score', '<', DriverResource::LOW_SCORE))
             ->count();
 
         return [
-            'all' => Tab::make('Tất cả')
-                ->badge($countByStatus(null) ?: null),
+            'all' => Tab::make('Tất cả')->badge($count(null) ?: null),
             'pending' => Tab::make('Chờ duyệt')
+                ->icon('heroicon-m-clock')
                 ->modifyQueryUsing(fn ($query) => $query->where('status', 0))
-                ->badge($countByStatus(0) ?: null)
+                ->badge($count(0) ?: null)
                 ->badgeColor('warning'),
             'active' => Tab::make('Hoạt động')
+                ->icon('heroicon-m-check-circle')
                 ->modifyQueryUsing(fn ($query) => $query->where('status', 1))
-                ->badge($countByStatus(1) ?: null)
+                ->badge($count(1) ?: null)
                 ->badgeColor('success'),
             'locked' => Tab::make('Bị khóa')
+                ->icon('heroicon-m-lock-closed')
                 ->modifyQueryUsing(fn ($query) => $query->where('status', 2))
-                ->badge($countByStatus(2) ?: null)
+                ->badge($count(2) ?: null)
+                ->badgeColor('danger'),
+            'low' => Tab::make('Điểm thấp')
+                ->icon('heroicon-m-arrow-trending-down')
+                ->modifyQueryUsing(fn ($query) => $query->where('status', 1)->where('users.driver_score', '<', DriverResource::LOW_SCORE))
+                ->badge(User::where('user_type', 'driver')->where('city_id', Filament::getTenant()?->id)->where('status', 1)->where('driver_score', '<', DriverResource::LOW_SCORE)->count() ?: null)
                 ->badgeColor('danger'),
         ];
     }

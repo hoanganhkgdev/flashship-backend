@@ -30,13 +30,15 @@ class PricingResource extends Resource
 
     protected static ?string $navigationIcon = 'heroicon-o-banknotes';
 
-    protected static ?string $navigationGroup = 'Giá & khu vực';
+    protected static ?string $navigationGroup = 'Khách hàng';
 
     protected static ?string $modelLabel = 'Bảng giá';
 
     protected static ?string $pluralModelLabel = 'Bảng giá';
 
-    protected static ?int $navigationSort = 3;
+    protected static ?string $navigationLabel = 'Bảng giá khách hàng';
+
+    protected static ?int $navigationSort = 6;
 
     private static array $serviceLabels = [
         'delivery' => 'Lấy đồ hộ',

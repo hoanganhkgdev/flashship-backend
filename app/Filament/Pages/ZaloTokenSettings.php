@@ -2,6 +2,7 @@
 
 namespace App\Filament\Pages;
 
+use App\Services\CatalogService;
 use App\Services\ZaloTokenService;
 use Carbon\Carbon;
 use Filament\Actions\Action;
@@ -20,7 +21,7 @@ class ZaloTokenSettings extends Page
 
     protected static ?string $navigationGroup = 'Hệ thống';
 
-    protected static ?string $navigationLabel = 'Zalo ZNS Token';
+    protected static ?string $navigationLabel = 'Zalo ZNS token';
 
     protected static ?string $title = 'Quản lý Zalo ZNS Token';
 
@@ -35,7 +36,8 @@ class ZaloTokenSettings extends Page
 
     public static function canAccess(): bool
     {
-        return ! in_array(auth()->user()?->user_type, ['city_manager', 'call_center']);
+        // Token Zalo chi phối việc gửi OTP: chỉ quản trị viên đầy đủ được xem trạng thái và thay token.
+        return auth()->user()?->user_type === 'admin';
     }
 
     public static function getNavigationBadge(): ?string
@@ -59,13 +61,9 @@ class ZaloTokenSettings extends Page
 
     public int $expires_in = 86400;
 
+    /** Không bao giờ nạp token đã lưu vào giao diện: ô nhập luôn trống, chỉ hiện trạng thái. */
     public function mount(): void
     {
-        $row = DB::table('zalo_tokens')->orderByDesc('id')->first();
-        if ($row) {
-            $this->access_token = $row->access_token;
-            $this->refresh_token = $row->refresh_token;
-        }
     }
 
     public function form(Form $form): Form
@@ -84,7 +82,7 @@ class ZaloTokenSettings extends Page
                     ]),
 
                 Section::make('Nhập Token mới')
-                    ->description('Chỉ cần nhập 1 lần đầu. Sau đó hệ thống tự refresh mỗi 24h.')
+                    ->description('Token đã lưu được mã hóa và không hiển thị lại. Chỉ nhập khi cần thay token mới; sau đó hệ thống tự refresh.')
                     ->icon('heroicon-o-key')
                     ->schema([
                         TextInput::make('access_token')
@@ -121,22 +119,10 @@ class ZaloTokenSettings extends Page
             'expires_in' => 'required|integer|min:60',
         ]);
 
-        $payload = [
-            'access_token' => $this->access_token,
-            'refresh_token' => $this->refresh_token,
-            'expires_at' => now()->addSeconds($this->expires_in),
-            'last_error' => null,
-            'last_error_at' => null,
-            'last_refreshed_at' => now(),
-            'updated_at' => now(),
-        ];
-
-        $row = DB::table('zalo_tokens')->orderByDesc('id')->first();
-        if ($row) {
-            DB::table('zalo_tokens')->where('id', $row->id)->update($payload);
-        } else {
-            DB::table('zalo_tokens')->insert($payload + ['created_at' => now()]);
-        }
+        ZaloTokenService::store($this->access_token, $this->refresh_token, $this->expires_in);
+        CatalogService::log('zalo_token', 1, 'updated', auth()->id(), 'Nhập token mới thủ công');
+        $this->access_token = null;
+        $this->refresh_token = null;
 
         Notification::make()
             ->title('Đã lưu token thành công')
@@ -167,6 +153,7 @@ class ZaloTokenSettings extends Page
                     }
 
                     if (ZaloTokenService::refresh($row)) {
+                        CatalogService::log('zalo_token', 1, 'updated', auth()->id(), 'Làm mới token thủ công');
                         Notification::make()
                             ->title('Refresh thành công')
                             ->body('Access token + refresh token mới đã được lưu.')
@@ -232,8 +219,12 @@ class ZaloTokenSettings extends Page
             );
         }
 
+        // Token đã lưu (chỉ cho biết có/không và 4 ký tự cuối để nhận diện, không bao giờ hiện đầy đủ)
+        $tail = substr((string) ZaloTokenService::decode($row->access_token), -4);
+        $html .= "<div style='margin-bottom:10px;font-size:var(--fs-sm)'>Token đã lưu và mã hóa trong hệ thống · Access token kết thúc bằng <code>…".e($tail)."</code></div>";
+
         // Giải thích cơ chế
-        $html .= "<div style='margin-top:12px;padding:12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;font-size:13px;color:#475569'>
+        $html .= "<div style='margin-top:12px;padding:12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;font-size:var(--fs-sm);color:#475569'>
             <strong>Cơ chế tự động:</strong><br>
             • Scheduler kiểm tra mỗi <strong>1 giờ</strong><br>
             • Khi access token còn &lt; 30 phút → tự gọi Zalo API lấy token mới (dùng refresh token)<br>
@@ -256,7 +247,7 @@ class ZaloTokenSettings extends Page
 
         return "<div style='margin-bottom:10px;padding:14px;background:{$s['bg']};border:1px solid {$s['border']};border-radius:8px;color:{$s['text']}'>
             <div style='font-weight:600;margin-bottom:4px'>{$title}</div>
-            <div style='font-size:13px'>{$body}</div>
+            <div style='font-size:var(--fs-sm)'>{$body}</div>
         </div>";
     }
 }

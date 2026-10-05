@@ -21,7 +21,7 @@ class ListDriverLeaveRequests extends ListRecords
 
     public function getSubheading(): ?string
     {
-        return 'Ghi nhận ngày nghỉ hợp lệ để loại trừ khỏi quy tắc chấm điểm có mặt.';
+        return 'Ngày nghỉ đã báo trước, ảnh hưởng của chúng lên từng ca và nhật ký ghi nhận.';
     }
 
     protected function getHeaderActions(): array
@@ -38,7 +38,17 @@ class ListDriverLeaveRequests extends ListRecords
             Filament::getTenant(),
         )->whereDate('leave_date', '>=', today())->exists();
 
-        return $hasUpcoming ? 'upcoming' : 'all';
+        return $hasUpcoming ? 'upcoming' : 'past';
+    }
+
+    protected function getHeaderWidgets(): array
+    {
+        return [\App\Filament\Resources\DriverLeaveRequestResource\Widgets\LeaveImpactWidget::class];
+    }
+
+    public function getHeaderWidgetsColumns(): int|string|array
+    {
+        return 1;
     }
 
     public function getTabs(): array

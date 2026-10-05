@@ -7,6 +7,7 @@ use Modules\Shop\Http\Controllers\PricingController;
 use Modules\Shop\Http\Controllers\ReferralController;
 use Modules\Shop\Http\Controllers\ShopAddressController;
 use Modules\Shop\Http\Controllers\ShopNotificationController;
+use Modules\Shop\Http\Controllers\SupportController;
 use Modules\Shop\Http\Controllers\VoucherController;
 use Modules\Shop\Http\Middleware\TrackShopEvent;
 
@@ -42,6 +43,7 @@ Route::prefix('shop')->middleware(TrackShopEvent::class)->group(function () {
     });
 
     Route::middleware(['auth:sanctum', 'user_type:shop'])->group(function () {
+        Route::get('/support',                [SupportController::class, 'index']);
         Route::get('/pricing/estimate',       [PricingController::class, 'estimate']);
         Route::post('/pricing/estimate-batch', [PricingController::class, 'estimateBatch']);
 

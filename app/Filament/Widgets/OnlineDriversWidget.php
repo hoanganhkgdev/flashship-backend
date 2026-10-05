@@ -18,9 +18,14 @@ class OnlineDriversWidget extends Widget
 
     protected static ?string $pollingInterval = '15s';
 
-    protected int|string|array $columnSpan = 'full';
+    protected int|string|array $columnSpan = ['default' => 12, 'xl' => 5];
 
-    protected static ?int $sort = 2;
+    protected static bool $isLazy = false;
+
+    protected static ?int $sort = 4;
+
+    /** Số tài xế hiển thị tối đa; phần còn lại dẫn sang trang Tài xế. */
+    public const DISPLAY_LIMIT = 24;
 
     private function cityId(): ?int
     {
@@ -34,6 +39,7 @@ class OnlineDriversWidget extends Widget
             ->when($this->cityId(), fn ($q) => $q->where('city_id', $this->cityId()))
             ->with('city')
             ->orderBy('online_since')
+            ->limit(self::DISPLAY_LIMIT)
             ->get(['id', 'name', 'phone', 'city_id', 'is_online', 'online_since', 'driver_score', 'profile_photo_path']);
     }
 

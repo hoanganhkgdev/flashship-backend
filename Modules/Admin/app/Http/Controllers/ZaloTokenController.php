@@ -56,20 +56,7 @@ class ZaloTokenController extends Controller
 
         $expiresIn = $data['expires_in'] ?? 86400;
 
-        $payload = [
-            'access_token'  => $data['access_token'],
-            'refresh_token' => $data['refresh_token'],
-            'expires_at'    => now()->addSeconds($expiresIn),
-            'updated_at'    => now(),
-        ];
-
-        $row = DB::table('zalo_tokens')->orderByDesc('id')->first();
-
-        if ($row) {
-            DB::table('zalo_tokens')->where('id', $row->id)->update($payload);
-        } else {
-            DB::table('zalo_tokens')->insert($payload + ['created_at' => now()]);
-        }
+        ZaloTokenService::store($data['access_token'], $data['refresh_token'], (int) $expiresIn);
 
         $minutesLeft = now()->diffInMinutes(now()->addSeconds($expiresIn), false);
 

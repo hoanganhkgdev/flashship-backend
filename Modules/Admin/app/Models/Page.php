@@ -7,4 +7,9 @@ class Page extends Model
     protected $table    = 'legal_pages';
     protected $fillable = ['title', 'slug', 'content', 'is_active'];
     protected $casts    = ['is_active' => 'boolean'];
+
+    public function versions()
+    {
+        return $this->hasMany(PageVersion::class, 'page_id')->latest('id');
+    }
 }

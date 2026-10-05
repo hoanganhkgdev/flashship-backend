@@ -4,7 +4,7 @@ namespace App\Filament\Resources;
 
 use App\Filament\Resources\WithdrawRequestResource\Pages;
 use App\Filament\Traits\RestrictToFullAdmin;
-use App\Services\PayOSPayoutService;
+use App\Services\WithdrawService;
 use Filament\Facades\Filament;
 use Filament\Forms;
 use Filament\Forms\Form;
@@ -16,10 +16,7 @@ use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\DB;
 use Modules\Driver\Models\WithdrawRequest;
-use Modules\Driver\Services\DriverWalletService;
 
 class WithdrawRequestResource extends Resource
 {
@@ -35,13 +32,15 @@ class WithdrawRequestResource extends Resource
 
     protected static ?string $navigationIcon = 'heroicon-o-arrow-down-tray';
 
-    protected static ?string $navigationGroup = 'Tài chính tài xế';
+    protected static ?string $navigationGroup = 'Tài xế';
+
+    protected static ?string $navigationLabel = 'Yêu cầu rút tiền';
 
     protected static ?string $modelLabel = 'Yêu cầu rút tiền';
 
     protected static ?string $pluralModelLabel = 'Yêu cầu rút tiền';
 
-    protected static ?int $navigationSort = 2;
+    protected static ?int $navigationSort = 5;
 
     public static function getNavigationBadge(): ?string
     {
@@ -72,93 +71,129 @@ class WithdrawRequestResource extends Resource
         return parent::getEloquentQuery()->with(['driver.city', 'driver.wallet', 'processor']);
     }
 
+    private static function money($v): string
+    {
+        return number_format((float) $v, 0, ',', '.').'₫';
+    }
+
+    /** Đã chờ bao lâu (chỉ với yêu cầu chưa xử lý). */
+    public static function waitLabel(WithdrawRequest $r): string
+    {
+        $h = (int) $r->created_at->diffInHours(now());
+
+        return 'Đã chờ '.($h >= 48 ? intdiv($h, 24).' ngày' : ($h >= 1 ? $h.' giờ' : 'dưới 1 giờ'));
+    }
+
+    public static function isStale(WithdrawRequest $r): bool
+    {
+        return $r->status === 'pending' && $r->created_at->diffInHours(now()) >= WithdrawService::STALE_HOURS;
+    }
+
+    public static function nameMismatch(WithdrawRequest $r): bool
+    {
+        return $r->account_name && ! WithdrawService::nameMatches($r->account_name, $r->driver?->name);
+    }
+
+    // ─── Thao tác dùng chung cho bảng và trang chi tiết ──────────────────────────
+
+    public static function approveAction($action)
+    {
+        return $action->label('Duyệt')->icon('heroicon-o-check-circle')->color('success')
+            ->visible(fn (WithdrawRequest $r) => $r->status === 'pending')
+            ->modalHeading('Duyệt yêu cầu rút tiền')
+            ->modalDescription(function (WithdrawRequest $r) {
+                $bank = $r->bank_name ? $r->bank_name.' · '.$r->account_number.' · '.$r->account_name : 'chưa có bản lưu ngân hàng';
+
+                return 'Chuyển '.self::money($r->amount).' cho '.$r->driver?->name.' → '.$bank.'. Ví hiện tại '.self::money($r->driver?->wallet?->balance ?? 0).'.'
+                    .(self::nameMismatch($r) ? ' ⚠ Tên chủ tài khoản KHÔNG khớp tên tài xế, hãy kiểm tra kỹ.' : '');
+            })
+            ->form(function (WithdrawRequest $r) {
+                $canPayos = WithdrawService::payosConfigured() && $r->bank_code && $r->account_number && (int) $r->driver?->status === 1;
+                $options = ['manual' => 'Tôi đã tự chuyển khoản (nhập mã giao dịch)'] + ($canPayos ? ['payos' => 'Chuyển tự động qua PayOS'] : []);
+
+                return [
+                    Forms\Components\Radio::make('method')->label('Cách chuyển tiền')->options($options)->default($canPayos ? 'payos' : 'manual')->required()->live(),
+                    Forms\Components\TextInput::make('tx_ref')->label('Mã giao dịch ngân hàng')->maxLength(100)
+                        ->visible(fn (Forms\Get $get) => $get('method') === 'manual')
+                        ->required(fn (Forms\Get $get) => $get('method') === 'manual'),
+                    Forms\Components\Textarea::make('note')->label('Ghi chú (tuỳ chọn)')->rows(2)->maxLength(300),
+                ];
+            })
+            ->action(function (WithdrawRequest $record, array $data): void {
+                $res = $data['method'] === 'payos'
+                    ? WithdrawService::approvePayos($record, $data['note'] ?? null, Auth::id())
+                    : WithdrawService::approveManual($record, (string) ($data['tx_ref'] ?? ''), $data['note'] ?? null, Auth::id());
+                Notification::make()->title($res['message'])->{$res['ok'] ? 'success' : 'danger'}()->send();
+            });
+    }
+
+    public static function rejectAction($action)
+    {
+        return $action->label('Từ chối')->icon('heroicon-o-x-circle')->color('danger')
+            ->visible(fn (WithdrawRequest $r) => $r->status === 'pending')
+            ->modalHeading('Từ chối yêu cầu rút tiền')
+            ->modalDescription(fn (WithdrawRequest $r) => self::money($r->amount).' đang giữ sẽ được hoàn vào ví '.$r->driver?->name.'. Lý do được gửi đến tài xế. Nếu bạn ĐÃ chuyển khoản, hãy chọn "Duyệt", đừng từ chối.')
+            ->form([
+                Forms\Components\Select::make('reason')->label('Lý do')->options(WithdrawService::REJECT_REASONS)->required()->live(),
+                Forms\Components\Textarea::make('note')->label('Giải thích thêm')->rows(2)->maxLength(300)
+                    ->required(fn (Forms\Get $get) => $get('reason') === 'other')->minLength(5),
+            ])
+            ->action(function (WithdrawRequest $record, array $data): void {
+                $res = WithdrawService::reject($record, $data['reason'], $data['note'] ?? null, Auth::id());
+                Notification::make()->title($res['message'])->{$res['ok'] ? 'success' : 'danger'}()->send();
+            });
+    }
+
     public static function table(Table $table): Table
     {
         return $table
             ->columns([
-                Tables\Columns\TextColumn::make('index')
-                    ->rowIndex()
-                    ->label('#')
-                    ->alignCenter()
-                    ->width(40),
-
                 Tables\Columns\TextColumn::make('driver.name')
                     ->label('Tài xế')
                     ->searchable(query: fn (Builder $query, string $search): Builder => $query
-                        ->whereHas('driver', fn (Builder $driverQuery) => $driverQuery
-                            ->where('name', 'like', "%{$search}%")
-                            ->orWhere('phone', 'like', "%{$search}%")))
-                    ->description(fn (WithdrawRequest $record) => collect([
-                        $record->driver?->phone,
-                        $record->driver?->city?->name,
-                    ])->filter()->join(' · ')),
+                        ->whereHas('driver', fn (Builder $q) => $q->where('name', 'like', "%{$search}%")->orWhere('phone', 'like', "%{$search}%")))
+                    ->description(fn (WithdrawRequest $r) => $r->driver?->phone),
 
                 Tables\Columns\TextColumn::make('amount')
                     ->label('Số tiền')
-                    ->alignCenter()
-                    ->formatStateUsing(fn ($state) => number_format($state, 0, ',', '.').' ₫')
-                    ->color(fn (WithdrawRequest $record) => $record->status === 'pending' ? 'warning' : 'gray')
-                    ->description(fn (WithdrawRequest $record) => 'Ví hiện tại: '.number_format((float) ($record->driver?->wallet?->balance ?? 0), 0, ',', '.').' ₫'),
+                    ->alignEnd()
+                    ->weight('bold')
+                    ->formatStateUsing(fn ($state) => self::money($state))
+                    ->color(fn (WithdrawRequest $r) => $r->status === 'pending' ? 'warning' : null)
+                    ->description(fn (WithdrawRequest $r) => 'Ví '.self::money($r->driver?->wallet?->balance ?? 0))
+                    ->sortable(),
 
                 Tables\Columns\TextColumn::make('bank_name')
                     ->label('Tài khoản nhận')
+                    ->placeholder('Chưa có ngân hàng')
                     ->searchable(['bank_name', 'account_number', 'account_name'])
-                    ->default('Chưa có ngân hàng')
-                    ->description(fn (WithdrawRequest $record) => collect([
-                        $record->account_number,
-                        $record->account_name,
-                    ])->filter()->join(' · '))
-                    ->wrap(),
+                    ->description(fn (WithdrawRequest $r) => collect([$r->account_number, $r->account_name ? ($r->account_name.(self::nameMismatch($r) ? ' ⚠ tên lệch' : '')) : null])->filter()->join(' · '))
+                    ->color(fn (WithdrawRequest $r) => self::nameMismatch($r) ? 'warning' : null),
 
                 Tables\Columns\TextColumn::make('status')
                     ->label('Trạng thái')
-                    ->alignCenter()
                     ->badge()
-                    ->formatStateUsing(fn ($state) => match ($state) {
-                        'pending' => 'Chờ duyệt',
-                        'approved' => 'Đã duyệt',
-                        'rejected' => 'Từ chối',
-                        default => $state,
-                    })
-                    ->color(fn ($state) => match ($state) {
-                        'pending' => 'warning',
-                        'approved' => 'success',
-                        'rejected' => 'danger',
-                        default => 'gray',
-                    })
-                    ->description(fn (WithdrawRequest $record) => match ($record->status) {
-                        'pending' => 'Đang chờ xử lý',
-                        'approved' => collect([$record->processor?->name, $record->processed_at?->format('d/m H:i')])->filter()->join(' · '),
-                        'rejected' => collect([$record->processor?->name, $record->processed_at?->format('d/m H:i')])->filter()->join(' · '),
-                        default => null,
-                    }),
-
-                Tables\Columns\TextColumn::make('admin_note')
-                    ->label('Ghi chú')
-                    ->default('Không có ghi chú')
-                    ->wrap(),
+                    ->formatStateUsing(fn ($state) => ['pending' => 'Chờ duyệt', 'approved' => 'Đã duyệt', 'rejected' => 'Từ chối'][$state] ?? $state)
+                    ->color(fn ($state) => ['pending' => 'warning', 'approved' => 'success', 'rejected' => 'danger'][$state] ?? 'gray'),
 
                 Tables\Columns\TextColumn::make('created_at')
-                    ->label('Thời gian')
-                    ->alignCenter()
-                    ->dateTime('d/m/Y H:i')
-                    ->description(fn (WithdrawRequest $record) => $record->processed_at
-                        ? 'Xử lý '.$record->processed_at->format('d/m/Y H:i')
-                        : 'Chưa xử lý'),
+                    ->label('Tạo lúc')
+                    ->dateTime('d/m H:i')
+                    ->sortable()
+                    ->description(fn (WithdrawRequest $r) => $r->status === 'pending'
+                        ? self::waitLabel($r)
+                        : collect([$r->processor?->name, $r->processed_at?->format('d/m H:i')])->filter()->join(' · '))
+                    ->color(fn (WithdrawRequest $r) => self::isStale($r) ? 'danger' : null),
 
-                Tables\Columns\TextColumn::make('payout_reference')
-                    ->label('Mã chuyển khoản')
+                Tables\Columns\TextColumn::make('admin_note')
+                    ->label('Ghi chú / lý do')
                     ->placeholder('—')
-                    ->toggleable(isToggledHiddenByDefault: true),
+                    ->limit(40)
+                    ->tooltip(fn (WithdrawRequest $r) => $r->admin_note)
+                    ->description(fn (WithdrawRequest $r) => $r->payout_reference ? 'Mã GD '.$r->payout_reference : null),
             ])
             ->filters([
-                SelectFilter::make('status')
-                    ->label('Trạng thái')
-                    ->options([
-                        'pending' => 'Chờ duyệt',
-                        'approved' => 'Đã duyệt',
-                        'rejected' => 'Từ chối',
-                    ]),
+                SelectFilter::make('status')->label('Trạng thái')->options(['pending' => 'Chờ duyệt', 'approved' => 'Đã duyệt', 'rejected' => 'Từ chối']),
                 Tables\Filters\Filter::make('created_at')
                     ->form([
                         Forms\Components\DatePicker::make('from')->label('Từ ngày'),
@@ -169,151 +204,16 @@ class WithdrawRequestResource extends Resource
                         ->when($data['until'] ?? null, fn ($q, $date) => $q->whereDate('created_at', '<=', $date))),
             ])
             ->actions([
-                Tables\Actions\Action::make('approve')
-                    ->label('Duyệt')
-                    ->icon('heroicon-o-check-circle')
-                    ->color('success')
-                    ->visible(fn (WithdrawRequest $record) => $record->status === 'pending')
-                    ->modalHeading('Duyệt yêu cầu rút tiền')
-                    ->modalDescription(fn (WithdrawRequest $record) => 'Chuyển '.number_format($record->amount, 0, ',', '.').' ₫ cho '.$record->driver?->name.' vào '.($record->bank_name ?: 'ngân hàng chưa xác định').' · '.($record->account_number ?: 'chưa có STK').' · '.($record->account_name ?: 'chưa có chủ tài khoản').'.')
-                    ->form([
-                        Forms\Components\Textarea::make('admin_note')
-                            ->label('Ghi chú (tuỳ chọn)')
-                            ->rows(2),
-                    ])
-                    ->action(function (WithdrawRequest $record, array $data) {
-                        $lock = Cache::lock("withdraw:payout:{$record->id}", 300);
-                        if (! $lock->get()) {
-                            Notification::make()->warning()->title('Yêu cầu đang được xử lý ở một phiên khác.')->send();
-
-                            return;
-                        }
-
-                        try {
-                            $fresh = WithdrawRequest::find($record->id);
-                            if (! $fresh || $fresh->status !== 'pending') {
-                                Notification::make()->warning()->title('Yêu cầu này đã được xử lý.')->send();
-
-                                return;
-                            }
-                            if ((int) $fresh->driver?->status !== 1) {
-                                Notification::make()->danger()
-                                    ->title('Không thể duyệt: tài khoản tài xế đang tạm ngưng.')
-                                    ->send();
-
-                                return;
-                            }
-                            if (! $fresh->bank_code || ! $fresh->account_number) {
-                                Notification::make()->danger()->title('Yêu cầu cũ chưa có bản lưu tài khoản ngân hàng.')->send();
-
-                                return;
-                            }
-
-                            // Không ghi approved trước khi gọi ra ngoài. Nếu
-                            // process chết sau khi PayOS nhận lệnh, lần thử lại
-                            // dùng cùng referenceId và PayOS trả cùng giao dịch.
-                            $refId = 'WD'.$fresh->id;
-                            $result = PayOSPayoutService::createPayout(
-                                referenceId: $refId,
-                                amount: (int) $fresh->amount,
-                                description: 'Rut tien TX '.($fresh->driver?->name ?? $fresh->driver_id),
-                                bankCode: $fresh->bank_code,
-                                accountNumber: $fresh->account_number,
-                            );
-
-                            if (! $result['success']) {
-                                Notification::make()->danger()->title('Chuyển khoản thất bại')->body($result['message'])->send();
-
-                                return;
-                            }
-
-                            $approved = WithdrawRequest::whereKey($fresh->id)->where('status', 'pending')->update([
-                                'status' => 'approved',
-                                'admin_note' => $data['admin_note'] ?? null,
-                                'payout_reference' => $refId,
-                                'processed_by' => Auth::id(),
-                                'processed_at' => now(),
-                            ]);
-                            Notification::make()->{$approved ? 'success' : 'warning'}()
-                                ->title($approved ? 'Đã duyệt và chuyển khoản thành công.' : 'Giao dịch đã được phiên khác cập nhật.')
-                                ->send();
-                        } finally {
-                            $lock->release();
-                        }
-                    }),
-
-                Tables\Actions\Action::make('reject')
-                    ->label('Từ chối')
-                    ->icon('heroicon-o-x-circle')
-                    ->color('danger')
-                    ->visible(fn (WithdrawRequest $record) => $record->status === 'pending')
-                    ->modalHeading('Từ chối yêu cầu rút tiền')
-                    ->modalDescription(fn (WithdrawRequest $record) => 'Số tiền '.number_format($record->amount, 0, ',', '.').' ₫ đang giữ sẽ được hoàn lại vào ví tài xế '.$record->driver?->name.'.')
-                    ->form([
-                        Forms\Components\Textarea::make('admin_note')
-                            ->label('Lý do từ chối')
-                            ->required()
-                            ->rows(2),
-                    ])
-                    ->action(function (WithdrawRequest $record, array $data) {
-                        // Dùng cùng khóa với luồng duyệt. Nếu không, admin A
-                        // có thể đang chờ PayOS chuyển khoản trong khi admin B
-                        // từ chối và hoàn hold vào ví: tài xế vừa nhận tiền
-                        // ngân hàng vừa được hoàn số dư.
-                        $lock = Cache::lock("withdraw:payout:{$record->id}", 300);
-                        if (! $lock->get()) {
-                            Notification::make()->warning()
-                                ->title('Yêu cầu đang được xử lý ở một phiên khác.')
-                                ->send();
-
-                            return;
-                        }
-
-                        try {
-                            $rejected = DB::transaction(function () use ($record, $data) {
-                                $locked = WithdrawRequest::where('id', $record->id)
-                                    ->lockForUpdate()
-                                    ->firstOrFail();
-                                if ($locked->status !== 'pending') {
-                                    return false;
-                                }
-
-                                // Refund the held balance
-                                DriverWalletService::adjust(
-                                    $locked->driver_id,
-                                    $locked->amount,
-                                    'credit',
-                                    'Hoàn tiền yêu cầu rút #'.$locked->id,
-                                    'withdraw_refund_'.$locked->id
-                                );
-                                $locked->update([
-                                    'status' => 'rejected',
-                                    'admin_note' => $data['admin_note'],
-                                    'processed_by' => Auth::id(),
-                                    'processed_at' => now(),
-                                ]);
-
-                                return true;
-                            });
-                            if (! $rejected) {
-                                Notification::make()->warning()
-                                    ->title('Yêu cầu đã được xử lý, không hoàn tiền lại.')
-                                    ->send();
-
-                                return;
-                            }
-                            Notification::make()->success()->title('Đã từ chối và hoàn tiền cho tài xế.')->send();
-                        } catch (\Exception $e) {
-                            Notification::make()->danger()->title('Lỗi: '.$e->getMessage())->send();
-                        } finally {
-                            $lock->release();
-                        }
-                    }),
+                Tables\Actions\ActionGroup::make([
+                    Tables\Actions\ViewAction::make()->label('Xem chi tiết')->icon('heroicon-o-eye'),
+                    self::approveAction(Tables\Actions\Action::make('approve')),
+                    self::rejectAction(Tables\Actions\Action::make('reject')),
+                ])->icon('heroicon-m-ellipsis-horizontal')->label(''),
             ])
+            ->recordUrl(fn (WithdrawRequest $record): string => static::getUrl('view', ['record' => $record]))
             ->defaultSort('created_at', 'desc')
             ->defaultPaginationPageOption(25)
-            ->paginationPageOptions([25, 50, 100])
-            ->poll('20s');
+            ->paginationPageOptions([25, 50, 100]);
     }
 
     public static function getRelations(): array
@@ -325,6 +225,7 @@ class WithdrawRequestResource extends Resource
     {
         return [
             'index' => Pages\ListWithdrawRequests::route('/'),
+            'view' => Pages\ViewWithdrawRequest::route('/{record}'),
         ];
     }
 }

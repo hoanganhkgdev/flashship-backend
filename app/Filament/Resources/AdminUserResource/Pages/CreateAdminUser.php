@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\AdminUserResource\Pages;
 
 use App\Filament\Resources\AdminUserResource;
+use App\Services\AdminAccountService;
 use Filament\Resources\Pages\CreateRecord;
 
 class CreateAdminUser extends CreateRecord
@@ -24,5 +25,15 @@ class CreateAdminUser extends CreateRecord
         $data['user_type'] = $data['user_type'] ?? 'subadmin';
 
         return $data;
+    }
+
+    protected function afterCreate(): void
+    {
+        AdminAccountService::log($this->record, 'created', auth()->id(), (AdminAccountService::ROLES[$this->record->user_type] ?? $this->record->user_type).' · '.$this->record->email);
+    }
+
+    protected function getRedirectUrl(): string
+    {
+        return $this->getResource()::getUrl('index');
     }
 }

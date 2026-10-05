@@ -217,10 +217,14 @@ class PaymentController extends Controller
 
                     if ($applied > 0) {
                         $newPaid = min((float) $debt->amount_due, (float) $debt->amount_paid + $applied);
+                        $done = $newPaid >= (float) $debt->amount_due;
                         $debt->update([
                             'amount_paid' => $newPaid,
-                            'status' => $newPaid >= (float) $debt->amount_due ? 'paid' : $debt->status,
+                            'status' => $done ? 'paid' : $debt->status,
+                            'paid_at' => $done ? now() : $debt->paid_at,
+                            'paid_via' => $done ? 'payos' : $debt->paid_via,
                         ]);
+                        \App\Services\DriverDebtService::log($debt->id, 'paid_payos', $applied, null, 'Đơn QR '.$order->order_code);
                     }
 
                     if ($excess > 0) {

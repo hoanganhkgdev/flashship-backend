@@ -8,14 +8,13 @@ use App\Filament\Resources\DriverWalletResource\RelationManagers;
 use App\Filament\Traits\RestrictToFullAdmin;
 use Filament\Forms;
 use Filament\Forms\Form;
-use Filament\Infolists;
-use Filament\Infolists\Infolist;
 use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
+use App\Services\DriverWalletReport;
 use Modules\Core\Services\OperationalSettings;
 use Modules\Driver\Models\DriverWallet;
 use Modules\Driver\Services\DriverWalletService;
@@ -34,13 +33,15 @@ class DriverWalletResource extends Resource
 
     protected static ?string $navigationIcon = 'heroicon-o-wallet';
 
-    protected static ?string $navigationGroup = 'Tài chính tài xế';
+    protected static ?string $navigationGroup = 'Tài xế';
+
+    protected static ?string $navigationLabel = 'Ví tài xế';
 
     protected static ?string $modelLabel = 'Ví tài xế';
 
     protected static ?string $pluralModelLabel = 'Ví tài xế';
 
-    protected static ?int $navigationSort = 1;
+    protected static ?int $navigationSort = 4;
 
     public static function canCreate(): bool
     {
@@ -74,180 +75,100 @@ class DriverWalletResource extends Resource
             ]);
     }
 
-    public static function infolist(Infolist $infolist): Infolist
+    /** Điều chỉnh ví tay: bắt buộc lý do, lưu người làm; từ mức lớn phải nhập lại số tiền. */
+    public static function adjustAction($action)
     {
-        return $infolist->schema([
-            Infolists\Components\Section::make('Thông tin tài xế')
-                ->columns(3)
-                ->schema([
-                    Infolists\Components\TextEntry::make('driver.name')
-                        ->label('Tên tài xế')
-                        ->default('—'),
+        $above = DriverWalletService::ADJUST_CONFIRM_ABOVE;
 
-                    Infolists\Components\TextEntry::make('driver.phone')
-                        ->label('Số điện thoại')
-                        ->default('—'),
+        return $action
+            ->label('Điều chỉnh ví')
+            ->icon('heroicon-o-pencil-square')
+            ->color('warning')
+            ->modalHeading(fn (DriverWallet $record) => 'Điều chỉnh ví: '.$record->driver?->name)
+            ->modalDescription(fn (DriverWallet $record) => 'Số dư hiện tại '.number_format($record->balance, 0, ',', '.').'₫. Thao tác được ghi lại cùng tên bạn.')
+            ->form([
+                Forms\Components\Select::make('type')->label('Loại')->options(['credit' => 'Cộng tiền', 'debit' => 'Trừ tiền'])->required(),
+                Forms\Components\TextInput::make('amount')->label('Số tiền')->numeric()->minValue(1000)->required()->suffix('₫')->live(onBlur: true),
+                Forms\Components\TextInput::make('confirm_amount')
+                    ->label('Nhập lại số tiền để xác nhận')
+                    ->helperText('Số tiền từ '.number_format($above, 0, ',', '.').'₫ trở lên cần xác nhận lại.')
+                    ->numeric()->suffix('₫')
+                    ->visible(fn (Forms\Get $get) => (float) $get('amount') >= $above)
+                    ->required(fn (Forms\Get $get) => (float) $get('amount') >= $above)
+                    ->same('amount'),
+                Forms\Components\Textarea::make('description')->label('Lý do')->required()->minLength(5)->maxLength(200)->rows(2),
+            ])
+            ->action(function (DriverWallet $record, array $data) {
+                try {
+                    DriverWalletService::adminAdjust($record->driver_id, (float) $data['amount'], $data['type'], $data['description'], auth()->id());
+                    $record->refresh();
+                    Notification::make()->success()
+                        ->title('Đã '.($data['type'] === 'credit' ? 'cộng' : 'trừ').' '.number_format($data['amount'], 0, ',', '.').'₫')
+                        ->body('Số dư mới: '.number_format($record->balance, 0, ',', '.').'₫')
+                        ->send();
+                } catch (\Exception $e) {
+                    Notification::make()->danger()->title('Không điều chỉnh được')->body($e->getMessage())->send();
+                }
+            });
+    }
 
-                    Infolists\Components\TextEntry::make('driver.city.name')
-                        ->label('Khu vực')
-                        ->default('—'),
-
-                    Infolists\Components\TextEntry::make('driver.is_online')
-                        ->label('Trạng thái')
-                        ->badge()
-                        ->formatStateUsing(fn ($state) => $state ? 'Đang online' : 'Offline')
-                        ->color(fn ($state) => $state ? 'success' : 'gray'),
-
-                    Infolists\Components\TextEntry::make('balance')
-                        ->label('Số dư hiện tại')
-                        ->formatStateUsing(fn ($state) => number_format($state, 0, ',', '.').' ₫')
-                        ->size('lg')
-                        ->color(fn ($state) => $state < OperationalSettings::lowWalletBalanceThreshold(Filament::getTenant()?->getKey()) ? 'danger' : 'success'),
-
-                    Infolists\Components\TextEntry::make('updated_at')
-                        ->label('Cập nhật lần cuối')
-                        ->dateTime('d/m/Y H:i'),
-                ]),
-
-            Infolists\Components\Section::make('Tổng quan hôm nay')
-                ->columns(3)
-                ->schema([
-                    Infolists\Components\TextEntry::make('credit_today')
-                        ->label('Tiền vào')
-                        ->formatStateUsing(fn ($state) => '+'.number_format((float) $state, 0, ',', '.').' ₫')
-                        ->color('success'),
-                    Infolists\Components\TextEntry::make('debit_today')
-                        ->label('Tiền ra')
-                        ->formatStateUsing(fn ($state) => '-'.number_format((float) $state, 0, ',', '.').' ₫')
-                        ->color('danger'),
-                    Infolists\Components\TextEntry::make('pending_withdraw_amount')
-                        ->label('Đang chờ rút')
-                        ->formatStateUsing(fn ($state) => number_format((float) $state, 0, ',', '.').' ₫')
-                        ->color(fn ($state) => $state > 0 ? 'warning' : 'gray'),
-                ]),
-        ]);
+    public static function lowThreshold(): int
+    {
+        return OperationalSettings::lowWalletBalanceThreshold(Filament::getTenant()?->getKey());
     }
 
     public static function table(Table $table): Table
     {
         return $table
             ->columns([
-                Tables\Columns\TextColumn::make('index')
-                    ->rowIndex()
-                    ->label('#')
-                    ->alignCenter()
-                    ->width(40),
-
                 Tables\Columns\TextColumn::make('driver.name')
                     ->label('Tài xế')
                     ->searchable()
-                    ->description(fn (DriverWallet $record) => collect([
-                        $record->driver?->phone,
-                        $record->driver?->city?->name,
-                        $record->driver?->is_online ? 'Đang online' : 'Offline',
-                    ])->filter()->join(' · ')),
+                    ->description(fn (DriverWallet $r) => collect([$r->driver?->phone, match ((int) $r->driver?->status) { 2 => 'Bị khóa', 0 => 'Chờ duyệt', default => null }])->filter()->join(' · ')),
 
                 Tables\Columns\TextColumn::make('balance')
                     ->label('Số dư')
-                    ->alignCenter()
-                    ->formatStateUsing(fn ($state) => number_format($state, 0, ',', '.').' ₫')
-                    ->color(fn ($state) => $state < OperationalSettings::lowWalletBalanceThreshold(Filament::getTenant()?->getKey()) ? 'danger' : 'success'),
+                    ->alignEnd()
+                    ->weight('bold')
+                    ->formatStateUsing(fn ($state) => number_format($state, 0, ',', '.').'₫')
+                    ->color(fn ($state, DriverWallet $r) => $state < 0 ? 'danger' : ((int) $r->driver?->status === 1 && $state < self::lowThreshold() ? 'warning' : null))
+                    ->sortable(),
 
                 Tables\Columns\TextColumn::make('credit_today')
-                    ->label('Hôm nay')
-                    ->formatStateUsing(fn ($state) => '+'.number_format((float) $state, 0, ',', '.').' ₫')
-                    ->color('success')
-                    ->description(fn (DriverWallet $record) => '-'.number_format((float) $record->debit_today, 0, ',', '.').' ₫ tiền ra'),
+                    ->label('Vào hôm nay')
+                    ->alignEnd()
+                    ->formatStateUsing(fn ($state) => $state ? '+'.number_format((float) $state, 0, ',', '.').'₫' : '—')
+                    ->color('success'),
+
+                Tables\Columns\TextColumn::make('debit_today')
+                    ->label('Ra hôm nay')
+                    ->alignEnd()
+                    ->formatStateUsing(fn ($state) => $state ? '−'.number_format((float) $state, 0, ',', '.').'₫' : '—')
+                    ->color('danger'),
+
+                Tables\Columns\TextColumn::make('pending_withdraw_amount')
+                    ->label('Chờ rút')
+                    ->alignEnd()
+                    ->formatStateUsing(fn ($state) => $state > 0 ? number_format((float) $state, 0, ',', '.').'₫' : '—')
+                    ->color(fn ($state) => $state > 0 ? 'warning' : 'gray'),
 
                 Tables\Columns\TextColumn::make('latestTransaction.description')
                     ->label('Giao dịch gần nhất')
                     ->placeholder('Chưa có giao dịch')
-                    ->wrap()
-                    ->description(function (DriverWallet $record) {
-                        $transaction = $record->latestTransaction;
-                        if (! $transaction) {
-                            return null;
-                        }
+                    ->limit(36)
+                    ->description(function (DriverWallet $r) {
+                        $t = $r->latestTransaction;
 
-                        $sign = $transaction->type === 'credit' ? '+' : '-';
-
-                        return $sign.number_format($transaction->amount, 0, ',', '.').' ₫ · '.$transaction->created_at?->format('d/m H:i');
-                    })
-                    ->color(fn (DriverWallet $record) => $record->latestTransaction?->type === 'credit' ? 'success' : 'danger'),
-
-                Tables\Columns\TextColumn::make('pending_withdraw_amount')
-                    ->label('Chờ rút')
-                    ->formatStateUsing(fn ($state) => number_format((float) $state, 0, ',', '.').' ₫')
-                    ->color(fn ($state) => $state > 0 ? 'warning' : 'gray'),
-            ])
-            ->filters([
-                Tables\Filters\SelectFilter::make('balance_range')
-                    ->label('Số dư')
-                    ->options(fn () => [
-                        'low' => 'Dưới '.number_format(OperationalSettings::lowWalletBalanceThreshold(Filament::getTenant()?->getKey())).'₫',
-                        'normal' => 'Từ '.number_format(OperationalSettings::lowWalletBalanceThreshold(Filament::getTenant()?->getKey())).'₫',
-                        'high' => 'Từ 1.000.000₫',
-                    ])
-                    ->query(fn (Builder $query, array $data) => match ($data['value'] ?? null) {
-                        'low' => $query->where('balance', '<', OperationalSettings::lowWalletBalanceThreshold(Filament::getTenant()?->getKey())),
-                        'normal' => $query->whereBetween('balance', [OperationalSettings::lowWalletBalanceThreshold(Filament::getTenant()?->getKey()), 999_999]),
-                        'high' => $query->where('balance', '>=', 1_000_000),
-                        default => $query,
-                    }),
-                Tables\Filters\SelectFilter::make('online_status')
-                    ->label('Trạng thái tài xế')
-                    ->options(['online' => 'Đang online', 'offline' => 'Offline'])
-                    ->query(fn (Builder $query, array $data) => match ($data['value'] ?? null) {
-                        'online' => $query->whereHas('driver', fn ($q) => $q->where('is_online', true)),
-                        'offline' => $query->whereHas('driver', fn ($q) => $q->where('is_online', false)),
-                        default => $query,
+                        return $t ? DriverWalletReport::categoryLabels()[DriverWalletReport::categoryOf($t->reference)].' · '.($t->type === 'credit' ? '+' : '−').number_format($t->amount, 0, ',', '.').'₫ · '.$t->created_at?->format('d/m H:i') : null;
                     }),
             ])
             ->actions([
-                Tables\Actions\Action::make('adjust')
-                    ->label('Điều chỉnh')
-                    ->icon('heroicon-o-pencil-square')
-                    ->color('warning')
-                    ->requiresConfirmation()
-                    ->modalHeading(fn (DriverWallet $record) => 'Điều chỉnh ví: '.$record->driver?->name)
-                    ->form([
-                        Forms\Components\Select::make('type')
-                            ->label('Loại')
-                            ->options(['credit' => 'Cộng tiền', 'debit' => 'Trừ tiền'])
-                            ->required(),
-
-                        Forms\Components\TextInput::make('amount')
-                            ->label('Số tiền')
-                            ->numeric()
-                            ->minValue(1000)
-                            ->required()
-                            ->suffix('₫'),
-
-                        Forms\Components\Textarea::make('description')
-                            ->label('Lý do')
-                            ->required()
-                            ->rows(2),
-                    ])
-                    ->action(function (DriverWallet $record, array $data) {
-                        try {
-                            DriverWalletService::adjust(
-                                $record->driver_id,
-                                (float) $data['amount'],
-                                $data['type'],
-                                $data['description'].' (admin)',
-                                'admin_adj_'.$record->driver_id.'_'.now()->timestamp
-                            );
-                            $record->refresh();
-                            Notification::make()->success()
-                                ->title('Đã '.($data['type'] === 'credit' ? 'cộng' : 'trừ').' '.number_format($data['amount'], 0, ',', '.').' ₫')
-                                ->body('Số dư mới: '.number_format($record->balance, 0, ',', '.').' ₫')
-                                ->send();
-                        } catch (\Exception $e) {
-                            Notification::make()->danger()->title('Lỗi: '.$e->getMessage())->send();
-                        }
-                    }),
-
-                Tables\Actions\ViewAction::make()->label('')->tooltip('Xem giao dịch')->icon('heroicon-o-list-bullet'),
+                Tables\Actions\ActionGroup::make([
+                    Tables\Actions\ViewAction::make()->label('Xem giao dịch')->icon('heroicon-o-list-bullet'),
+                    self::adjustAction(Tables\Actions\Action::make('adjust')),
+                    Tables\Actions\Action::make('driver')->label('Hồ sơ tài xế')->icon('heroicon-o-user')
+                        ->url(fn (DriverWallet $r) => DriverResource::getUrl('view', ['record' => $r->driver_id])),
+                ])->icon('heroicon-m-ellipsis-horizontal')->label(''),
             ])
             ->recordUrl(fn (DriverWallet $record): string => static::getUrl('view', ['record' => $record]))
             ->defaultSort('balance', 'desc')

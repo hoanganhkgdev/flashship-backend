@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\VoucherResource\Pages;
 
 use App\Filament\Resources\VoucherResource;
+use App\Filament\Resources\VoucherResource\Widgets\VoucherStatsWidget;
 use Filament\Actions;
 use Filament\Resources\Components\Tab;
 use Filament\Resources\Pages\ListRecords;
@@ -14,12 +15,28 @@ class ListVouchers extends ListRecords
 
     public function getHeading(): string
     {
-        return 'Mã giảm giá';
+        return 'Mã giảm giá khách hàng';
     }
 
     public function getSubheading(): ?string
     {
-        return 'Tạo và theo dõi các chương trình ưu đãi theo khu vực, dịch vụ và nhóm người dùng.';
+        return 'Ưu đãi dành riêng cho khách hàng theo khu vực và dịch vụ.';
+    }
+
+    protected function getHeaderWidgets(): array
+    {
+        return [VoucherStatsWidget::class];
+    }
+
+    public function getHeaderWidgetsColumns(): int|string|array
+    {
+        return 1;
+    }
+
+    /** Truyền đối tượng (khách/cửa hàng) cho widget thống kê. */
+    public function getWidgetData(): array
+    {
+        return ['audience' => static::getResource()::audience()];
     }
 
     protected function getHeaderActions(): array

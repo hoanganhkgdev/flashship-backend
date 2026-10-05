@@ -35,7 +35,7 @@ class EditVoucher extends EditRecord
     protected function getHeaderActions(): array
     {
         return [
-            Actions\DeleteAction::make()->label('Xoá mã giảm giá'),
+            Actions\DeleteAction::make()->label('Xoá mã giảm giá')->visible(fn (): bool => ! $this->record->hasHistory()),
         ];
     }
 

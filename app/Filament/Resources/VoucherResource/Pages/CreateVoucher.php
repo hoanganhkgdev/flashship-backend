@@ -13,7 +13,7 @@ class CreateVoucher extends CreateRecord
 
     public function getTitle(): string
     {
-        return 'Tạo mã giảm giá';
+        return 'Tạo mã giảm giá khách hàng';
     }
 
     public function getSubheading(): ?string

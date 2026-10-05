@@ -4,7 +4,7 @@ use Illuminate\Database\Eloquent\Model;
 
 class DriverWalletTransaction extends Model
 {
-    protected $fillable = ['wallet_id', 'type', 'amount', 'description', 'reference'];
+    protected $fillable = ['wallet_id', 'type', 'amount', 'description', 'reference', 'performed_by'];
     protected $casts    = ['amount' => 'float'];
 
     public function wallet() { return $this->belongsTo(DriverWallet::class); }

@@ -5,7 +5,7 @@ use Modules\Core\Models\City;
 
 class SupportConfig extends Model
 {
-    protected $fillable = ['title', 'subtitle', 'icon', 'type', 'value', 'color', 'city_id', 'priority', 'is_active'];
+    protected $fillable = ['title', 'subtitle', 'icon', 'type', 'value', 'color', 'city_id', 'audience', 'priority', 'is_active'];
     protected $casts    = ['is_active' => 'boolean'];
 
     public function city()

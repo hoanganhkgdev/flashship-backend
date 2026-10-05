@@ -19,27 +19,36 @@ class OrdersByHourWidget extends ChartWidget
 
     protected static ?string $pollingInterval = '60s';
 
-    protected int|string|array $columnSpan = 'full';
+    protected static ?string $maxHeight = '280px';
 
-    protected static ?int $sort = 3;
+    protected int|string|array $columnSpan = ['default' => 12, 'xl' => 6];
+
+    protected static bool $isLazy = false;
+
+    protected static ?int $sort = 9;
 
     protected function getData(): array
     {
         $cityId = Filament::getTenant()?->id;
 
-        $orders = Order::whereDate('created_at', today())
+        $start = now()->startOfDay()->toDateTimeString();
+        $end = now()->endOfDay()->toDateTimeString();
+
+        // Đếm theo giờ ngay trong SQL thay vì tải toàn bộ đơn hôm nay vào bộ nhớ.
+        $rows = Order::query()
+            ->whereBetween('created_at', [$start, $end])
             ->when($cityId, fn ($q) => $q->where('city_id', $cityId))
-            ->get(['created_at', 'status']);
+            ->selectRaw("HOUR(created_at) AS h, COUNT(*) AS total, COALESCE(SUM(status = 'completed'), 0) AS completed")
+            ->groupBy('h')
+            ->get()
+            ->keyBy('h');
 
         $byHour = array_fill(0, 24, 0);
         $completed = array_fill(0, 24, 0);
 
-        foreach ($orders as $order) {
-            $h = (int) $order->created_at->format('H');
-            $byHour[$h]++;
-            if ($order->status === 'completed') {
-                $completed[$h]++;
-            }
+        foreach ($rows as $h => $row) {
+            $byHour[(int) $h] = (int) $row->total;
+            $completed[(int) $h] = (int) $row->completed;
         }
 
         $currentHour = (int) now()->format('H');

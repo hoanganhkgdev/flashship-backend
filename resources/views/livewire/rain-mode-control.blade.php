@@ -24,7 +24,7 @@
 
     <div
         x-show="open" x-cloak x-transition
-        style="position:absolute; top:calc(100% + 8px); right:0; z-index:50; width:280px; background:#fff; border-radius:12px; box-shadow:0 10px 32px rgba(0,0,0,0.18); border:1px solid #eef0f2; padding:10px; font-size:13px;"
+        style="position:absolute; top:calc(100% + 8px); right:0; z-index:50; width:280px; background:#fff; border-radius:12px; box-shadow:0 10px 32px rgba(0,0,0,0.18); border:1px solid #eef0f2; padding:10px; font-size:var(--fs-sm);"
     >
         <div style="font-weight:700; color:#111827; padding:2px 6px 8px; display:flex; align-items:center; gap:6px;">
             <span>🌧</span> Chế độ trời mưa
@@ -35,9 +35,9 @@
             <div style="min-width:0;">
                 <div style="font-weight:600; color:#111827;">{{ $city->name }}</div>
                 @if ($city->is_rain_mode && $city->rain_mode_started_at)
-                <div style="font-size:11px; color:#9ca3af;">Bật lúc {{ $city->rain_mode_started_at->format('H:i d/m') }}</div>
+                <div style="font-size:var(--fs-xs); color:#9ca3af;">Bật lúc {{ $city->rain_mode_started_at->format('H:i d/m') }}</div>
                 @else
-                <div style="font-size:11px; color:#9ca3af;">Đang tắt</div>
+                <div style="font-size:var(--fs-xs); color:#9ca3af;">Đang tắt</div>
                 @endif
             </div>
             <button
@@ -52,7 +52,7 @@
         <div style="padding:8px 6px; color:#9ca3af;">Không có thành phố nào để quản lý.</div>
         @endforelse
 
-        <div style="font-size:11px; color:#9ca3af; padding:8px 6px 2px; border-top:1px solid #f1f2f4; margin-top:4px;">
+        <div style="font-size:var(--fs-xs); color:#9ca3af; padding:8px 6px 2px; border-top:1px solid #f1f2f4; margin-top:4px;">
             Bật: +5.000đ/đơn vào ví tài xế lúc hoàn thành, tạm miễn phạt điểm lơ đơn. Tự tắt sau 6 tiếng nếu quên.
         </div>
     </div>

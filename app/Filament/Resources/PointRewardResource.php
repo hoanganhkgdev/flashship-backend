@@ -22,13 +22,15 @@ class PointRewardResource extends Resource
 
     protected static ?string $navigationIcon = 'heroicon-o-ticket';
 
-    protected static ?string $navigationGroup = 'Marketing & CSKH';
+    protected static ?string $navigationGroup = 'Cửa hàng';
+
+    protected static ?string $navigationLabel = 'Danh mục đổi điểm';
 
     protected static ?string $modelLabel = 'Quà đổi điểm';
 
     protected static ?string $pluralModelLabel = 'Danh mục đổi điểm';
 
-    protected static ?int $navigationSort = 7;
+    protected static ?int $navigationSort = 6;
 
     private const TYPE_LABELS = [
         'fixed' => 'Giảm số tiền cố định',

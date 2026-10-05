@@ -21,11 +21,27 @@
 
 <p>Nếu bạn gặp sự cố khi sử dụng ứng dụng FlashShip (Khách hàng, Tài xế hoặc Cửa hàng), vui lòng liên hệ với chúng tôi qua các kênh dưới đây. Đội ngũ hỗ trợ sẽ phản hồi trong thời gian sớm nhất.</p>
 
+@php
+    $channels = \App\Services\SupportChannelService::query('customer', null)->whereNull('city_id')->get();
+    $icons = ['phone' => 'Hotline', 'zalo' => 'Zalo', 'facebook' => 'Facebook', 'website' => 'Website', 'email' => 'Email hỗ trợ'];
+    $hasEmail = $channels->contains('type', 'email');
+@endphp
 <div class="card">
+@if ($channels->isNotEmpty())
+  @foreach ($channels as $c)
+    @php $href = \App\Services\SupportChannelService::link($c->type, $c->value); @endphp
+    <p><strong>{{ $c->title ?: ($icons[$c->type] ?? 'Liên hệ') }}:</strong>
+      @if ($href) <a href="{{ $href }}">{{ $c->type === 'phone' ? $c->value : preg_replace('#^(https?://|mailto:|tel:)#', '', $href) }}</a> @else {{ $c->value }} @endif</p>
+  @endforeach
+  @unless ($hasEmail)
+  <p><strong>Email hỗ trợ:</strong> <a href="mailto:support@flashship.vn">support@flashship.vn</a></p>
+  @endunless
+@else
   <p><strong>Email hỗ trợ:</strong> <a href="mailto:support@flashship.vn">support@flashship.vn</a></p>
   <p><strong>Hotline:</strong> 1900 xxxx</p>
   <p><strong>Zalo:</strong> <a href="https://zalo.me/flashship">zalo.me/flashship</a></p>
   <p><strong>Facebook:</strong> <a href="https://facebook.com/flashship.vn">facebook.com/flashship.vn</a></p>
+@endif
 </div>
 
 <h2>Câu hỏi thường gặp</h2>

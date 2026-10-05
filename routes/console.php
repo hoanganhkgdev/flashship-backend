@@ -14,3 +14,9 @@ Schedule::command('zalo:refresh-token')->hourly();
 // Dọn log lịch sử GPS tài xế cũ hơn 30 ngày, tránh phình bảng
 Schedule::command('driver:prune-location-logs')->daily();
 
+
+// Chuyển các chiến dịch thông báo hẹn giờ đã tới hạn sang hàng đợi gửi
+Schedule::call(fn () => app(\App\Services\NotificationCampaignService::class)->dispatchDue())
+    ->everyMinute()
+    ->name('notification-campaigns-dispatch-due')
+    ->withoutOverlapping();

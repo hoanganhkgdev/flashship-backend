@@ -25,6 +25,14 @@ class AppServiceProvider extends ServiceProvider
     {
         app()->setLocale('vi');
 
+        // Ghi nhận lần đăng nhập gần nhất của tài khoản quản trị (trang quản trị trước đây không ghi).
+        \Illuminate\Support\Facades\Event::listen(\Illuminate\Auth\Events\Login::class, function ($event) {
+            $user = $event->user;
+            if ($user instanceof \Modules\Core\Models\User && in_array($user->user_type, ['admin', 'subadmin', 'city_manager', 'call_center'], true)) {
+                \Illuminate\Support\Facades\DB::table('users')->where('id', $user->id)->update(['last_login_at' => now()]);
+            }
+        });
+
         // Trước đây toàn bộ API (mọi module) không có rate-limit nào — kể cả
         // login mật khẩu và gửi/xác thực OTP đều dò được không giới hạn tốc
         // độ request. 120/phút/user(hoặc IP nếu chưa đăng nhập) đủ rộng cho

@@ -49,7 +49,7 @@ class DeleteDriverActionTest extends TestCase
         $this->assertNull(User::find($driver->id));
     }
 
-    public function test_driver_holding_an_active_order_is_not_deleted(): void
+    public function test_driver_holding_an_active_order_cannot_be_deleted(): void
     {
         $driver = $this->makeUser('driver');
         Order::create([
@@ -57,8 +57,22 @@ class DeleteDriverActionTest extends TestCase
             'pickup_address' => 'a', 'delivery_address' => 'b', 'service_type' => 'delivery',
         ]);
 
+        // Tài xế đã có đơn thì nút Xóa bị ẩn: chỉ được khóa để giữ lịch sử.
         Livewire::test(ListDrivers::class)
-            ->callTableAction('delete', $driver);
+            ->assertTableActionHidden('delete', $driver);
+
+        $this->assertNotNull(User::find($driver->id));
+    }
+
+    public function test_driver_with_only_completed_orders_cannot_be_deleted_either(): void
+    {
+        $driver = $this->makeUser('driver');
+        Order::create([
+            'code' => 'DEL'.uniqid(), 'status' => 'completed', 'delivery_man_id' => $driver->id,
+            'pickup_address' => 'a', 'delivery_address' => 'b', 'service_type' => 'delivery',
+        ]);
+
+        Livewire::test(ListDrivers::class)->assertTableActionHidden('delete', $driver);
 
         $this->assertNotNull(User::find($driver->id));
     }

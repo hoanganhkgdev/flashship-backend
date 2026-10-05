@@ -4,6 +4,7 @@ namespace Modules\Order\Services;
 use Modules\Order\Models\Order;
 use Modules\Order\Models\OrderDispatchLog;
 use Modules\Order\Services\DispatchService;
+use Modules\Order\Services\OrderTimeline;
 use Modules\Core\Models\User;
 use Modules\Core\Models\Voucher;
 use Modules\Core\Models\VoucherUsage;
@@ -34,9 +35,10 @@ class OrderService
      *
      * @return array{success: bool, message: string}
      */
-    public function cancelPendingOrder(Order $order): array
+    public function cancelPendingOrder(Order $order, ?string $reason = null, ?string $note = null, ?int $by = null): array
     {
-        $result = DB::transaction(function () use ($order) {
+        [$reason, $by] = $this->cancelActor($reason, $by);
+        $result = DB::transaction(function () use ($order, $reason, $note, $by) {
             $fresh = Order::where('id', $order->id)->lockForUpdate()->firstOrFail();
             if ($fresh->status !== 'pending') {
                 return ['success' => false, 'driver_id' => null, 'order' => $fresh];
@@ -49,8 +51,13 @@ class OrderService
             $fresh->update([
                 'status' => 'cancelled',
                 'dispatching_to_driver_id' => null,
+                'cancel_reason' => $reason ?? $fresh->cancel_reason,
+                'cancel_note' => $note,
+                'cancelled_by' => $by,
+                'cancelled_at' => now(),
                 'updated_at' => now(),
             ]);
+            OrderTimeline::record($fresh, 'cancelled', 'Hủy đơn — '.OrderTimeline::cancelReasonLabel($reason ?? $fresh->cancel_reason).($note ? ': '.$note : ''), $by);
 
             OrderDispatchLog::where('order_id', $fresh->id)
                 ->where('result', 'pending')
@@ -95,10 +102,28 @@ class OrderService
         return ['success' => true, 'message' => 'Đã hủy đơn hàng'];
     }
 
-    /** Cancel an assigned order from admin and restore its voucher atomically. */
-    public function cancelAssignedOrderByAdmin(Order $order): array
+    /**
+     * Ai hủy và vì sao: nếu không truyền, lấy người đang đăng nhập; khách/cửa hàng hủy trong app thì lý do là 'customer'.
+     *
+     * @return array{0:?string,1:?int}
+     */
+    private function cancelActor(?string $reason, ?int $by): array
     {
-        return DB::transaction(function () use ($order) {
+        $user = $by ? null : request()->user();
+        $by ??= $user?->id;
+        if ($reason === null && $user && in_array($user->user_type, ['customer', 'shop'], true)) {
+            $reason = 'customer';
+        }
+
+        return [$reason, $by];
+    }
+
+    /** Cancel an assigned order from admin and restore its voucher atomically. */
+    public function cancelAssignedOrderByAdmin(Order $order, ?string $reason = null, ?string $note = null, ?int $by = null): array
+    {
+        [$reason, $by] = $this->cancelActor($reason ?? 'admin', $by);
+
+        return DB::transaction(function () use ($order, $reason, $note, $by) {
             $fresh = Order::whereKey($order->id)->lockForUpdate()->firstOrFail();
             if ($fresh->status !== 'assigned') {
                 return ['success' => false, 'message' => 'Đơn không còn ở trạng thái đã nhận'];
@@ -106,10 +131,14 @@ class OrderService
 
             $fresh->update([
                 'status' => 'cancelled',
-                'cancel_reason' => 'admin',
+                'cancel_reason' => $reason,
+                'cancel_note' => $note,
+                'cancelled_by' => $by,
+                'cancelled_at' => now(),
                 'dispatching_to_driver_id' => null,
                 'updated_at' => now(),
             ]);
+            OrderTimeline::record($fresh, 'cancelled', 'Hủy đơn đã nhận — '.OrderTimeline::cancelReasonLabel($reason).($note ? ': '.$note : ''), $by);
             $this->releaseVoucherUsage($fresh->id);
 
             return ['success' => true, 'message' => 'Đã hủy đơn hàng'];
@@ -214,6 +243,7 @@ class OrderService
         $ratingRow = Order::where('delivery_man_id', $user->id)
             ->where('status', 'completed')
             ->whereNotNull('driver_rating')
+            ->where('rating_hidden', false)
             ->selectRaw('AVG(driver_rating) as avg, COUNT(*) as cnt')
             ->first();
 
@@ -421,6 +451,7 @@ class OrderService
         }
 
         $order->update(['status' => $status]);
+        OrderTimeline::record($order, 'picked_up', 'Tài xế đã lấy hàng', $user->id);
 
         RTDBService::updateOrderStatus($order->code, $status);
 
@@ -487,7 +518,7 @@ class OrderService
             }
         }
 
-        $completion = DB::transaction(function () use ($order, $user) {
+        $completion = DB::transaction(function () use ($order, $user, $proximityAlreadyVerified) {
             $fresh = Order::where('id', $order->id)->lockForUpdate()->firstOrFail();
 
             if ((int) $fresh->delivery_man_id !== (int) $user->id) {
@@ -520,6 +551,8 @@ class OrderService
                 'delivered_at' => $completedAt,
                 'updated_at' => $completedAt,
             ]);
+            $staff = $proximityAlreadyVerified ? request()->user() : null;
+            OrderTimeline::record($fresh, 'completed', 'Hoàn thành đơn'.($staff && $staff->id !== $user->id ? ' (nhân viên xác nhận thay tài xế)' : ''), $staff?->id ?? $user->id);
 
             // Tất cả quyền lợi tài xế commit/rollback cùng trạng thái đơn.
             // Nếu bất kỳ bước nào lỗi, đơn vẫn processing và có thể thử lại,

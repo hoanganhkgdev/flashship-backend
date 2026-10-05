@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -12,17 +13,52 @@ class ZaloTokenService
     private const REFRESH_URL = 'https://oauth.zaloapp.com/v4/oa/access_token';
     private const SEND_URL    = 'https://business.openapi.zalo.me/message/template';
 
-    private static function row(): ?object
+    private const ENC_PREFIX = 'enc:v1:';
+
+    public static function encode(string $token): string
     {
-        return DB::table('zalo_tokens')->orderByDesc('id')->first();
+        return self::ENC_PREFIX.Crypt::encryptString($token);
     }
 
-    private static function save(string $accessToken, string $refreshToken, int $expiresIn = 86400): void
+    /** Giải mã token lưu trong DB; chấp nhận cả bản cũ chưa mã hóa. */
+    public static function decode(?string $stored): ?string
     {
-        $row     = self::row();
+        if ($stored === null || ! str_starts_with($stored, self::ENC_PREFIX)) {
+            return $stored;
+        }
+
+        try {
+            return Crypt::decryptString(substr($stored, strlen(self::ENC_PREFIX)));
+        } catch (\Throwable $e) {
+            Log::error('[ZaloToken] Không giải mã được token (APP_KEY đã đổi?)');
+
+            return null;
+        }
+    }
+
+    private static function decodeRow(?object $row): ?object
+    {
+        if (! $row) {
+            return null;
+        }
+        $row->access_token = self::decode($row->access_token);
+        $row->refresh_token = self::decode($row->refresh_token);
+
+        return $row;
+    }
+
+    /** Bản ghi token mới nhất, đã giải mã (chỉ dùng trong server, không đưa ra giao diện). */
+    public static function row(): ?object
+    {
+        return self::decodeRow(DB::table('zalo_tokens')->orderByDesc('id')->first());
+    }
+
+    /** Lưu token (mã hóa) và chỉ giữ đúng một bản ghi. */
+    public static function store(string $accessToken, string $refreshToken, int $expiresIn = 86400): void
+    {
         $payload = [
-            'access_token'      => $accessToken,
-            'refresh_token'     => $refreshToken,
+            'access_token'      => self::encode($accessToken),
+            'refresh_token'     => self::encode($refreshToken),
             'expires_at'        => now()->addSeconds($expiresIn),
             'last_error'        => null,
             'last_error_at'     => null,
@@ -30,11 +66,20 @@ class ZaloTokenService
             'updated_at'        => now(),
         ];
 
-        if ($row) {
-            DB::table('zalo_tokens')->where('id', $row->id)->update($payload);
-        } else {
-            DB::table('zalo_tokens')->insert($payload + ['created_at' => now()]);
-        }
+        DB::transaction(function () use ($payload) {
+            $id = DB::table('zalo_tokens')->orderByDesc('id')->value('id');
+            if ($id) {
+                DB::table('zalo_tokens')->where('id', $id)->update($payload);
+                DB::table('zalo_tokens')->where('id', '<>', $id)->delete();
+            } else {
+                DB::table('zalo_tokens')->insert($payload + ['created_at' => now()]);
+            }
+        });
+    }
+
+    private static function save(string $accessToken, string $refreshToken, int $expiresIn = 86400): void
+    {
+        self::store($accessToken, $refreshToken, $expiresIn);
     }
 
     private static function saveError(object $row, string $error): void
@@ -75,7 +120,7 @@ class ZaloTokenService
 
     public static function refresh(?object $row = null): bool
     {
-        $row          = $row ?? self::row();
+        $row          = $row ? self::decodeRow($row) : self::row();
         $refreshToken = $row?->refresh_token ?? config('services.zalo_zns.refresh_token');
         $appId        = config('services.zalo_zns.app_id');
         $secretKey    = config('services.zalo_zns.secret_key');

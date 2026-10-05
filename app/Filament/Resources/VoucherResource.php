@@ -17,7 +17,10 @@ use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Filters\TernaryFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\HtmlString;
 use Modules\Core\Models\User;
 use Modules\Core\Models\Voucher;
 
@@ -36,26 +39,121 @@ class VoucherResource extends Resource
 
     protected static ?string $model = Voucher::class;
 
+    /** Đối tượng mà resource này quản lý. Lớp con (ShopVoucherResource) đổi sang 'shop'. */
+    protected static string $audience = 'customer';
+
+    public static function getEloquentQuery(): Builder
+    {
+        return parent::getEloquentQuery()->where('audience', static::$audience);
+    }
+
+    /** Mã nhân bản: đặt mã mới không trùng, xóa lượt dùng và để ở trạng thái tắt cho admin chỉnh lại. */
+    public static function prepareReplica(Voucher $replica): void
+    {
+        $base = mb_substr((string) $replica->code, 0, 26);
+        $i = 2;
+        do {
+            $code = $base.'-'.$i++;
+        } while (Voucher::where('code', $code)->exists());
+        $replica->code = $code;
+        $replica->used_count = 0;
+        $replica->is_active = false;
+    }
+
+    public static function audience(): string
+    {
+        return static::$audience;
+    }
+
+    /** Cách gọi người dùng của mã: "Khách" hoặc "Cửa hàng". */
+    public static function noun(): string
+    {
+        return static::$audience === 'shop' ? 'Cửa hàng' : 'Khách';
+    }
+
+    /** Dịch vụ chọn sẵn khi tạo mã mới. */
+    protected static function defaultServiceTypes(): array
+    {
+        return static::$audience === 'shop' ? ['delivery'] : ['delivery', 'shopping', 'topup', 'bike', 'motor', 'car'];
+    }
+
     protected static ?string $navigationIcon = 'heroicon-o-ticket';
 
-    protected static ?string $navigationGroup = 'Marketing & CSKH';
+    protected static ?string $navigationGroup = 'Khách hàng';
+
+    protected static ?string $navigationLabel = 'Mã giảm giá';
 
     protected static ?string $modelLabel = 'Mã giảm giá';
 
     protected static ?string $pluralModelLabel = 'Mã giảm giá';
 
-    protected static ?int $navigationSort = 1;
+    protected static ?int $navigationSort = 2;
 
     public static function form(Form $form): Form
     {
         return $form
             ->schema([
+                Forms\Components\Section::make('Xem trước')
+                    ->description(fn (): string => static::noun().' sẽ thấy mã này như sau')
+                    ->icon('heroicon-o-eye')
+                    ->schema([
+                        Forms\Components\Placeholder::make('preview')
+                            ->hiddenLabel()
+                            ->content(function (Get $get): HtmlString {
+                                $num = fn ($v) => filled($v) ? (float) str_replace(',', '', (string) $v) : null;
+                                $offer = Voucher::describeOffer($get('type'), $num($get('value')), $num($get('max_discount')));
+                                $parts = Voucher::describeConditions([
+                                    'first_order_only' => $get('first_order_only'),
+                                    'per_user_limit' => $num($get('per_user_limit')),
+                                    'min_order_value' => $num($get('min_order_value')),
+                                    'max_distance_km' => $num($get('max_distance_km')),
+                                ]);
+                                if ($limit = $num($get('usage_limit'))) {
+                                    $parts[] = 'Giới hạn '.number_format($limit, 0, ',', '.').' lượt';
+                                }
+                                $parts[] = $get('expires_at') ? 'Hết hạn '.Carbon::parse($get('expires_at'))->format('d/m/Y') : 'Không hết hạn';
+
+                                return new HtmlString('<div class="fs-vc-preview"><b>'.e($get('code') ?: 'MÃ GIẢM GIÁ').'</b><strong>'.e($offer).'</strong><span>'.e(implode(' · ', $parts)).'</span></div>');
+                            }),
+
+                        Forms\Components\Actions::make([
+                            Forms\Components\Actions\Action::make('tpl_freeship')
+                                ->label('Mẫu: Freeship đơn đầu')->icon('heroicon-o-truck')->color('gray')
+                                ->action(function (Set $set): void {
+                                    $set('type', 'freeship');
+                                    $set('value', null);
+                                    $set('max_discount', 25000);
+                                    $set('first_order_only', true);
+                                    $set('per_user_limit', 1);
+                                }),
+                            Forms\Components\Actions\Action::make('tpl_fixed')
+                                ->label('Mẫu: Giảm số tiền cố định')->icon('heroicon-o-banknotes')->color('gray')
+                                ->action(function (Set $set): void {
+                                    $set('type', 'fixed');
+                                    $set('value', 5000);
+                                    $set('max_discount', null);
+                                    $set('first_order_only', false);
+                                    $set('per_user_limit', 3);
+                                }),
+                            Forms\Components\Actions\Action::make('tpl_percent')
+                                ->label('Mẫu: Giảm phần trăm')->icon('heroicon-o-receipt-percent')->color('gray')
+                                ->action(function (Set $set): void {
+                                    $set('type', 'percent');
+                                    $set('value', 20);
+                                    $set('max_discount', 25000);
+                                    $set('first_order_only', false);
+                                    $set('per_user_limit', 1);
+                                }),
+                        ])->visible(fn (string $operation): bool => $operation === 'create'),
+                    ]),
+
                 Forms\Components\Section::make('Thông tin mã')
                     ->description('Thiết lập loại ưu đãi và giá trị giảm cho mỗi đơn')
                     ->icon('heroicon-o-ticket')
                     ->columns(4)
                     ->schema([
                         Forms\Components\TextInput::make('code')
+                            ->live(onBlur: true)
                             ->label('Mã giảm giá')
                             ->required()
                             ->maxLength(32)
@@ -79,6 +177,7 @@ class VoucherResource extends Resource
                             ->live(),
 
                         Forms\Components\TextInput::make('value')
+                            ->live(onBlur: true)
                             ->label(fn (Get $get) => $get('type') === 'percent' ? 'Mức giảm (%)' : 'Số tiền giảm (₫)')
                             ->numeric()
                             ->type('text')
@@ -94,6 +193,7 @@ class VoucherResource extends Resource
                             ->columnSpan(fn (Get $get) => $get('type') === 'fixed' ? 2 : 1),
 
                         Forms\Components\TextInput::make('max_discount')
+                            ->live(onBlur: true)
                             ->label(fn (Get $get) => $get('type') === 'freeship' ? 'Freeship tối đa (₫)' : 'Giảm tối đa (₫)')
                             ->numeric()
                             ->minValue(1)
@@ -117,6 +217,7 @@ class VoucherResource extends Resource
                     ->columns(3)
                     ->schema([
                         Forms\Components\TextInput::make('min_order_value')
+                            ->live(onBlur: true)
                             ->label('Phí dịch vụ tối thiểu')
                             ->numeric()
                             ->type('text')
@@ -151,20 +252,15 @@ class VoucherResource extends Resource
                             ->options([
                                 'customer' => 'Khách hàng',
                                 'shop' => 'Cửa hàng',
-                                'all' => 'Tất cả người dùng',
                             ])
-                            ->default('customer')
-                            ->required()
-                            ->afterStateUpdated(function (string $state, Set $set): void {
-                                $set('user_id', null);
-                                $set('service_types', $state === 'shop'
-                                    ? ['delivery']
-                                    : ['delivery', 'shopping', 'topup', 'bike', 'motor', 'car']);
-                            })
-                            ->live()
+                            ->default(static::$audience)
+                            ->disabled()
+                            ->dehydrated()
                             ->hintIcon(
                                 'heroicon-m-exclamation-circle',
-                                tooltip: 'Chọn nhóm người dùng được phép sử dụng mã. Có thể giới hạn thêm cho một tài khoản cụ thể ở ô bên dưới.',
+                                tooltip: static::$audience === 'shop'
+                                    ? 'Mã tạo ở đây chỉ dành cho cửa hàng. Mã khách hàng được quản lý ở nhóm Khách hàng.'
+                                    : 'Mã tạo ở đây chỉ dành cho khách hàng. Mã cửa hàng được quản lý ở mục Mã giảm giá cửa hàng.',
                             ),
 
                         Forms\Components\Select::make('user_id')
@@ -192,14 +288,6 @@ class VoucherResource extends Resource
                                 'shop' => [
                                     'delivery' => 'Giao hàng cửa hàng',
                                 ],
-                                'all' => [
-                                    'delivery' => 'Lấy Hộ / Giao hàng cửa hàng',
-                                    'shopping' => 'Mua Hộ',
-                                    'topup' => 'Nạp Tiền',
-                                    'bike' => 'Xe Ôm',
-                                    'motor' => 'Lái Xe Máy',
-                                    'car' => 'Lái Xe Hơi',
-                                ],
                                 default => [
                                     'delivery' => 'Lấy Hộ',
                                     'shopping' => 'Mua Hộ',
@@ -209,7 +297,7 @@ class VoucherResource extends Resource
                                     'car' => 'Lái Xe Hơi',
                                 ],
                             })
-                            ->default(['delivery', 'shopping', 'topup', 'bike', 'motor', 'car'])
+                            ->default(fn (): array => static::defaultServiceTypes())
                             ->required()
                             ->minItems(1)
                             ->bulkToggleable()
@@ -229,6 +317,7 @@ class VoucherResource extends Resource
                     ->collapsed()
                     ->schema([
                         Forms\Components\TextInput::make('usage_limit')
+                            ->live(onBlur: true)
                             ->label('Tổng lượt sử dụng tối đa')
                             ->numeric()
                             ->type('text')
@@ -242,6 +331,7 @@ class VoucherResource extends Resource
                             ),
 
                         Forms\Components\TextInput::make('per_user_limit')
+                            ->live(onBlur: true)
                             ->label('Lượt sử dụng tối đa mỗi người')
                             ->numeric()
                             ->type('text')
@@ -255,17 +345,20 @@ class VoucherResource extends Resource
                             ),
 
                         Forms\Components\Toggle::make('first_order_only')
+                            ->live()
                             ->label('Chỉ đơn đầu tiên')
                             ->helperText('Chỉ tài khoản chưa từng hoàn thành đơn nào mới được sử dụng.')
                             ->default(false),
 
                         Forms\Components\TextInput::make('max_distance_km')
+                            ->live(onBlur: true)
                             ->label('Cự ly tối đa (km)')
                             ->numeric()
                             ->minValue(0.1)
                             ->helperText('Để trống nếu mã không giới hạn cự ly.'),
 
                         Forms\Components\DatePicker::make('expires_at')
+                            ->live()
                             ->label('Ngày hết hạn')
                             ->placeholder('Không hết hạn')
                             ->native(false)
@@ -296,8 +389,21 @@ class VoucherResource extends Resource
 
     public static function table(Table $table): Table
     {
+        $money = fn ($v) => number_format((float) $v, 0, ',', '.').'₫';
+        $serviceLabels = [
+            'delivery' => static::$audience === 'shop' ? 'Giao hàng cửa hàng' : 'Lấy Hộ',
+            'shopping' => 'Mua Hộ', 'topup' => 'Nạp Tiền', 'bike' => 'Xe Ôm', 'motor' => 'Lái Xe Máy', 'car' => 'Lái Xe Hơi',
+        ];
+
         return $table
-            ->modifyQueryUsing(fn (Builder $query) => $query->with('user'))
+            ->modifyQueryUsing(fn (Builder $query) => $query
+                ->with('user')
+                ->select('vouchers.*')
+                ->addSelect([
+                    // Số người đã dùng và chi phí giảm giá (đơn đã hoàn thành) của từng mã.
+                    'users_count' => DB::table('voucher_usages')->selectRaw('COUNT(DISTINCT user_id)')->whereColumn('voucher_id', 'vouchers.id'),
+                    'cost' => DB::table('orders')->selectRaw('COALESCE(SUM(discount_amount), 0)')->whereColumn('orders.voucher_code', 'vouchers.code')->where('orders.status', 'completed'),
+                ]))
             ->columns([
                 Tables\Columns\TextColumn::make('code')
                     ->label('Mã giảm giá')
@@ -307,101 +413,60 @@ class VoucherResource extends Resource
                     ->copyMessage('Đã sao chép mã')
                     ->badge()
                     ->color('primary')
-                    ->alignment('center')
                     ->description(fn (Voucher $record) => $record->description ?: 'Không có mô tả')
                     ->wrap(),
 
-                Tables\Columns\TextColumn::make('discount_label')
+                Tables\Columns\TextColumn::make('type')
                     ->label('Ưu đãi')
                     ->weight('bold')
-                    ->badge()
-                    ->alignment('center')
-                    ->color(fn (Voucher $record) => match ($record->type) {
-                        'percent' => 'success',
-                        'freeship' => 'info',
-                        default => 'warning',
-                    })
-                    ->description(function (Voucher $record): string {
-                        $conditions = [];
-                        if ($record->min_order_value) {
-                            $conditions[] = 'Phí từ '.number_format($record->min_order_value, 0, ',', '.').'₫';
-                        }
-                        if ($record->max_discount && in_array($record->type, ['percent', 'freeship'])) {
-                            $conditions[] = 'Tối đa '.number_format($record->max_discount, 0, ',', '.').'₫';
-                        }
-
-                        return $conditions ? implode(' · ', $conditions) : 'Không kèm điều kiện phí';
-                    })
+                    ->formatStateUsing(fn ($state, Voucher $record) => Voucher::describeOffer($record->type, $record->value, $record->max_discount))
+                    ->description(fn (Voucher $record): string => implode(' · ', Voucher::describeConditions($record->only(['first_order_only', 'per_user_limit', 'min_order_value', 'max_distance_km']))) ?: 'Không kèm điều kiện')
                     ->wrap(),
 
-                Tables\Columns\TextColumn::make('audience')
-                    ->label('Phạm vi áp dụng')
-                    ->badge()
-                    ->alignment('center')
-                    ->formatStateUsing(fn ($state) => match ($state) {
-                        'customer' => 'Khách hàng',
-                        'shop' => 'Cửa hàng',
-                        default => 'Tất cả người dùng',
-                    })
-                    ->color(fn ($state) => match ($state) {
-                        'customer' => 'info',
-                        'shop' => 'warning',
-                        default => 'gray',
-                    })
-                    ->description(function (Voucher $record): string {
-                        if ($record->user) {
-                            return 'Riêng: '.$record->user->name;
-                        }
-
-                        $labels = [
-                            'delivery' => $record->audience === 'shop' ? 'Giao hàng cửa hàng' : 'Lấy Hộ',
-                            'shopping' => 'Mua Hộ',
-                            'topup' => 'Nạp Tiền',
-                            'bike' => 'Xe Ôm',
-                            'motor' => 'Lái Xe Máy',
-                            'car' => 'Lái Xe Hơi',
-                        ];
-                        $services = collect($record->service_types ?? [])
-                            ->map(fn ($service) => $labels[$service] ?? $service)
-                            ->implode(', ');
-
-                        return $services ?: 'Tất cả dịch vụ';
-                    })
+                Tables\Columns\TextColumn::make('service_types')
+                    ->label('Áp dụng cho')
+                    ->state(fn (Voucher $record): string => collect($record->service_types ?? [])->map(fn ($s) => $serviceLabels[$s] ?? $s)->implode(', ') ?: 'Tất cả dịch vụ')
+                    ->description(fn (Voucher $record): string => $record->user ? 'Riêng: '.$record->user->name : 'Tất cả '.mb_strtolower(static::noun() === 'Khách' ? 'khách hàng' : 'cửa hàng'))
                     ->wrap(),
 
-                Tables\Columns\TextColumn::make('usage')
-                    ->label('Lượt sử dụng')
-                    ->state(fn (Voucher $record) => $record->used_count.' / '.($record->usage_limit ?? '∞')
-                    )
+                Tables\Columns\TextColumn::make('used_count')
+                    ->label('Hiệu quả')
+                    ->sortable()
+                    ->html()
+                    ->state(function (Voucher $record) use ($money): HtmlString {
+                        $used = number_format($record->used_count, 0, ',', '.');
+                        $bar = '';
+                        if ($record->usage_limit) {
+                            $pct = min(100, (int) round($record->used_count / $record->usage_limit * 100));
+                            $bar = '<span class="fs-vc-meter"><i style="width:'.$pct.'%"></i></span>'
+                                .'<small>'.$used.' / '.number_format($record->usage_limit, 0, ',', '.').' lượt</small>';
+                        } else {
+                            $bar = '<small>'.$used.' lượt · không giới hạn</small>';
+                        }
+
+                        return new HtmlString('<div class="fs-vc-usage">'.$bar
+                            .'<small>'.number_format((int) $record->users_count, 0, ',', '.').' người · tốn <b>'.$money($record->cost).'</b></small></div>');
+                    }),
+
+                Tables\Columns\TextColumn::make('status_key')
+                    ->label('Trạng thái')
                     ->badge()
-                    ->alignment('center')
-                    ->color(fn (Voucher $record) => $record->usage_limit && $record->used_count >= $record->usage_limit
-                        ? 'danger'
-                        : 'success')
-                    ->description(fn (Voucher $record) => 'Mỗi người: '.($record->per_user_limit ?? '∞').' lần'),
+                    ->state(fn (Voucher $record): string => $record->statusKey())
+                    ->formatStateUsing(fn (string $state): string => ['active' => 'Đang chạy', 'full' => 'Hết lượt', 'expired' => 'Hết hạn', 'inactive' => 'Đã tắt'][$state])
+                    ->color(fn (string $state): string => ['active' => 'success', 'full' => 'warning', 'expired' => 'danger', 'inactive' => 'gray'][$state]),
 
                 Tables\Columns\TextColumn::make('expires_at')
-                    ->label('Ngày hết hạn')
+                    ->label('Hết hạn')
                     ->date('d/m/Y')
                     ->placeholder('Không hết hạn')
-                    ->icon('heroicon-m-calendar-days')
-                    ->alignment('center')
-                    ->color(fn ($state) => $state && Carbon::parse($state)->isPast() ? 'danger' : 'gray')
-                    ->description(fn (Voucher $record) => $record->expires_at?->isPast()
-                        ? 'Đã hết hạn'
-                        : ($record->expires_at ? 'Còn hiệu lực' : 'Không giới hạn thời gian'))
-                    ->sortable(),
-
-                Tables\Columns\ToggleColumn::make('is_active')
-                    ->label('Hoạt động')
-                    ->alignment('center')
-                    ->onColor('success')
-                    ->offColor('gray'),
+                    ->sortable()
+                    ->description(fn (Voucher $record): ?string => $record->expires_at && $record->expires_at->isFuture() ? 'còn '.now()->diffInDays($record->expires_at).' ngày' : null),
             ])
             ->filters([
                 TernaryFilter::make('is_active')
-                    ->label('Trạng thái')
-                    ->trueLabel('Đang hoạt động')
+                    ->label('Trạng thái hoạt động')
+                    ->placeholder('Tất cả')
+                    ->trueLabel('Đang bật')
                     ->falseLabel('Đã tắt'),
 
                 SelectFilter::make('type')
@@ -411,29 +476,40 @@ class VoucherResource extends Resource
                         'percent' => 'Giảm theo phần trăm',
                         'freeship' => 'Miễn phí vận chuyển',
                     ]),
-
-                SelectFilter::make('audience')
-                    ->label('Đối tượng áp dụng')
-                    ->options([
-                        'customer' => 'Khách hàng',
-                        'shop' => 'Cửa hàng',
-                        'all' => 'Tất cả người dùng',
-                    ]),
             ])
             ->actions([
-                Tables\Actions\EditAction::make()
-                    ->label('Chỉnh sửa')
-                    ->icon('heroicon-m-pencil-square'),
-                Tables\Actions\DeleteAction::make()
-                    ->label('Xóa'),
+                Tables\Actions\ViewAction::make()->label(''),
+                Tables\Actions\ActionGroup::make([
+                    Tables\Actions\EditAction::make()->label('Chỉnh sửa'),
+                    Tables\Actions\ReplicateAction::make()
+                        ->label('Nhân bản')
+                        ->excludeAttributes(['used_count', 'users_count', 'cost'])
+                        ->beforeReplicaSaved(fn (Voucher $replica) => static::prepareReplica($replica))
+                        ->successRedirectUrl(fn (Voucher $replica): string => static::getUrl('edit', ['record' => $replica]))
+                        ->successNotificationTitle('Đã nhân bản mã (đang tắt, hãy chỉnh lại rồi bật)'),
+                    Tables\Actions\Action::make('toggle_active')
+                        ->label(fn (Voucher $record): string => $record->is_active ? 'Tắt mã' : 'Bật lại mã')
+                        ->icon(fn (Voucher $record): string => $record->is_active ? 'heroicon-m-pause-circle' : 'heroicon-m-play-circle')
+                        ->action(fn (Voucher $record) => $record->update(['is_active' => ! $record->is_active])),
+                    // Mã đã từng dùng thì không xóa được: xóa kéo theo mất lịch sử lượt dùng và chi phí. Hãy tắt mã.
+                    Tables\Actions\DeleteAction::make()
+                        ->label('Xóa')
+                        ->visible(fn (Voucher $record): bool => ! $record->hasHistory())
+                        ->modalDescription('Mã chưa có lượt dùng nào nên xóa được. Không thể hoàn tác.'),
+                ])->icon('heroicon-m-ellipsis-horizontal')->tooltip('Thao tác khác'),
             ])
             ->actionsAlignment('center')
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([
-                    Tables\Actions\DeleteBulkAction::make(),
+                    Tables\Actions\BulkAction::make('disable')
+                        ->label('Tắt các mã đã chọn')
+                        ->icon('heroicon-m-pause-circle')
+                        ->requiresConfirmation()
+                        ->action(fn (Collection $records) => $records->each->update(['is_active' => false]))
+                        ->deselectRecordsAfterCompletion(),
                 ]),
             ])
-            ->recordAction('edit')
+            ->recordUrl(fn (Voucher $record): string => static::getUrl('view', ['record' => $record]))
             ->defaultSort('created_at', 'desc')
             ->defaultPaginationPageOption(25)
             ->paginationPageOptions([25, 50, 100]);
@@ -449,6 +525,7 @@ class VoucherResource extends Resource
         return [
             'index' => Pages\ListVouchers::route('/'),
             'create' => Pages\CreateVoucher::route('/create'),
+            'view' => Pages\ViewVoucher::route('/{record}'),
             'edit' => Pages\EditVoucher::route('/{record}/edit'),
         ];
     }

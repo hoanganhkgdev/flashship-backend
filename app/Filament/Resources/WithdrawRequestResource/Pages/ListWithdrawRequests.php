@@ -3,10 +3,10 @@
 namespace App\Filament\Resources\WithdrawRequestResource\Pages;
 
 use App\Filament\Resources\WithdrawRequestResource;
+use App\Filament\Resources\WithdrawRequestResource\Widgets\WithdrawStatsWidget;
 use Filament\Facades\Filament;
 use Filament\Resources\Components\Tab;
 use Filament\Resources\Pages\ListRecords;
-use Illuminate\Database\Eloquent\Builder;
 use Modules\Driver\Models\WithdrawRequest;
 
 class ListWithdrawRequests extends ListRecords
@@ -20,7 +20,7 @@ class ListWithdrawRequests extends ListRecords
 
     public function getSubheading(): ?string
     {
-        return 'Kiểm tra thông tin ngân hàng và xử lý thanh toán cho tài xế.';
+        return 'Kiểm tra tài khoản nhận, chuyển tiền và báo kết quả cho tài xế.';
     }
 
     public function getDefaultActiveTab(): string|int|null
@@ -33,28 +33,29 @@ class ListWithdrawRequests extends ListRecords
         return [];
     }
 
+    protected function getHeaderWidgets(): array
+    {
+        return [WithdrawStatsWidget::class];
+    }
+
+    public function getHeaderWidgetsColumns(): int|string|array
+    {
+        return 1;
+    }
+
     public function getTabs(): array
     {
-        $query = fn () => WithdrawRequestResource::scopeEloquentQueryToTenant(
-            WithdrawRequest::query(),
-            Filament::getTenant(),
-        );
+        $base = fn () => WithdrawRequestResource::scopeEloquentQueryToTenant(WithdrawRequest::query(), Filament::getTenant());
+        $tab = fn (string $label, ?string $status, ?string $color = null) => Tab::make($label)
+            ->modifyQueryUsing(fn ($query) => $status ? $query->where('status', $status) : $query)
+            ->badge(($status ? $base()->where('status', $status) : $base())->count() ?: null)
+            ->badgeColor($color);
 
         return [
-            'all' => Tab::make('Tất cả')
-                ->badge($query()->count() ?: null),
-            'pending' => Tab::make('Chờ duyệt')
-                ->modifyQueryUsing(fn (Builder $query) => $query->where('status', 'pending'))
-                ->badge($query()->where('status', 'pending')->count() ?: null)
-                ->badgeColor('warning'),
-            'approved' => Tab::make('Đã duyệt')
-                ->modifyQueryUsing(fn (Builder $query) => $query->where('status', 'approved'))
-                ->badge($query()->where('status', 'approved')->count() ?: null)
-                ->badgeColor('success'),
-            'rejected' => Tab::make('Từ chối')
-                ->modifyQueryUsing(fn (Builder $query) => $query->where('status', 'rejected'))
-                ->badge($query()->where('status', 'rejected')->count() ?: null)
-                ->badgeColor('danger'),
+            'pending' => $tab('Chờ duyệt', 'pending', 'warning'),
+            'approved' => $tab('Đã duyệt', 'approved', 'success'),
+            'rejected' => $tab('Từ chối', 'rejected', 'danger'),
+            'all' => $tab('Tất cả', null),
         ];
     }
 }

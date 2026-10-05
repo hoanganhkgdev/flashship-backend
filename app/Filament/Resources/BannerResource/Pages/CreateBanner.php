@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\BannerResource\Pages;
 
 use App\Filament\Resources\BannerResource;
+use Filament\Facades\Filament;
 use Filament\Resources\Pages\CreateRecord;
 use Illuminate\Database\Eloquent\Model;
 
@@ -18,6 +19,15 @@ class CreateBanner extends CreateRecord
     public function getSubheading(): ?string
     {
         return 'Tải hình ảnh và thiết lập phạm vi hiển thị trên ứng dụng.';
+    }
+
+    /** Ô "Khu vực hiển thị" là lựa chọn đơn giản; lưu thành city_id (null = mọi khu vực). */
+    protected function mutateFormDataBeforeCreate(array $data): array
+    {
+        $data['city_id'] = ($data['scope'] ?? 'city') === 'all' ? null : Filament::getTenant()?->id;
+        unset($data['scope']);
+
+        return $data;
     }
 
     protected function getRedirectUrl(): string

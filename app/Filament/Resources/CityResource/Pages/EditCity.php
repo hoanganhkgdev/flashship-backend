@@ -3,16 +3,17 @@
 namespace App\Filament\Resources\CityResource\Pages;
 
 use App\Filament\Resources\CityResource;
-use Filament\Facades\Filament;
+use App\Services\CatalogService;
 use Filament\Actions\DeleteAction;
-use Filament\Notifications\Notification;
 use Filament\Resources\Pages\EditRecord;
-use Illuminate\Support\Facades\DB;
-use Modules\Core\Models\City;
 
 class EditCity extends EditRecord
 {
     protected static string $resource = CityResource::class;
+
+    private const TRACKED = ['name' => 'Tên', 'slug' => 'Slug', 'weekly_fee' => 'Phí tuần', 'lat' => 'Vĩ độ', 'lng' => 'Kinh độ', 'is_active' => 'Hoạt động', 'is_test' => 'Khu vực thử'];
+
+    private array $before = [];
 
     public function getTitle(): string
     {
@@ -21,33 +22,30 @@ class EditCity extends EditRecord
 
     public function getSubheading(): ?string
     {
-        return 'Cập nhật trạng thái, phí duy trì và toạ độ khu vực.';
+        return 'Cập nhật trạng thái, phí tuần và tọa độ khu vực. Mọi thay đổi được ghi nhật ký.';
     }
 
     protected function getHeaderActions(): array
     {
-        return [
-            DeleteAction::make()
-                ->label('Xoá khu vực')
-                ->before(function (City $record, DeleteAction $action) {
-                    if (Filament::getTenant()?->is($record)) {
-                        Notification::make()->danger()
-                            ->title('Không thể xoá khu vực đang chọn')
-                            ->body('Hãy chuyển sang khu vực khác trước khi thao tác.')
-                            ->send();
-                        $action->halt();
-                    }
+        return [CityResource::deleteAction(DeleteAction::make())];
+    }
 
-                    $userCount = DB::table('users')->where('city_id', $record->id)->count();
-                    $orderCount = DB::table('orders')->where('city_id', $record->id)->count();
-                    if ($userCount > 0 || $orderCount > 0) {
-                        Notification::make()->danger()
-                            ->title('Không thể xoá khu vực này')
-                            ->body("Còn {$userCount} tài khoản và {$orderCount} đơn hàng thuộc khu vực này.")
-                            ->send();
-                        $action->halt();
-                    }
-                }),
-        ];
+    protected function mutateFormDataBeforeSave(array $data): array
+    {
+        $this->before = $this->record->only(array_keys(self::TRACKED));
+        $data['slug'] = CatalogService::normalizeSlug((string) ($data['slug'] ?? ''), (string) $data['name']);
+
+        return $data;
+    }
+
+    protected function afterSave(): void
+    {
+        $after = $this->record->refresh()->only(array_keys(self::TRACKED));
+        // lat/lng lưu dạng decimal: so sánh theo số để "10.0125000" và 10.0125 không bị coi là đổi.
+        foreach (['lat', 'lng'] as $k) {
+            $this->before[$k] = $this->before[$k] === null ? null : (float) $this->before[$k];
+            $after[$k] = $after[$k] === null ? null : (float) $after[$k];
+        }
+        CatalogService::logChanges('city', $this->record->id, $this->before, $after, self::TRACKED, auth()->id());
     }
 }

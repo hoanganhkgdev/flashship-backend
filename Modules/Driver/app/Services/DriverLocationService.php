@@ -49,4 +49,27 @@ class DriverLocationService
 
         return $out;
     }
+
+    /**
+     * Thời điểm (unix) nhận vị trí gần nhất của từng tài xế — một lần đọc Firebase.
+     * Dùng cho màn theo dõi: vừa biết ai còn sống, vừa biết người mất kết nối đã im bao lâu.
+     *
+     * @param  array<int> $driverIds
+     * @return array<int, ?int> id => unix time, null nếu chưa có vị trí hợp lệ
+     */
+    public function lastSeenFor(array $driverIds): array
+    {
+        $raw = RTDBService::getDriverLocations() ?? [];
+        $out = [];
+
+        foreach ($driverIds as $id) {
+            $data = $raw["driver_{$id}"] ?? null;
+            $updatedAt = $data['updated_at'] ?? null;
+            $out[$id] = ($data && isset($data['lat'], $data['lng']) && is_numeric($updatedAt))
+                ? (int) ($updatedAt / 1000)
+                : null;
+        }
+
+        return $out;
+    }
 }

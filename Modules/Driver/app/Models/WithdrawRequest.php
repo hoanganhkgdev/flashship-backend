@@ -7,12 +7,13 @@ class WithdrawRequest extends Model
     protected $fillable = [
         'driver_id', 'amount', 'bank_code', 'bank_name', 'account_number',
         'account_name', 'status', 'admin_note', 'payout_reference',
-        'processed_by', 'processed_at',
+        'processed_by', 'processed_at', 'payout_method', 'reject_reason', 'last_payout_error', 'last_payout_attempt_at',
     ];
 
     protected $casts = [
         'amount'       => 'float',
         'processed_at' => 'datetime',
+        'last_payout_attempt_at' => 'datetime',
     ];
 
     public function driver()     { return $this->belongsTo(\Modules\Core\Models\User::class, 'driver_id'); }

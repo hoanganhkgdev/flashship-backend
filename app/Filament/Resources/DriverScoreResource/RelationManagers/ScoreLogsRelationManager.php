@@ -38,7 +38,15 @@ class ScoreLogsRelationManager extends RelationManager
                 Tables\Columns\TextColumn::make('reason')
                     ->label('Lý do')
                     ->formatStateUsing(fn ($state) => DriverScoreResource::reasonLabel($state, $this->getOwnerRecord()->city_id))
-                    ->color(fn ($state) => DriverScoreResource::reasonColor($state)),
+                    ->color(fn ($state) => DriverScoreResource::reasonColor($state))
+                    ->description(function ($record) {
+                        if (! $record->note) {
+                            return null;
+                        }
+                        $by = $record->performed_by ? \Modules\Core\Models\User::find($record->performed_by)?->name : null;
+
+                        return $record->note.($by ? ' — '.$by : '');
+                    }),
 
                 Tables\Columns\TextColumn::make('created_at')
                     ->label('Thời gian')

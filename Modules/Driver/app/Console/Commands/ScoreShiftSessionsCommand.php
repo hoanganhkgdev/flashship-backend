@@ -25,7 +25,9 @@ class ScoreShiftSessionsCommand extends Command
 
         foreach (Shift::active()->get() as $shift) {
             foreach ($this->recentlyEndedWindows($shift, $now) as [$start, $end]) {
-                $drivers = $shift->users()->get(['users.id']);
+                // Chỉ chấm tài xế đang hoạt động: tài xế bị khóa/chờ duyệt không thể online,
+                // chấm họ chỉ trừ điểm oan (-15/ca) và làm điểm về 0 khi được mở khóa.
+                $drivers = $shift->users()->where('users.status', 1)->get(['users.id']);
                 foreach ($drivers as $driver) {
                     $driverId = $driver->id;
 

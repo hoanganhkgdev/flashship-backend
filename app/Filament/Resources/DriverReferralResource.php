@@ -29,13 +29,15 @@ class DriverReferralResource extends Resource
 
     protected static ?string $navigationIcon = 'heroicon-o-gift';
 
-    protected static ?string $navigationGroup = 'Marketing & CSKH';
+    protected static ?string $navigationGroup = 'Cửa hàng';
+
+    protected static ?string $navigationLabel = 'Giới thiệu shop';
 
     protected static ?string $modelLabel = 'Giới thiệu shop';
 
     protected static ?string $pluralModelLabel = 'Giới thiệu shop';
 
-    protected static ?int $navigationSort = 5;
+    protected static ?int $navigationSort = 4;
 
     private const STATUS_LABELS = [
         DriverReferral::PENDING => 'Chờ đủ đơn',

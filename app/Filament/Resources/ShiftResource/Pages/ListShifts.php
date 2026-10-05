@@ -21,7 +21,7 @@ class ListShifts extends ListRecords
 
     public function getSubheading(): ?string
     {
-        return 'Thiết lập khung giờ hoạt động và danh sách ca tài xế có thể đăng ký.';
+        return 'Khung giờ ca, độ phủ tài xế và tải đơn của từng ca.';
     }
 
     protected function getHeaderActions(): array
@@ -29,6 +29,16 @@ class ListShifts extends ListRecords
         return [
             Actions\CreateAction::make()->label('Thêm ca')->icon('heroicon-o-plus'),
         ];
+    }
+
+    protected function getHeaderWidgets(): array
+    {
+        return [\App\Filament\Resources\ShiftResource\Widgets\ShiftCoverageWidget::class];
+    }
+
+    public function getHeaderWidgetsColumns(): int|string|array
+    {
+        return 1;
     }
 
     public function getTabs(): array

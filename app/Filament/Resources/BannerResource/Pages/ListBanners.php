@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\BannerResource\Pages;
 
 use App\Filament\Resources\BannerResource;
+use App\Filament\Resources\BannerResource\Widgets\BannerStatsWidget;
 use Filament\Actions;
 use Filament\Resources\Pages\ListRecords;
 
@@ -17,7 +18,17 @@ class ListBanners extends ListRecords
 
     public function getSubheading(): ?string
     {
-        return 'Quản lý hình ảnh truyền thông, liên kết và thứ tự hiển thị theo khu vực.';
+        return 'Hình ảnh trên trang chủ app khách hàng: thứ tự, khu vực và thời gian hiển thị.';
+    }
+
+    protected function getHeaderWidgets(): array
+    {
+        return [BannerStatsWidget::class];
+    }
+
+    public function getHeaderWidgetsColumns(): int|string|array
+    {
+        return 1;
     }
 
     protected function getHeaderActions(): array

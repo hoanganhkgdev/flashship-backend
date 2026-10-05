@@ -20,7 +20,7 @@ class ListDriverShiftChangeRequests extends ListRecords
 
     public function getSubheading(): ?string
     {
-        return 'Kiểm tra trùng giờ và phê duyệt ca làm việc mới cho tài xế.';
+        return 'Xem tác động lên từng ca trước khi duyệt, và báo kết quả cho tài xế.';
     }
 
     public function getDefaultActiveTab(): string|int|null
@@ -31,6 +31,16 @@ class ListDriverShiftChangeRequests extends ListRecords
     protected function getHeaderActions(): array
     {
         return [];
+    }
+
+    protected function getHeaderWidgets(): array
+    {
+        return [\App\Filament\Resources\DriverShiftChangeRequestResource\Widgets\ShiftChangeStatsWidget::class];
+    }
+
+    public function getHeaderWidgetsColumns(): int|string|array
+    {
+        return 1;
     }
 
     public function getTabs(): array

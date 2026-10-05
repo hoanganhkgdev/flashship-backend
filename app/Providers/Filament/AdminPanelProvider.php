@@ -4,8 +4,10 @@ namespace App\Providers\Filament;
 
 use App\Filament\Pages\Dashboard;
 use App\Filament\Widgets\OnlineDriversWidget;
+use App\Filament\Widgets\OpsAlertsWidget;
 use App\Filament\Widgets\OrdersByHourWidget;
 use App\Filament\Widgets\StatsOverviewWidget;
+use Filament\Enums\ThemeMode;
 use Filament\FontProviders\GoogleFontProvider;
 use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\AuthenticateSession;
@@ -34,16 +36,25 @@ class AdminPanelProvider extends PanelProvider
             ->id('admin')
             ->path('admin')
             ->login()
+            // Menu người dùng có mục "Tài khoản của tôi" (trang riêng trong khu vực đang chọn) để tự đổi tên, email, mật khẩu.
+            ->userMenuItems([
+                \Filament\Navigation\MenuItem::make()
+                    ->label('Tài khoản của tôi')
+                    ->icon('heroicon-o-user-circle')
+                    ->url(fn (): string => \App\Filament\Pages\MyAccountPage::getUrl()),
+            ])
             // Chuông thông báo trong panel — nơi đơn không có tài xế báo cho admin/tổng đài.
             ->databaseNotifications()
             ->databaseNotificationsPolling('10s')
             ->tenant(City::class)
+            ->sidebarCollapsibleOnDesktop()
+            ->defaultThemeMode(ThemeMode::Dark)
             ->brandName('FlashShip Admin')
-            ->font('Inter',provider: GoogleFontProvider::class)
+            ->font('Roboto Condensed', url: 'https://fonts.googleapis.com/css2?family=Roboto+Condensed:wght@400;500;600;700;800&display=swap', provider: GoogleFontProvider::class)
             ->renderHook(
                 PanelsRenderHook::STYLES_AFTER,
                 fn (): HtmlString => new HtmlString(
-                    '<style>'.file_get_contents(resource_path('css/filament/admin/theme.css')).'</style>',
+                    '<link rel="stylesheet" href="'.asset('css/admin-theme.css').'?v='.filemtime(public_path('css/admin-theme.css')).'">',
                 ),
             )
             ->colors([
@@ -52,12 +63,12 @@ class AdminPanelProvider extends PanelProvider
             ->navigationGroups([
                 NavigationGroup::make('Tổng quan'),
                 NavigationGroup::make('Vận hành đơn hàng'),
-                NavigationGroup::make('Người dùng & đối tác'),
-                NavigationGroup::make('Tài chính tài xế'),
-                NavigationGroup::make('Ca làm việc'),
-                NavigationGroup::make('Giá & khu vực'),
-                NavigationGroup::make('Marketing & CSKH'),
-                NavigationGroup::make('Hệ thống'),
+                NavigationGroup::make('Báo cáo'),
+                NavigationGroup::make('Khách hàng'),
+                NavigationGroup::make('Cửa hàng'),
+                NavigationGroup::make('Tài xế'),
+                NavigationGroup::make('Giá & khu vực')->collapsed(),
+                NavigationGroup::make('Hệ thống')->collapsed(),
             ])
             ->discoverResources(in: app_path('Filament/Resources'), for: 'App\\Filament\\Resources')
             ->discoverPages(in: app_path('Filament/Pages'), for: 'App\\Filament\\Pages')
@@ -67,6 +78,7 @@ class AdminPanelProvider extends PanelProvider
             ->discoverWidgets(in: app_path('Filament/Widgets'), for: 'App\\Filament\\Widgets')
             ->widgets([
                 StatsOverviewWidget::class,
+                OpsAlertsWidget::class,
                 OnlineDriversWidget::class,
                 OrdersByHourWidget::class,
             ])

@@ -3,8 +3,11 @@
 namespace App\Filament\Resources\DriverDebtResource\Pages;
 
 use App\Filament\Resources\DriverDebtResource;
+use App\Services\DriverDebtService;
 use Filament\Resources\Pages\CreateRecord;
+use Filament\Notifications\Notification;
 use Illuminate\Database\Eloquent\Model;
+use Modules\Driver\Models\DriverDebt;
 
 class CreateDriverDebt extends CreateRecord
 {
@@ -17,18 +20,23 @@ class CreateDriverDebt extends CreateRecord
 
     public function getSubheading(): ?string
     {
-        return 'Ghi nhận khoản phải thu theo tài xế và kỳ đối soát.';
+        return 'Ghi nhận khoản phải thu theo tài xế. Việc tạo được lưu vào nhật ký.';
     }
 
-    /**
-     * Bỏ qua cơ chế tự gán tenant mặc định của Filament — DriverDebt không
-     * có cột city_id trực tiếp (khu vực xác định gián tiếp qua driver_id ->
-     * users.city_id), City::driverDebts() không tồn tại và không nên tồn tại.
-     */
+    /** Tạo qua service để có nhật ký; không dùng cơ chế tự gán tenant (DriverDebt không có city_id). */
+    protected function handleRecordCreation(array $data): Model
+    {
+        $res = DriverDebtService::create((int) $data['driver_id'], $data['debt_type'], (float) $data['amount_due'], $data['note'], auth()->id());
+        if (! $res['ok']) {
+            Notification::make()->danger()->title($res['message'])->send();
+            $this->halt();
+        }
+
+        return DriverDebt::where('driver_id', $data['driver_id'])->latest('id')->firstOrFail();
+    }
+
     protected function associateRecordWithTenant(Model $record, Model $tenant): Model
     {
-        $record->save();
-
         return $record;
     }
 }

@@ -34,7 +34,7 @@ class Order extends Model
         'order_note', 'cargo_type', 'cargo_note', 'cargo_weight',
         'is_batch', 'stops', 'shop_service_type',
         'voucher_code', 'discount_amount',
-        'driver_rating', 'driver_rating_note', 'completed_at', 'delivered_at',
+        'cancel_note', 'cancelled_by', 'cancelled_at', 'fee_note', 'driver_rating', 'driver_rating_note', 'rated_at', 'rating_handled_at', 'rating_handled_by', 'rating_handle_note', 'rating_hidden', 'completed_at', 'delivered_at',
         'delivery_arrived_at', 'auto_completed_at',
     ];
 
@@ -51,6 +51,10 @@ class Order extends Model
         'dispatch_started_at'      => 'datetime',
         'offer_viewed_at'          => 'datetime',
         'completed_at'             => 'datetime',
+        'cancelled_at'             => 'datetime',
+        'rated_at'                 => 'datetime',
+        'rating_handled_at'        => 'datetime',
+        'rating_hidden'            => 'boolean',
         'delivery_arrived_at'      => 'datetime',
         'auto_completed_at'        => 'datetime',
         'delivered_at'             => 'datetime',
@@ -62,6 +66,7 @@ class Order extends Model
 
     public function driver()   { return $this->belongsTo(\Modules\Core\Models\User::class, 'delivery_man_id'); }
     public function sender()   { return $this->belongsTo(\Modules\Core\Models\User::class, 'sender_platform_id'); }
+    public function creator()  { return $this->belongsTo(\Modules\Core\Models\User::class, 'created_by'); }
     public function city()     { return $this->belongsTo(\Modules\Core\Models\City::class); }
     public function histories(){ return $this->hasMany(OrderHistory::class)->latest(); }
 

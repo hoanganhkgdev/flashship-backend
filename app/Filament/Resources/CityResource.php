@@ -4,11 +4,10 @@ namespace App\Filament\Resources;
 
 use App\Filament\Resources\CityResource\Pages;
 use App\Filament\Traits\HideFromCityManager;
+use App\Services\CatalogService;
 use Filament\Facades\Filament;
 use Filament\Forms;
 use Filament\Forms\Form;
-use Filament\Infolists;
-use Filament\Infolists\Infolist;
 use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
 use Filament\Tables;
@@ -37,6 +36,8 @@ class CityResource extends Resource
 
     protected static ?string $navigationGroup = 'Giá & khu vực';
 
+    protected static ?string $navigationLabel = 'Khu vực';
+
     protected static ?string $modelLabel = 'Khu vực';
 
     protected static ?string $pluralModelLabel = 'Khu vực';
@@ -45,17 +46,7 @@ class CityResource extends Resource
 
     public static function getEloquentQuery(): Builder
     {
-        return parent::getEloquentQuery()
-            ->withCount([
-                'users as drivers_count',
-                'users as online_drivers_count' => fn (Builder $query) => $query->where('is_online', true),
-                'customers',
-                'shops',
-                'orders',
-                'orders as orders_today_count' => fn (Builder $query) => $query->whereDate('created_at', today()),
-                'shifts',
-                'shifts as active_shifts_count' => fn (Builder $query) => $query->where('is_active', true),
-            ]);
+        return parent::getEloquentQuery();
     }
 
     public static function form(Form $form): Form
@@ -77,13 +68,17 @@ class CityResource extends Resource
                         ->maxLength(100)
                         ->unique(ignoreRecord: true)
                         ->placeholder('VD: rach-gia')
-                        ->helperText('Dùng để phân biệt nội bộ'),
+                        ->helperText('Dùng để phân biệt nội bộ. Tự chuyển về chữ thường, không dấu, nối bằng gạch ngang khi lưu.'),
 
                     Forms\Components\Toggle::make('is_active')
                         ->label('Đang hoạt động')
                         ->default(true)
                         ->hidden(fn (?City $record): bool => $record !== null && Filament::getTenant()?->is($record))
-                        ->columnSpanFull(),
+                        ->helperText('Tắt thì khách và cửa hàng không còn thấy khu vực này trong app.'),
+
+                    Forms\Components\Toggle::make('is_test')
+                        ->label('Khu vực thử')
+                        ->helperText('Vẫn dùng bình thường trong admin nhưng ẩn khỏi danh sách khu vực trong app của người dùng thật.'),
                 ]),
 
             Forms\Components\Section::make('Cấu hình')
@@ -97,7 +92,7 @@ class CityResource extends Resource
                         ->default(0)
                         ->minValue(0)
                         ->suffix('đ')
-                        ->helperText('Số tiền trừ ví tài xế mỗi tuần để duy trì hoạt động'),
+                        ->helperText('Mỗi sáng thứ Hai hệ thống tạo một khoản công nợ phí tuần cho từng tài xế đang hoạt động (không trừ thẳng vào ví). Đổi phí chỉ áp dụng từ tuần sau, các khoản đã tạo không đổi.'),
                 ]),
 
             Forms\Components\Section::make('Tọa độ trung tâm')
@@ -187,163 +182,115 @@ class CityResource extends Resource
         ]);
     }
 
-    public static function infolist(Infolist $infolist): Infolist
+    private static function health(City $c): array
     {
-        return $infolist->schema([
-            Infolists\Components\Section::make('Thông tin khu vực')
-                ->columns(3)
-                ->schema([
-                    Infolists\Components\TextEntry::make('name')
-                        ->label('Tên khu vực')
-                        ->size('lg'),
+        static $all = null;
+        $all ??= CatalogService::health();
 
-                    Infolists\Components\TextEntry::make('slug')
-                        ->label('Slug')
-                        ->default('—'),
-
-                    Infolists\Components\IconEntry::make('is_active')
-                        ->label('Trạng thái')
-                        ->boolean(),
-
-                    Infolists\Components\TextEntry::make('weekly_fee')
-                        ->label('Phí duy trì / tuần')
-                        ->formatStateUsing(fn ($state) => number_format((int) $state).'đ'),
-
-                    Infolists\Components\TextEntry::make('lat')
-                        ->label('Vĩ độ')
-                        ->default('—'),
-
-                    Infolists\Components\TextEntry::make('lng')
-                        ->label('Kinh độ')
-                        ->default('—'),
-                ]),
-
-            Infolists\Components\Section::make('Thống kê')
-                ->columns(3)
-                ->schema([
-                    Infolists\Components\TextEntry::make('users_count')
-                        ->label('Tài xế')
-                        ->state(fn (City $record) => $record->drivers_count)
-                        ->color('info')
-                        ->suffix(' tài xế')
-                        ->helperText(fn (City $record) => $record->online_drivers_count.' đang online'),
-
-                    Infolists\Components\TextEntry::make('customers_count')
-                        ->label('Khách hàng')
-                        ->state(fn (City $record) => $record->customers_count)
-                        ->color('success')
-                        ->suffix(' khách'),
-
-                    Infolists\Components\TextEntry::make('shops_count')
-                        ->label('Cửa hàng')
-                        ->suffix(' cửa hàng'),
-
-                    Infolists\Components\TextEntry::make('orders_count')
-                        ->label('Tổng đơn hàng')
-                        ->state(fn (City $record) => $record->orders_count)
-                        ->color('warning')
-                        ->suffix(' đơn')
-                        ->helperText(fn (City $record) => $record->orders_today_count.' đơn hôm nay'),
-
-                    Infolists\Components\TextEntry::make('shifts_count')
-                        ->label('Ca làm việc')
-                        ->suffix(' ca')
-                        ->helperText(fn (City $record) => $record->active_shifts_count.' ca đang bật'),
-                ]),
-        ]);
+        return $all[$c->id];
     }
 
     public static function table(Table $table): Table
     {
         return $table
             ->columns([
-                Tables\Columns\TextColumn::make('index')
-                    ->rowIndex()
-                    ->label('#')
-                    ->alignCenter()
-                    ->width(40),
-
                 Tables\Columns\TextColumn::make('name')
                     ->label('Khu vực')
                     ->searchable()
-                    ->description(fn (City $record) => Filament::getTenant()?->is($record)
-                        ? 'Khu vực đang chọn'
-                        : ($record->slug ?: 'Chưa có slug')),
+                    ->description(fn (City $c) => Filament::getTenant()?->is($c) ? 'Khu vực đang chọn' : ($c->slug ?: 'Chưa có slug')),
 
-                Tables\Columns\TextColumn::make('weekly_fee')
-                    ->label('Cấu hình')
-                    ->formatStateUsing(fn ($state) => number_format((int) $state).' ₫/tuần')
-                    ->description(fn (City $record) => $record->lat !== null && $record->lng !== null
-                        ? 'Tâm: '.$record->lat.', '.$record->lng
-                        : 'Chưa có tọa độ trung tâm'),
+                Tables\Columns\TextColumn::make('orders30')
+                    ->label('Đơn 30 ngày')
+                    ->alignEnd()
+                    ->state(fn (City $c) => number_format(self::health($c)['orders30'], 0, ',', '.'))
+                    ->description(fn (City $c) => number_format(self::health($c)['ordersToday'], 0, ',', '.').' đơn hôm nay'),
 
-                Tables\Columns\TextColumn::make('users_count')
-                    ->label('Người dùng')
-                    ->state(fn (City $record) => $record->drivers_count.' tài xế · '.$record->customers_count.' khách')
-                    ->description(fn (City $record) => $record->online_drivers_count.' tài xế online · '.$record->shops_count.' cửa hàng'),
+                Tables\Columns\TextColumn::make('people')
+                    ->label('Con người')
+                    ->state(fn (City $c) => self::health($c)['drivers'].' tài xế · '.self::health($c)['online'].' online')
+                    ->description(fn (City $c) => number_format(self::health($c)['customers'], 0, ',', '.').' khách · '.number_format(self::health($c)['shops'], 0, ',', '.').' cửa hàng'),
 
-                Tables\Columns\TextColumn::make('orders_count')
-                    ->label('Vận hành')
-                    ->formatStateUsing(fn ($state) => number_format((int) $state).' đơn')
-                    ->description(fn (City $record) => $record->orders_today_count.' đơn hôm nay · '.$record->active_shifts_count.'/'.$record->shifts_count.' ca đang bật'),
+                Tables\Columns\TextColumn::make('setup')
+                    ->label('Thiết lập')
+                    ->state(fn (City $c) => self::health($c)['priced'].'/'.self::health($c)['services'].' dịch vụ có giá')
+                    ->description(fn (City $c) => self::health($c)['activeShifts'].'/'.self::health($c)['shifts'].' ca bật · phí tuần '.number_format((int) $c->weekly_fee, 0, ',', '.').'₫')
+                    ->color(fn (City $c) => self::health($c)['missing']->isNotEmpty() && $c->is_active && ! $c->is_test ? 'danger' : null),
 
-                Tables\Columns\TextColumn::make('is_rain_mode')
-                    ->label('Chế độ mưa')
-                    ->formatStateUsing(fn ($state) => $state ? 'Đang bật' : 'Đang tắt')
-                    ->color(fn ($state) => $state ? 'info' : 'gray')
-                    ->description(fn (City $record) => $record->is_rain_mode && $record->rain_mode_started_at
-                        ? 'Từ '.$record->rain_mode_started_at->format('d/m H:i')
-                        : null),
+                Tables\Columns\TextColumn::make('flags')
+                    ->label('Lưu ý')
+                    ->html()
+                    ->wrap()
+                    ->extraAttributes(['style' => 'white-space:normal;max-width:16rem'])
+                    ->state(fn (City $c) => collect(self::health($c)['flags'])
+                        ->map(fn ($f) => '<span class="fs-order-pill fs-order-pill--'.$f['level'].'">'.e($f['label']).'</span>')->implode(' ') ?: '—'),
 
-                Tables\Columns\ToggleColumn::make('is_active')
-                    ->label('Hoạt động')
-                    ->hidden(fn (?City $record): bool => $record !== null && (Filament::getTenant()?->is($record) ?? false))
-                    ->alignCenter(),
-
-                Tables\Columns\TextColumn::make('created_at')
-                    ->label('Tạo lúc')
-                    ->dateTime('d/m/Y')
-                    ->alignCenter()
-                    ->toggleable(isToggledHiddenByDefault: true),
+                Tables\Columns\TextColumn::make('status')
+                    ->label('Trạng thái')
+                    ->badge()
+                    ->state(fn (City $c) => ! $c->is_active ? 'Đã tắt' : ($c->is_rain_mode ? 'Đang mưa' : 'Hoạt động'))
+                    ->color(fn (City $c) => ! $c->is_active ? 'gray' : ($c->is_rain_mode ? 'info' : 'success')),
             ])
             ->filters([
                 Tables\Filters\TernaryFilter::make('is_active')->label('Trạng thái hoạt động'),
                 Tables\Filters\TernaryFilter::make('is_rain_mode')->label('Chế độ mưa'),
+                Tables\Filters\TernaryFilter::make('is_test')->label('Khu vực thử'),
             ])
             ->actions([
-                Tables\Actions\ViewAction::make()->label(''),
-                Tables\Actions\EditAction::make()->label(''),
-                Tables\Actions\DeleteAction::make()->label('')
-                    // users.city_id/orders.city_id đều là "set null" khi xoá
-                    // City — không lỗi, nhưng xoá xong sẽ làm mồ côi âm thầm
-                    // tài xế/đơn thuộc khu vực đó (mất luôn phạm vi lọc theo
-                    // tenant của city_manager/call_center, sai lệch báo cáo
-                    // lịch sử). Chặn hẳn nếu còn phụ thuộc, không cảnh báo
-                    // suông rồi vẫn cho xoá.
-                    ->before(function (City $record, Tables\Actions\DeleteAction $action) {
-                        if (Filament::getTenant()?->is($record)) {
-                            Notification::make()->danger()
-                                ->title('Không thể xoá khu vực đang chọn')
-                                ->body('Hãy chuyển sang khu vực khác trước khi thao tác.')
-                                ->send();
-                            $action->halt();
-                        }
-                        $userCount = DB::table('users')->where('city_id', $record->id)->count();
-                        $orderCount = DB::table('orders')->where('city_id', $record->id)->count();
-
-                        if ($userCount > 0 || $orderCount > 0) {
-                            Notification::make()->danger()
-                                ->title('Không thể xoá khu vực này')
-                                ->body("Còn {$userCount} tài khoản và {$orderCount} đơn hàng thuộc khu vực này — chuyển/xoá hết trước khi xoá khu vực, tránh làm mồ côi dữ liệu.")
-                                ->send();
-                            $action->halt();
-                        }
-                    }),
+                Tables\Actions\ActionGroup::make([
+                    Tables\Actions\ViewAction::make()->label('Xem chi tiết')->icon('heroicon-o-eye'),
+                    Tables\Actions\EditAction::make()->label('Chỉnh sửa'),
+                    self::toggleAction(Tables\Actions\Action::make('toggle')),
+                    self::deleteAction(Tables\Actions\DeleteAction::make()),
+                ])->icon('heroicon-m-ellipsis-horizontal')->label(''),
             ])
             ->recordUrl(fn (City $record): string => static::getUrl('view', ['record' => $record]))
             ->defaultSort('name')
             ->defaultPaginationPageOption(25)
             ->paginationPageOptions([25, 50, 100]);
+    }
+
+    /** Bật/tắt khu vực: có xác nhận, nêu số người bị ảnh hưởng và ghi nhật ký. */
+    public static function toggleAction($action)
+    {
+        return $action
+            ->label(fn (City $c) => $c->is_active ? 'Tắt khu vực' : 'Bật khu vực')
+            ->icon(fn (City $c) => $c->is_active ? 'heroicon-o-pause-circle' : 'heroicon-o-play-circle')
+            ->color(fn (City $c) => $c->is_active ? 'danger' : 'success')
+            ->visible(fn (City $c) => ! (Filament::getTenant()?->is($c) ?? false))
+            ->requiresConfirmation()
+            ->modalHeading(fn (City $c) => ($c->is_active ? 'Tắt ' : 'Bật ').$c->name)
+            ->modalDescription(function (City $c) {
+                $i = CatalogService::cityImpact($c);
+                $who = $i['customers'].' khách, '.$i['shops'].' cửa hàng, '.$i['drivers'].' tài xế hoạt động';
+
+                return $c->is_active
+                    ? 'Khu vực sẽ biến mất khỏi danh sách trong app (đăng ký, chọn khu vực). Ảnh hưởng tới: '.$who.'.'
+                    : 'Khu vực hiện lại trong app'.($c->is_test ? ' (nhưng là khu vực thử nên vẫn bị ẩn khỏi app)' : '').'. Liên quan: '.$who.'.';
+            })
+            ->action(function (City $record): void {
+                CatalogService::setCityActive($record, ! $record->is_active, auth()->id());
+                Notification::make()->success()->title($record->fresh()->is_active ? 'Đã bật khu vực' : 'Đã tắt khu vực')->send();
+            });
+    }
+
+    /** users.city_id/orders.city_id đều là "set null" khi xoá City nên chặn hẳn nếu còn phụ thuộc, tránh mồ côi dữ liệu. */
+    public static function deleteAction($action)
+    {
+        return $action->label('Xoá khu vực')
+            ->before(function (City $record, $action) {
+                if (Filament::getTenant()?->is($record)) {
+                    Notification::make()->danger()->title('Không thể xoá khu vực đang chọn')->body('Hãy chuyển sang khu vực khác trước khi thao tác.')->send();
+                    $action->halt();
+                }
+                $userCount = DB::table('users')->where('city_id', $record->id)->count();
+                $orderCount = DB::table('orders')->where('city_id', $record->id)->count();
+                if ($userCount > 0 || $orderCount > 0) {
+                    Notification::make()->danger()->title('Không thể xoá khu vực này')
+                        ->body("Còn {$userCount} tài khoản và {$orderCount} đơn hàng thuộc khu vực này — chuyển/xoá hết trước, tránh làm mồ côi dữ liệu.")->send();
+                    $action->halt();
+                }
+            })
+            ->after(fn (City $record) => CatalogService::log('city', $record->id, 'deleted', auth()->id(), $record->name));
     }
 
     public static function getRelations(): array

@@ -3,9 +3,11 @@
 namespace App\Filament\Resources;
 
 use App\Filament\Resources\DriverRatingResource\Pages;
+use App\Services\DriverRatingService;
+use Filament\Facades\Filament;
+use Filament\Forms;
 use Filament\Forms\Form;
-use Filament\Infolists;
-use Filament\Infolists\Infolist;
+use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Filters\Filter;
@@ -26,7 +28,9 @@ class DriverRatingResource extends Resource
 
     protected static ?string $navigationIcon = 'heroicon-o-star';
 
-    protected static ?string $navigationGroup = 'Vận hành đơn hàng';
+    protected static ?string $navigationGroup = 'Tài xế';
+
+    protected static ?string $navigationLabel = 'Đánh giá tài xế';
 
     protected static ?string $modelLabel = 'Đánh giá tài xế';
 
@@ -34,15 +38,12 @@ class DriverRatingResource extends Resource
 
     protected static ?string $slug = 'driver-ratings';
 
-    protected static ?int $navigationSort = 5;
+    protected static ?int $navigationSort = 3;
 
+    /** Badge chỉ đếm đánh giá 1–2 sao CHƯA xử lý của khu vực đang chọn. */
     public static function getNavigationBadge(): ?string
     {
-        // getEloquentQuery() (không phải static::getModel()::) để tự động
-        // lọc đúng theo khu vực (tenant) đang đứng — trước đây dùng thẳng
-        // model nên city_manager thấy số đơn bị đánh giá thấp CỦA TOÀN BỘ
-        // các khu vực khác, không riêng khu vực mình.
-        $count = static::getEloquentQuery()->where('driver_rating', '<=', 2)->count();
+        $count = DriverRatingService::pendingCount(Filament::getTenant()?->id);
 
         return $count > 0 ? (string) $count : null;
     }
@@ -56,8 +57,7 @@ class DriverRatingResource extends Resource
     {
         return parent::getEloquentQuery()
             ->whereNotNull('driver_rating')
-            ->with(['driver', 'sender'])
-            ->latest('completed_at');
+            ->with(['driver', 'sender']);
     }
 
     public static function form(Form $form): Form
@@ -65,98 +65,83 @@ class DriverRatingResource extends Resource
         return $form->schema([]);
     }
 
-    public static function infolist(Infolist $infolist): Infolist
-    {
-        return $infolist->schema([
-            Infolists\Components\Section::make('Thông tin đơn')
-                ->columns(3)
-                ->schema([
-                    Infolists\Components\TextEntry::make('code')
-                        ->label('Mã đơn')
-                        ->weight('bold')
-                        ->copyable(),
-
-                    Infolists\Components\TextEntry::make('service_type')
-                        ->label('Dịch vụ')
-                        ->badge()
-                        ->formatStateUsing(fn ($state) => match ($state) {
-                            'delivery' => 'Lấy hộ',
-                            'shopping' => 'Mua hộ',
-                            'topup' => 'Nạp tiền',
-                            'bike' => 'Xe ôm',
-                            'motor' => 'Lái hộ xe máy',
-                            'car' => 'Lái hộ ô tô',
-                            default => $state,
-                        })
-                        ->color('info'),
-
-                    Infolists\Components\TextEntry::make('completed_at')
-                        ->label('Ngày hoàn thành')
-                        ->dateTime('d/m/Y H:i')
-                        ->placeholder('—'),
-                ]),
-
-            Infolists\Components\Section::make('Tài xế & Khách hàng')
-                ->columns(2)
-                ->schema([
-                    Infolists\Components\TextEntry::make('driver.name')
-                        ->label('Tài xế')
-                        ->weight('bold')
-                        ->default('—'),
-
-                    Infolists\Components\TextEntry::make('driver.phone')
-                        ->label('SĐT tài xế')
-                        ->default('—'),
-
-                    Infolists\Components\TextEntry::make('sender.name')
-                        ->label('Khách hàng')
-                        ->weight('bold')
-                        ->default('—'),
-
-                    Infolists\Components\TextEntry::make('sender.phone')
-                        ->label('SĐT khách')
-                        ->default('—'),
-                ]),
-
-            Infolists\Components\Section::make('Đánh giá')
-                ->columns(2)
-                ->schema([
-                    Infolists\Components\TextEntry::make('driver_rating')
-                        ->label('Số sao')
-                        ->formatStateUsing(fn ($state) => str_repeat('⭐', (int) $state).' ('.$state.'/5)')
-                        ->color(fn ($state) => $state <= 2 ? 'danger' : ($state >= 4 ? 'success' : 'warning')),
-
-                    Infolists\Components\TextEntry::make('driver_rating_note')
-                        ->label('Nhận xét')
-                        ->default('Không có nhận xét')
-                        ->columnSpanFull(),
-                ]),
-        ]);
-    }
-
-    private static function serviceLabels(): array
+    public static function serviceLabels(): array
     {
         static $cache = null;
 
         return $cache ??= ServiceType::pluck('label', 'key')->toArray();
     }
 
-    private static function ratingColor(int $rating): string
+    public static function stars(int $rating): string
     {
-        return match (true) {
+        $color = match (true) {
             $rating <= 2 => '#ef4444',
             $rating === 3 => '#f59e0b',
             default => '#22c55e',
         };
+
+        return '<span style="font-size:1rem;letter-spacing:1px">'
+            .str_repeat('<span style="color:'.$color.'">★</span>', $rating)
+            .str_repeat('<span style="color:#94a3b8;opacity:.45">★</span>', 5 - $rating).'</span>';
     }
 
-    private static function ratingStars(int $rating): string
+    /** Nguồn đánh giá: tài khoản gửi đơn là shop hay khách. */
+    public static function sourceLabel(Order $o): string
     {
-        $color = self::ratingColor($rating);
-        $stars = str_repeat('<span style="color:'.$color.'">★</span>', $rating)
-               .str_repeat('<span style="color:#d1d5db">★</span>', 5 - $rating);
+        return match ($o->sender?->user_type) {
+            'shop' => 'Shop',
+            'customer' => 'Khách',
+            default => 'Không rõ',
+        };
+    }
 
-        return '<span style="font-size:1rem;letter-spacing:1px">'.$stars.'</span>';
+    public static function statusLabel(Order $o): array
+    {
+        return match (true) {
+            (bool) $o->rating_hidden => ['Đã ẩn', 'gray'],
+            (bool) $o->rating_handled_at => ['Đã xử lý', 'success'],
+            DriverRatingService::needsAction($o) => ['Cần xử lý', 'danger'],
+            default => ['—', 'gray'],
+        };
+    }
+
+    // ─── Thao tác dùng chung cho bảng và trang chi tiết ──────────────────────────
+
+    public static function handleAction($action)
+    {
+        return $action->label('Đã xử lý')->icon('heroicon-o-check-circle')->color('success')
+            ->visible(fn (Order $r) => DriverRatingService::needsAction($r))
+            ->modalHeading('Đánh dấu đã xử lý')
+            ->modalDescription('Ghi lại bạn đã làm gì (gọi tài xế, nhắc nhở, khiếu nại không đúng...).')
+            ->form([Forms\Components\Textarea::make('note')->label('Ghi chú xử lý')->required()->minLength(3)->maxLength(500)->rows(2)])
+            ->action(function (Order $record, array $data): void {
+                DriverRatingService::handle($record, $data['note'], auth()->id());
+                Notification::make()->success()->title('Đã đánh dấu xử lý')->send();
+            });
+    }
+
+    public static function hideAction($action)
+    {
+        return $action->label('Ẩn khỏi thống kê')->icon('heroicon-o-eye-slash')->color('gray')
+            ->visible(fn (Order $r) => ! $r->rating_hidden)
+            ->modalHeading('Ẩn đánh giá khỏi thống kê')
+            ->modalDescription('Đánh giá không tính vào điểm trung bình và app tài xế, nhưng nội dung vẫn được giữ lại.')
+            ->form([Forms\Components\Textarea::make('reason')->label('Lý do ẩn')->required()->minLength(3)->maxLength(500)->rows(2)])
+            ->action(function (Order $record, array $data): void {
+                DriverRatingService::hide($record, $data['reason'], auth()->id());
+                Notification::make()->success()->title('Đã ẩn đánh giá khỏi thống kê')->send();
+            });
+    }
+
+    public static function unhideAction($action)
+    {
+        return $action->label('Hiện lại')->icon('heroicon-o-eye')->color('info')
+            ->visible(fn (Order $r) => (bool) $r->rating_hidden)
+            ->requiresConfirmation()
+            ->action(function (Order $record): void {
+                DriverRatingService::unhide($record);
+                Notification::make()->success()->title('Đã tính lại đánh giá vào thống kê')->send();
+            });
     }
 
     public static function table(Table $table): Table
@@ -165,40 +150,46 @@ class DriverRatingResource extends Resource
             ->columns([
                 Tables\Columns\TextColumn::make('driver_rating')
                     ->label('Đánh giá')
-                    ->formatStateUsing(fn ($state) => self::ratingStars((int) $state))
+                    ->formatStateUsing(fn ($state) => self::stars((int) $state))
                     ->html()
                     ->sortable(),
 
-                Tables\Columns\TextColumn::make('driver.name')
-                    ->label('Tài xế')
-                    ->description(fn (Order $record): string => $record->driver?->phone ?: '—')
-                    ->searchable()
-                    ->placeholder('—'),
-
                 Tables\Columns\TextColumn::make('driver_rating_note')
-                    ->label('Nhận xét của khách')
+                    ->label('Nhận xét')
                     ->placeholder('Không có nhận xét')
-                    ->wrap()
+                    ->limit(32)->wrap(false)
+                    ->tooltip(fn (Order $r) => $r->driver_rating_note)
                     ->searchable(),
 
+                Tables\Columns\TextColumn::make('driver.name')
+                    ->label('Tài xế')
+                    ->description(fn (Order $r): ?string => $r->driver?->phone)
+                    ->searchable()
+                    ->placeholder('Đơn chưa gán tài xế'),
+
                 Tables\Columns\TextColumn::make('code')
-                    ->label('Đơn hàng')
+                    ->label('Đơn')
                     ->formatStateUsing(fn ($state) => '#'.$state)
-                    ->description(fn (Order $record): string => self::serviceLabels()[$record->service_type] ?? $record->service_type)
+                    ->description(fn (Order $r): string => \Illuminate\Support\Str::limit(self::serviceLabels()[$r->service_type] ?? (string) $r->service_type, 14))
                     ->copyable()
                     ->searchable(),
 
-                Tables\Columns\TextColumn::make('sender.name')
-                    ->label('Khách hàng')
-                    ->description(fn (Order $record): string => $record->sender?->phone ?: '—')
-                    ->searchable()
-                    ->placeholder('—'),
+                Tables\Columns\TextColumn::make('source')
+                    ->label('Nguồn')
+                    ->state(fn (Order $r) => self::sourceLabel($r))
+                    ->description(fn (Order $r): ?string => \Illuminate\Support\Str::limit($r->sender?->name ?: $r->sender_name, 16)),
 
-                Tables\Columns\TextColumn::make('completed_at')
-                    ->label('Hoàn thành')
-                    ->dateTime('d/m/Y H:i')
+                Tables\Columns\TextColumn::make('rated_at')
+                    ->label('Đánh giá lúc')
+                    ->dateTime('d/m H:i')
                     ->sortable()
                     ->placeholder('—'),
+
+                Tables\Columns\TextColumn::make('handling')
+                    ->label('Trạng thái')
+                    ->badge()
+                    ->state(fn (Order $r) => self::statusLabel($r)[0])
+                    ->color(fn (Order $r) => self::statusLabel($r)[1]),
             ])
             ->filters([
                 SelectFilter::make('driver_rating')
@@ -212,41 +203,30 @@ class DriverRatingResource extends Resource
                 SelectFilter::make('service_type')
                     ->label('Dịch vụ')
                     ->options(fn (): array => self::serviceLabels()),
-                Filter::make('low_rating')
-                    ->label('Cần xử lý (1–2 sao)')
-                    ->query(fn (Builder $query): Builder => $query->where('driver_rating', '<=', 2)),
-                Filter::make('completed_at')
-                    ->label('Ngày hoàn thành')
+                Filter::make('rated_at')
+                    ->label('Ngày đánh giá')
                     ->form([
-                        \Filament\Forms\Components\DatePicker::make('from')->label('Từ ngày'),
-                        \Filament\Forms\Components\DatePicker::make('until')->label('Đến ngày'),
+                        Forms\Components\DatePicker::make('from')->label('Từ ngày'),
+                        Forms\Components\DatePicker::make('until')->label('Đến ngày'),
                     ])
                     ->columns(2)
                     ->query(fn (Builder $query, array $data): Builder => $query
-                        ->when($data['from'] ?? null, fn (Builder $query, $date): Builder => $query->whereDate('completed_at', '>=', $date))
-                        ->when($data['until'] ?? null, fn (Builder $query, $date): Builder => $query->whereDate('completed_at', '<=', $date))),
+                        ->when($data['from'] ?? null, fn ($q, $date) => $q->whereDate('rated_at', '>=', $date))
+                        ->when($data['until'] ?? null, fn ($q, $date) => $q->whereDate('rated_at', '<=', $date))),
             ])
             ->actions([
-                Tables\Actions\ViewAction::make()->label('')->tooltip('Xem chi tiết'),
-                Tables\Actions\Action::make('delete_rating')
-                    ->label('')
-                    ->icon('heroicon-o-trash')
-                    ->color('danger')
-                    ->tooltip('Xóa đánh giá')
-                    ->requiresConfirmation()
-                    ->modalHeading('Xóa đánh giá')
-                    ->modalDescription('Bạn có chắc muốn xóa đánh giá này?')
-                    ->action(fn (Order $record) => $record->update([
-                        'driver_rating' => null,
-                        'driver_rating_note' => null,
-                    ])),
+                Tables\Actions\ActionGroup::make([
+                    Tables\Actions\ViewAction::make()->label('Xem chi tiết')->icon('heroicon-o-eye'),
+                    self::handleAction(Tables\Actions\Action::make('handle')),
+                    self::hideAction(Tables\Actions\Action::make('hide')),
+                    self::unhideAction(Tables\Actions\Action::make('unhide')),
+                ])->icon('heroicon-m-ellipsis-horizontal')->label(''),
             ])
             ->bulkActions([])
-            ->actionsAlignment('end')
             ->recordUrl(fn (Order $record): string => static::getUrl('view', ['record' => $record]))
+            ->defaultSort('rated_at', 'desc')
             ->defaultPaginationPageOption(25)
-            ->paginationPageOptions([25, 50, 100])
-            ->poll('30s');
+            ->paginationPageOptions([25, 50, 100]);
     }
 
     public static function getPages(): array

@@ -20,7 +20,7 @@ class ListServiceTypes extends ListRecords
 
     public function getSubheading(): ?string
     {
-        return 'Quản lý danh mục và thứ tự hiển thị dịch vụ trên ứng dụng.';
+        return 'Danh mục dịch vụ, mức sử dụng và độ phủ giá theo khu vực.';
     }
 
     protected function getHeaderActions(): array
@@ -28,6 +28,16 @@ class ListServiceTypes extends ListRecords
         return [
             Actions\CreateAction::make()->label('Thêm dịch vụ')->icon('heroicon-o-plus'),
         ];
+    }
+
+    protected function getHeaderWidgets(): array
+    {
+        return [\App\Filament\Resources\ServiceTypeResource\Widgets\ServiceCoverageWidget::class];
+    }
+
+    public function getHeaderWidgetsColumns(): int|string|array
+    {
+        return 1;
     }
 
     public function getTabs(): array

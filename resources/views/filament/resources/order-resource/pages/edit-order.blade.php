@@ -73,14 +73,14 @@
         <button onclick="editCloseMap()" style="width:38px; height:38px; border-radius:50%; border:none; background:rgba(255,255,255,0.95); cursor:pointer; display:flex; align-items:center; justify-content:center; box-shadow:0 2px 8px rgba(0,0,0,0.2);">
             <svg width="18" height="18" fill="none" stroke="#374151" stroke-width="2.5" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>
         </button>
-        <span id="edit-modal-title" style="font-size:15px; font-weight:700; color:#fff; text-shadow:0 1px 3px rgba(0,0,0,0.4);">Chọn điểm</span>
+        <span id="edit-modal-title" style="font-size:var(--fs-base); font-weight:700; color:#fff; text-shadow:0 1px 3px rgba(0,0,0,0.4);">Chọn điểm</span>
     </div>
 
     {{-- Search bar --}}
     <div style="position:absolute; top:66px; left:16px; right:16px; z-index:20;">
         <div style="display:flex; align-items:center; gap:10px; background:#fff; border-radius:14px; padding:10px 14px; box-shadow:0 4px 20px rgba(0,0,0,0.18);">
             <svg width="18" height="18" fill="none" stroke="#9ca3af" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path stroke-linecap="round" d="M21 21l-4.35-4.35"/></svg>
-            <input id="edit-modal-search" type="text" placeholder="Tìm địa chỉ..." autocomplete="off" style="flex:1; border:none; outline:none; font-size:14px; color:#111827; background:transparent;" />
+            <input id="edit-modal-search" type="text" placeholder="Tìm địa chỉ..." autocomplete="off" style="flex:1; border:none; outline:none; font-size:var(--fs-sm); color:#111827; background:transparent;" />
         </div>
     </div>
 
@@ -99,11 +99,11 @@
                 <svg width="16" height="16" fill="#E8720C" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M5.05 4.05a7 7 0 119.9 9.9L10 18.9l-4.95-4.95a7 7 0 010-9.9zM10 11a2 2 0 100-4 2 2 0 000 4z" clip-rule="evenodd"/></svg>
             </div>
             <div style="flex:1;">
-                <p id="edit-picker-label" style="font-size:11px; font-weight:600; color:#9ca3af; text-transform:uppercase; letter-spacing:.05em; margin-bottom:3px;">Địa chỉ</p>
-                <p id="edit-picker-addr" style="font-size:14px; font-weight:500; color:#111827; line-height:1.4;">Đang xác định vị trí...</p>
+                <p id="edit-picker-label" style="font-size:var(--fs-xs); font-weight:600; color:#9ca3af; text-transform:uppercase; letter-spacing:.05em; margin-bottom:3px;">Địa chỉ</p>
+                <p id="edit-picker-addr" style="font-size:var(--fs-sm); font-weight:500; color:#111827; line-height:1.4;">Đang xác định vị trí...</p>
             </div>
         </div>
-        <button onclick="editConfirmMap()" style="width:100%; background:#E8720C; color:#fff; border:none; border-radius:14px; padding:15px; font-size:15px; font-weight:700; cursor:pointer; box-shadow:0 4px 14px rgba(232,114,12,0.35);">
+        <button onclick="editConfirmMap()" style="width:100%; background:#E8720C; color:#fff; border:none; border-radius:14px; padding:15px; font-size:var(--fs-base); font-weight:700; cursor:pointer; box-shadow:0 4px 14px rgba(232,114,12,0.35);">
             Xác nhận địa chỉ này
         </button>
     </div>

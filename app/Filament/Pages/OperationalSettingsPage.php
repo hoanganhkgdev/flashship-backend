@@ -2,7 +2,9 @@
 
 namespace App\Filament\Pages;
 
+use App\Filament\PageWidgets\OperationalHistoryWidget;
 use App\Filament\Traits\RestrictToFullAdmin;
+use App\Services\CatalogService;
 use App\Filament\Widgets\OperationalSettingsOverview;
 use Filament\Actions\Action;
 use Filament\Facades\Filament;
@@ -86,6 +88,7 @@ class OperationalSettingsPage extends Page implements HasForms
         'rain_mode_auto_off_hours' => 'rain_mode.auto_off_hours',
         'penalty_debt_overdue_hours' => 'debt.penalty_overdue_hours',
         'low_wallet_balance_threshold' => 'wallet.low_balance_threshold',
+        'min_withdraw_amount' => 'wallet.min_withdraw',
         'referral_reward_amount' => 'referral.reward_amount',
         'referral_min_orders' => 'referral.min_orders',
         'shop_referral_points' => 'shop_referral.points',
@@ -118,6 +121,25 @@ class OperationalSettingsPage extends Page implements HasForms
     protected function getHeaderWidgets(): array
     {
         return [OperationalSettingsOverview::class];
+    }
+
+    protected function getFooterWidgets(): array
+    {
+        return [OperationalHistoryWidget::class];
+    }
+
+    /** Nhãn tiếng Việt của từng khóa cấu hình, lấy từ chính nhãn trên form. */
+    private function settingLabels(): array
+    {
+        $labels = [];
+        foreach ($this->form->getFlatFields(withHidden: true) as $name => $field) {
+            $key = self::FIELDS[$name] ?? null;
+            if ($key) {
+                $labels[$key] = $field->getLabel();
+            }
+        }
+
+        return $labels + ['driver_score.streak_milestones' => 'Mốc thưởng chuỗi đơn', 'pricing.night_windows' => 'Khung giờ phụ phí đêm'];
     }
 
     protected function getHeaderActions(): array
@@ -383,6 +405,8 @@ class OperationalSettingsPage extends Page implements HasForms
                     ->schema([
                         $this->money('low_wallet_balance_threshold', 'Cảnh báo số dư ví thấp dưới', 0, 999_999)
                             ->helperText('Tô đỏ số dư trong trang Ví tài xế'),
+                        $this->money('min_withdraw_amount', 'Số tiền rút tối thiểu', 1_000, 10_000_000)
+                            ->helperText('Tài xế không tạo được yêu cầu rút thấp hơn mức này'),
                         $this->integer('penalty_debt_overdue_hours', 'Công nợ phạt điểm quá hạn sau', 'giờ', 1, 720),
                     ]),
 
@@ -605,11 +629,29 @@ class OperationalSettingsPage extends Page implements HasForms
         foreach (self::FIELDS as $field => $key) {
             $settings[$key] = $values[$field];
         }
+        $before = collect($settings)->mapWithKeys(fn ($v, $k) => [$k => OperationalSettings::value($k, $this->cityId())])->all();
         OperationalSettings::put($settings, $this->cityId());
+        $this->logChanges($before, $settings);
 
         Notification::make()->title('Đã lưu cấu hình vận hành')->success()->send();
 
         // Thẻ tóm tắt là component riêng, không tự render lại cùng trang.
         $this->dispatch('operational-settings-saved');
+    }
+
+    /** Ghi một dòng nhật ký liệt kê các thông số đã đổi (giá trị cũ → mới) của khu vực. */
+    private function logChanges(array $before, array $after): void
+    {
+        $labels = $this->settingLabels();
+        $changes = [];
+        foreach ($after as $key => $new) {
+            $old = $before[$key] ?? null;
+            if ((string) $old !== (string) $new) {
+                $changes[] = ($labels[$key] ?? $key).': '.($old === null || $old === '' ? '—' : $old).' → '.($new === '' ? '—' : $new);
+            }
+        }
+        if ($changes) {
+            CatalogService::log('operational', $this->cityId(), 'updated', auth()->id(), mb_substr(implode('; ', $changes), 0, 4000));
+        }
     }
 }

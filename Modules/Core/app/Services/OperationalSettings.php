@@ -63,6 +63,7 @@ class OperationalSettings
         'rain_mode.auto_off_hours' => '6',
         'debt.penalty_overdue_hours' => '24',
         'wallet.low_balance_threshold' => '100000',
+        'wallet.min_withdraw' => '100000',
         'referral.reward_amount' => '50000',
         'referral.min_orders' => '1',
         // Shop giới thiệu shop: điểm cho người giới thiệu, số đơn shop mới cần hoàn
@@ -361,6 +362,12 @@ class OperationalSettings
     public static function penaltyDebtOverdueHours(?int $cityId): int
     {
         return (int) self::value('debt.penalty_overdue_hours', $cityId);
+    }
+
+    /** Số tiền tối thiểu một yêu cầu rút. */
+    public static function minWithdrawAmount(?int $cityId): int
+    {
+        return max(1000, (int) self::value('wallet.min_withdraw', $cityId));
     }
 
     public static function lowWalletBalanceThreshold(?int $cityId): int

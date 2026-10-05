@@ -737,6 +737,13 @@ class DriverController extends Controller
     {
         $user = $request->user();
 
+        if ((int) $user->status !== 1) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Tài khoản đang tạm ngưng hoặc chưa được duyệt, không thể gửi yêu cầu đổi ca.',
+            ], 403);
+        }
+
         // Khoá theo tài xế trong lúc kiểm tra + tạo — nếu không, bấm gửi 2
         // lần liên tiếp nhanh sẽ khiến cả 2 request cùng đọc thấy "chưa có
         // gì pending" (request sau chưa kịp thấy request trước vừa tạo),
@@ -795,7 +802,7 @@ class DriverController extends Controller
 
     public function cities(Request $request): JsonResponse
     {
-        $cities = City::active()->orderBy('name')->get(['id', 'name']);
+        $cities = City::public()->orderBy('name')->get(['id', 'name']);
 
         return response()->json(['success' => true, 'data' => $cities]);
     }

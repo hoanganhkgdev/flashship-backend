@@ -52,6 +52,8 @@ class ViewOrder extends ViewRecord
                     'delivery_address' => $record->delivery_address,
                     'delivery_phone' => $record->delivery_phone,
                 ]))),
+            OrderResource::completeAction(Actions\Action::make('complete'))->after(fn () => $this->record->refresh()),
+            OrderResource::cancelAction(Actions\Action::make('cancel'))->after(fn () => $this->record->refresh()),
             Actions\EditAction::make()
                 ->label('Chỉnh sửa đơn')
                 ->icon('heroicon-o-pencil-square'),

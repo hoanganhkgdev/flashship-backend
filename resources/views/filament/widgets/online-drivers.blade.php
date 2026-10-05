@@ -1,5 +1,9 @@
 <x-filament-widgets::widget>
-    @php $drivers = $this->getDrivers(); @endphp
+    @php
+        $drivers = $this->getDrivers();
+        $totalOnline = $this->getTotalOnline();
+        $hiddenCount = max(0, $totalOnline - \App\Filament\Widgets\OnlineDriversWidget::DISPLAY_LIMIT);
+    @endphp
 
     <section class="fs-widget">
         <header class="fs-widget-header">
@@ -9,7 +13,7 @@
             </div>
             <span class="fs-status-pill">
                 <span class="fs-status-dot"></span>
-                {{ $this->getTotalOnline() }} / {{ $this->getTotalDrivers() }} sẵn sàng
+                {{ $totalOnline }} / {{ $this->getTotalDrivers() }} đang online
             </span>
         </header>
 
@@ -61,6 +65,12 @@
                     </a>
                 @endforeach
             </div>
+
+            @if ($hiddenCount > 0)
+                <a href="{{ \App\Filament\Resources\DriverResource::getUrl() }}" wire:navigate class="fs-driver-more">
+                    +{{ $hiddenCount }} tài xế online khác · Xem tất cả
+                </a>
+            @endif
         @endif
     </section>
 </x-filament-widgets::widget>

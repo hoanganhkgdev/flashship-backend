@@ -17,7 +17,17 @@ class ListBankLists extends ListRecords
 
     public function getSubheading(): ?string
     {
-        return 'Quản lý ngân hàng khả dụng cho tài khoản nhận tiền và rút tiền.';
+        return 'Ngân hàng tài xế có thể chọn để nhận tiền. Mã ngân hàng là số BIN 6 chữ số.';
+    }
+
+    protected function getHeaderWidgets(): array
+    {
+        return [\App\Filament\Resources\BankListResource\Widgets\BankHealthWidget::class];
+    }
+
+    public function getHeaderWidgetsColumns(): int|string|array
+    {
+        return 1;
     }
 
     protected function getHeaderActions(): array

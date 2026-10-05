@@ -3,11 +3,11 @@
 namespace App\Filament\Resources\DriverDebtResource\Pages;
 
 use App\Filament\Resources\DriverDebtResource;
+use App\Filament\Resources\DriverDebtResource\Widgets\DriverDebtStatsWidget;
 use Filament\Actions\CreateAction;
 use Filament\Facades\Filament;
 use Filament\Resources\Components\Tab;
 use Filament\Resources\Pages\ListRecords;
-use Illuminate\Database\Eloquent\Builder;
 use Modules\Driver\Models\DriverDebt;
 
 class ListDriverDebts extends ListRecords
@@ -21,7 +21,7 @@ class ListDriverDebts extends ListRecords
 
     public function getSubheading(): ?string
     {
-        return 'Theo dõi kỳ đối soát, số tiền còn lại và trạng thái thanh toán.';
+        return 'Phí tuần, phạt điểm và các khoản phải thu. Mọi thay đổi đều được ghi nhật ký.';
     }
 
     protected function getHeaderActions(): array
@@ -29,32 +29,41 @@ class ListDriverDebts extends ListRecords
         return [CreateAction::make()->label('Tạo công nợ')->icon('heroicon-o-plus')];
     }
 
+    protected function getHeaderWidgets(): array
+    {
+        return [DriverDebtStatsWidget::class];
+    }
+
+    public function getHeaderWidgetsColumns(): int|string|array
+    {
+        return 1;
+    }
+
     public function getDefaultActiveTab(): string|int|null
     {
-        return 'unpaid';
+        return 'open';
     }
 
     public function getTabs(): array
     {
-        $query = fn () => DriverDebtResource::scopeEloquentQueryToTenant(
-            DriverDebt::query(),
-            Filament::getTenant(),
-        );
+        $base = fn () => DriverDebtResource::scopeEloquentQueryToTenant(DriverDebt::query(), Filament::getTenant());
+
+        $open = fn ($q) => $q->whereIn('status', ['pending', 'overdue']);
+        $overdue = fn ($q) => $q->where('status', 'overdue');
+        $blocked = fn ($q) => $q->where('status', 'overdue')->whereHas('driver', fn ($d) => $d->where('status', 1));
+        $paid = fn ($q) => $q->where('status', 'paid');
+
+        $tab = fn (string $label, ?callable $scope, ?string $color = null) => Tab::make($label)
+            ->modifyQueryUsing(fn ($query) => $scope ? $scope($query) : $query)
+            ->badge(($scope ? $scope($base()) : $base())->count() ?: null)
+            ->badgeColor($color);
 
         return [
-            'all' => Tab::make('Tất cả')->badge($query()->count() ?: null),
-            'unpaid' => Tab::make('Chưa thanh toán')
-                ->modifyQueryUsing(fn (Builder $query) => $query->where('status', 'pending'))
-                ->badge($query()->where('status', 'pending')->count() ?: null)
-                ->badgeColor('warning'),
-            'overdue' => Tab::make('Quá hạn')
-                ->modifyQueryUsing(fn (Builder $query) => $query->where('status', 'overdue'))
-                ->badge($query()->where('status', 'overdue')->count() ?: null)
-                ->badgeColor('danger'),
-            'paid' => Tab::make('Đã thanh toán')
-                ->modifyQueryUsing(fn (Builder $query) => $query->where('status', 'paid'))
-                ->badge($query()->where('status', 'paid')->count() ?: null)
-                ->badgeColor('success'),
+            'open' => $tab('Cần thu', $open, 'warning'),
+            'overdue' => $tab('Quá hạn', $overdue, 'danger'),
+            'blocked' => $tab('Tài xế bị chặn', $blocked, 'danger'),
+            'paid' => $tab('Đã thu', $paid, 'success'),
+            'all' => $tab('Tất cả', null),
         ];
     }
 }

@@ -191,35 +191,52 @@ class DriverScoreService
 
         DB::table('driver_score_logs')->insert([
             'driver_id'    => $driverId,
-            'delta'        => $delta,
+            'delta'        => $newScore - $current, // điểm thực đổi (đã tính trần/sàn), không phải điểm yêu cầu
             'score_before' => $current,
             'score_after'  => $newScore,
             'reason'       => $reason,
             'created_at'   => now(),
         ]);
 
-        Log::info("[DriverScore] Driver #{$driverId} {$reason}: {$current} → {$newScore} (Δ{$delta})");
+        Log::info("[DriverScore] Driver #{$driverId} {$reason}: {$current} → {$newScore} (Δ".($newScore - $current).')');
         RTDBService::pingDriverScore($driverId, $newScore);
     }
 
     // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-    public static function resetToDefault(int $driverId): void
+    public static function resetToDefault(int $driverId, ?string $note = null, ?int $by = null): void
     {
-        $current = DB::table('users')->where('id', $driverId)->value('driver_score') ?? self::DEFAULT_SCORE;
-        DB::table('users')->where('id', $driverId)->update([
-            'driver_score'          => self::DEFAULT_SCORE,
-            'consecutive_completed' => 0,
-        ]);
+        $current = (int) (DB::table('users')->where('id', $driverId)->value('driver_score') ?? self::DEFAULT_SCORE);
+        DB::transaction(function () use ($driverId, $current, $note, $by) {
+            DB::table('users')->where('id', $driverId)->update([
+                'driver_score'          => self::DEFAULT_SCORE,
+                'consecutive_completed' => 0,
+            ]);
+            DB::table('driver_score_logs')->insert([
+                'driver_id'    => $driverId,
+                'delta'        => self::DEFAULT_SCORE - $current,
+                'score_before' => $current,
+                'score_after'  => self::DEFAULT_SCORE,
+                'reason'       => 'manual_reset',
+                'note'         => $note,
+                'performed_by' => $by,
+                'created_at'   => now(),
+            ]);
+        });
         Log::info("[DriverScore] Driver #{$driverId} reset: {$current} → " . self::DEFAULT_SCORE);
+        RTDBService::pingDriverScore($driverId, self::DEFAULT_SCORE);
     }
+
+    /** Ngưỡng xếp loại Tốt / Khá (cố định), Xuất sắc / Cần cải thiện theo cấu hình thành phố. */
+    public const GOOD_SCORE = 110;
+    public const FAIR_SCORE = 90;
 
     public static function label(int $score, ?int $cityId): string
     {
         return match (true) {
             $score >= self::weeklyBonusScore($cityId) => 'Xuất sắc',
-            $score >= 110 => 'Tốt',
-            $score >= 90  => 'Khá',
+            $score >= self::GOOD_SCORE => 'Tốt',
+            $score >= self::FAIR_SCORE => 'Khá',
             $score > self::weeklyPenaltyScore($cityId) => 'Trung bình',
             default       => 'Cần cải thiện',
         };

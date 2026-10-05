@@ -2,12 +2,14 @@
 
 namespace App\Filament\Resources\DriverWalletResource\RelationManagers;
 
+use App\Services\DriverWalletReport;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Resources\RelationManagers\RelationManager;
 use Filament\Tables;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
+use Modules\Core\Models\User;
 
 class TransactionsRelationManager extends RelationManager
 {
@@ -37,9 +39,22 @@ class TransactionsRelationManager extends RelationManager
                     )
                     ->color(fn ($record) => $record->type === 'credit' ? 'success' : 'danger'),
 
+                Tables\Columns\TextColumn::make('source')
+                    ->label('Nguồn')
+                    ->badge()
+                    ->color('gray')
+                    ->state(fn ($record) => DriverWalletReport::categoryLabels()[DriverWalletReport::categoryOf($record->reference)]),
+
                 Tables\Columns\TextColumn::make('description')
                     ->label('Mô tả')
-                    ->wrap(),
+                    ->wrap()
+                    ->description(function ($record) {
+                        if (! str_starts_with((string) $record->reference, 'admin_adj_')) {
+                            return null;
+                        }
+
+                        return 'Bởi '.($record->performed_by ? (User::find($record->performed_by)?->name ?? 'Quản trị viên') : 'Quản trị viên (không rõ ai)');
+                    }),
 
                 Tables\Columns\TextColumn::make('reference')
                     ->label('Mã tham chiếu')
@@ -53,6 +68,12 @@ class TransactionsRelationManager extends RelationManager
                     ->dateTime('d/m/Y H:i:s'),
             ])
             ->filters([
+                SelectFilter::make('source')
+                    ->label('Nguồn')
+                    ->options(fn () => DriverWalletReport::categoryLabels())
+                    ->query(fn ($query, array $data) => $data['value'] ?? null
+                        ? $query->whereRaw(DriverWalletReport::categorySql('reference').' = ?', [$data['value']])
+                        : $query),
                 SelectFilter::make('type')
                     ->label('Loại giao dịch')
                     ->options(['credit' => 'Cộng tiền', 'debit' => 'Trừ tiền']),
