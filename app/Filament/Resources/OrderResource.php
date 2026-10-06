@@ -720,7 +720,7 @@ class OrderResource extends Resource
 
         return '<div class="fs-ol-journey"><span class="fs-ol-from" title="'.e($o->pickup_address).'">'.e(trim((string) $o->pickup_address) ?: '—').'</span>'
             .'<span class="fs-ol-to" title="'.e($o->delivery_address).'">'.(trim((string) $o->delivery_address) !== '' ? e(trim((string) $o->delivery_address)) : '<i class="fs-ol-nodel">Chưa có điểm giao</i>').'</span>'
-            .($note !== '' ? '<span class="fs-ol-note" x-data="{}" x-tooltip="'.e('{ content: '.json_encode(nl2br(e($note)), JSON_UNESCAPED_UNICODE | JSON_HEX_TAG).', allowHTML: true, theme: $store.theme, maxWidth: 440, placement: \'bottom-start\' }').'"><svg viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M3 4a2 2 0 012-2h10a2 2 0 012 2v8a2 2 0 01-2 2H9l-4 3v-3a2 2 0 01-2-2V4z"/></svg><b>Ghi chú</b><span class="fs-ol-note__txt">'.e($note).'</span></span>' : '').'</div>';
+            .($note !== '' ? '<span class="fs-ol-note"><svg viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M3 4a2 2 0 012-2h10a2 2 0 012 2v8a2 2 0 01-2 2H9l-4 3v-3a2 2 0 01-2-2V4z"/></svg><b>Ghi chú</b><span class="fs-ol-note__txt">'.e($note).'</span><span class="fs-ol-note__pop">'.e($note).'</span></span>' : '').'</div>';
     }
 
     private static function colCustomer(Order $o): string

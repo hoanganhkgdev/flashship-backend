@@ -1371,6 +1371,8 @@ body.fs-orders-comfy .fs-ol-journey > .fs-ol-note { max-width: none; }
 .fs-ol-nodel { color: #b45309; font-style: italic; }
 .dark .fs-ol-nodel { color: #fbbf24; }
 
-/* Ghi chú đầy đủ hiện bằng tooltip của Filament (gắn vào body, tự lật lên/xuống) nên không bị khung bảng/thanh cuộn che */
-.fs-ol-note { cursor: help; }
-.tippy-box[data-theme] .tippy-content { white-space: normal; overflow-wrap: anywhere; }
+/* Ô ghi chú đầy đủ không bị khung bảng (có thanh cuộn) cắt:
+   - 3 dòng cuối (khi bảng từ 4 dòng trở lên) mở lên phía trên nhãn;
+   - bảng ít dòng thì có sẵn chiều cao tối thiểu để ô mở xuống đủ chỗ. */
+.fi-ta-row:nth-last-child(-n+3):not(:nth-child(-n+3)) .fs-ol-note__pop { top: auto; bottom: calc(100% + .25rem); }
+.fi-ta-content:has(.fs-ol-note) { min-height: 15rem; }
