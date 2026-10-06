@@ -5,6 +5,7 @@ namespace App\Filament\Resources\OrderResource\Pages;
 use App\Filament\Pages\CallCenterPage;
 use App\Filament\Resources\OrderResource;
 use Filament\Actions;
+use Filament\Notifications\Notification;
 use Filament\Pages\Concerns\ExposesTableToWidgets;
 use Filament\Tables\Table;
 use Filament\Resources\Components\Tab;
@@ -16,6 +17,22 @@ class ListOrders extends ListRecords
     use ExposesTableToWidgets;
 
     protected static string $resource = OrderResource::class;
+
+    /**
+     * Danh sách tự làm mới 15 giây. Nếu đơn đang mở ở cửa sổ xem nhanh/gán/hủy vừa được gán, hủy hoặc chuyển tab,
+     * bản ghi không còn trong bảng và mọi closure nhận Order sẽ nhận null → lỗi 500 cho cả trang.
+     * Gặp tình huống đó thì đóng cửa sổ và báo, thay vì để trang vỡ. Làm ở bước vẽ lại vì lúc này bảng đã khởi tạo xong.
+     */
+    public function rendering(): void
+    {
+        if ($this->mountedTableActions && $this->getMountedTableActionRecordKey() !== null && ! $this->getMountedTableActionRecord()) {
+            $this->resetMountedTableActionProperties();
+            $this->mountedTableActionRecord = null;
+            $this->closeTableActionModal();
+
+            Notification::make()->title('Đơn vừa đổi trạng thái nên đã rời khỏi danh sách — cửa sổ đang mở được đóng lại.')->warning()->send();
+        }
+    }
 
     public function getHeading(): string
     {

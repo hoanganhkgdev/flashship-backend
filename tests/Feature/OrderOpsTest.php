@@ -295,4 +295,15 @@ class OrderOpsTest extends TestCase
         $this->assertTrue($select->isOptionDisabled($off->id, $options[$off->id]));
         $this->assertFalse($select->isOptionDisabled($ok->id, $options[$ok->id]));
     }
+
+    public function test_quick_view_does_not_break_when_the_order_leaves_the_list_while_open(): void
+    {
+        $o = $this->order();
+        $page = Livewire::test(ListOrders::class)->mountTableAction('view', $o);
+
+        // Đơn bị gán/hủy/biến mất khỏi danh sách trong lúc tổng đài đang mở xem nhanh (danh sách tự làm mới 15s)
+        DB::table('orders')->where('id', $o->id)->delete();
+
+        $page->call('$refresh')->assertSuccessful();
+    }
 }
