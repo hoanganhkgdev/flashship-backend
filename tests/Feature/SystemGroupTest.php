@@ -195,6 +195,15 @@ class SystemGroupTest extends TestCase
         $this->assertNotNull(User::find($used->id));
     }
 
+    public function test_admin_list_renders_when_an_admin_has_logged_in_before(): void
+    {
+        // Trước đây last_login_at không có cast datetime nên cột "Đăng nhập gần nhất" gọi ->format() trên chuỗi và trả lỗi 500
+        DB::table('users')->where('id', $this->admin->id)->update(['last_login_at' => now()->subHour()]);
+
+        $this->assertInstanceOf(\Carbon\CarbonInterface::class, $this->admin->fresh()->last_login_at);
+        Livewire::test(ListAdminUsers::class)->assertSuccessful()->assertCanSeeTableRecords([$this->admin]);
+    }
+
     public function test_admin_pages_render_and_login_stamp_is_recorded(): void
     {
         Livewire::test(ListAdminUsers::class)->assertSuccessful()->assertCanSeeTableRecords([$this->admin]);

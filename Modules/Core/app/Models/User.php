@@ -109,6 +109,7 @@ class User extends Authenticatable implements FilamentUser, HasDefaultTenant, Ha
             'last_location_at' => 'datetime',
             'gps_stale_notified_at' => 'datetime',
             'gps_stale_evidence_at' => 'datetime',
+            'last_login_at' => 'datetime',
         ];
     }
 
