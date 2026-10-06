@@ -101,7 +101,7 @@ class ListOrders extends ListRecords
             'attention' => Tab::make('Cần xử lý')->icon('heroicon-m-exclamation-triangle')->badge($c('attention'))->badgeColor('danger')
                 ->modifyQueryUsing(fn (Builder $query) => $attention($query)->orderBy('created_at')),
             'processing' => Tab::make('Đang xử lý')->icon('heroicon-m-clock')->badge($c('active'))->badgeColor('info')
-                ->modifyQueryUsing(fn (Builder $query) => $query->whereIn('status', ['assigned', 'processing'])->orderBy('created_at')),
+                ->modifyQueryUsing(fn (Builder $query) => $query->whereIn('status', ['assigned', 'processing'])->orderByDesc('created_at')),
             'completed' => Tab::make('Hoàn thành')->icon('heroicon-m-check-circle')->badge($c('completed'))->badgeColor('success')
                 ->modifyQueryUsing(fn (Builder $query) => $query->where('status', 'completed')),
             'cancelled' => Tab::make('Đã hủy')->icon('heroicon-m-x-circle')->badge($c('cancelled'))->badgeColor('danger')

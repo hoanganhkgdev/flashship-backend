@@ -265,4 +265,14 @@ class OrderOpsTest extends TestCase
         $this->assertFalse($poll('completed'));
         $this->assertFalse($poll('cancelled'));
     }
+
+    public function test_processing_tab_lists_the_newest_orders_first(): void
+    {
+        $old = $this->order(['status' => 'assigned']);
+        DB::table('orders')->where('id', $old->id)->update(['created_at' => now()->subHour()]);
+        $new = $this->order(['status' => 'processing']);
+
+        Livewire::test(ListOrders::class)->set('activeTab', 'processing')
+            ->assertCanSeeTableRecords([$new, $old], inOrder: true);
+    }
 }
