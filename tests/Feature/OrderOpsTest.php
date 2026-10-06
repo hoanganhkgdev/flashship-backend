@@ -159,23 +159,24 @@ class OrderOpsTest extends TestCase
         $this->assertSame('Lấy đồ hộ', CallCenterPage::services()['delivery']['label']);
     }
 
-    public function test_call_center_requires_phone_and_accepts_any_fee_and_repeat_orders(): void
+    public function test_call_center_accepts_missing_phone_any_fee_and_repeat_orders(): void
     {
         $page = Livewire::test(CallCenterPage::class)
             ->set('pickupLat', 10.0)->set('pickupLng', 105.0)->set('deliveryLat', 10.01)->set('deliveryLng', 105.01);
 
         $base = ['pickup_address' => '1 Lê Lợi', 'delivery_address' => '2 Trần Phú', 'shipping_fee' => 20000, 'fee_note' => ''];
 
-        // Mua hộ vẫn bắt buộc có SĐT khách (trang riêng để không đổi trạng thái của $page)
+        // Mua hộ cũng không bắt buộc SĐT (trang riêng để không đổi trạng thái của $page)
         $shopping = Livewire::test(CallCenterPage::class)->call('selectService', 'shopping')->set('pickupLat', 10.0)->set('pickupLng', 105.0)
             ->set('data', $base + ['contact_phone' => '', 'delivery_phone' => '', 'shopping_note' => 'Trà sữa'])->call('placeOrder');
-        $this->assertStringContainsString('số điện thoại khách', $shopping->get('fieldErrors')['contact_phone']);
+        $this->assertArrayNotHasKey('contact_phone', $shopping->get('fieldErrors'));
+        $this->assertNotNull($shopping->get('resultOrderCode'));
 
         // Cùng SĐT + địa chỉ với đơn vừa tạo: không còn cảnh báo trùng, đặt bình thường
         $this->order(['pickup_phone' => '0911222333', 'pickup_address' => '1 Lê Lợi']);
         $page->set('data', $base + ['contact_phone' => '0911 222 333', 'delivery_phone' => ''])->call('placeOrder');
         $this->assertNotNull($page->get('resultOrderCode'));
-        $this->assertSame(2, Order::where('city_id', $this->city->id)->count());
+        $this->assertSame(3, Order::where('city_id', $this->city->id)->count(), 'đơn Mua hộ không SĐT + đơn mẫu + đơn vừa đặt');
 
         // Phí khác giá hệ thống hoặc 0₫ không còn bắt buộc lý do (sau mỗi lần đặt, form và toạ độ được làm sạch nên chọn lại điểm)
         $page->set('pickupLat', 10.0)->set('pickupLng', 105.0);

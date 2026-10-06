@@ -305,7 +305,7 @@
             <div class="cc-card {{ $err('contact_phone') ? 'has-err' : '' }}" x-data="{ hist: false }">
                 <div class="cc-row2">
                     <div>
-                        <label class="cc-lbl">{{ $contactLabel }}@if ($serviceType === 'delivery') <small>(tuỳ chọn)</small>@endif</label>
+                        <label class="cc-lbl">{{ $contactLabel }}<small>(tuỳ chọn)</small></label>
                         <input type="tel" inputmode="tel" class="cc-input {{ $err('contact_phone') ? 'has-err' : '' }}" wire:model.blur="data.contact_phone" placeholder="09xx xxx xxx" autocomplete="off" />
                     </div>
                     <div>

@@ -169,7 +169,7 @@ class CallCenterTest extends TestCase
         $this->assertSame('', $page->get('data')['pickup_address'], 'form được làm sạch để khỏi đặt trùng');
     }
 
-    public function test_shop_order_does_not_need_a_phone_but_a_half_typed_number_is_rejected(): void
+    public function test_no_service_needs_a_phone_but_a_half_typed_number_is_rejected(): void
     {
         $page = $this->page('delivery')->set('data', $this->data(['contact_phone' => '']))->call('placeOrder');
         $this->assertSame([], $page->get('fieldErrors'));
@@ -180,8 +180,12 @@ class CallCenterTest extends TestCase
         $half = $this->page('delivery')->set('data', $this->data(['contact_phone' => '0911']))->call('placeOrder');
         $this->assertArrayHasKey('contact_phone', $half->get('fieldErrors'));
 
-        $ride = $this->page('delivery')->call('selectService', 'topup')->set('data', $this->data(['contact_phone' => '', 'cod_amount' => 50000]))->call('placeOrder');
-        $this->assertArrayHasKey('contact_phone', $ride->get('fieldErrors'), 'dịch vụ khác vẫn bắt buộc SĐT');
+        foreach (['shopping', 'topup'] as $service) {
+            $other = $this->page('delivery')->call('selectService', $service)
+                ->set('data', $this->data(['contact_phone' => '', 'delivery_address' => 'Nhà khách', 'shopping_note' => 'Trà sữa', 'cod_amount' => 50000]))->call('placeOrder');
+            $this->assertArrayNotHasKey('contact_phone', $other->get('fieldErrors'), "$service không cần SĐT");
+            $this->assertNotNull($other->get('resultOrderCode'), "$service đặt được khi không có SĐT");
+        }
     }
 
     public function test_driver_select_is_filled_on_open_and_explains_why_others_cannot_be_assigned(): void

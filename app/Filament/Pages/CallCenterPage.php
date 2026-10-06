@@ -582,11 +582,11 @@ class CallCenterPage extends Page implements HasForms
 
         $errors = [];
 
-        // SĐT liên hệ bắt buộc để tra cứu và đối soát, trừ đơn Lấy hộ của shop: shop gọi vào nhiều khi không cho số.
+        // SĐT liên hệ (shop/khách) không bắt buộc ở mọi dịch vụ: nhiều khi khách không cho số.
         // Đã nhập thì phải đủ số, tránh lưu số gõ dở.
         $contact = $this->normalizePhone($values['contact_phone'] ?? '');
-        if (strlen($contact) < 9 && ($contact !== '' || $this->serviceType !== 'delivery')) {
-            $errors['contact_phone'] = 'Vui lòng nhập số điện thoại khách (ít nhất 9 chữ số).';
+        if ($contact !== '' && strlen($contact) < 9) {
+            $errors['contact_phone'] = 'Số điện thoại chưa đủ (ít nhất 9 chữ số) — nhập đủ số hoặc để trống.';
         }
 
         $pickupAddress = trim($values['pickup_address'] ?? '');
