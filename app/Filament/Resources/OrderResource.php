@@ -5,6 +5,7 @@ namespace App\Filament\Resources;
 use App\Filament\Pages\CallCenterPage;
 use App\Filament\Resources\OrderResource\Pages;
 use Filament\Forms;
+use Illuminate\Support\Facades\DB;
 use Filament\Forms\Form;
 use Filament\Infolists;
 use Filament\Infolists\Infolist;
@@ -166,17 +167,28 @@ class OrderResource extends Resource
 
     public static function manualAssignmentForm(Order $record): array
     {
+        // Tài xế gán được hiện trước; người chưa gán được vẫn hiện mờ kèm lý do để tổng đài biết vì sao thiếu người.
+        $assignable = self::manualAssignmentDriverOptions($record);
+        $blocked = collect(self::manualAssignmentCandidates($record))
+            ->filter(fn (array $c) => $c['reason'] !== null)
+            ->mapWithKeys(fn (array $c) => [$c['id'] => trim($c['name'].($c['phone'] ? ' · '.$c['phone'] : '').' — '.$c['reason'])]);
+
         return [
             Forms\Components\Select::make('driver_id')
                 ->label('Tài xế')
-                ->placeholder('Chọn tài xế đang online')
-                ->options(fn (): array => self::manualAssignmentDriverOptions($record))
+                ->placeholder($assignable ? 'Chọn tài xế đang online' : 'Chưa có tài xế nào gán được ngay')
+                ->options(fn (): array => $assignable + $blocked->all())
+                ->disableOptionWhen(fn (string $value): bool => $blocked->has((int) $value))
                 ->searchable()
                 ->preload()
                 ->native(false)
                 ->required()
                 ->noSearchResultsMessage('Không có tài xế phù hợp trong khu vực')
-                ->helperText('Gán trực tiếp, không cần tài xế bấm nhận. Offer đang tìm sẽ được thu hồi tự động.'),
+                ->helperText($assignable
+                    ? 'Gán trực tiếp, không cần tài xế bấm nhận. Offer đang tìm sẽ được thu hồi tự động. Người bị mờ chưa gán được (lý do ghi bên cạnh).'
+                    : ($blocked->isNotEmpty()
+                        ? 'Không ai gán được ngay: tài xế phải đang online, không nợ quá hạn, không nghỉ phép và chưa đủ đơn. Lý do của từng người ghi trong danh sách.'
+                        : 'Khu vực này chưa có tài xế nào đang hoạt động.')),
         ];
     }
 
@@ -242,6 +254,44 @@ class OrderResource extends Resource
             ->mapWithKeys(fn (User $driver) => [
                 $driver->id => trim("{$driver->name} · {$driver->phone} · {$driver->active_orders_count}/".OperationalSettings::maxActiveOrdersPerDriver($record->city_id).' đơn đang chạy'),
             ])
+            ->all();
+    }
+
+    /**
+     * Mọi tài xế đang hoạt động của khu vực kèm lý do chưa gán được (null = gán được). Dùng để tổng đài thấy
+     * "vì sao không chọn được người này" thay vì tài xế biến mất khỏi danh sách.
+     * Điều kiện khớp với manualAssignmentDriverOptions().
+     *
+     * @return array<int, array{id:int, name:string, phone:?string, online:bool, active:int, max:int, reason:?string}>
+     */
+    public static function manualAssignmentCandidates(Order $record): array
+    {
+        $max = OperationalSettings::maxActiveOrdersPerDriver($record->city_id);
+        $now = now();
+        $onLeave = DB::table('driver_leave_requests')->whereDate('leave_date', today())->pluck('driver_id')->flip();
+
+        return User::query()
+            ->where('user_type', 'driver')
+            ->where('city_id', $record->city_id)
+            ->where('status', 1)
+            ->select(['id', 'name', 'phone', 'is_online', 'has_car_license', 'score_suspended_until'])
+            ->withExists(['debts as has_overdue_debt' => fn (Builder $query) => $query->where('status', 'overdue')])
+            ->withCount(['orders as active_orders_count' => fn (Builder $query) => $query->whereIn('status', ['assigned', 'processing'])])
+            ->orderBy('name')
+            ->get()
+            ->map(function (User $d) use ($record, $max, $now, $onLeave) {
+                $reason = match (true) {
+                    ! $d->is_online => 'đang offline',
+                    $record->service_type === 'car' && ! $d->has_car_license => 'không có bằng lái ô tô',
+                    (bool) $d->has_overdue_debt => 'nợ quá hạn',
+                    $d->score_suspended_until && $d->score_suspended_until > $now => 'bị khóa nhận đơn do điểm',
+                    isset($onLeave[$d->id]) => 'nghỉ phép hôm nay',
+                    $d->active_orders_count >= $max => "đủ đơn ({$d->active_orders_count}/{$max})",
+                    default => null,
+                };
+
+                return ['id' => (int) $d->id, 'name' => (string) $d->name, 'phone' => $d->phone, 'online' => (bool) $d->is_online, 'active' => (int) $d->active_orders_count, 'max' => $max, 'reason' => $reason];
+            })
             ->all();
     }
 

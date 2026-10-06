@@ -159,27 +159,29 @@ class OrderOpsTest extends TestCase
         $this->assertSame('Lấy đồ hộ', CallCenterPage::services()['delivery']['label']);
     }
 
-    public function test_call_center_requires_phone_warns_on_duplicates_and_needs_a_fee_reason(): void
+    public function test_call_center_requires_phone_and_accepts_any_fee_and_repeat_orders(): void
     {
         $page = Livewire::test(CallCenterPage::class)
             ->set('pickupLat', 10.0)->set('pickupLng', 105.0)->set('deliveryLat', 10.01)->set('deliveryLng', 105.01);
 
         $base = ['pickup_address' => '1 Lê Lợi', 'delivery_address' => '2 Trần Phú', 'shipping_fee' => 20000, 'fee_note' => ''];
 
-        $page->set('data', $base + ['contact_phone' => '', 'delivery_phone' => ''])->call('placeOrder');
-        $this->assertStringContainsString('số điện thoại khách', $page->get('resultError'));
-        $this->assertArrayHasKey('contact_phone', $page->get('fieldErrors'));
+        // Mua hộ vẫn bắt buộc có SĐT khách (trang riêng để không đổi trạng thái của $page)
+        $shopping = Livewire::test(CallCenterPage::class)->call('selectService', 'shopping')->set('pickupLat', 10.0)->set('pickupLng', 105.0)
+            ->set('data', $base + ['contact_phone' => '', 'delivery_phone' => '', 'shopping_note' => 'Trà sữa'])->call('placeOrder');
+        $this->assertStringContainsString('số điện thoại khách', $shopping->get('fieldErrors')['contact_phone']);
 
-        // Cùng SĐT + địa chỉ vừa tạo → cảnh báo trùng, chưa tạo đơn mới
-        $dup = $this->order(['pickup_phone' => '0911222333', 'pickup_address' => '1 Lê Lợi']);
+        // Cùng SĐT + địa chỉ với đơn vừa tạo: không còn cảnh báo trùng, đặt bình thường
+        $this->order(['pickup_phone' => '0911222333', 'pickup_address' => '1 Lê Lợi']);
         $page->set('data', $base + ['contact_phone' => '0911 222 333', 'delivery_phone' => ''])->call('placeOrder');
-        $this->assertSame($dup->code, $page->get('duplicateOf'));
-        $this->assertSame(1, Order::where('city_id', $this->city->id)->count());
+        $this->assertNotNull($page->get('resultOrderCode'));
+        $this->assertSame(2, Order::where('city_id', $this->city->id)->count());
 
-        // Phí 0₫ không freeship → bắt buộc lý do
+        // Phí khác giá hệ thống hoặc 0₫ không còn bắt buộc lý do (sau mỗi lần đặt, form và toạ độ được làm sạch nên chọn lại điểm)
+        $page->set('pickupLat', 10.0)->set('pickupLng', 105.0);
         $page->set('data', ['shipping_fee' => 0, 'pickup_address' => '5 Hai Bà Trưng', 'contact_phone' => '0988000111', 'delivery_address' => 'x', 'delivery_phone' => '', 'fee_note' => ''])->call('placeOrder');
-        $this->assertStringContainsString('Lý do phí', $page->get('resultError'));
-        $this->assertArrayHasKey('fee_note', $page->get('fieldErrors'));
+        $this->assertArrayNotHasKey('fee_note', $page->get('fieldErrors'));
+        $this->assertNotNull($page->get('resultOrderCode'));
     }
 
     public function test_call_center_customer_history_and_reuse(): void
@@ -274,5 +276,22 @@ class OrderOpsTest extends TestCase
 
         Livewire::test(ListOrders::class)->set('activeTab', 'processing')
             ->assertCanSeeTableRecords([$new, $old], inOrder: true);
+    }
+
+    public function test_assign_dialog_lists_unavailable_drivers_greyed_out_with_a_reason(): void
+    {
+        $ok = $this->user('driver');
+        DB::table('users')->where('id', $ok->id)->update(['is_online' => true, 'name' => 'Sẵn sàng']);
+        $off = $this->user('driver');
+        DB::table('users')->where('id', $off->id)->update(['is_online' => false, 'name' => 'Đang tắt máy']);
+        $order = $this->order();
+
+        $select = OrderResource::manualAssignmentForm($order)[0];
+        $options = $select->getOptions();
+
+        $this->assertArrayHasKey($ok->id, $options);
+        $this->assertStringContainsString('đang offline', $options[$off->id]);
+        $this->assertTrue($select->isOptionDisabled($off->id, $options[$off->id]));
+        $this->assertFalse($select->isOptionDisabled($ok->id, $options[$ok->id]));
     }
 }

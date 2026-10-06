@@ -20,7 +20,6 @@ use Modules\Core\Services\RTDBService;
 use Modules\Driver\Services\DriverLocationService;
 use Modules\Order\Models\Order;
 use Modules\Order\Services\OrderTimeline;
-use Modules\Order\Services\DispatchRadiusPolicy;
 use Modules\Order\Services\DispatchService;
 use Modules\Order\Services\OrderService;
 use Modules\Pricing\Services\PricingService;
@@ -86,6 +85,9 @@ class CallCenterPage extends Page implements HasForms
 
     public array $nearbyDrivers = [];
 
+    /** Tài xế của khu vực chưa gán được kèm lý do (offline, nợ, đủ đơn...) — hiện mờ trong danh sách chọn. */
+    public array $unavailableDrivers = [];
+
     public ?int $assignedDriverId = null;
 
     // Freeship — khách không trả phí ship, nền tảng trả thay cho tài xế lúc
@@ -101,8 +103,6 @@ class CallCenterPage extends Page implements HasForms
 
     /** Lỗi theo từng ô (khóa = tên ô) để báo ngay dưới ô sai thay vì chỉ một dòng trên đầu trang. */
     public array $fieldErrors = [];
-
-    public ?string $duplicateOf = null;
 
     public ?string $resultOrderCode = null;
 
@@ -187,6 +187,8 @@ class CallCenterPage extends Page implements HasForms
             $this->refreshNearbyDrivers();
         } else {
             $this->form->fill($this->defaultFormData());
+            // Danh sách tài xế để gán tay phải có ngay khi mở trang, không đợi chọn điểm lấy
+            $this->refreshNearbyDrivers();
         }
     }
 
@@ -244,7 +246,6 @@ class CallCenterPage extends Page implements HasForms
         $this->resultDistance = null;
         $this->assignedDriverId = null;
         $this->isFreeship = false;
-        $this->duplicateOf = null;
         $this->fieldErrors = [];
 
         $this->suggestShippingFee();
@@ -268,8 +269,7 @@ class CallCenterPage extends Page implements HasForms
             return;
         }
         $this->data['shipping_fee'] = (int) $this->previewFee;
-        $this->data['fee_note'] = '';
-        unset($this->fieldErrors['shipping_fee'], $this->fieldErrors['fee_note']);
+        unset($this->fieldErrors['shipping_fee']);
     }
 
     public function setPickupLocation(string $address, float $lat, float $lng): void
@@ -359,54 +359,78 @@ class CallCenterPage extends Page implements HasForms
      * tạo ra, gây vòng lặp vô hạn (đã gặp bug này 1 lần — bản đồ chớp liên
      * tục do load lại Google Maps API hàng chục lần/giây).
      */
+    /** Bán kính (km, đường chim bay) hiện tài xế quanh điểm lấy trên bản đồ. */
+    public const NEARBY_KM = 4;
+
     private function refreshNearbyDrivers(): void
     {
         $cityId = $this->data['city_id'] ?? null;
+        $this->onlineDrivers = [];
+        $this->nearbyDrivers = [];
+        $this->unavailableDrivers = [];
         if (! $cityId) {
-            $this->onlineDrivers = [];
-            $this->nearbyDrivers = [];
-
             return;
         }
 
-        // Chỉ liệt kê tài xế thật sự gán được (cùng bộ điều kiện với hộp thoại gán ở trang Đơn hàng):
-        // đang online, không nợ quá hạn, không bị khóa điểm/nghỉ phép, chưa đủ đơn, đủ điều kiện dịch vụ.
-        $eligible = OrderResource::manualAssignmentDriverOptions(new Order(['city_id' => $cityId, 'service_type' => $this->serviceType]));
-        $drivers = User::whereIn('id', array_keys($eligible))->get(['id', 'name', 'phone']);
+        // Tất cả tài xế đang hoạt động của khu vực kèm lý do chưa gán được (cùng bộ điều kiện với hộp thoại gán).
+        $probe = new Order(['city_id' => $cityId, 'service_type' => $this->serviceType]);
+        $assignable = OrderResource::manualAssignmentDriverOptions($probe);
+        $candidates = collect(OrderResource::manualAssignmentCandidates($probe));
 
-        $origins = [];
-        $roadDistances = [];
-        if ($drivers->isNotEmpty() && $this->pickupLat && $this->pickupLng) {
-            $origins = app(DriverLocationService::class)->freshLocationsFor($drivers->pluck('id')->all());
-            $roadDistances = GoogleMapService::roadDistanceBatchKm($origins, $this->pickupLat, $this->pickupLng);
+        $this->unavailableDrivers = $candidates
+            ->filter(fn (array $c) => $c['reason'] !== null)
+            ->map(fn (array $c) => ['id' => $c['id'], 'name' => $c['name'], 'phone' => $c['phone'], 'reason' => $c['reason']])
+            ->values()->all();
+
+        // Vị trí chỉ cần khi đã chọn điểm lấy — một lần đọc Firebase dùng cho cả danh sách chọn lẫn bản đồ.
+        $locations = [];
+        $pickupKnown = $this->pickupLat && $this->pickupLng;
+        if ($pickupKnown) {
+            $onlineIds = $candidates->filter(fn (array $c) => $c['online'])->pluck('id')->all();
+            $locations = $onlineIds ? app(DriverLocationService::class)->freshLocationsFor($onlineIds) : [];
         }
 
-        // Gần nhất lên trước; người chưa có vị trí xuống cuối nhưng vẫn chọn được.
-        $this->onlineDrivers = $drivers
-            ->map(fn (User $d) => [
-                'id' => $d->id,
-                'name' => $d->name,
-                'phone' => $d->phone,
-                'label' => $eligible[$d->id],
-                'km' => isset($roadDistances[$d->id]) && $roadDistances[$d->id] !== null ? round($roadDistances[$d->id], 1) : null,
+        // Danh sách chọn gán tay: người gán được, gần nhất lên trước; chưa có vị trí thì xuống cuối nhưng vẫn chọn được.
+        $roadDistances = [];
+        if ($pickupKnown) {
+            $origins = array_intersect_key($locations, $assignable);
+            $roadDistances = GoogleMapService::roadDistanceBatchKm($origins, $this->pickupLat, $this->pickupLng);
+        }
+        $this->onlineDrivers = $candidates
+            ->filter(fn (array $c) => $c['reason'] === null)
+            ->map(fn (array $c) => [
+                'id' => $c['id'],
+                'name' => $c['name'],
+                'phone' => $c['phone'],
+                'label' => $assignable[$c['id']] ?? $c['name'],
+                'km' => isset($roadDistances[$c['id']]) ? round($roadDistances[$c['id']], 1) : null,
             ])
             ->sortBy(fn (array $d) => $d['km'] ?? PHP_INT_MAX)
             ->values()
             ->all();
 
-        // Chấm xanh trên bản đồ: chỉ người trong khoảng cách phát đơn đang cấu hình.
-        $radius = DispatchRadiusPolicy::radiusForElapsedSeconds(0, (int) $cityId);
-        $this->nearbyDrivers = $drivers
-            ->filter(fn (User $d) => ($roadDistances[$d->id] ?? null) !== null && $roadDistances[$d->id] <= $radius)
-            ->map(fn (User $d) => [
-                'id' => $d->id,
-                'lat' => $origins[$d->id]['lat'],
-                'lng' => $origins[$d->id]['lng'],
-                'road_km' => round($roadDistances[$d->id], 2),
-            ])
-            ->sortBy('road_km')
-            ->values()
-            ->all();
+        // Chấm trên bản đồ: mọi tài xế đang online có GPS mới trong NEARBY_KM quanh điểm lấy (kể cả người đang bận,
+        // để tổng đài thấy lực lượng thật quanh đó); người chưa gán được vẫn hiện nhưng xám kèm lý do.
+        if ($pickupKnown) {
+            $this->nearbyDrivers = $candidates
+                ->filter(fn (array $c) => $c['online'] && isset($locations[$c['id']]))
+                ->map(function (array $c) use ($locations) {
+                    $loc = $locations[$c['id']];
+                    $km = GoogleMapService::haversineKm($this->pickupLat, $this->pickupLng, $loc['lat'], $loc['lng']);
+
+                    return [
+                        'id' => $c['id'], 'name' => $c['name'], 'phone' => $c['phone'],
+                        'lat' => $loc['lat'], 'lng' => $loc['lng'], 'km' => round($km, 1),
+                        'state' => $c['reason'] !== null ? 'blocked' : ($c['active'] > 0 ? 'busy' : 'free'),
+                        'assignable' => $c['reason'] === null,
+                        'active' => $c['active'], 'max' => $c['max'], 'reason' => $c['reason'],
+                    ];
+                })
+                ->filter(fn (array $d) => $d['km'] <= self::NEARBY_KM)
+                ->sortBy('km')
+                ->values()
+                ->all();
+        }
     }
 
     public function form(Form $form): Form
@@ -518,20 +542,6 @@ class CallCenterPage extends Page implements HasForms
         $this->refreshNearbyDrivers();
     }
 
-    /** Đơn cùng SĐT và địa chỉ lấy tạo trong 10 phút gần đây (nghi đặt trùng). */
-    private function findRecentDuplicate(string $pickupAddress, string $phone): ?Order
-    {
-        if ($phone === '') {
-            return null;
-        }
-
-        return Order::where('city_id', $this->userCityId())
-            ->where('created_at', '>=', now()->subMinutes(10))
-            ->where('pickup_address', $pickupAddress)
-            ->where(fn ($q) => $q->where('pickup_phone', 'like', '%'.substr($phone, -9))->orWhere('delivery_phone', 'like', '%'.substr($phone, -9)))
-            ->latest('id')->first();
-    }
-
     // ─── Đặt đơn ─────────────────────────────────────────────────────────────
 
     /** Dịch vụ cho phép bỏ trống điểm giao/đến: shop nhiều khi không cho tổng đài, tài xế hỏi khi tới lấy. */
@@ -542,10 +552,9 @@ class CallCenterPage extends Page implements HasForms
 
     public const NO_DELIVERY_NOTE = '[Chưa có điểm giao — hỏi shop khi lấy hàng]';
 
-    public function placeOrder(bool $confirmDuplicate = false): void
+    public function placeOrder(): void
     {
         $values = $this->data;
-        $this->duplicateOf = null;
         $this->fieldErrors = [];
 
         $this->resultOrderCode = null;
@@ -573,9 +582,10 @@ class CallCenterPage extends Page implements HasForms
 
         $errors = [];
 
-        // SĐT liên hệ bắt buộc ở mọi dịch vụ để tra cứu và đối soát: với đơn shop là SĐT của shop.
+        // SĐT liên hệ bắt buộc để tra cứu và đối soát, trừ đơn Lấy hộ của shop: shop gọi vào nhiều khi không cho số.
+        // Đã nhập thì phải đủ số, tránh lưu số gõ dở.
         $contact = $this->normalizePhone($values['contact_phone'] ?? '');
-        if (strlen($contact) < 9) {
+        if (strlen($contact) < 9 && ($contact !== '' || $this->serviceType !== 'delivery')) {
             $errors['contact_phone'] = 'Vui lòng nhập số điện thoại khách (ít nhất 9 chữ số).';
         }
 
@@ -599,12 +609,7 @@ class CallCenterPage extends Page implements HasForms
             $errors['cod_amount'] = 'Vui lòng nhập số tiền cần nạp.';
         }
 
-        // Phí khác phí hệ thống tính hoặc bằng 0 (không phải freeship) thì phải ghi lý do.
         $shippingFee = max(0, (int) ($values['shipping_fee'] ?? 0));
-        $feeNote = trim((string) ($values['fee_note'] ?? ''));
-        if ($this->feeNeedsNote($shippingFee) && mb_strlen($feeNote) < 3) {
-            $errors['fee_note'] = 'Phí ship khác phí hệ thống tính'.($this->previewFee !== null ? ' ('.number_format((int) $this->previewFee, 0, ',', '.').'₫)' : '').' hoặc bằng 0: hãy ghi lý do vào ô "Lý do phí".';
-        }
 
         // Tài xế chọn tay phải còn đủ điều kiện TRƯỚC khi tạo đơn — tránh tạo rồi hủy ngay làm sai số đơn hủy.
         if ($this->assignedDriverId) {
@@ -619,14 +624,6 @@ class CallCenterPage extends Page implements HasForms
             $this->resultError = count($errors) === 1
                 ? array_values($errors)[0]
                 : 'Còn '.count($errors).' mục cần bổ sung — các ô được đánh dấu đỏ bên dưới.';
-
-            return;
-        }
-
-        // Cảnh báo đặt trùng: cùng SĐT và địa chỉ lấy trong 10 phút; cho phép xác nhận vẫn đặt.
-        if (! $confirmDuplicate && ($dup = $this->findRecentDuplicate($pickupAddress, $contact))) {
-            $this->duplicateOf = $dup->code;
-            $this->resultError = "Có thể là đơn trùng: đơn #{$dup->code} cùng số điện thoại và địa chỉ vừa được tạo lúc ".$dup->created_at->format('H:i').'. Bấm "Vẫn đặt đơn" nếu khách thật sự cần thêm một đơn.';
 
             return;
         }
@@ -680,7 +677,6 @@ class CallCenterPage extends Page implements HasForms
                 'city_id' => $cityId,
                 'created_by' => auth()->id(),
                 'shipping_fee' => $shippingFee,
-                'fee_note' => $feeNote !== '' ? mb_substr($feeNote, 0, 250) : null,
                 'night_surcharge' => $this->previewNightSurcharge,
                 'bonus_fee' => 0,
                 'is_freeship' => $this->isFreeship,
@@ -706,7 +702,7 @@ class CallCenterPage extends Page implements HasForms
             $order->refresh();
             OrderTimeline::record($order, 'created', 'Tổng đài tạo đơn'
                 .($noDelivery ? ' — chưa có điểm giao' : '')
-                .($feeNote !== '' ? ' — phí '.number_format($shippingFee, 0, ',', '.').'₫ ('.$feeNote.')' : ''), auth()->id());
+                .' — phí '.number_format($shippingFee, 0, ',', '.').'₫', auth()->id());
 
             if ($this->assignedDriverId) {
                 // Gán tay — gán CỨNG luôn cho đúng người tổng đài chọn, đơn vào thẳng mục "Đã nhận" của tài xế.
@@ -767,6 +763,7 @@ class CallCenterPage extends Page implements HasForms
             $this->customer = [];
 
             $this->form->fill($this->defaultFormData($cityId));
+            $this->refreshNearbyDrivers();
             $this->dispatch('cc-recent-refresh');
 
             if ($this->resultWarning) {
@@ -788,20 +785,6 @@ class CallCenterPage extends Page implements HasForms
         }
     }
 
-    /** Phí cần lý do: khác phí hệ thống tính (khi đã tính được) hoặc bằng 0 mà không phải freeship. */
-    public function feeNeedsNote(?int $fee = null): bool
-    {
-        $fee ??= max(0, (int) ($this->data['shipping_fee'] ?? 0));
-        if ($this->isFreeship) {
-            return false;
-        }
-        if ($fee === 0) {
-            return true;
-        }
-
-        return $this->previewFee !== null && $fee !== (int) $this->previewFee;
-    }
-
     public function clearResult(): void
     {
         $this->resultOrderCode = null;
@@ -809,7 +792,6 @@ class CallCenterPage extends Page implements HasForms
         $this->resultWarning = null;
         $this->resultFee = null;
         $this->resultDistance = null;
-        $this->duplicateOf = null;
         $this->fieldErrors = [];
     }
 

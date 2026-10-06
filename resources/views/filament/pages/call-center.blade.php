@@ -52,7 +52,6 @@
 <div class="cc-banner err">
     <x-heroicon-o-exclamation-circle class="h-4 w-4" />
     <span>{{ $resultError }}</span>
-    @if ($duplicateOf)<button type="button" wire:click="placeOrder(true)" wire:loading.attr="disabled" class="cc-banner__btn">Vẫn đặt đơn</button>@endif
 </div>
 @endif
 
@@ -210,6 +209,88 @@
         .cc-recent { height:auto; max-height:280px; }
         .cc-form-panel input, .cc-form-panel textarea, .cc-form-panel select { font-size:var(--fs-base) !important; }
     }
+
+    /* ── Cỡ lớn, thoáng: nhập liệu to và dễ bấm khi đang nghe máy ───────────────────────────── */
+    .cc-top { margin:-4px 0 12px; }
+    .cc-top h1 { font-size:1.45rem; }
+    .cc-top p { font-size:var(--fs-sm); }
+    .cc-header-context span, .cc-header-context strong { padding:5px 12px; font-size:var(--fs-sm); border-radius:9px; }
+    .cc-banner { padding:10px 14px; margin-bottom:10px; font-size:var(--fs-base, 14px); border-radius:12px; }
+    .cc-wrapper { border-radius:18px; box-shadow:0 1px 2px rgba(15,23,42,.04), 0 14px 34px rgba(15,23,42,.07); }
+    @media (min-width: 901px) { .cc-form-panel { width:clamp(470px, 50%, 600px); } }
+    .cc-form-panel { background:#f4f6fa; }
+    .dark .cc-form-panel { background:#10141d; }
+    .cc-scroll { gap:12px; padding:14px 16px; }
+    .cc-card { padding:16px 14px 12px; border-radius:14px; box-shadow:0 1px 2px rgba(15,23,42,.05); }
+    .cc-lbl { top:-8px !important; font-size:11px; }
+    .cc-row2 { gap:14px; }
+    .cc-input { height:42px; padding:6px 13px; border-radius:10px; font-size:15px; }
+    .cc-textarea { padding:9px 13px; border-radius:10px; font-size:15px; }
+    .cc-fee-wrap input { padding-right:30px; }
+    .cc-fee-suffix { right:12px; font-size:var(--fs-sm); }
+    .cc-select { padding-right:34px; }
+    .cc-select-chevron { right:11px; width:16px; height:16px; }
+
+    .cc-service-tabs { gap:8px; }
+    .cc-service-tab { padding:11px 6px; gap:8px; border-radius:11px; }
+    .cc-service-tab svg { width:18px; height:18px; }
+    .cc-service-tab span { font-size:14px; }
+
+    .cc-address-row { gap:11px; padding:6px 0; align-items:center; }
+    .cc-address-row + .cc-address-row { border-top:1px solid #eef0f4; }
+    .dark .cc-address-row + .cc-address-row { border-top-color:#232b3b; }
+    .cc-address-dot { width:11px; height:11px; margin-top:0; }
+    .cc-addr-tag { width:58px; margin-top:0; font-size:11.5px; }
+    .cc-address-col { padding-top:0; }
+    .cc-address-col input { height:34px; font-size:15.5px; }
+    .cc-pin-btn { width:34px; height:34px; margin-top:0; border-radius:9px; }
+    .cc-pin-btn svg { width:17px; height:17px; }
+    .cc-err, .cc-hint { font-size:12.5px; margin-top:4px; }
+
+    .cc-feeline { margin-top:10px; font-size:13px; }
+    .cc-check { font-size:14px; }
+    .cc-check input { width:17px; height:17px; }
+    .cc-customer { margin-top:10px; padding:8px 12px; font-size:13.5px; border-radius:10px; }
+    .cc-customer b { font-size:var(--fs-base, 14px); }
+    .cc-customer > button { padding:3px 11px; font-size:12px; }
+    .cc-history button { padding:7px 4px; font-size:12.5px; }
+
+    .cc-bar { padding:14px 16px; gap:16px; }
+    .cc-bar__info { font-size:13px; gap:3px; }
+    .cc-bar__info b { font-size:17px; }
+    .cc-bar__info button { padding:1px 10px; font-size:12px; }
+    .cc-submit-btn { min-width:210px; padding:14px 20px; border-radius:13px; font-size:16px; }
+
+    .cc-recent { height:clamp(160px, 36%, 270px); }
+    .cc-recent__head { padding:10px 16px; font-size:12px; }
+    .cc-ro { grid-template-columns:76px minmax(110px, 180px) minmax(0, 1fr) auto auto; gap:14px; padding:10px 16px; font-size:14px; }
+    .cc-ro .acts button { padding:3px 14px; font-size:13px; }
+    .cc-ro .st small { font-size:12px; }
+    .cc-recent__empty { padding:20px 14px; font-size:var(--fs-sm); }
+    .cc-map-distance { font-size:var(--fs-base, 14px); top:14px; left:14px; }
+
+    /* Cỡ lớn thì để trang cuộn tự nhiên: thanh Đặt đơn dính đáy màn hình, bản đồ dính đầu màn hình */
+    @media (min-width: 901px) {
+        .cc-wrapper { height:auto !important; min-height:calc(100vh - 140px); overflow:clip; }
+        .cc-scroll { overflow:visible; }
+        .cc-bar { position:sticky; bottom:0; z-index:20; box-shadow:0 -10px 24px rgba(15,23,42,.07); }
+        .dark .cc-bar { box-shadow:0 -10px 24px rgba(0,0,0,.35); }
+        .cc-map-wrap { position:sticky; top:12px; align-self:flex-start; height:calc(100vh - 110px); min-height:420px; }
+    }
+
+    /* Dòng "Đơn vừa đặt" hai tầng: tầng 1 = khách · trạng thái · nút; tầng 2 = hành trình. Không còn chèn nhau ở mọi độ rộng. */
+    .cc-ro { grid-template-columns:70px minmax(0, 1fr) auto auto !important; column-gap:12px; row-gap:2px; align-items:center; }
+    .cc-ro a.code { grid-column:1; grid-row:1 / span 2; align-self:center; }
+    .cc-ro .who { display:block !important; grid-column:2; grid-row:1; min-width:0; font-weight:600; }
+    .cc-ro .st { grid-column:3; grid-row:1; }
+    .cc-ro .acts { grid-column:4; grid-row:1; justify-content:flex-end; }
+    .cc-ro .route { grid-column:2 / -1; grid-row:2; min-width:0; font-size:12.5px; }
+
+    .cc-map-chip { position:absolute; left:12px; bottom:30px; z-index:10; display:flex; flex-direction:column; gap:3px; padding:7px 12px; border-radius:11px; background:rgba(255,255,255,.95); box-shadow:0 2px 10px rgba(15,23,42,.18); color:#0f172a; font-size:13px; font-weight:650; pointer-events:none; }
+    .cc-map-chip .cc-legend { display:flex; align-items:center; gap:5px; color:#64748b; font-size:11.5px; font-weight:500; }
+    .cc-map-chip .cc-legend i { display:inline-block; width:9px; height:9px; border-radius:50%; margin-left:6px; }
+    .cc-map-chip .cc-legend i:first-child { margin-left:0; }
+    .dark .cc-map-chip { background:rgba(23,27,37,.95); color:#f8fafc; }
 </style>
 
 <div class="cc-wrapper">
@@ -224,7 +305,7 @@
             <div class="cc-card {{ $err('contact_phone') ? 'has-err' : '' }}" x-data="{ hist: false }">
                 <div class="cc-row2">
                     <div>
-                        <label class="cc-lbl">{{ $contactLabel }}</label>
+                        <label class="cc-lbl">{{ $contactLabel }}@if ($serviceType === 'delivery') <small>(tuỳ chọn)</small>@endif</label>
                         <input type="tel" inputmode="tel" class="cc-input {{ $err('contact_phone') ? 'has-err' : '' }}" wire:model.blur="data.contact_phone" placeholder="09xx xxx xxx" autocomplete="off" />
                     </div>
                     <div>
@@ -302,9 +383,6 @@
                         <input id="cc-delivery-input" type="text" placeholder="{{ $deliveryOptional ? 'Tuỳ chọn — để trống nếu khách chưa cho' : $deliveryLabel.': nhập địa chỉ...' }}" autocomplete="off"
                             value="{{ $data['delivery_address'] ?? '' }}" onblur="_syncTyped('delivery')" />
                         @if ($err('delivery_address'))<p class="cc-err">{{ $err('delivery_address') }}</p>@endif
-                        @if ($noDeliveryYet && ! $err('delivery_address'))
-                        <p class="cc-hint warn">Chưa có điểm giao: vẫn đặt được, tài xế hỏi {{ $serviceType === 'delivery' ? 'shop' : 'khách' }} khi tới.</p>
-                        @endif
                     </div>
                     <button type="button" id="cc-pin-btn-delivery" class="cc-pin-btn" onclick="_togglePinMode('delivery')" title="Chọn điểm giao hàng trên bản đồ">
                         <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M10 18s6-5.686 6-10A6 6 0 1 0 4 8c0 4.314 6 10 6 10Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><circle cx="10" cy="8" r="2" stroke="currentColor" stroke-width="1.6"/></svg>
@@ -369,6 +447,13 @@
                                 @foreach ($onlineDrivers as $d)
                                 <option value="{{ $d['id'] }}">{{ $d['km'] !== null ? str_replace('.', ',', $d['km']).' km · ' : 'chưa có vị trí · ' }}{{ $d['label'] }}</option>
                                 @endforeach
+                                @if (! empty($unavailableDrivers))
+                                <optgroup label="Chưa gán được">
+                                    @foreach ($unavailableDrivers as $d)
+                                    <option disabled>{{ $d['name'] }}{{ $d['phone'] ? ' · '.$d['phone'] : '' }} — {{ $d['reason'] }}</option>
+                                    @endforeach
+                                </optgroup>
+                                @endif
                             </select>
                             <svg class="cc-select-chevron" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M5 7.5L10 12.5L15 7.5" stroke="#9ca3af" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
                         </div>
@@ -384,14 +469,10 @@
                     <label class="cc-check"><input type="checkbox" wire:model.live="isFreeship" /> <strong>Freeship</strong></label>
                 </div>
                 @if (empty($onlineDrivers))
-                <p class="cc-hint">Chưa có tài xế nào gán được ngay (online, chưa đủ đơn, không nợ quá hạn…).</p>
-                @endif
-                @if ($this->feeNeedsNote())
-                <div class="cc-fld" style="margin-top:9px;">
-                    <label class="cc-lbl">Lý do phí <small>(khác giá hệ thống{{ $previewFee ? ' '.number_format($previewFee, 0, ',', '.').'₫' : '' }} hoặc bằng 0)</small></label>
-                    <input type="text" class="cc-input {{ $err('fee_note') ? 'has-err' : '' }}" wire:model="data.fee_note" placeholder="VD: khách quen thỏa thuận, khuyến mãi, đơn ngay gần..." />
-                    @if ($err('fee_note'))<p class="cc-err">{{ $err('fee_note') }}</p>@endif
-                </div>
+                <p class="cc-hint">
+                    @if (! empty($unavailableDrivers))Chưa có tài xế nào gán được ngay: {{ count($unavailableDrivers) }} tài xế của khu vực chưa nhận được đơn ({{ collect($unavailableDrivers)->pluck('reason')->unique()->take(3)->implode(', ') }}) — xem danh sách bên trên. Tài xế phải online mới nhận được đơn.
+                    @else Khu vực này chưa có tài xế nào đang hoạt động.@endif
+                </p>
                 @endif
             </div>
         </div>
@@ -416,6 +497,10 @@
         <div class="cc-map-area" wire:ignore>
             <div id="cc-main-map" class="cc-map"></div>
             <div id="cc-map-info-route" class="cc-map-distance"></div>
+            <div id="cc-map-info-drivers" class="cc-map-chip" style="display:none">
+                <span id="cc-driver-label"></span>
+                <span class="cc-legend"><i style="background:#22c55e"></i>Rảnh <i style="background:#3b82f6"></i>Đang giao <i style="background:#9ca3af"></i>Chưa nhận được</span>
+            </div>
             <div id="cc-pin-hint" class="cc-pin-hint">
                 <span id="cc-pin-hint-text"></span>
                 <button type="button" onclick="_exitPinMode()">✕</button>
@@ -488,8 +573,16 @@ function _initMainMap() {
         zoomControl: true,
         zoomControlOptions: { position: google.maps.ControlPosition.RIGHT_CENTER },
         gestureHandling: 'greedy',
+        scrollwheel: false,
         styles: [{ featureType: 'poi', stylers: [{ visibility: 'off' }] }],
     });
+    // Lăn chuột trên bản đồ chỉ cuộn trang, không zoom (muốn zoom thì bấm nút + / −).
+    // Chặn ở pha capture để Google Maps không nhận sự kiện; hành vi cuộn mặc định của trang vẫn giữ.
+    const mapEl = document.getElementById('cc-main-map');
+    if (mapEl && !mapEl._noWheelZoom) {
+        mapEl._noWheelZoom = true;
+        mapEl.addEventListener('wheel', (e) => e.stopPropagation(), { capture: true });
+    }
     _geocoder = new google.maps.Geocoder();
 
     // Click bản đồ CHỈ có tác dụng khi đang bật "chế độ chọn trên bản đồ"
@@ -508,7 +601,7 @@ function _initMainMap() {
                 _setPickupPin(lat, lng);
                 @this.call('setPickupLocation', addr, lat, lng).then(() => {
                     _updateFeeInfo();
-                    _refreshDriverMarkers();
+                    _refreshDriverMarkers(true);
                 });
             } else {
                 const di = document.getElementById('cc-delivery-input');
@@ -576,7 +669,7 @@ function _initSearchAutocomplete() {
             pickupInput._picked = (p.formatted_address || pickupInput.value).trim();
             @this.call('setPickupLocation', p.formatted_address || pickupInput.value, lat, lng).then(() => {
                 _updateFeeInfo();
-                _refreshDriverMarkers();
+                _refreshDriverMarkers(true);
             });
             _setPickupPin(lat, lng);
         });
@@ -612,14 +705,21 @@ function _pinIcon(color, label) {
     };
 }
 
-function _setPickupPin(lat, lng) {
-    if (_pickupMarker) _pickupMarker.setMap(null);
+function _setPickupPin(lat, lng, move = true) {
+    // move=false: chỉ đồng bộ ghim theo trạng thái server (hook commit) — không kéo/thu phóng bản đồ,
+    // nếu không sẽ đè khung nhìn 4 km vừa căn hoặc vị trí người dùng đang xem.
+    if (_pickupMarker) {
+        const p = _pickupMarker.getPosition();
+        if (p && Math.abs(p.lat() - lat) < 1e-9 && Math.abs(p.lng() - lng) < 1e-9) return;
+        _pickupMarker.setMap(null);
+    }
     _pickupMarker = new google.maps.Marker({
         position: { lat, lng }, map: _mainMap,
         icon: _pinIcon('#FF6B35', 'A'),
         title: 'Điểm lấy',
         zIndex: 20,
     });
+    if (!move) return;
     _mainMap.panTo({ lat, lng });
     _mainMap.setZoom(15);
     _fitBounds();
@@ -703,29 +803,61 @@ function _updateFeeInfo() {
 // | reorder khôi phục) đã resolve — TUYỆT ĐỐI không gọi từ trong
 // Livewire.hook('commit') (xem chú thích ở refreshNearbyDrivers() phía
 // backend, đã từng gây bản đồ chớp vô hạn).
-function _refreshDriverMarkers() {
+const _NEARBY_KM = 4;
+const _DRV_COLORS = { free: '#22c55e', busy: '#3b82f6', blocked: '#9ca3af' };
+let _driverCircle = null, _driverInfo = null;
+
+// Tài xế đang online trong 4 km quanh điểm lấy: đọc thẳng @this.nearbyDrivers (server đã tính trong cùng request
+// setPickupLocation, không gọi thêm). CHỈ gọi sau khi @this.call(...) đã resolve hoặc trong hook commit — TUYỆT ĐỐI
+// không gọi lại request từ đây (xem chú thích ở refreshNearbyDrivers(): từng gây bản đồ chớp vô hạn).
+function _refreshDriverMarkers(fit) {
     if (!_mainMap) return;
     const drivers = @this.nearbyDrivers || [];
-    _driverMarkers.forEach((m) => m.setMap(null));
-    _driverMarkers = drivers.map((d) => new google.maps.Marker({
-        position: { lat: d.lat, lng: d.lng }, map: _mainMap,
-        icon: {
-            path: google.maps.SymbolPath.CIRCLE,
-            scale: 6,
-            fillColor: '#22c55e', fillOpacity: 1,
-            strokeColor: '#fff', strokeWeight: 2,
-        },
-        zIndex: 5,
-    }));
+    const pLat = @this.pickupLat, pLng = @this.pickupLng;
     const wrap = document.getElementById('cc-map-info-drivers');
     const label = document.getElementById('cc-driver-label');
-    if (label) label.textContent = `${drivers.length} tài xế trong 4km`;
+    _driverMarkers.forEach((m) => m.setMap(null));
+    _driverMarkers = [];
+    if (_driverCircle) { _driverCircle.setMap(null); _driverCircle = null; }
+    if (!(pLat && pLng)) { if (wrap) wrap.style.display = 'none'; return; }
+
+    _driverCircle = new google.maps.Circle({
+        map: _mainMap, center: { lat: pLat, lng: pLng }, radius: _NEARBY_KM * 1000,
+        strokeColor: '#FF6B35', strokeOpacity: .7, strokeWeight: 1.5, fillColor: '#FF6B35', fillOpacity: .05, clickable: false,
+    });
+    if (!_driverInfo) _driverInfo = new google.maps.InfoWindow();
+    _driverMarkers = drivers.map((d) => {
+        const m = new google.maps.Marker({
+            position: { lat: d.lat, lng: d.lng }, map: _mainMap, zIndex: d.assignable ? 6 : 4, title: d.name,
+            icon: { path: google.maps.SymbolPath.CIRCLE, scale: 8, fillColor: _DRV_COLORS[d.state] || '#9ca3af', fillOpacity: 1, strokeColor: '#fff', strokeWeight: 2 },
+        });
+        m.addListener('click', () => {
+            const status = d.assignable ? (d.active > 0 ? 'Đang giao ' + d.active + ' đơn' : 'Đang rảnh') : (d.reason || 'Chưa nhận được đơn');
+            const pick = d.assignable ? '<button type="button" onclick="_ccPickDriver(' + d.id + ')" style="margin-top:6px;padding:4px 12px;border-radius:8px;background:#0ea5e9;color:#fff;font-size:12px;border:0;cursor:pointer">Chọn gán tài xế này</button>' : '';
+            _driverInfo.setContent('<div style="font-family:inherit;min-width:190px"><b>' + _ccEsc(d.name) + '</b><br>' +
+                (d.phone ? '<a href="tel:' + _ccEsc(String(d.phone).replace(/\D+/g, '')) + '" style="color:#2563eb">' + _ccEsc(d.phone) + '</a><br>' : '') +
+                '<span style="font-size:12px;color:#475569">' + String(d.km).replace('.', ',') + ' km · ' + _ccEsc(status) + '</span><br>' + pick + '</div>');
+            _driverInfo.open(_mainMap, m);
+        });
+        return m;
+    });
+
+    const free = drivers.filter((d) => d.state === 'free').length;
+    if (label) label.textContent = drivers.length ? `${drivers.length} tài xế trong ${_NEARBY_KM} km (${free} rảnh)` : `Chưa có tài xế nào trong ${_NEARBY_KM} km`;
     if (wrap) wrap.style.display = 'flex';
+    // Chưa có điểm giao thì thu phóng cho thấy trọn vòng 4 km; đã có hành trình thì _fitBounds lo
+    if (fit && !_deliveryMarker && _driverCircle.getBounds()) _mainMap.fitBounds(_driverCircle.getBounds(), 16);
+}
+
+function _ccPickDriver(id) {
+    if (_driverInfo) _driverInfo.close();
+    @this.set('assignedDriverId', id);
 }
 
 function _clearDriverMarkers() {
     _driverMarkers.forEach((m) => m.setMap(null));
     _driverMarkers = [];
+    if (_driverCircle) { _driverCircle.setMap(null); _driverCircle = null; }
     const wrap = document.getElementById('cc-map-info-drivers');
     if (wrap) wrap.style.display = 'none';
 }
@@ -749,9 +881,11 @@ document.addEventListener('livewire:initialized', () => {
                 if (pi && pAddr && document.activeElement !== pi && pi.value.trim() !== pAddr.trim()) pi.value = pAddr;
                 if (di && dAddr && document.activeElement !== di && di.value.trim() !== dAddr.trim()) di.value = dAddr;
                 if (pLat && pLng) {
-                    _setPickupPin(pLat, pLng);
+                    _setPickupPin(pLat, pLng, false);
+                    _refreshDriverMarkers(false);
                     if (pi) pi._picked = (pi.value || '').trim();
                 } else {
+                    _clearDriverMarkers();
                     if (_pickupMarker) { _pickupMarker.setMap(null); _pickupMarker = null; }
                     // Chưa có toạ độ nhưng còn chữ đã gõ thì giữ lại (chưa chọn gợi ý); chỉ xoá khi form đã được làm sạch
                     if (pi && !pAddr) pi.value = '';
@@ -772,10 +906,9 @@ document.addEventListener('livewire:initialized', () => {
 
 // ── Khung form + bản đồ cao đúng phần màn hình còn lại (màn tổng đài thường nhỏ) ─────────────
 function _ccFit() {
+    // Trang cuộn tự nhiên (thanh Đặt đơn và bản đồ dính màn hình): không ép chiều cao khung nữa
     const w = document.querySelector('.cc-wrapper');
-    if (!w || window.innerWidth <= 900) { if (w) w.style.height = ''; return; }
-    const top = w.getBoundingClientRect().top;
-    w.style.height = Math.max(420, window.innerHeight - top - 14) + 'px';
+    if (w) w.style.height = '';
 }
 window.addEventListener('resize', _ccFit);
 document.addEventListener('livewire:initialized', () => { _ccFit(); setTimeout(_ccFit, 300); });
@@ -785,6 +918,10 @@ setTimeout(_ccFit, 0);
 // Ô địa chỉ không gắn wire:model (Google Autocomplete giữ giá trị). Khi rời ô mà chữ khác với địa chỉ đã chọn
 // thì đẩy chữ lên server (không gọi request) và bỏ toạ độ cũ, để đơn không mang toạ độ của địa chỉ khác.
 function _syncTyped(kind) {
+    // Chọn một gợi ý Google làm ô mất focus trước khi place_changed chạy: đợi một nhịp để lựa chọn thắng
+    setTimeout(() => _syncTypedNow(kind), 250);
+}
+function _syncTypedNow(kind) {
     const el = document.getElementById(`cc-${kind}-input`);
     if (!el) return;
     const v = el.value.trim();
@@ -821,16 +958,16 @@ function _ccRenderRecent(list) {
             '</div>';
     }).join('');
 }
-function _ccLoadRecent() {
-    if (document.hidden) return;
+function _ccLoadRecent(force) {
+    if (document.hidden && force !== true) return; // tab đang ẩn thì thôi làm mới định kỳ; lần tải đầu luôn chạy
     Promise.resolve(@this.call('recentOrders')).then(_ccRenderRecent).catch(() => {});
 }
 function _ccAssign(id) { @this.call('mountAction', 'assign', { order: id }); }
 function _ccCancel(id) { @this.call('mountAction', 'cancel', { order: id }); }
-window.addEventListener('cc-recent-refresh', _ccLoadRecent);
+window.addEventListener('cc-recent-refresh', () => _ccLoadRecent(true));
 if (window._ccRecentTimer) clearInterval(window._ccRecentTimer);
 window._ccRecentTimer = setInterval(_ccLoadRecent, 15000);
-document.addEventListener('livewire:initialized', _ccLoadRecent);
+document.addEventListener('livewire:initialized', () => _ccLoadRecent(true));
 
 // Ctrl/Cmd + Enter: đặt đơn nhanh khi đang nghe máy
 document.addEventListener('keydown', (e) => {

@@ -168,4 +168,84 @@ class CallCenterTest extends TestCase
         $this->assertStringContainsString('Đừng đặt lại', $page->get('resultWarning'));
         $this->assertSame('', $page->get('data')['pickup_address'], 'form được làm sạch để khỏi đặt trùng');
     }
+
+    public function test_shop_order_does_not_need_a_phone_but_a_half_typed_number_is_rejected(): void
+    {
+        $page = $this->page('delivery')->set('data', $this->data(['contact_phone' => '']))->call('placeOrder');
+        $this->assertSame([], $page->get('fieldErrors'));
+        $order = Order::where('code', $page->get('resultOrderCode'))->firstOrFail();
+        $this->assertNull($order->pickup_phone);
+        $this->assertNull($order->delivery_phone);
+
+        $half = $this->page('delivery')->set('data', $this->data(['contact_phone' => '0911']))->call('placeOrder');
+        $this->assertArrayHasKey('contact_phone', $half->get('fieldErrors'));
+
+        $ride = $this->page('delivery')->call('selectService', 'topup')->set('data', $this->data(['contact_phone' => '', 'cod_amount' => 50000]))->call('placeOrder');
+        $this->assertArrayHasKey('contact_phone', $ride->get('fieldErrors'), 'dịch vụ khác vẫn bắt buộc SĐT');
+    }
+
+    public function test_driver_select_is_filled_on_open_and_explains_why_others_cannot_be_assigned(): void
+    {
+        $ok = $this->user('driver', ['is_online' => true, 'name' => 'Sẵn sàng']);
+        $this->user('driver', ['is_online' => false, 'name' => 'Đang nghỉ']);
+        $debt = $this->user('driver', ['is_online' => true, 'name' => 'Có nợ']);
+        \Modules\Driver\Models\DriverDebt::create(['driver_id' => $debt->id, 'debt_type' => 'weekly', 'status' => 'overdue', 'amount_due' => 100000, 'amount_paid' => 0, 'week_start' => now()->subWeek()->startOfWeek()->toDateString(), 'week_end' => now()->subWeek()->endOfWeek()->toDateString(), 'note' => 'test']);
+
+        $page = Livewire::test(CallCenterPage::class); // chưa chọn điểm lấy
+
+        $this->assertSame([$ok->id], array_column($page->get('onlineDrivers'), 'id'), 'có danh sách ngay khi mở trang');
+        $reasons = collect($page->get('unavailableDrivers'))->pluck('reason', 'name');
+        $this->assertSame('đang offline', $reasons['Đang nghỉ']);
+        $this->assertSame('nợ quá hạn', $reasons['Có nợ']);
+        $page->assertSee('Chưa gán được');
+    }
+
+    public function test_map_shows_online_drivers_within_4km_of_the_pickup_with_their_state(): void
+    {
+        \Illuminate\Support\Facades\Http::fake(); // khoảng cách đường đi (Google) không được gọi thật trong test
+        $free = $this->user('driver', ['is_online' => true, 'name' => 'Rảnh gần']);
+        $busy = $this->user('driver', ['is_online' => true, 'name' => 'Đang giao gần']);
+        $far = $this->user('driver', ['is_online' => true, 'name' => 'Xa 6km']);
+        $blocked = $this->user('driver', ['is_online' => true, 'name' => 'Bị khóa gần']);
+        $offline = $this->user('driver', ['is_online' => false, 'name' => 'Offline gần']);
+        DB::table('users')->where('id', $blocked->id)->update(['score_suspended_until' => now()->addDay()]);
+        Order::create(['code' => 'BUSY'.uniqid(), 'status' => 'assigned', 'delivery_man_id' => $busy->id, 'city_id' => $this->city->id, 'service_type' => 'delivery',
+            'pickup_address' => 'a', 'delivery_address' => 'b', 'created_by' => $this->admin->id]);
+
+        // Điểm lấy (10.0, 105.0); 0,01° vĩ độ ≈ 1,1 km
+        $this->mock(\Modules\Driver\Services\DriverLocationService::class, fn ($m) => $m->shouldReceive('freshLocationsFor')->andReturn([
+            $free->id => ['lat' => 10.009, 'lng' => 105.0, 'bearing' => null],
+            $busy->id => ['lat' => 10.0, 'lng' => 105.02, 'bearing' => null],
+            $far->id => ['lat' => 10.054, 'lng' => 105.0, 'bearing' => null],
+            $blocked->id => ['lat' => 10.0, 'lng' => 104.99, 'bearing' => null],
+        ]));
+
+        $page = $this->page('delivery')->call('setPickupLocation', 'Quán', 10.0, 105.0);
+        $near = collect($page->get('nearbyDrivers'))->keyBy('name');
+
+        $this->assertEqualsCanonicalizing(['Rảnh gần', 'Đang giao gần', 'Bị khóa gần'], $near->keys()->all(), 'chỉ người online trong 4km');
+        $this->assertSame('free', $near['Rảnh gần']['state']);
+        $this->assertSame('busy', $near['Đang giao gần']['state']);
+        $this->assertSame('blocked', $near['Bị khóa gần']['state']);
+        $this->assertFalse($near['Bị khóa gần']['assignable']);
+        $this->assertLessThanOrEqual(4, $near['Đang giao gần']['km']);
+        $this->assertSame('Rảnh gần', collect($page->get('nearbyDrivers'))->first()['name'], 'gần nhất lên trước');
+        $this->assertNotContains($offline->id, array_column($page->get('nearbyDrivers'), 'id'));
+    }
+
+    public function test_every_service_requires_a_pickup_point_with_coordinates(): void
+    {
+        foreach (['delivery', 'shopping', 'topup'] as $service) {
+            $base = $this->data(['contact_phone' => '0911222333', 'delivery_address' => 'Nhà khách', 'shopping_note' => 'Trà sữa', 'cod_amount' => 50000]);
+
+            // Không nhập điểm lấy
+            $none = Livewire::test(CallCenterPage::class)->call('selectService', $service)->set('data', ['pickup_address' => ''] + $base)->call('placeOrder');
+            $this->assertArrayHasKey('pickup_address', $none->get('fieldErrors'), "$service: thiếu điểm lấy");
+
+            // Có chữ nhưng chưa chọn gợi ý/bản đồ nên không có toạ độ
+            $noCoords = Livewire::test(CallCenterPage::class)->call('selectService', $service)->set('data', $base)->call('placeOrder');
+            $this->assertArrayHasKey('pickup_address', $noCoords->get('fieldErrors'), "$service: thiếu toạ độ điểm lấy");
+        }
+        $this->assertSame(0, Order::where('city_id', $this->city->id)->count());
+    }
 }
