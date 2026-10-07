@@ -107,8 +107,11 @@ class OrderMarketService
             if ($fresh->status !== 'pending' || ! $listing || $listing->status !== 'open' || $listing->expires_at <= now()) return 'taken';
             if ((int) $fresh->city_id !== (int) $lockedDriver->city_id || ($fresh->service_type === 'car' && ! $lockedDriver->has_car_license)) return 'ineligible';
             $active = Order::where('delivery_man_id', $driver->id)->whereIn('status', ['assigned', 'processing'])->lockForUpdate()->get();
-            if ($active->count() >= OperationalSettings::maxActiveOrdersPerDriver($fresh->city_id)
-                || ($active->isNotEmpty() && ! StackedOrderPolicy::allowsAll($fresh, $active))) return 'busy';
+            // Chợ đơn là luồng tài xế chủ động xem tuyến và chọn đơn.
+            // Giai đoạn thử nghiệm chỉ chặn theo trần số đơn, không ép điểm
+            // lấy/giao phải gần các đơn đang giữ. Offer tự động vẫn giữ
+            // StackedOrderPolicy để không tự phát chuyến lệch tuyến.
+            if ($active->count() >= OperationalSettings::maxActiveOrdersPerDriver($fresh->city_id)) return 'busy';
 
             $fresh->update(['status' => 'assigned', 'delivery_man_id' => $driver->id, 'dispatching_to_driver_id' => null]);
             $listing->update(['status' => 'claimed', 'claimed_at' => now(), 'claimed_by' => $driver->id]);
