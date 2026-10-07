@@ -5,6 +5,7 @@ namespace App\Services;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Modules\Core\Services\OperationalSettings;
 use Modules\Driver\Services\DriverLocationService;
 
 /**
@@ -74,9 +75,9 @@ class DriverSupplyService
 
             $group = match (true) {
                 $seen === null || $now - $seen > DriverLocationService::POS_MAX_AGE_SECS => 'dead',
-                $active >= 2 => 'busy2',
+                $active >= OperationalSettings::maxActiveOrdersPerDriver($cityId) => 'busy2',
                 isset($holdingOffer[$d->id]) => 'holding',
-                $active === 1 => 'busy1',
+                $active > 0 => 'busy1',
                 default => 'ready',
             };
 

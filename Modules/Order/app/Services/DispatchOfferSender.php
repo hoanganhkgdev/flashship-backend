@@ -61,7 +61,7 @@ class DispatchOfferSender
             Log::debug("│  Skip #{$driver->id} {$driver->name}: đã có {$activeCount} đơn active");
             return false;
         }
-        if ($activeCount === 1 && ! StackedOrderPolicy::allows($order, $activeOrders->first())) {
+        if ($activeCount > 0 && ! StackedOrderPolicy::allowsAll($order, $activeOrders)) {
             Redis::del($lockKey);
             Log::debug("│  Skip #{$driver->id} {$driver->name}: đơn thứ nhất đã lấy hoặc không còn đủ điều kiện ghép");
             return false;

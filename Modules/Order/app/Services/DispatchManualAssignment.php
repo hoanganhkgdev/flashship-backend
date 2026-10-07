@@ -81,11 +81,16 @@ class DispatchManualAssignment
                     return ['busy' => null, 'affected' => 0, 'previous_driver_id' => null, 'reused_log' => false];
                 }
 
-                $activeCount = Order::where('delivery_man_id', $driver->id)
+                $activeOrders = Order::where('delivery_man_id', $driver->id)
                     ->whereIn('status', ['assigned', 'processing'])
-                    ->count();
+                    ->lockForUpdate()
+                    ->get();
+                $activeCount = $activeOrders->count();
                 if ($activeCount >= OperationalSettings::maxActiveOrdersPerDriver($order->city_id)) {
                     return ['busy' => $activeCount, 'affected' => 0, 'previous_driver_id' => null, 'reused_log' => false];
+                }
+                if ($activeOrders->isNotEmpty() && ! StackedOrderPolicy::allowsAll($freshOrder, $activeOrders)) {
+                    return ['busy' => 'route', 'affected' => 0, 'previous_driver_id' => null, 'reused_log' => false];
                 }
 
                 $previousDriverId = $freshOrder->dispatching_to_driver_id;
@@ -116,6 +121,9 @@ class DispatchManualAssignment
                 ];
             });
 
+            if ($assignment['busy'] === 'route') {
+                return ['success' => false, 'message' => "Đơn mới không cùng tuyến với các đơn {$driver->name} đang giữ."];
+            }
             if ($assignment['busy'] !== null) {
                 return ['success' => false, 'message' => "Tài xế {$driver->name} đang chạy {$assignment['busy']} đơn, không nhận thêm được."];
             }

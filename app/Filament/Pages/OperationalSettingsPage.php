@@ -225,7 +225,7 @@ class OperationalSettingsPage extends Page implements HasForms
                     ->columns(['sm' => 2, 'lg' => 4])
                     ->schema([
                         $this->number('dispatch_max_road_distance_km', 'Khoảng cách phát tối đa', 'km', 0.5, 50, step: 0.1),
-                        $this->integer('max_active_orders_per_driver', 'Đơn active tối đa', 'đơn', 1, 2)
+                        $this->integer('max_active_orders_per_driver', 'Đơn active tối đa', 'đơn', 1, 3)
                             ->helperText('1 = không ghép đơn'),
                         $this->number('stack_max_pickup_km', 'Lệch điểm lấy khi ghép', 'km', 0.1, 20, step: 0.1),
                         $this->number('stack_max_delivery_km', 'Lệch điểm giao khi ghép', 'km', 0.1, 20, step: 0.1),

@@ -16,8 +16,8 @@
         $supplyTotal = max(1, $supply['online']);
         $segments = [
             ['label' => 'Sẵn sàng', 'key' => 'ready', 'color' => '#16a34a'],
-            ['label' => 'Đang chạy 1 đơn', 'key' => 'busy1', 'color' => '#0ea5e9'],
-            ['label' => 'Đủ 2 đơn', 'key' => 'busy2', 'color' => '#f59e0b'],
+            ['label' => 'Đang chạy, còn chỗ', 'key' => 'busy1', 'color' => '#0ea5e9'],
+            ['label' => 'Đã đủ trần đơn', 'key' => 'busy2', 'color' => '#f59e0b'],
             ['label' => 'Đang nhận offer', 'key' => 'holding', 'color' => '#8b5cf6'],
             ['label' => 'Mất kết nối', 'key' => 'dead', 'color' => '#ef4444'],
         ];

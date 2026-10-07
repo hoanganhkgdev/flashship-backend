@@ -2,12 +2,19 @@
 
 namespace Modules\Order\Services;
 
+use Illuminate\Support\Collection;
 use Modules\Core\Services\GoogleMapService;
 use Modules\Core\Services\OperationalSettings;
 use Modules\Order\Models\Order;
 
 class StackedOrderPolicy
 {
+    /** Đơn mới phải cùng tuyến với tất cả đơn tài xế đang giữ. */
+    public static function allowsAll(Order $incoming, Collection $activeOrders): bool
+    {
+        return $activeOrders->every(fn (Order $active) => self::allows($incoming, $active));
+    }
+
     /**
      * Chỉ ghép khi tài xế chưa lấy đơn thứ nhất. Nếu đơn thứ nhất đã chuyển
      * processing, phát thêm đơn gần điểm lấy cũ sẽ buộc tài xế quay ngược lại.

@@ -301,8 +301,8 @@ class OrderService
                 ->lockForUpdate()
                 ->get();
             if ($activeOrders->count() >= OperationalSettings::maxActiveOrdersPerDriver($order->city_id)
-                || ($activeOrders->count() === 1
-                    && ! StackedOrderPolicy::allows($order, $activeOrders->first()))) {
+                || ($activeOrders->isNotEmpty()
+                    && ! StackedOrderPolicy::allowsAll($order, $activeOrders))) {
                 OrderDispatchLog::where('order_id', $order->id)
                     ->where('driver_id', $user->id)
                     ->where('result', 'pending')

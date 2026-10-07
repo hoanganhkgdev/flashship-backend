@@ -108,7 +108,7 @@ class OrderMarketService
             if ((int) $fresh->city_id !== (int) $lockedDriver->city_id || ($fresh->service_type === 'car' && ! $lockedDriver->has_car_license)) return 'ineligible';
             $active = Order::where('delivery_man_id', $driver->id)->whereIn('status', ['assigned', 'processing'])->lockForUpdate()->get();
             if ($active->count() >= OperationalSettings::maxActiveOrdersPerDriver($fresh->city_id)
-                || ($active->count() === 1 && ! StackedOrderPolicy::allows($fresh, $active->first()))) return 'busy';
+                || ($active->isNotEmpty() && ! StackedOrderPolicy::allowsAll($fresh, $active))) return 'busy';
 
             $fresh->update(['status' => 'assigned', 'delivery_man_id' => $driver->id, 'dispatching_to_driver_id' => null]);
             $listing->update(['status' => 'claimed', 'claimed_at' => now(), 'claimed_by' => $driver->id]);

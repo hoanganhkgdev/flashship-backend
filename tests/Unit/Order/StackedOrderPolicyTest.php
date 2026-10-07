@@ -35,6 +35,16 @@ class StackedOrderPolicyTest extends TestCase
         $this->assertFalse(StackedOrderPolicy::allows($farDelivery, $active));
     }
 
+    public function test_third_order_must_match_both_active_routes(): void
+    {
+        $incoming = $this->order('pending', 10.0050, 105.0000, 10.0550, 105.0500);
+        $sameRoute = $this->order('assigned', 10.0000, 105.0000, 10.0500, 105.0500);
+        $differentRoute = $this->order('assigned', 10.0300, 105.0000, 10.0800, 105.0500);
+
+        $this->assertTrue(StackedOrderPolicy::allowsAll($incoming, collect([$sameRoute])));
+        $this->assertFalse(StackedOrderPolicy::allowsAll($incoming, collect([$sameRoute, $differentRoute])));
+    }
+
     private function order(string $status, float $pickupLat, float $pickupLng, float $deliveryLat, float $deliveryLng): Order
     {
         return new Order([

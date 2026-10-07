@@ -47,7 +47,7 @@ class OperationalSettings
         'order.max_distance_km' => '15',
         'order.rating_window_hours' => '24',
         'order.delayed_reminder_minutes' => '15',
-        'order.max_active_per_driver' => '2',
+        'order.max_active_per_driver' => '3',
         'order.stack_max_pickup_km' => '1',
         'order.stack_max_delivery_km' => '1.5',
         // Danh sách khung giờ phụ phí đêm; "to" không tính, khung được vắt qua nửa đêm.
