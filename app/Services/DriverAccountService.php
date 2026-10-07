@@ -32,7 +32,8 @@ class DriverAccountService
     }
 
     /**
-     * Có duyệt được không? CCCD chưa được duyệt thì CHẶN; bằng lái chưa được duyệt chỉ CẢNH BÁO.
+     * Duyệt bước đầu chỉ cho tài xế vào được app; KYC (CCCD, bằng lái) làm sau. CCCD chưa được duyệt chỉ CẢNH BÁO —
+     * việc chặn nhận đơn nằm ở bước bật online (DriverController::toggleOnline).
      *
      * @return array{ok: bool, blockers: string[], warnings: string[]}
      */
@@ -42,7 +43,7 @@ class DriverAccountService
 
         $cccd = $this->latestDocStatus('driver_cccd_images', $driver->id);
         if ($cccd !== 'approved') {
-            $blockers[] = 'CCCD '.(self::DOC_LABELS[$cccd] ?? 'chưa được tải lên');
+            $warnings[] = 'CCCD '.(self::DOC_LABELS[$cccd] ?? 'chưa được tải lên');
         }
 
         $license = $this->latestDocStatus('driver_licenses', $driver->id);

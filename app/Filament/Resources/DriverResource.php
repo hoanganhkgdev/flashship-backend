@@ -380,7 +380,7 @@ class DriverResource extends Resource
                         ->icon('heroicon-o-check-circle')
                         ->color('success')
                         ->requiresConfirmation()
-                        ->modalDescription('Chỉ duyệt những tài xế đang chờ duyệt và đã có CCCD được duyệt. Hồ sơ chưa đủ sẽ được bỏ qua.')
+                        ->modalDescription('Chỉ duyệt những tài xế đang chờ duyệt. Tài xế vào được app để làm KYC (CCCD, bằng lái); CCCD được duyệt mới được bật online nhận đơn.')
                         ->deselectRecordsAfterCompletion()
                         ->action(function ($records) use ($service) {
                             $ok = 0;
@@ -390,7 +390,7 @@ class DriverResource extends Resource
                                 $result['ok'] ? $ok++ : $skipped[] = $driver->name;
                             }
                             Notification::make()->title("Đã duyệt {$ok} tài xế")
-                                ->body($skipped ? 'Bỏ qua '.count($skipped).' hồ sơ chưa đủ CCCD: '.implode(', ', array_slice($skipped, 0, 5)).(count($skipped) > 5 ? '…' : '') : null)
+                                ->body($skipped ? 'Bỏ qua '.count($skipped).' hồ sơ không còn ở trạng thái chờ duyệt: '.implode(', ', array_slice($skipped, 0, 5)).(count($skipped) > 5 ? '…' : '') : null)
                                 ->{$ok ? 'success' : 'warning'}()->send();
                         }),
                 ]),

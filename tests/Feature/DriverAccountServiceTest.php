@@ -56,19 +56,15 @@ class DriverAccountServiceTest extends TestCase
         DB::table($table)->insert(['user_id' => $driver->id, 'image_path' => 'x.png', 'status' => $status, 'created_at' => now(), 'updated_at' => now()]);
     }
 
-    public function test_cannot_approve_without_approved_cccd(): void
+    public function test_can_approve_without_cccd_but_warns(): void
     {
         $service = new FakeDriverAccountService;
         $driver = $this->driver();
 
-        $none = $service->approve($driver);
-        $this->assertFalse($none['ok']);
-        $this->assertStringContainsString('CCCD chưa được tải lên', $none['message']);
-
-        $this->doc('driver_cccd_images', $driver, 'pending');
-        $this->assertFalse($service->approve($driver)['ok']);
-        $this->assertSame(0, (int) $driver->fresh()->status);
-        $this->assertSame(0, DriverStatusLog::where('driver_id', $driver->id)->count(), 'duyệt thất bại không được ghi lịch sử');
+        $result = $service->approve($driver);
+        $this->assertTrue($result['ok']);
+        $this->assertContains('CCCD chưa được tải lên', $result['warnings']);
+        $this->assertSame(1, (int) $driver->fresh()->status);
     }
 
     public function test_approves_with_cccd_but_warns_when_license_missing(): void
@@ -94,8 +90,8 @@ class DriverAccountServiceTest extends TestCase
         $this->doc('driver_cccd_images', $driver, 'rejected'); // tải lại và bị từ chối => không còn được duyệt
 
         $check = (new FakeDriverAccountService)->approvalCheck($driver);
-        $this->assertFalse($check['ok']);
-        $this->assertStringContainsString('bị từ chối', $check['blockers'][0]);
+        $this->assertTrue($check['ok']);
+        $this->assertStringContainsString('bị từ chối', $check['warnings'][0]);
     }
 
     public function test_approve_only_works_on_pending_accounts(): void
