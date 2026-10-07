@@ -300,9 +300,7 @@ class OrderService
                 ->whereIn('status', ['assigned', 'processing'])
                 ->lockForUpdate()
                 ->get();
-            if ($activeOrders->count() >= OperationalSettings::maxActiveOrdersPerDriver($order->city_id)
-                || ($activeOrders->isNotEmpty()
-                    && ! StackedOrderPolicy::allowsAll($order, $activeOrders))) {
+            if ($activeOrders->count() >= OperationalSettings::maxActiveOrdersPerDriver($order->city_id)) {
                 OrderDispatchLog::where('order_id', $order->id)
                     ->where('driver_id', $user->id)
                     ->where('result', 'pending')
@@ -315,7 +313,7 @@ class OrderService
                     ->where('dispatching_to_driver_id', $user->id)
                     ->update(['dispatching_to_driver_id' => null, 'updated_at' => now()]);
 
-                return $activeOrders->count() >= OperationalSettings::maxActiveOrdersPerDriver($order->city_id) ? 'busy' : 'not_stackable';
+                return 'busy';
             }
 
             return DB::table('orders')
@@ -333,7 +331,7 @@ class OrderService
                 ]);
         });
 
-        if (in_array($assignment, ['busy', 'not_stackable'], true)) {
+        if ($assignment === 'busy') {
             Redis::del("dispatch:lock:driver:{$user->id}");
             RTDBService::clearDriverOffer($user->id, $order->id);
             $orderId = $order->id;
@@ -344,9 +342,7 @@ class OrderService
                 }
             })->afterResponse();
 
-            $message = $assignment === 'busy'
-                ? 'Bạn đang có đủ '.OperationalSettings::maxActiveOrdersPerDriver($order->city_id).' đơn hàng chưa hoàn thành. Vui lòng hoàn thành bớt trước.'
-                : 'Đơn ghép không còn phù hợp vì bạn đã lấy đơn trước. Hệ thống sẽ chuyển đơn cho tài xế khác.';
+            $message = 'Bạn đang có đủ '.OperationalSettings::maxActiveOrdersPerDriver($order->city_id).' đơn hàng chưa hoàn thành. Vui lòng hoàn thành bớt trước.';
 
             return ['success' => false, 'message' => $message, 'status' => 409];
         }

@@ -115,23 +115,9 @@ class DispatchCandidateFinder
             Log::debug("     [Candidates] Loại {$removed} tài xế do không phù hợp loại xe ({$order->service_type})");
         }
 
-        // ── 4. Ghép đơn: giữ tài xế rảnh HOẶC có 1 đơn mà đơn đang chạy "cùng
-        // tuyến" với đơn mới — điểm lấy và điểm giao đều phải nằm trong
-        // khoảng cách ghép đơn đang cấu hình (cả 2 điều kiện, không phải 1).
-        $activeOrders = Order::whereIn('status', ['assigned', 'processing'])
-            ->whereIn('delivery_man_id', $afterLicense->pluck('id'))
-            ->get(['delivery_man_id', 'status', 'pickup_lat', 'pickup_lng', 'delivery_lat', 'delivery_lng'])
-            ->keyBy('delivery_man_id');
-
-        $afterDetour = $afterLicense->filter(function (User $d) use ($order, $activeOrders) {
-            $active = $activeOrders->get($d->id);
-            if (!$active) return true;
-
-            return StackedOrderPolicy::allows($order, $active);
-        });
-        if (($removed = $afterLicense->count() - $afterDetour->count()) > 0) {
-            Log::debug("     [Candidates] Loại {$removed} tài xế — đã lấy đơn thứ nhất hoặc hai đơn không cùng tuyến");
-        }
+        // Không lọc theo tuyến các đơn đang giữ. Trần số đơn active ở
+        // bước 1 là điều kiện duy nhất liên quan tới việc tài xế đang có đơn.
+        $afterDetour = $afterLicense;
 
         // ── 5. Tính khoảng cách đường thật cho TOÀN BỘ ứng viên còn lại — 1 lần
         // gọi Google Distance Matrix duy nhất (không phải 1 lần/tài xế) — rồi

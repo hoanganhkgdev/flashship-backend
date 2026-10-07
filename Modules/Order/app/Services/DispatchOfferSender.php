@@ -61,12 +61,6 @@ class DispatchOfferSender
             Log::debug("│  Skip #{$driver->id} {$driver->name}: đã có {$activeCount} đơn active");
             return false;
         }
-        if ($activeCount > 0 && ! StackedOrderPolicy::allowsAll($order, $activeOrders)) {
-            Redis::del($lockKey);
-            Log::debug("│  Skip #{$driver->id} {$driver->name}: đơn thứ nhất đã lấy hoặc không còn đủ điều kiện ghép");
-            return false;
-        }
-
         // Không cần kiểm tra lại trần khoảng cách ở đây — DispatchCandidateFinder::find()
         // đã tính khoảng cách đường thật và lọc theo trần cấu hình cho MỌI ứng
         // viên trước khi trả về, không chỉ một nhóm nhỏ như cách cũ.

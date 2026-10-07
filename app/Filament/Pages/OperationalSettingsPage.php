@@ -77,8 +77,6 @@ class OperationalSettingsPage extends Page implements HasForms
         'rating_window_hours' => 'order.rating_window_hours',
         'delayed_reminder_minutes' => 'order.delayed_reminder_minutes',
         'max_active_orders_per_driver' => 'order.max_active_per_driver',
-        'stack_max_pickup_km' => 'order.stack_max_pickup_km',
-        'stack_max_delivery_km' => 'order.stack_max_delivery_km',
         'offer_open_seconds' => 'dispatch.offer_open_seconds',
         'offer_decision_seconds' => 'dispatch.offer_decision_seconds',
         'dispatch_timeout_minutes' => 'dispatch.total_timeout_minutes',
@@ -219,16 +217,13 @@ class OperationalSettingsPage extends Page implements HasForms
         return Tab::make('Phát đơn')
             ->icon('heroicon-o-signal')
             ->schema([
-                Section::make('Phạm vi & ghép đơn')
+                Section::make('Phạm vi & số đơn')
                     ->icon('heroicon-o-map-pin')
-                    ->description('Chỉ phát cho tài xế trong khoảng cách đường thực tế; tài xế đang có đơn chỉ nhận thêm đơn cùng tuyến.')
+                    ->description('Chỉ phát cho tài xế trong khoảng cách đường thực tế và chưa đủ trần đơn active.')
                     ->columns(['sm' => 2, 'lg' => 4])
                     ->schema([
                         $this->number('dispatch_max_road_distance_km', 'Khoảng cách phát tối đa', 'km', 0.5, 50, step: 0.1),
-                        $this->integer('max_active_orders_per_driver', 'Đơn active tối đa', 'đơn', 1, 3)
-                            ->helperText('1 = không ghép đơn'),
-                        $this->number('stack_max_pickup_km', 'Lệch điểm lấy khi ghép', 'km', 0.1, 20, step: 0.1),
-                        $this->number('stack_max_delivery_km', 'Lệch điểm giao khi ghép', 'km', 0.1, 20, step: 0.1),
+                        $this->integer('max_active_orders_per_driver', 'Đơn active tối đa', 'đơn', 1, 3),
                     ]),
 
                 Section::make('Thời gian')

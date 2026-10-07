@@ -109,8 +109,7 @@ class OrderMarketService
             $active = Order::where('delivery_man_id', $driver->id)->whereIn('status', ['assigned', 'processing'])->lockForUpdate()->get();
             // Chợ đơn là luồng tài xế chủ động xem tuyến và chọn đơn.
             // Giai đoạn thử nghiệm chỉ chặn theo trần số đơn, không ép điểm
-            // lấy/giao phải gần các đơn đang giữ. Offer tự động vẫn giữ
-            // StackedOrderPolicy để không tự phát chuyến lệch tuyến.
+            // lấy/giao phải gần các đơn đang giữ.
             if ($active->count() >= OperationalSettings::maxActiveOrdersPerDriver($fresh->city_id)) return 'busy';
 
             $fresh->update(['status' => 'assigned', 'delivery_man_id' => $driver->id, 'dispatching_to_driver_id' => null]);
