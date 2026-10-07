@@ -374,6 +374,7 @@ class OrderService
             'last_order_accepted_at' => now(),
         ]);
         app(OrderMarketService::class)->close($order);
+        RTDBService::pingOrderMarket((int) $order->city_id);
 
         $orderId   = $order->id;
         $userId    = $user->id;
@@ -474,6 +475,7 @@ class OrderService
         OrderTimeline::record($order, 'picked_up', 'Tài xế đã lấy hàng', $user->id);
 
         RTDBService::updateOrderStatus($order->code, $status);
+        RTDBService::pingOrderMarket((int) $order->city_id);
 
         $customer = User::find($order->sender_platform_id);
         if ($customer?->fcm_token) {
@@ -643,6 +645,7 @@ class OrderService
         Log::info("✅ Order #{$order->id} completed by driver #{$user->id}");
 
         RTDBService::clearOrder($order->code);
+        RTDBService::pingOrderMarket((int) $order->city_id);
         $customer = User::find($order->sender_platform_id);
         if ($customer?->fcm_token) {
             FCMService::getInstance()->sendOrderStatusUpdate($customer->fcm_token, $order->code, 'completed');
