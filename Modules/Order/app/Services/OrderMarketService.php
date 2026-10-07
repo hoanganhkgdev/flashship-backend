@@ -69,6 +69,8 @@ class OrderMarketService
     public function listForDriver(User $driver): array
     {
         if (! OperationalSettings::orderMarketEnabled($driver->city_id) || ! $this->baseEligible($driver)) return [];
+        $session = $this->activeBundleSession($driver);
+        if (! $session || (int) $session->extra_claimed_count >= 2) return [];
         $location = $this->locations->freshLocationsFor([$driver->id])[$driver->id] ?? null;
         if (! $location) return [];
         $maxKm = OperationalSettings::marketMaxPickupDistanceKm($driver->city_id);
@@ -112,14 +114,37 @@ class OrderMarketService
             // lấy/giao phải gần các đơn đang giữ.
             if ($active->count() >= OperationalSettings::maxActiveOrdersPerDriver($fresh->city_id)) return 'busy';
 
-            $fresh->update(['status' => 'assigned', 'delivery_man_id' => $driver->id, 'dispatching_to_driver_id' => null]);
+            $main = Order::where('delivery_man_id', $driver->id)
+                ->where('driver_order_role', 'main')
+                ->where('status', 'assigned')
+                ->where('bundle_window_expires_at', '>', now())
+                ->lockForUpdate()->first();
+            if (! $main) return 'no_session';
+            if ((int) $main->extra_claimed_count >= 2) return 'quota';
+
+            $fresh->update([
+                'status' => 'assigned',
+                'delivery_man_id' => $driver->id,
+                'driver_order_role' => 'extra',
+                'main_order_id' => $main->id,
+                'dispatching_to_driver_id' => null,
+            ]);
+            $main->increment('extra_claimed_count');
             $listing->update(['status' => 'claimed', 'claimed_at' => now(), 'claimed_by' => $driver->id]);
             OrderHistory::create(['order_id' => $fresh->id, 'user_id' => $driver->id, 'type' => 'market_claimed',
                 'description' => "{$driver->name} nhận đơn từ Chợ đơn"]);
             return $fresh;
         });
 
-        if (is_string($result)) return $this->error($result === 'taken' ? 'Đơn này vừa được tài xế khác nhận.' : 'Bạn không còn đủ điều kiện nhận đơn này.', 409);
+        if (is_string($result)) {
+            $message = match ($result) {
+                'taken' => 'Đơn này vừa được tài xế khác nhận.',
+                'no_session' => 'Phiên gom chuyến đã hết hạn hoặc đơn chính đã lấy hàng.',
+                'quota' => 'Phiên này đã nhận đủ 2 đơn phụ.',
+                default => 'Bạn không còn đủ điều kiện nhận đơn này.',
+            };
+            return $this->error($message, 409);
+        }
         if (DB::table('cities')->where('id', $result->city_id)->value('is_rain_mode')) {
             $result->update(['rain_bonus_eligible' => true, 'rain_bonus_amount' => OperationalSettings::rainBonusAmount($result->city_id)]);
         }
@@ -161,6 +186,29 @@ class OrderMarketService
         if ($driver->score_suspended_until && $driver->score_suspended_until > now()) return false;
         if ($driver->debts()->where('status', 'overdue')->exists()) return false;
         return ! DB::table('driver_leave_requests')->where('driver_id', $driver->id)->whereDate('leave_date', today())->exists();
+    }
+
+    public function bundleSession(User $driver): ?array
+    {
+        $main = $this->activeBundleSession($driver);
+        if (! $main) return null;
+
+        return [
+            'main_order_id' => $main->id,
+            'main_order_code' => $main->code,
+            'extras_claimed' => (int) $main->extra_claimed_count,
+            'extras_remaining' => max(0, 2 - (int) $main->extra_claimed_count),
+            'expires_at' => $main->bundle_window_expires_at?->toIso8601String(),
+        ];
+    }
+
+    private function activeBundleSession(User $driver): ?Order
+    {
+        return Order::where('delivery_man_id', $driver->id)
+            ->where('driver_order_role', 'main')
+            ->where('status', 'assigned')
+            ->where('bundle_window_expires_at', '>', now())
+            ->first();
     }
 
     private function error(string $message, int $status): array { return ['success' => false, 'message' => $message, 'status' => $status]; }

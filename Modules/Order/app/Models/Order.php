@@ -26,7 +26,8 @@ class Order extends Model
     }
 
     protected $fillable = [
-        'code', 'service_type', 'city_id', 'delivery_man_id', 'dispatching_to_driver_id',
+        'code', 'service_type', 'city_id', 'delivery_man_id', 'driver_order_role', 'main_order_id',
+        'extra_claimed_count', 'bundle_window_expires_at', 'dispatching_to_driver_id',
         'dispatch_attempts', 'sender_platform_id', 'platform', 'created_by', 'status', 'cancel_reason',
         'pickup_address', 'pickup_place_name', 'pickup_lat', 'pickup_lng', 'pickup_phone', 'sender_name', 'store_name',
         'delivery_address', 'delivery_place_name', 'delivery_lat', 'delivery_lng', 'delivery_phone', 'receiver_name',
@@ -40,6 +41,9 @@ class Order extends Model
 
     protected $casts = [
         'delivery_man_id'          => 'integer',
+        'main_order_id'            => 'integer',
+        'extra_claimed_count'      => 'integer',
+        'bundle_window_expires_at' => 'datetime',
         'dispatching_to_driver_id' => 'integer',
         'city_id'                  => 'integer',
         'is_freeship'              => 'boolean',

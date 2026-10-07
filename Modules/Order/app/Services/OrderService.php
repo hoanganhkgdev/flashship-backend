@@ -204,6 +204,9 @@ class OrderService
             'code'             => $order->code,
             'service_type'     => $order->service_type,
             'status'           => $order->status,
+            'driver_order_role' => $order->driver_order_role,
+            'main_order_id'    => $order->main_order_id,
+            'bundle_window_expires_at' => $order->bundle_window_expires_at?->toIso8601String(),
             'pickup_name'         => $order->sender_name         ?? '',
             'pickup_place_name'   => $order->pickup_place_name   ?? null,
             'pickup_address'      => $order->pickup_address      ?? '',
@@ -326,6 +329,10 @@ class OrderService
                 ->update([
                     'status'                   => 'assigned',
                     'delivery_man_id'          => $user->id,
+                    'driver_order_role'        => 'main',
+                    'main_order_id'            => $order->id,
+                    'extra_claimed_count'      => 0,
+                    'bundle_window_expires_at' => now()->addMinutes(OperationalSettings::marketBundleWindowMinutes($order->city_id)),
                     'dispatching_to_driver_id' => null,
                     'updated_at'               => now(),
                 ]);

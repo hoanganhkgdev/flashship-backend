@@ -93,6 +93,10 @@ class DispatchManualAssignment
                 $freshOrder->update([
                     'status'                   => 'assigned',
                     'delivery_man_id'          => $driver->id,
+                    'driver_order_role'        => 'manual',
+                    'main_order_id'            => null,
+                    'extra_claimed_count'      => 0,
+                    'bundle_window_expires_at' => null,
                     'dispatching_to_driver_id' => null,
                     'updated_at'               => $now,
                 ]);

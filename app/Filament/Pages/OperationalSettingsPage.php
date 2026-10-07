@@ -86,6 +86,7 @@ class OperationalSettingsPage extends Page implements HasForms
         'market_wait_seconds_before_open' => 'market.wait_seconds_before_open',
         'market_max_pickup_distance_km' => 'market.max_pickup_distance_km',
         'market_expire_minutes' => 'market.expire_minutes',
+        'market_bundle_window_minutes' => 'market.bundle_window_minutes',
         'dispatch_score_weight' => 'dispatch.score_weight',
         'dispatch_wait_weight' => 'dispatch.wait_weight',
         'dispatch_distance_weight' => 'dispatch.distance_weight',
@@ -247,6 +248,7 @@ class OperationalSettingsPage extends Page implements HasForms
                         $this->integer('market_wait_seconds_before_open', 'Hoặc chờ tối đa', 'giây', 15, 1800),
                         $this->number('market_max_pickup_distance_km', 'Bán kính thấy đơn', 'km', 0.5, 50, step: 0.1),
                         $this->integer('market_expire_minutes', 'Hết hạn sau', 'phút', 1, 120),
+                        $this->integer('market_bundle_window_minutes', 'Thời gian gom chuyến', 'phút', 1, 60),
                     ]),
 
                 Section::make('Trọng số xếp hạng tài xế')

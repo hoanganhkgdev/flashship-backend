@@ -61,6 +61,7 @@ class OperationalSettings
         'market.wait_seconds_before_open' => '120',
         'market.max_pickup_distance_km' => '8',
         'market.expire_minutes' => '13',
+        'market.bundle_window_minutes' => '10',
         'dispatch.score_weight' => '15',
         'dispatch.wait_weight' => '42.5',
         'dispatch.distance_weight' => '42.5',
@@ -349,6 +350,7 @@ class OperationalSettings
     public static function marketWaitSecondsBeforeOpen(?int $cityId): int { return (int) self::value('market.wait_seconds_before_open', $cityId); }
     public static function marketMaxPickupDistanceKm(?int $cityId): float { return (float) self::value('market.max_pickup_distance_km', $cityId); }
     public static function marketExpireMinutes(?int $cityId): int { return (int) self::value('market.expire_minutes', $cityId); }
+    public static function marketBundleWindowMinutes(?int $cityId): int { return (int) self::value('market.bundle_window_minutes', $cityId); }
 
     /** @return array{score: float, wait: float, distance: float} */
     public static function dispatchWeights(?int $cityId): array
