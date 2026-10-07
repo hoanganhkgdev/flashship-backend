@@ -58,6 +58,8 @@ Route::middleware(['auth:sanctum', 'user_type:driver', 'driver.active'])->group(
         Route::get('/my-orders',              [OrderController::class, 'myOrders']);
         Route::get('/completed',              [OrderController::class, 'completedOrders']);
         Route::get('/dashboard',              [OrderController::class, 'dashboard']);
+        Route::get('/market',                 [OrderController::class, 'market']);
+        Route::post('/{order}/market/claim',  [OrderController::class, 'claimMarket']);
         Route::get('/recent',                 [EarningController::class, 'recentOrders']);
         Route::post('/{order}/view-offer',    [OrderController::class, 'viewOffer']);
         Route::post('/{order}/receive-offer', [OrderController::class, 'receiveOffer']);

@@ -172,6 +172,7 @@ class DispatchManualAssignment
         DB::table('users')->where('id', $driver->id)->update([
             'last_order_accepted_at' => $now,
         ]);
+        app(OrderMarketService::class)->close($order);
         \Modules\Order\Services\OrderTimeline::record($order, 'assigned_manual', 'Nhân viên gán trực tiếp cho tài xế '.$driver->name, auth()->id());
 
         // RTDB + FCM đồng bộ khách hàng — giống hệt luồng accept bình thường

@@ -23,6 +23,7 @@ class DispatchService
         private readonly DispatchCandidateFinder $candidateFinder,
         private readonly DispatchOfferSender $offerSender,
         private readonly DispatchManualAssignment $manualAssignment,
+        private readonly OrderMarketService $orderMarket,
     ) {}
 
     // =========================================================================
@@ -370,6 +371,7 @@ class DispatchService
         try {
             $order = $order->fresh();
             if (!$order || $order->status !== 'pending') return;
+            if ($this->orderMarket->isOpen($order)) return;
             if ($order->dispatching_to_driver_id !== null) {
                 Log::debug("│  [Dispatch] Đơn #{$order->id} đang chờ tài xế #{$order->dispatching_to_driver_id} → không phát trùng");
                 return;
@@ -427,6 +429,12 @@ class DispatchService
     {
         $order = $order->fresh();
         if (!$order || $order->status !== 'pending') return;
+
+        if ($this->orderMarket->shouldOpen($order)) {
+            $this->orderMarket->open($order);
+            Log::info("╟── [Dispatch] Đơn #{$order->id}: chuyển sang Chợ đơn");
+            return;
+        }
 
         if ($order->dispatch_started_at) {
             $elapsed = (int) abs(now()->diffInMinutes($order->dispatch_started_at));

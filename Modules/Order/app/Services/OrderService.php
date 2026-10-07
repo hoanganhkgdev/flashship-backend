@@ -76,6 +76,7 @@ class OrderService
 
         /** @var Order $cancelled */
         $cancelled = $result['order'];
+        app(OrderMarketService::class)->close($cancelled);
         try {
             RTDBService::clearOrder($cancelled->code);
 
@@ -369,6 +370,7 @@ class OrderService
         DB::table('users')->where('id', $user->id)->update([
             'last_order_accepted_at' => now(),
         ]);
+        app(OrderMarketService::class)->close($order);
 
         $orderId   = $order->id;
         $userId    = $user->id;

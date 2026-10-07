@@ -11,10 +11,24 @@ use Modules\Order\Jobs\DispatchOrderJob;
 use Modules\Order\Models\Order;
 use Modules\Order\Models\OrderDispatchLog;
 use Modules\Order\Services\OrderService;
+use Modules\Order\Services\OrderMarketService;
 
 class OrderController extends Controller
 {
-    public function __construct(private OrderService $orderService) {}
+    public function __construct(private OrderService $orderService, private OrderMarketService $orderMarket) {}
+
+    public function market(Request $request): JsonResponse
+    {
+        return response()->json(['success' => true, 'data' => $this->orderMarket->listForDriver($request->user())]);
+    }
+
+    public function claimMarket(Request $request, Order $order): JsonResponse
+    {
+        $result = $this->orderMarket->claim($order, $request->user());
+        $status = $result['status'];
+        unset($result['status']);
+        return response()->json($result, $status);
+    }
 
     public function pendingOffer(Request $request): JsonResponse
     {

@@ -69,6 +69,7 @@ class Order extends Model
     public function creator()  { return $this->belongsTo(\Modules\Core\Models\User::class, 'created_by'); }
     public function city()     { return $this->belongsTo(\Modules\Core\Models\City::class); }
     public function histories(){ return $this->hasMany(OrderHistory::class)->latest(); }
+    public function marketListing(){ return $this->hasOne(OrderMarketListing::class); }
 
     protected $appends = ['city_name'];
     public function getCityNameAttribute() { return $this->city?->name ?? 'N/A'; }

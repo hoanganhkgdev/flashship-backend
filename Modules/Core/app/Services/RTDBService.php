@@ -200,6 +200,19 @@ class RTDBService
         return false;
     }
 
+    /** Firebase chỉ báo revision; dữ liệu chợ thật luôn đọc từ API có auth. */
+    public static function pingOrderMarket(int $cityId): void
+    {
+        try {
+            self::db()->getReference("order_market/city_{$cityId}")->set([
+                'revision' => now()->getTimestampMs(),
+                'updated_at' => now()->timestamp,
+            ]);
+        } catch (\Throwable $e) {
+            Log::error('[RTDB] pingOrderMarket failed: '.$e->getMessage());
+        }
+    }
+
     /**
      * Khóa/mở khóa tài khoản tài xế real-time — app sẽ detect và force logout.
      * Path: drivers/{driverId}/account_locked

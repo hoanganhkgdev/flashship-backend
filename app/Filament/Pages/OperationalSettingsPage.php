@@ -17,6 +17,7 @@ use Filament\Forms\Components\Tabs;
 use Filament\Forms\Components\Tabs\Tab;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\TimePicker;
+use Filament\Forms\Components\Toggle;
 use Filament\Forms\Concerns\InteractsWithForms;
 use Filament\Forms\Contracts\HasForms;
 use Filament\Forms\Form;
@@ -81,6 +82,11 @@ class OperationalSettingsPage extends Page implements HasForms
         'offer_decision_seconds' => 'dispatch.offer_decision_seconds',
         'dispatch_timeout_minutes' => 'dispatch.total_timeout_minutes',
         'dispatch_retry_seconds' => 'dispatch.retry_seconds',
+        'market_enabled' => 'market.enabled',
+        'market_attempts_before_open' => 'market.attempts_before_open',
+        'market_wait_seconds_before_open' => 'market.wait_seconds_before_open',
+        'market_max_pickup_distance_km' => 'market.max_pickup_distance_km',
+        'market_expire_minutes' => 'market.expire_minutes',
         'dispatch_score_weight' => 'dispatch.score_weight',
         'dispatch_wait_weight' => 'dispatch.wait_weight',
         'dispatch_distance_weight' => 'dispatch.distance_weight',
@@ -233,6 +239,18 @@ class OperationalSettingsPage extends Page implements HasForms
                         $this->integer('offer_decision_seconds', 'Quyết định sau khi mở', 'giây', 5, 180),
                         $this->integer('dispatch_retry_seconds', 'Quét lại khi chưa có ai', 'giây', 5, 300),
                         $this->integer('dispatch_timeout_minutes', 'Dừng tìm tài xế sau', 'phút', 1, 120),
+                    ]),
+
+                Section::make('Chợ đơn')
+                    ->icon('heroicon-o-building-storefront')
+                    ->description('Đơn không có người nhận sau ngưỡng quy định sẽ hiện cho các tài xế đủ điều kiện trong khu vực.')
+                    ->columns(['sm' => 2, 'lg' => 5])
+                    ->schema([
+                        Toggle::make('market_enabled')->label('Bật Chợ đơn')->inline(false),
+                        $this->integer('market_attempts_before_open', 'Mở sau số lượt phát', 'lượt', 1, 20),
+                        $this->integer('market_wait_seconds_before_open', 'Hoặc chờ tối đa', 'giây', 15, 1800),
+                        $this->number('market_max_pickup_distance_km', 'Bán kính thấy đơn', 'km', 0.5, 50, step: 0.1),
+                        $this->integer('market_expire_minutes', 'Hết hạn sau', 'phút', 1, 120),
                     ]),
 
                 Section::make('Trọng số xếp hạng tài xế')
