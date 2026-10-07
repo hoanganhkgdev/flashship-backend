@@ -25,6 +25,7 @@ class OrderController extends Controller
         return response()->json([
             'success' => true,
             'market_enabled' => $enabled,
+            'city_id' => (int) $driver->city_id,
             'bundle_session' => $enabled ? $this->orderMarket->bundleSession($driver) : null,
             'data' => $enabled ? $this->orderMarket->listForDriver($driver) : [],
         ]);
