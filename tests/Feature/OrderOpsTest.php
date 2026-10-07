@@ -75,6 +75,18 @@ class OrderOpsTest extends TestCase
         $this->assertSame($this->admin->name, $events->firstWhere('type', 'cancelled')['who']);
     }
 
+    public function test_call_center_can_cancel_processing_order_and_restore_its_voucher(): void
+    {
+        $o = $this->order(['status' => 'processing', 'is_freeship' => true, 'rain_bonus_eligible' => true]);
+
+        $this->assertTrue(OrderResource::cancelOrder($o, 'customer_cancel', 'Khách hủy sau khi tài xế bấm lấy hàng'));
+
+        $o->refresh();
+        $this->assertSame('cancelled', $o->status);
+        $this->assertSame('customer_cancel', $o->cancel_reason);
+        $this->assertStringContainsString('đã lấy hàng', OrderTimeline::for($o)->last()['text']);
+    }
+
     public function test_cancel_action_requires_a_reason_and_orders_cannot_be_deleted(): void
     {
         $o = $this->order();
@@ -228,6 +240,29 @@ class OrderOpsTest extends TestCase
         $this->assertSame([$other->id], $ids(substr($other->code, -6)), 'khớp mã đơn (một phần mã)');
         $this->assertSame([$other->id], $ids('Tiệm Bánh'));
         $this->assertContains($byDriver->id, $ids($driver->name));
+
+        $crossAddress = $this->order([
+            'pickup_address' => '421 Ngô Quyền',
+            'delivery_address' => '102 Nguyễn Trung Trực',
+            'pickup_phone' => '0387789978',
+        ]);
+        $this->assertSame([$crossAddress->id], $ids('421 102'), 'mỗi cụm có thể khớp một phần khác nhau của hành trình');
+
+        $houseNumber = $this->order([
+            'pickup_address' => '173 Nguyễn Bỉnh Khiêm',
+            'delivery_address' => 'Chợ Rạch Giá',
+            'pickup_phone' => '0900173999',
+        ]);
+        $phoneNoise = $this->order([
+            'pickup_address' => '27 Lạc Hồng',
+            'delivery_address' => '45 Trần Phú',
+            'pickup_phone' => '0912345173',
+        ]);
+        $embeddedHouseNumber = $this->order([
+            'pickup_address' => '1173 Nguyễn Trung Trực',
+            'delivery_address' => 'Bến xe',
+        ]);
+        $this->assertSame([$houseNumber->id], $ids('173'), 'ba số tìm số nhà chính xác, không dò đuôi SĐT hoặc một phần số nhà dài hơn');
     }
 
     public function test_tab_badges_come_from_one_consistent_count(): void

@@ -118,16 +118,24 @@ class OrderService
         return [$reason, $by];
     }
 
-    /** Cancel an assigned order from admin and restore its voucher atomically. */
-    public function cancelAssignedOrderByAdmin(Order $order, ?string $reason = null, ?string $note = null, ?int $by = null): array
+    /**
+     * Cancel an active order from admin and restore its voucher atomically.
+     *
+     * processing is intentionally accepted here: driver earnings, freeship and
+     * rain bonuses are only credited by completeOrder(), so cancelling before
+     * completion prevents a false payout while preserving the audit trail.
+     */
+    public function cancelActiveOrderByAdmin(Order $order, ?string $reason = null, ?string $note = null, ?int $by = null): array
     {
         [$reason, $by] = $this->cancelActor($reason ?? 'admin', $by);
 
         return DB::transaction(function () use ($order, $reason, $note, $by) {
             $fresh = Order::whereKey($order->id)->lockForUpdate()->firstOrFail();
-            if ($fresh->status !== 'assigned') {
-                return ['success' => false, 'message' => 'Đơn không còn ở trạng thái đã nhận'];
+            if (! in_array($fresh->status, ['assigned', 'processing'], true)) {
+                return ['success' => false, 'message' => 'Đơn không còn ở trạng thái đang thực hiện'];
             }
+
+            $previousStatus = $fresh->status;
 
             $fresh->update([
                 'status' => 'cancelled',
@@ -138,11 +146,18 @@ class OrderService
                 'dispatching_to_driver_id' => null,
                 'updated_at' => now(),
             ]);
-            OrderTimeline::record($fresh, 'cancelled', 'Hủy đơn đã nhận — '.OrderTimeline::cancelReasonLabel($reason).($note ? ': '.$note : ''), $by);
+            $stage = $previousStatus === 'processing' ? 'đã lấy hàng' : 'đã nhận';
+            OrderTimeline::record($fresh, 'cancelled', "Hủy đơn {$stage} — ".OrderTimeline::cancelReasonLabel($reason).($note ? ': '.$note : ''), $by);
             $this->releaseVoucherUsage($fresh->id);
 
             return ['success' => true, 'message' => 'Đã hủy đơn hàng'];
         });
+    }
+
+    /** @deprecated Use cancelActiveOrderByAdmin(). */
+    public function cancelAssignedOrderByAdmin(Order $order, ?string $reason = null, ?string $note = null, ?int $by = null): array
+    {
+        return $this->cancelActiveOrderByAdmin($order, $reason, $note, $by);
     }
 
     /** Must be called inside a DB transaction. */

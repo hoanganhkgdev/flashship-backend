@@ -552,6 +552,8 @@ class CallCenterPage extends Page implements HasForms
 
     public const NO_DELIVERY_NOTE = '[Chưa có điểm giao — hỏi shop khi lấy hàng]';
 
+    public const SHOPPING_NO_DELIVERY_NOTE = '[Chưa có điểm giao — liên hệ khách để bổ sung]';
+
     public function placeOrder(): void
     {
         $values = $this->data;
@@ -596,11 +598,9 @@ class CallCenterPage extends Page implements HasForms
             $errors['pickup_address'] = "Vui lòng chọn {$pickupLabel} từ gợi ý hoặc bản đồ để có toạ độ chính xác.";
         }
 
-        // Mua hộ phải giao đến khách và biết mua gì; các dịch vụ khác được để trống điểm giao.
+        // Mua hộ vẫn phải biết mua gì, nhưng tổng đài được tạo đơn trước khi
+        // khách chốt điểm giao rồi bổ sung/liên hệ sau.
         if ($this->serviceType === 'shopping') {
-            if (trim($values['delivery_address'] ?? '') === '') {
-                $errors['delivery_address'] = 'Vui lòng nhập địa chỉ giao cho khách.';
-            }
             if (mb_strlen(trim($values['shopping_note'] ?? '')) < 3) {
                 $errors['shopping_note'] = 'Vui lòng ghi hàng cần mua.';
             }
@@ -664,8 +664,11 @@ class CallCenterPage extends Page implements HasForms
             $note = $this->serviceType === 'shopping'
                 ? trim($values['shopping_note'] ?? '')
                 : trim($values['order_note'] ?? '');
-            if ($noDelivery && $this->serviceType === 'delivery') {
-                $note = trim(self::NO_DELIVERY_NOTE.' '.$note);
+            if ($noDelivery) {
+                $missingDeliveryNote = $this->serviceType === 'shopping'
+                    ? self::SHOPPING_NO_DELIVERY_NOTE
+                    : self::NO_DELIVERY_NOTE;
+                $note = trim($missingDeliveryNote.' '.$note);
             }
 
             $contactName = mb_substr(trim((string) ($values['contact_name'] ?? '')), 0, 100);
@@ -866,6 +869,9 @@ class CallCenterPage extends Page implements HasForms
             ->icon('heroicon-o-x-circle')
             ->color('danger')
             ->modalHeading(fn (array $arguments) => ($o = $this->recentOrder($arguments)) ? 'Hủy đơn #'.$o->code : 'Hủy đơn')
+            ->modalDescription(fn (array $arguments) => ($o = $this->recentOrder($arguments)) && $o->status === 'processing'
+                ? 'Đơn đã được tài xế bấm lấy hàng. Hủy sẽ chặn thanh toán freeship/bonus mưa khi hoàn thành; thao tác được lưu để đối soát.'
+                : 'Lý do hủy được lưu lại để thống kê và đối soát.')
             ->form([
                 Forms\Components\Select::make('reason')->label('Lý do hủy')->options(OrderTimeline::CANCEL_REASONS)->required()->live(),
                 Forms\Components\Textarea::make('note')->label('Ghi chú')->rows(2)->maxLength(250)->required(fn (Forms\Get $get) => $get('reason') === 'other')->minLength(3),

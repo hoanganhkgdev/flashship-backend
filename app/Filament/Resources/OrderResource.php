@@ -609,9 +609,11 @@ class OrderResource extends Resource
             ->label('Hủy đơn')
             ->icon('heroicon-o-x-circle')
             ->color('danger')
-            ->visible(fn (?Order $record) => in_array($record?->status, ['pending', 'assigned'], true))
+            ->visible(fn (?Order $record) => in_array($record?->status, ['pending', 'assigned', 'processing'], true))
             ->modalHeading(fn (?Order $record) => $record ? 'Hủy đơn #'.$record->code : 'Hủy đơn')
-            ->modalDescription('Lý do hủy được lưu lại để thống kê và đối soát.')
+            ->modalDescription(fn (?Order $record) => $record?->status === 'processing'
+                ? 'Đơn đã được tài xế bấm lấy hàng. Hủy sẽ chặn thanh toán freeship/bonus mưa khi hoàn thành; lý do và người thao tác được lưu để đối soát.'
+                : 'Lý do hủy được lưu lại để thống kê và đối soát.')
             ->form([
                 Forms\Components\Select::make('reason')->label('Lý do hủy')->options(OrderTimeline::CANCEL_REASONS)->required()->live(),
                 Forms\Components\Textarea::make('note')->label('Ghi chú')->rows(2)->maxLength(250)
@@ -630,8 +632,8 @@ class OrderResource extends Resource
 
         if ($fresh->status === 'pending') {
             $result = app(OrderService::class)->cancelPendingOrder($fresh, $reason, $note, $by);
-        } elseif ($fresh->status === 'assigned') {
-            $result = app(OrderService::class)->cancelAssignedOrderByAdmin($fresh, $reason, $note, $by);
+        } elseif (in_array($fresh->status, ['assigned', 'processing'], true)) {
+            $result = app(OrderService::class)->cancelActiveOrderByAdmin($fresh, $reason, $note, $by);
             if ($result['success']) {
                 RTDBService::clearOrder($fresh->code);
                 if ($fresh->driver?->fcm_token) {
@@ -644,7 +646,7 @@ class OrderResource extends Resource
                 }
             }
         } else {
-            Notification::make()->title('Chỉ có thể hủy đơn đang chờ hoặc đã nhận.')->danger()->send();
+            Notification::make()->title('Chỉ có thể hủy đơn đang chờ, đã nhận hoặc đã lấy hàng.')->danger()->send();
 
             return false;
         }
@@ -764,27 +766,61 @@ class OrderResource extends Resource
         $s = trim($search);
         $digits = preg_replace('/\D+/', '', $s);
 
-        // Chỉ gồm số và ký tự phân cách → SĐT (đầy đủ hoặc vài số cuối) hoặc mã đơn.
-        if ($digits !== '' && preg_match('/^[\d\s.+\-]+$/', $s)) {
-            $tail = strlen($digits) >= 9 ? substr($digits, -9) : $digits;
-
-            return $query->where(fn (Builder $q) => $q
-                ->where('code', 'like', "%{$digits}%")
-                ->orWhere('pickup_phone', 'like', "%{$tail}")
-                ->orWhere('delivery_phone', 'like', "%{$tail}")
-                ->orWhereHas('driver', fn (Builder $d) => $d->where('phone', 'like', "%{$tail}"))
-                ->orWhereHas('sender', fn (Builder $d) => $d->where('phone', 'like', "%{$tail}")));
+        if ($s === '') {
+            return $query;
         }
 
-        return $query->where(fn (Builder $q) => $q
-            ->where('code', 'like', "%{$s}%")
-            ->orWhere('pickup_address', 'like', "%{$s}%")
-            ->orWhere('delivery_address', 'like', "%{$s}%")
-            ->orWhere('order_note', 'like', "%{$s}%")
-            ->orWhere('sender_name', 'like', "%{$s}%")
-            ->orWhere('receiver_name', 'like', "%{$s}%")
-            ->orWhereHas('driver', fn (Builder $d) => $d->where('name', 'like', "%{$s}%"))
-            ->orWhereHas('sender', fn (Builder $d) => $d->where('name', 'like', "%{$s}%")));
+        // Mỗi cụm được phép nằm ở một cột khác nhau. Ví dụ "421 102" sẽ
+        // khớp điểm lấy "421 Ngô Quyền" và điểm giao "102 ..." trên cùng đơn.
+        $terms = array_values(array_filter(preg_split('/\s+/u', $s) ?: []));
+
+        $matchTerms = function (Builder $q) use ($terms): void {
+            foreach ($terms as $term) {
+                $numericHouseNumber = ctype_digit($term) && strlen($term) <= 3;
+
+                $q->where(function (Builder $part) use ($term, $numericHouseNumber) {
+                    if ($numericHouseNumber) {
+                        // "173" thường là số nhà. Không dò chuỗi này trong
+                        // SĐT/mã đơn vì sẽ trả về rất nhiều kết quả không liên quan.
+                        $pattern = '(^|[^0-9])'.preg_quote($term, '/').'([^0-9]|$)';
+                        $part->where('pickup_address', 'regexp', $pattern)
+                            ->orWhere('delivery_address', 'regexp', $pattern);
+
+                        return;
+                    }
+
+                    $part->where('code', 'like', "%{$term}%")
+                        ->orWhere('pickup_address', 'like', "%{$term}%")
+                        ->orWhere('delivery_address', 'like', "%{$term}%")
+                        ->orWhere('pickup_phone', 'like', "%{$term}%")
+                        ->orWhere('delivery_phone', 'like', "%{$term}%")
+                        ->orWhere('order_note', 'like', "%{$term}%")
+                        ->orWhere('cargo_note', 'like', "%{$term}%")
+                        ->orWhere('sender_name', 'like', "%{$term}%")
+                        ->orWhere('receiver_name', 'like', "%{$term}%")
+                        ->orWhereHas('driver', fn (Builder $d) => $d->where('name', 'like', "%{$term}%")->orWhere('phone', 'like', "%{$term}%"))
+                        ->orWhereHas('sender', fn (Builder $d) => $d->where('name', 'like', "%{$term}%")->orWhere('phone', 'like', "%{$term}%"));
+                });
+            }
+        };
+
+        // Chỉ gồm số và ký tự phân cách → SĐT (đầy đủ hoặc vài số cuối) hoặc mã đơn.
+        // Một số ngắn (1–3 chữ số) là số nhà và được xử lý bởi $matchTerms.
+        if ($digits !== '' && strlen($digits) >= 4 && preg_match('/^[\d\s.+\-]+$/', $s)) {
+            $tail = strlen($digits) >= 9 ? substr($digits, -9) : $digits;
+
+            return $query->where(function (Builder $q) use ($digits, $tail, $matchTerms) {
+                $q->where(fn (Builder $phone) => $phone
+                    ->where('code', 'like', "%{$digits}%")
+                    ->orWhere('pickup_phone', 'like', "%{$tail}")
+                    ->orWhere('delivery_phone', 'like', "%{$tail}")
+                    ->orWhereHas('driver', fn (Builder $d) => $d->where('phone', 'like', "%{$tail}"))
+                    ->orWhereHas('sender', fn (Builder $d) => $d->where('phone', 'like', "%{$tail}")))
+                  ->orWhere(fn (Builder $text) => $matchTerms($text));
+            });
+        }
+
+        return $query->where(fn (Builder $q) => $matchTerms($q));
     }
 
     public static function table(Table $table): Table

@@ -16,7 +16,7 @@
         'shopping' => 'SĐT khách nhận hàng',
         default => 'SĐT khách',
     };
-    $deliveryOptional = ! in_array($serviceType, ['shopping', 'topup'], true);
+    $deliveryOptional = $serviceType !== 'topup';
     $noDeliveryYet = $deliveryOptional && trim((string) ($data['delivery_address'] ?? '')) === '';
     $nightFee = (int) $previewNightSurcharge;
     $shortLabels = ['delivery' => 'Lấy hộ', 'shopping' => 'Mua hộ', 'topup' => 'Nạp/Rút', 'bike' => 'Xe ôm', 'motor' => 'Lái xe máy', 'car' => 'Lái ô tô'];
@@ -122,6 +122,7 @@
     .cc-pin-hint button { flex-shrink:0; width:20px; height:20px; border-radius:50%; border:none; background:rgba(255,255,255,0.15); color:#fff; cursor:pointer; font-size:var(--fs-sm); line-height:1; }
 
     .cc-row2 { display:grid; grid-template-columns:1fr 1fr; gap:7px; }
+    .cc-fee-driver-row { grid-template-columns:minmax(110px, .65fr) minmax(0, 1.35fr); }
     .cc-input, .cc-textarea { width:100%; border:1px solid #e5e7eb; border-radius:8px; padding:4px 9px; font-size:13px; color:#111827; background:#f8fafc; outline:none; transition:border-color .15s ease, background .15s ease, box-shadow .15s ease; }
     .cc-input { height:30px; }
     .cc-input::placeholder, .cc-textarea::placeholder { color:#c1c5cb; }
@@ -394,15 +395,13 @@
             {{-- Chi tiết theo dịch vụ --}}
             <div class="cc-card">
                 @if ($serviceType === 'delivery')
-                <div class="cc-row2">
-                    <div>
-                        <label class="cc-lbl">SĐT người nhận <small>(tuỳ chọn)</small></label>
-                        <input type="tel" inputmode="tel" class="cc-input" wire:model.blur="data.delivery_phone" placeholder="Shop chưa cho thì để trống" autocomplete="off" />
-                    </div>
-                    <div>
-                        <label class="cc-lbl">Ghi chú cho tài xế</label>
-                        <input type="text" class="cc-input" wire:model="data.order_note" placeholder="Ghi chú..." />
-                    </div>
+                <div class="cc-fld">
+                    <label class="cc-lbl">Ghi chú cho tài xế</label>
+                    <textarea class="cc-textarea" wire:model="data.order_note" rows="5" placeholder="Nhập đầy đủ nội dung; có thể xuống dòng..."></textarea>
+                </div>
+                <div class="cc-fld" style="margin-top:14px;">
+                    <label class="cc-lbl">SĐT người nhận <small>(tuỳ chọn)</small></label>
+                    <input type="tel" inputmode="tel" class="cc-input" wire:model.blur="data.delivery_phone" placeholder="Shop chưa cho thì để trống" autocomplete="off" />
                 </div>
                 @endif
 
@@ -434,7 +433,7 @@
 
             {{-- Phí + tài xế --}}
             <div class="cc-card {{ $err('assignedDriverId') ? 'has-err' : '' }}">
-                <div class="cc-row2">
+                <div class="cc-row2 cc-fee-driver-row">
                     <div>
                         <label class="cc-lbl">Phí thu khách</label>
                         <div class="cc-fee-wrap"><input type="number" class="cc-input {{ $err('shipping_fee') ? 'has-err' : '' }}" wire:model.blur="data.shipping_fee" placeholder="0" /><span class="cc-fee-suffix">đ</span></div>
@@ -944,7 +943,8 @@ function _ccRenderRecent(list) {
     if (t) t.textContent = new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
     if (!list || !list.length) { box.innerHTML = '<div class="cc-recent__empty">Chưa có đơn nào hôm nay.</div>'; return; }
     box.innerHTML = list.map((o) => {
-        const open = o.status === 'pending';
+        const canAssign = o.status === 'pending';
+        const canCancel = ['pending', 'assigned', 'processing'].includes(o.status);
         const label = o.stopped ? 'Đã dừng tìm' : o.status_label;
         const color = o.stopped ? '#dc2626' : (o.status === 'pending' ? '#b45309' : (o.status === 'completed' ? '#15803d' : '#64748b'));
         const when = o.status === 'pending' ? o.minutes + ' phút' : (o.driver ? _ccEsc(o.driver) : o.minutes + 'p trước');
@@ -954,7 +954,10 @@ function _ccRenderRecent(list) {
             '<span class="who" title="' + _ccEsc(o.service) + '">' + _ccEsc(o.name ? o.name + ' · ' : '') + _ccEsc(o.phone || 'chưa có SĐT') + '</span>' +
             '<span class="route" title="' + _ccEsc(o.pickup) + '">' + route + '</span>' +
             '<span class="st" style="color:' + color + '">' + _ccEsc(label) + ' <small>' + when + '</small></span>' +
-            '<span class="acts">' + (open ? '<button type="button" onclick="_ccAssign(' + o.id + ')">Gán</button><button type="button" onclick="_ccCancel(' + o.id + ')">Hủy</button>' : '') + '</span>' +
+            '<span class="acts">' +
+                (canAssign ? '<button type="button" onclick="_ccAssign(' + o.id + ')">Gán</button>' : '') +
+                (canCancel ? '<button type="button" onclick="_ccCancel(' + o.id + ')">Hủy</button>' : '') +
+            '</span>' +
             '</div>';
     }).join('');
 }

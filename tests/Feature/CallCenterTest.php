@@ -77,15 +77,21 @@ class CallCenterTest extends TestCase
         $this->assertStringContainsString('chưa có điểm giao', \Modules\Order\Services\OrderTimeline::for($order)->where('type', 'created')->pluck('text')->implode(' | '));
     }
 
-    public function test_shopping_and_topup_still_need_their_required_fields_with_inline_errors(): void
+    public function test_shopping_only_needs_purchase_note_and_topup_still_needs_amount(): void
     {
         $shopping = $this->page('shopping')->set('data', $this->data(['shipping_fee' => 10000]))->call('placeOrder');
-        $this->assertEqualsCanonicalizing(['delivery_address', 'shopping_note'], array_keys($shopping->get('fieldErrors')));
-        $this->assertStringContainsString('2 mục', $shopping->get('resultError'));
+        $this->assertSame(['shopping_note'], array_keys($shopping->get('fieldErrors')));
+
+        $shopping->set('data.shopping_note', 'Mua hai phần cơm')->call('placeOrder');
+        $this->assertSame([], $shopping->get('fieldErrors'));
+        $order = Order::where('code', $shopping->get('resultOrderCode'))->firstOrFail();
+        $this->assertSame('', (string) $order->delivery_address);
+        $this->assertNull($order->delivery_lat);
+        $this->assertStringStartsWith(CallCenterPage::SHOPPING_NO_DELIVERY_NOTE, $order->order_note);
 
         $topup = $this->page('topup')->set('data', $this->data(['cod_amount' => 0]))->call('placeOrder');
         $this->assertSame(['cod_amount'], array_keys($topup->get('fieldErrors')));
-        $this->assertSame(0, Order::where('city_id', $this->city->id)->count(), 'lỗi thì không tạo đơn');
+        $this->assertSame(1, Order::where('city_id', $this->city->id)->count(), 'đơn mua hộ hợp lệ đã tạo; đơn nạp tiền lỗi không tạo thêm');
     }
 
     public function test_switching_service_keeps_the_customer_and_journey_but_drops_service_specific_fields(): void
