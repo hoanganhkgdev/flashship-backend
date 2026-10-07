@@ -5,7 +5,6 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
 use Modules\Core\Models\User;
 use Modules\Core\Services\GoogleMapService;
-use Modules\Core\Services\OperationalSettings;
 use Modules\Driver\Services\DriverLocationService;
 use Modules\Driver\Services\DriverScoreService;
 use Modules\Order\Models\Order;
@@ -49,7 +48,9 @@ class DispatchCandidateFinder
             ->whereIn('status', ['assigned', 'processing'])
             ->whereNotNull('delivery_man_id')
             ->groupBy('delivery_man_id')
-            ->having('cnt', '>=', OperationalSettings::maxActiveOrdersPerDriver($order->city_id))
+            // Offer tự động chỉ dành cho tài xế đang rảnh. Tài xế đã
+            // có đơn muốn nhận thêm sẽ chủ động chọn trong Chợ đơn.
+            ->having('cnt', '>=', 1)
             ->pluck('delivery_man_id');
 
         $receivingOfferIds = Order::where('status', 'pending')

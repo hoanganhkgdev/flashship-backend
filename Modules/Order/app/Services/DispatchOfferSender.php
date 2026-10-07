@@ -56,9 +56,9 @@ class DispatchOfferSender
             ->whereIn('status', ['assigned', 'processing'])
             ->get();
         $activeCount = $activeOrders->count();
-        if ($activeCount >= OperationalSettings::maxActiveOrdersPerDriver($order->city_id)) {
+        if ($activeCount > 0) {
             Redis::del($lockKey);
-            Log::debug("│  Skip #{$driver->id} {$driver->name}: đã có {$activeCount} đơn active");
+            Log::debug("│  Skip #{$driver->id} {$driver->name}: đã có đơn active, chỉ nhận thêm qua Chợ đơn");
             return false;
         }
         // Không cần kiểm tra lại trần khoảng cách ở đây — DispatchCandidateFinder::find()

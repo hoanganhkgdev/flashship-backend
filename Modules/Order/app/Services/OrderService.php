@@ -300,7 +300,7 @@ class OrderService
                 ->whereIn('status', ['assigned', 'processing'])
                 ->lockForUpdate()
                 ->get();
-            if ($activeOrders->count() >= OperationalSettings::maxActiveOrdersPerDriver($order->city_id)) {
+            if ($activeOrders->isNotEmpty()) {
                 OrderDispatchLog::where('order_id', $order->id)
                     ->where('driver_id', $user->id)
                     ->where('result', 'pending')
@@ -342,7 +342,7 @@ class OrderService
                 }
             })->afterResponse();
 
-            $message = 'Bạn đang có đủ '.OperationalSettings::maxActiveOrdersPerDriver($order->city_id).' đơn hàng chưa hoàn thành. Vui lòng hoàn thành bớt trước.';
+            $message = 'Bạn đã có đơn đang thực hiện. Offer tự động chỉ dành cho tài xế đang rảnh; bạn có thể chủ động nhận thêm trong Chợ đơn.';
 
             return ['success' => false, 'message' => $message, 'status' => 409];
         }
