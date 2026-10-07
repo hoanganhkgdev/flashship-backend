@@ -29,6 +29,7 @@ use Illuminate\Support\Carbon;
 use Modules\Core\Models\City;
 use Illuminate\Validation\ValidationException;
 use Modules\Core\Services\OperationalSettings;
+use Modules\Core\Services\RTDBService;
 
 class OperationalSettingsPage extends Page implements HasForms
 {
@@ -650,6 +651,12 @@ class OperationalSettingsPage extends Page implements HasForms
         $before = collect($settings)->mapWithKeys(fn ($v, $k) => [$k => OperationalSettings::value($k, $this->cityId())])->all();
         OperationalSettings::put($settings, $this->cityId());
         $this->logChanges($before, $settings);
+
+        // App tài xế đang mở sẽ tải lại cấu hình và ẩn/hiện tab
+        // Chợ đơn ngay khi khu vực được bật hoặc tắt.
+        if ((string) ($before['market.enabled'] ?? '0') !== (string) $settings['market.enabled']) {
+            RTDBService::pingOrderMarket($this->cityId());
+        }
 
         Notification::make()->title('Đã lưu cấu hình vận hành')->success()->send();
 

@@ -19,7 +19,14 @@ class OrderController extends Controller
 
     public function market(Request $request): JsonResponse
     {
-        return response()->json(['success' => true, 'data' => $this->orderMarket->listForDriver($request->user())]);
+        $driver = $request->user();
+        $enabled = OperationalSettings::orderMarketEnabled($driver->city_id);
+
+        return response()->json([
+            'success' => true,
+            'market_enabled' => $enabled,
+            'data' => $enabled ? $this->orderMarket->listForDriver($driver) : [],
+        ]);
     }
 
     public function claimMarket(Request $request, Order $order): JsonResponse
