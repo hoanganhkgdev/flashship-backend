@@ -1394,9 +1394,10 @@ body.fs-orders-comfy .fs-ol-journey > .fs-ol-note { max-width: none; }
 .fi-dropdown-panel { background:#fff; border:1px solid var(--flashship-border); box-shadow:0 10px 28px rgb(15 23 42 / 12%); -webkit-backdrop-filter:none; backdrop-filter:none; }
 .fi-avatar { box-shadow:0 0 0 2px #fff,0 0 0 3px #fed7aa; }
 .fi-section,.fi-wi-chart,.fs-panel,.fs-widget,.fs-stat-card,.fs-report-kpi,.fs-report-panel,
-.fs-dispatch-kpi,.fs-dispatch-panel,.fs-dashboard-hero,.fs-order-context,.fs-page-header,.fi-ta-ctn {
+.fs-dispatch-kpi,.fs-dispatch-panel,.fs-dashboard-hero,.fs-order-context,.fi-ta-ctn {
     background:#fff; border:1px solid var(--flashship-border); box-shadow:0 1px 2px rgb(15 23 42 / 4%); -webkit-backdrop-filter:none; backdrop-filter:none;
 }
+.fs-page-header { margin-bottom:1rem; padding:0; background:transparent; border:0; box-shadow:none; -webkit-backdrop-filter:none; backdrop-filter:none; }
 .fs-alert,.fs-driver-card,.fs-dispatch-order,.fs-offer-row,.fs-live-row { background:#fff; border-color:var(--flashship-border); box-shadow:none; }
 .fs-stat-card:hover,.fs-dispatch-kpi:hover,.fs-report-kpi:hover,.fs-alert:hover,.fs-driver-card:hover,.fs-live-row:hover { transform:none; box-shadow:0 2px 8px rgb(15 23 42 / 6%); }
 .fi-ta-header-cell { background:#f8fafc; }
@@ -1407,6 +1408,7 @@ body.fs-orders-comfy .fs-ol-journey > .fs-ol-note { max-width: none; }
 .dark .fi-sidebar .fi-logo { color:#f8fafc; }
 .dark .fi-section,.dark .fi-wi-chart,.dark .fs-panel,.dark .fs-widget,.dark .fs-stat-card,
 .dark .fs-report-kpi,.dark .fs-report-panel,.dark .fs-dispatch-kpi,.dark .fs-dispatch-panel,
-.dark .fs-dashboard-hero,.dark .fs-order-context,.dark .fs-page-header,.dark .fi-ta-ctn { background:#171b25; border-color:#293142; box-shadow:none; }
+.dark .fs-dashboard-hero,.dark .fs-order-context,.dark .fi-ta-ctn { background:#171b25; border-color:#293142; box-shadow:none; }
+.dark .fs-page-header { background:transparent; border:0; box-shadow:none; }
 .dark .fs-alert,.dark .fs-driver-card,.dark .fs-dispatch-order,.dark .fs-offer-row,.dark .fs-live-row { background:#121620; border-color:#293142; }
 .dark .fi-ta-header-cell { background:#121620; }
