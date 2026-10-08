@@ -298,6 +298,10 @@ class OrderOpsTest extends TestCase
 
         $page->assertCanSeeTableRecords([$open])->assertCanNotSeeTableRecords([$expired]);
         $this->assertSame(1, $page->instance()->getTabs()['market']->getBadge());
+
+        $newOrders = Livewire::test(ListOrders::class)->set('activeTab', 'new');
+        $newOrders->assertCanNotSeeTableRecords([$open])->assertCanSeeTableRecords([$expired]);
+        $this->assertSame(1, $newOrders->instance()->getTabs()['new']->getBadge());
     }
 
     public function test_export_is_admin_only_and_follows_the_current_filters(): void

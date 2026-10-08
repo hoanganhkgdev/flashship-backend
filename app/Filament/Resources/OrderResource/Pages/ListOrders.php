@@ -103,13 +103,18 @@ class ListOrders extends ListRecords
         $cut = now()->subMinutes(self::attentionMinutes());
         $now = now();
         $r = OrderResource::getEloquentQuery()->toBase()->reorder()->selectRaw(
-            "COUNT(*) total, SUM(status = 'pending') pending, SUM(status IN ('assigned','processing')) active,
+            "COUNT(*) total,
+             SUM(status = 'pending' AND NOT EXISTS (
+                 SELECT 1 FROM order_market_listings market
+                 WHERE market.order_id = orders.id AND market.status = 'open' AND market.expires_at > ?
+             )) pending,
+             SUM(status IN ('assigned','processing')) active,
              SUM(status = 'completed') completed, SUM(status = 'cancelled') cancelled,
              SUM(status = 'pending' AND (cancel_reason = 'no_driver' OR created_at <= ?)) attention,
              SUM(status = 'pending' AND EXISTS (
                  SELECT 1 FROM order_market_listings market
                  WHERE market.order_id = orders.id AND market.status = 'open' AND market.expires_at > ?
-             )) market", [$cut, $now]
+             )) market", [$now, $cut, $now]
         )->first();
 
         return $memo[$key] = collect((array) $r)->map(fn ($v) => (int) $v)->all();
@@ -125,7 +130,9 @@ class ListOrders extends ListRecords
             'all' => Tab::make('Tất cả')->icon('heroicon-m-queue-list')->badge($c('total')),
             // Chế độ trực: chờ lâu nhất lên đầu.
             'new' => Tab::make('Đơn mới')->icon('heroicon-m-bell-alert')->badge($c('pending'))->badgeColor('warning')
-                ->modifyQueryUsing(fn (Builder $query) => $query->where('status', 'pending')->orderBy('created_at')),
+                ->modifyQueryUsing(fn (Builder $query) => $query->where('status', 'pending')
+                    ->whereDoesntHave('marketListing', fn (Builder $market) => $market->where('status', 'open')->where('expires_at', '>', now()))
+                    ->orderBy('created_at')),
             'market' => Tab::make('Chợ đơn')->icon('heroicon-m-building-storefront')->badge($c('market'))->badgeColor('warning')
                 ->modifyQueryUsing(fn (Builder $query) => $query->where('status', 'pending')
                     ->whereHas('marketListing', fn (Builder $market) => $market->where('status', 'open')->where('expires_at', '>', now()))
