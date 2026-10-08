@@ -175,8 +175,21 @@ class AppVersionSettingsPage extends Page implements HasForms
     {
         $values = $this->form->getState();
 
-        // Tối thiểu không được cao hơn bản mới nhất trên cửa hàng.
+        $before = collect(array_keys(AppVersionPolicy::PLATFORMS))->mapWithKeys(fn ($p) => [$p => AppVersionSetting::forPlatform($p)->only([
+            'min_version', 'android_latest_version', 'ios_latest_version', 'android_url', 'ios_url', 'force_update', 'force_message',
+        ])])->all();
+
+        // Chỉ chặn xung đột của app mà admin thực sự sửa bộ ba
+        // phiên bản. Dữ liệu cũ có thể đang lệch; nếu kiểm tra tất cả
+        // tab thì lỗi ở tab ẩn sẽ làm mọi thao tác lưu đều thất bại.
         foreach (array_keys(AppVersionPolicy::PLATFORMS) as $platform) {
+            $versionChanged = (string) ($values["{$platform}_min_version"] ?? '') !== (string) ($before[$platform]['min_version'] ?? '')
+                || (string) ($values["{$platform}_android_latest_version"] ?? '') !== (string) ($before[$platform]['android_latest_version'] ?? '')
+                || (string) ($values["{$platform}_ios_latest_version"] ?? '') !== (string) ($before[$platform]['ios_latest_version'] ?? '');
+            if (! $versionChanged) {
+                continue;
+            }
+
             $errors = AppVersionPolicy::conflicts(
                 $values["{$platform}_min_version"] ?: null,
                 $values["{$platform}_android_latest_version"] ?: null,
@@ -186,10 +199,6 @@ class AppVersionSettingsPage extends Page implements HasForms
                 throw ValidationException::withMessages(collect($errors)->mapWithKeys(fn ($m, $k) => ["data.{$platform}_{$k}_version" => $m])->all());
             }
         }
-
-        $before = collect(array_keys(AppVersionPolicy::PLATFORMS))->mapWithKeys(fn ($p) => [$p => AppVersionSetting::forPlatform($p)->only([
-            'min_version', 'android_latest_version', 'ios_latest_version', 'android_url', 'ios_url', 'force_update', 'force_message',
-        ])])->all();
 
         foreach (['customer', 'driver', 'shop'] as $platform) {
             if (($values["{$platform}_force_update"] ?? false) && empty($values["{$platform}_android_url"])) {

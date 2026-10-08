@@ -84,6 +84,25 @@ class SystemGroupTest extends TestCase
         $this->assertStringContainsString('Khách hàng · Tối thiểu: 1.0.0 → 1.1.0', ConfigLog::where('entity', 'app_version')->latest('id')->first()->detail);
     }
 
+    public function test_unchanged_legacy_conflict_in_another_tab_does_not_block_save(): void
+    {
+        AppVersionSetting::forPlatform('customer')->update([
+            'min_version' => '10.0.4',
+            'android_latest_version' => '10.0.3',
+            'ios_latest_version' => '10.0.3',
+        ]);
+
+        Livewire::test(AppVersionSettingsPage::class)
+            ->set('data.shop_android_latest_version', '10.0.3')
+            ->set('data.shop_ios_latest_version', '10.0.3')
+            ->set('data.shop_min_version', '10.0.2')
+            ->call('save')
+            ->assertHasNoErrors();
+
+        $this->assertSame('10.0.3', AppVersionSetting::forPlatform('shop')->android_latest_version);
+        $this->assertSame('10.0.4', AppVersionSetting::forPlatform('customer')->min_version);
+    }
+
     // ── Zalo token ────────────────────────────────────────────────────────────
 
     public function test_zalo_tokens_are_encrypted_single_row_and_never_prefilled(): void
