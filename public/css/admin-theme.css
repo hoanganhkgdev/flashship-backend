@@ -1376,3 +1376,37 @@ body.fs-orders-comfy .fs-ol-journey > .fs-ol-note { max-width: none; }
    - bảng ít dòng thì có sẵn chiều cao tối thiểu để ô mở xuống đủ chỗ. */
 .fi-ta-row:nth-last-child(-n+3):not(:nth-child(-n+3)) .fs-ol-note__pop { top: auto; bottom: calc(100% + .25rem); }
 .fi-ta-content:has(.fs-ol-note) { min-height: 15rem; }
+
+/* ===== Giao diện vận hành: nền đặc, ít hiệu ứng, ưu tiên khả năng đọc ===== */
+:root { --flashship-canvas:#f6f7f9; --flashship-surface:#fff; --flashship-border:#e5e7eb; }
+.fi-body { background:var(--flashship-canvas); }
+.fi-sidebar { background:#fff; border-right:1px solid var(--flashship-border); box-shadow:none; -webkit-backdrop-filter:none; backdrop-filter:none; }
+.fi-sidebar-header { border-bottom:1px solid var(--flashship-border) !important; }
+.fi-sidebar .fi-logo { background:none; color:var(--flashship-ink); -webkit-text-fill-color:currentColor; }
+.fi-sidebar-group-label,.fi-sidebar-group-collapse-button svg { color:#94a3b8; }
+.fi-sidebar-item-label,.fi-sidebar-item-icon { color:#475569; }
+.fi-sidebar-item:not(.fi-sidebar-item-active) .fi-sidebar-item-button:hover { background:#f8fafc; box-shadow:none; }
+.fi-sidebar-item-active .fi-sidebar-item-button { background:#fff7ed; box-shadow:inset 0 0 0 1px #fed7aa; }
+.fi-topbar nav { height:3.75rem; background:#fff; border-bottom:1px solid var(--flashship-border); box-shadow:none; -webkit-backdrop-filter:none; backdrop-filter:none; }
+.fi-topbar .fi-icon-btn:hover { background:#f8fafc; box-shadow:none; }
+.fs-topbar-tenant .fi-tenant-menu-trigger,.fs-topbar-tenant .fi-tenant-menu-trigger:hover { background:#fff; border:1px solid var(--flashship-border); box-shadow:none; }
+.fi-topbar .fi-input-wrp,.fi-topbar .fi-input-wrp:focus-within { background:#fff; box-shadow:inset 0 0 0 1px var(--flashship-border); }
+.fi-dropdown-panel { background:#fff; border:1px solid var(--flashship-border); box-shadow:0 10px 28px rgb(15 23 42 / 12%); -webkit-backdrop-filter:none; backdrop-filter:none; }
+.fi-avatar { box-shadow:0 0 0 2px #fff,0 0 0 3px #fed7aa; }
+.fi-section,.fi-wi-chart,.fs-panel,.fs-widget,.fs-stat-card,.fs-report-kpi,.fs-report-panel,
+.fs-dispatch-kpi,.fs-dispatch-panel,.fs-dashboard-hero,.fs-order-context,.fs-page-header,.fi-ta-ctn {
+    background:#fff; border:1px solid var(--flashship-border); box-shadow:0 1px 2px rgb(15 23 42 / 4%); -webkit-backdrop-filter:none; backdrop-filter:none;
+}
+.fs-alert,.fs-driver-card,.fs-dispatch-order,.fs-offer-row,.fs-live-row { background:#fff; border-color:var(--flashship-border); box-shadow:none; }
+.fs-stat-card:hover,.fs-dispatch-kpi:hover,.fs-report-kpi:hover,.fs-alert:hover,.fs-driver-card:hover,.fs-live-row:hover { transform:none; box-shadow:0 2px 8px rgb(15 23 42 / 6%); }
+.fi-ta-header-cell { background:#f8fafc; }
+.fi-ta-row:hover,.fs-order-row:hover > td { background:#fffaf5; }
+.fs-order-row > td { padding-block:.3rem; }
+.dark .fi-body { background:#0f172a; }
+.dark .fi-sidebar,.dark .fi-topbar nav,.dark .fi-dropdown-panel { background:#111827; border-color:#293142; box-shadow:none; }
+.dark .fi-sidebar .fi-logo { color:#f8fafc; }
+.dark .fi-section,.dark .fi-wi-chart,.dark .fs-panel,.dark .fs-widget,.dark .fs-stat-card,
+.dark .fs-report-kpi,.dark .fs-report-panel,.dark .fs-dispatch-kpi,.dark .fs-dispatch-panel,
+.dark .fs-dashboard-hero,.dark .fs-order-context,.dark .fs-page-header,.dark .fi-ta-ctn { background:#171b25; border-color:#293142; box-shadow:none; }
+.dark .fs-alert,.dark .fs-driver-card,.dark .fs-dispatch-order,.dark .fs-offer-row,.dark .fs-live-row { background:#121620; border-color:#293142; }
+.dark .fi-ta-header-cell { background:#121620; }

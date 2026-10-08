@@ -298,6 +298,40 @@
     .cc-map-chip .cc-legend i { display:inline-block; width:9px; height:9px; border-radius:50%; margin-left:6px; }
     .cc-map-chip .cc-legend i:first-child { margin-left:0; }
     .dark .cc-map-chip { background:rgba(23,27,37,.95); color:#f8fafc; }
+
+    /* Đồng bộ với thang chữ Admin; màn hình cảm ứng nhỏ vẫn giữ input 16px để iOS không tự zoom. */
+    @media (min-width: 901px) {
+        .cc-top { margin:-4px 0 8px; }
+        .cc-top h1 { font-size:var(--fs-xl, 1.5rem); }
+        .cc-header-context span, .cc-header-context strong { padding:4px 9px; font-size:var(--fs-xs, .75rem); }
+        .cc-banner { margin-bottom:7px; padding:7px 10px; font-size:var(--fs-sm, .875rem); }
+        .cc-wrapper { border-radius:12px; box-shadow:0 1px 2px rgba(15,23,42,.04); }
+        .cc-form-panel { width:clamp(440px, 46%, 540px); }
+        .cc-scroll { gap:8px; padding:10px 12px; }
+        .cc-card { padding:12px 11px 9px; border-radius:10px; box-shadow:none; }
+        .cc-row2 { gap:9px; }
+        .cc-input { height:36px; padding:5px 10px; font-size:var(--fs-sm, .875rem); }
+        .cc-textarea { padding:7px 10px; font-size:var(--fs-sm, .875rem); }
+        .cc-service-tabs { gap:5px; }
+        .cc-service-tab { padding:8px 5px; gap:6px; border-radius:9px; }
+        .cc-service-tab svg { width:15px; height:15px; }
+        .cc-service-tab span, .cc-check { font-size:var(--fs-sm, .875rem); }
+        .cc-address-row { gap:8px; padding:4px 0; }
+        .cc-address-dot { width:9px; height:9px; }
+        .cc-addr-tag { width:52px; font-size:10px; }
+        .cc-address-col input { height:29px; font-size:var(--fs-sm, .875rem); }
+        .cc-pin-btn { width:30px; height:30px; }
+        .cc-err, .cc-hint, .cc-feeline, .cc-customer, .cc-history button { font-size:var(--fs-xs, .75rem); }
+        .cc-bar { gap:10px; padding:10px 12px; }
+        .cc-bar__info { gap:1px; font-size:var(--fs-xs, .75rem); }
+        .cc-bar__info b { font-size:var(--fs-sm, .875rem); }
+        .cc-submit-btn { min-width:180px; padding:10px 15px; border-radius:10px; font-size:var(--fs-sm, .875rem); }
+        .cc-recent { height:clamp(145px, 34%, 230px); }
+        .cc-recent__head { padding:7px 12px; font-size:var(--fs-xs, .75rem); }
+        .cc-ro { grid-template-columns:70px minmax(0, 1fr) auto auto !important; gap:3px 10px; padding:7px 12px; font-size:var(--fs-sm, .875rem); }
+        .cc-ro .acts button { padding:2px 10px; font-size:var(--fs-xs, .75rem); }
+        .cc-ro .route, .cc-ro .st small { font-size:var(--fs-xs, .75rem); }
+    }
 </style>
 
 <div class="cc-wrapper">

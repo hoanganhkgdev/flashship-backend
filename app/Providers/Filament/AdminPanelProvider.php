@@ -9,7 +9,7 @@ use App\Filament\Widgets\OpsAlertsWidget;
 use App\Filament\Widgets\OrdersByHourWidget;
 use App\Filament\Widgets\StatsOverviewWidget;
 use Filament\Enums\ThemeMode;
-use Filament\FontProviders\GoogleFontProvider;
+use Filament\FontProviders\LocalFontProvider;
 use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\AuthenticateSession;
 use Filament\Http\Middleware\DisableBladeIconComponents;
@@ -50,9 +50,9 @@ class AdminPanelProvider extends PanelProvider
             ->databaseNotificationsPolling('10s')
             ->tenant(City::class)
             ->sidebarCollapsibleOnDesktop()
-            ->defaultThemeMode(ThemeMode::Dark)
+            ->defaultThemeMode(ThemeMode::Light)
             ->brandName('FlashShip Admin')
-            ->font('Inter', url: 'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap', provider: GoogleFontProvider::class)
+            ->font('Inter', url: asset('css/inter.css').'?v='.filemtime(public_path('css/inter.css')), provider: LocalFontProvider::class)
             ->renderHook(
                 PanelsRenderHook::STYLES_AFTER,
                 fn (): HtmlString => new HtmlString(
