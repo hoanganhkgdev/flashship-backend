@@ -37,7 +37,7 @@ class OrderMarketService
             || $elapsed >= OperationalSettings::marketWaitSecondsBeforeOpen($order->city_id);
     }
 
-    public function open(Order $order): ?OrderMarketListing
+    public function open(Order $order, array $dispatchDiagnostics = []): ?OrderMarketListing
     {
         if ($order->status !== 'pending' || ! $order->city_id) {
             return null;
@@ -46,7 +46,7 @@ class OrderMarketService
             ? 'attempts' : 'timeout';
         $openedNow = false;
 
-        $listing = DB::transaction(function () use ($order, $reason, &$openedNow) {
+        $listing = DB::transaction(function () use ($order, $reason, $dispatchDiagnostics, &$openedNow) {
             $fresh = Order::whereKey($order->id)->lockForUpdate()->first();
             if (! $fresh || $fresh->status !== 'pending') {
                 return null;
@@ -66,8 +66,8 @@ class OrderMarketService
             ]);
             $fresh->update(['dispatching_to_driver_id' => null, 'offer_viewed_at' => null]);
             OrderHistory::create(['order_id' => $fresh->id, 'type' => 'market_opened',
-                'description' => "Đưa vào Chợ đơn sau {$fresh->dispatch_attempts} lượt phát",
-                'metadata' => ['reason' => $reason]]);
+                'description' => "Đưa vào Chợ đơn sau {$fresh->dispatch_attempts} lượt phát; đã quét ".($dispatchDiagnostics['online_total'] ?? 0).' tài xế online',
+                'metadata' => ['reason' => $reason, 'dispatch_scan' => $dispatchDiagnostics]]);
 
             return $listing;
         });
@@ -83,8 +83,8 @@ class OrderMarketService
     }
 
     /**
-     * Chỉ báo cho tài xế thực sự có thể mở và nhận đơn này, tránh tạo thông
-     * báo rác cho tài xế rảnh hoặc đã hết quota gom chuyến.
+     * Báo cho tài xế rảnh có thể nhận làm đơn chính, hoặc tài xế đang có phiên
+     * gom chuyến hợp lệ và còn quota nhận đơn phụ.
      *
      * @return array<int, string>
      */
@@ -102,9 +102,12 @@ class OrderMarketService
             ->whereNotNull('fcm_token')->where('fcm_token', '!=', '')
             ->where(fn ($query) => $query->whereNull('score_suspended_until')->orWhere('score_suspended_until', '<=', now()))
             ->whereDoesntHave('debts', fn ($query) => $query->where('status', 'overdue'))
-            ->whereHas('orders', fn ($query) => $query->where('driver_order_role', 'main')
-                ->where('status', 'assigned')->where('extra_claimed_count', '<', 2)
-                ->where('bundle_window_expires_at', '>', now()))
+            ->where(function ($query) {
+                $query->whereDoesntHave('orders', fn ($orders) => $orders->whereIn('status', ['assigned', 'processing']))
+                    ->orWhereHas('orders', fn ($orders) => $orders->where('driver_order_role', 'main')
+                        ->where('status', 'assigned')->where('extra_claimed_count', '<', 2)
+                        ->where('bundle_window_expires_at', '>', now()));
+            })
             ->whereNotExists(fn ($query) => $query->selectRaw('1')->from('driver_leave_requests')
                 ->whereColumn('driver_leave_requests.driver_id', 'users.id')->whereDate('leave_date', today()))
             ->when($order->service_type === 'car', fn ($query) => $query->where('has_car_license', true))
@@ -140,8 +143,13 @@ class OrderMarketService
         if (! OperationalSettings::orderMarketEnabled($driver->city_id) || ! $this->baseEligible($driver)) {
             return [];
         }
+        $activeCount = Order::where('delivery_man_id', $driver->id)
+            ->whereIn('status', ['assigned', 'processing'])->count();
+        if ($activeCount >= OperationalSettings::maxActiveOrdersPerDriver($driver->city_id)) {
+            return [];
+        }
         $session = $this->activeBundleSession($driver);
-        if (! $session || (int) $session->extra_claimed_count >= 2) {
+        if ($activeCount > 0 && (! $session || (int) $session->extra_claimed_count >= 2)) {
             return [];
         }
         $location = $this->locations->freshLocationsFor([$driver->id])[$driver->id] ?? null;
@@ -211,24 +219,31 @@ class OrderMarketService
                 ->where('status', 'assigned')
                 ->where('bundle_window_expires_at', '>', now())
                 ->lockForUpdate()->first();
-            if (! $main) {
+            if ($active->isNotEmpty() && ! $main) {
                 return 'no_session';
             }
-            if ((int) $main->extra_claimed_count >= 2) {
+            if ($main && (int) $main->extra_claimed_count >= 2) {
                 return 'quota';
             }
 
-            $fresh->update([
-                'status' => 'assigned',
-                'delivery_man_id' => $driver->id,
-                'driver_order_role' => 'extra',
-                'main_order_id' => $main->id,
+            $claimedAsMain = ! $main;
+            $fresh->update($claimedAsMain ? [
+                'status' => 'assigned', 'delivery_man_id' => $driver->id,
+                'driver_order_role' => 'main', 'main_order_id' => null,
+                'extra_claimed_count' => 0,
+                'bundle_window_expires_at' => now()->addMinutes(OperationalSettings::marketBundleWindowMinutes($fresh->city_id)),
+                'dispatching_to_driver_id' => null,
+            ] : [
+                'status' => 'assigned', 'delivery_man_id' => $driver->id,
+                'driver_order_role' => 'extra', 'main_order_id' => $main->id,
                 'dispatching_to_driver_id' => null,
             ]);
-            $main->increment('extra_claimed_count');
+            if ($main) {
+                $main->increment('extra_claimed_count');
+            }
             $listing->update(['status' => 'claimed', 'claimed_at' => now(), 'claimed_by' => $driver->id]);
             OrderHistory::create(['order_id' => $fresh->id, 'user_id' => $driver->id, 'type' => 'market_claimed',
-                'description' => "{$driver->name} nhận đơn từ Chợ đơn"]);
+                'description' => "{$driver->name} nhận đơn từ Chợ đơn làm ".($claimedAsMain ? 'đơn chính' : 'đơn phụ')]);
 
             return $fresh;
         });

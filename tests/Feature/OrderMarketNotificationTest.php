@@ -15,7 +15,7 @@ class OrderMarketNotificationTest extends TestCase
 {
     use DatabaseTransactions;
 
-    public function test_market_notification_only_targets_nearby_drivers_with_an_active_bundle_session(): void
+    public function test_market_notification_targets_nearby_idle_or_active_bundle_drivers(): void
     {
         $this->assertStringEndsWith('_test', DB::connection()->getDatabaseName());
         $city = City::create(['name' => 'Market notify', 'slug' => 'market-notify-'.uniqid(), 'is_active' => true]);
@@ -37,12 +37,12 @@ class OrderMarketNotificationTest extends TestCase
         $locations->shouldReceive('freshLocationsFor')->once()->andReturn([
             $eligible->id => ['lat' => 10.005, 'lng' => 105.0, 'bearing' => null],
             $far->id => ['lat' => 10.2, 'lng' => 105.0, 'bearing' => null],
+            $noSession->id => ['lat' => 10.004, 'lng' => 105.0, 'bearing' => null],
         ]);
 
         $tokens = (new OrderMarketService($locations))->eligibleNotificationTokens($marketOrder);
 
-        $this->assertSame(['eligible-token'], $tokens);
-        $this->assertNotContains($noSession->fcm_token, $tokens);
+        $this->assertEqualsCanonicalizing(['eligible-token', 'no-session-token'], $tokens);
         $this->assertNotContains($full->fcm_token, $tokens);
     }
 

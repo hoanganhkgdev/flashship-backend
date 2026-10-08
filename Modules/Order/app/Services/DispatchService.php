@@ -1,20 +1,23 @@
 <?php
+
 namespace Modules\Order\Services;
 
-use Modules\Driver\Services\DriverScoreService;
-use Modules\Driver\Models\DriverShiftSession;
-use Modules\Order\Jobs\DispatchOrderRetryJob;
-use Modules\Order\Models\Order;
-use Modules\Order\Models\OrderDispatchLog;
-use Modules\Order\Models\OrderHistory;
+use App\Events\DispatchStateChanged;
+use Filament\Notifications\Notification;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Redis;
 use Modules\Core\Models\User;
 use Modules\Core\Services\FCMService;
 use Modules\Core\Services\OperationalSettings;
 use Modules\Core\Services\RTDBService;
-use App\Events\DispatchStateChanged;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Redis;
+use Modules\Driver\Models\DriverShiftSession;
+use Modules\Driver\Services\DriverScoreService;
+use Modules\Order\Jobs\DispatchOrderRetryJob;
+use Modules\Order\Models\Order;
+use Modules\Order\Models\OrderDispatchLog;
+use Modules\Order\Models\OrderHistory;
 
 class DispatchService
 {
@@ -61,33 +64,37 @@ class DispatchService
 
     public function startDispatch(Order $order): void
     {
-        if ($order->status !== 'pending') return;
-        if (!$order->pickup_lat || !$order->pickup_lng) {
+        if ($order->status !== 'pending') {
+            return;
+        }
+        if (! $order->pickup_lat || ! $order->pickup_lng) {
             Log::warning("[Dispatch] Đơn #{$order->id} thiếu toạ độ pickup → không dispatch");
+
             return;
         }
 
         if ($order->dispatching_to_driver_id !== null) {
             Log::info("[Dispatch] Đơn #{$order->id} đang chờ tài xế #{$order->dispatching_to_driver_id} → bỏ qua restart");
+
             return;
         }
 
         $now = now();
 
-        Log::info("╔══════════════════════════════════════════════════════════════");
-        Log::info("║ [Dispatch] BẮT ĐẦU PHÁT ĐƠN");
+        Log::info('╔══════════════════════════════════════════════════════════════');
+        Log::info('║ [Dispatch] BẮT ĐẦU PHÁT ĐƠN');
         Log::info("║  Đơn     : #{$order->id} | Mã: {$order->code}");
         Log::info("║  Loại    : {$order->service_type}");
         Log::info("║  Thành phố: {$order->city_id}");
         Log::info("║  Pickup  : {$order->pickup_address} ({$order->pickup_lat}, {$order->pickup_lng})");
-        Log::info("╚══════════════════════════════════════════════════════════════");
+        Log::info('╚══════════════════════════════════════════════════════════════');
 
         DB::table('orders')->where('id', $order->id)->update([
             'dispatch_started_at' => $order->dispatch_started_at ?? $now,
-            'cancel_reason'       => null,
+            'cancel_reason' => null,
         ]);
         $order->dispatch_started_at = $order->dispatch_started_at ?? $now;
-        $order->cancel_reason       = null;
+        $order->cancel_reason = null;
 
         $this->notifyCustomer($order, 'searching');
 
@@ -96,14 +103,16 @@ class DispatchService
 
     public function sendToNextDriver(Order $order): void
     {
-        if ($order->status !== 'pending') return;
+        if ($order->status !== 'pending') {
+            return;
+        }
         $this->offerToNext($order);
     }
 
     public function handleTimeout(Order $order, int $driverId): void
     {
         $driver = User::find($driverId);
-        $name   = $driver?->name ?? "#{$driverId}";
+        $name = $driver?->name ?? "#{$driverId}";
 
         $timedOutLog = DB::transaction(function () use ($order, $driverId) {
             $log = OrderDispatchLog::where('order_id', $order->id)
@@ -111,14 +120,18 @@ class DispatchService
                 ->where('result', 'pending')
                 ->lockForUpdate()
                 ->first();
-            if (!$log) return null;
+            if (! $log) {
+                return null;
+            }
 
             $log->update(['result' => 'expired', 'responded_at' => now()]);
+
             return $log;
         });
 
-        if (!$timedOutLog) {
+        if (! $timedOutLog) {
             Log::info("⏱  [Dispatch] Đơn #{$order->id}: Tài xế {$name} đã xử lý trước (decline/accept) → bỏ qua timeout");
+
             return;
         }
 
@@ -137,7 +150,7 @@ class DispatchService
         $driverCityId = DriverScoreService::cityOf($driverId);
         if ($timedOutLog->viewed_at || $order->offer_viewed_at) {
             DriverScoreService::onViewedTimeout($driverId);
-            Log::info("⏱  [Dispatch] Đơn #{$order->id}: Tài xế {$name} xem đơn nhưng không nhận → " . DriverScoreService::viewedTimeoutPenalty($driverCityId) . " điểm, pop tiếp");
+            Log::info("⏱  [Dispatch] Đơn #{$order->id}: Tài xế {$name} xem đơn nhưng không nhận → ".DriverScoreService::viewedTimeoutPenalty($driverCityId).' điểm, pop tiếp');
         } elseif ($timedOutLog->received_at) {
             $window = $this->unviewedOfferWindow($driverId, $driver?->online_since, $driverCityId);
             Log::info("⏱  [Dispatch] Đơn #{$order->id}: app tài xế {$name} đã ACK nhưng không mở → {$window['unviewed']}/{$window['total']} offer ACK gần nhất bị bỏ lỡ, pop tiếp");
@@ -169,12 +182,16 @@ class DispatchService
     {
         $result = DB::transaction(function () use ($driverId) {
             $driver = User::whereKey($driverId)->lockForUpdate()->first();
-            if (! $driver?->is_online) return null;
+            if (! $driver?->is_online) {
+                return null;
+            }
 
             // Kiểm tra lại dưới cùng khoá dòng với thao tác trừ điểm + Offline.
             // Hai timeout chạy đồng thời vì vậy không thể cùng trừ điểm.
             $window = $this->unviewedOfferWindow($driverId, $driver->online_since);
-            if (! $window['should_offline']) return null;
+            if (! $window['should_offline']) {
+                return null;
+            }
 
             // Không bao giờ tự Offline tài xế đang giữ đơn.
             if (Order::where('delivery_man_id', $driverId)
@@ -210,7 +227,9 @@ class DispatchService
             return ['driver' => $driver, 'offers' => $offers];
         });
 
-        if (! $result) return;
+        if (! $result) {
+            return;
+        }
 
         RTDBService::removeDriverLocation($driverId);
         foreach ($result['offers'] as $offer) {
@@ -262,8 +281,9 @@ class DispatchService
                 ->update(['result' => 'accepted', 'responded_at' => now()]);
         });
 
-        if (!$updated) {
+        if (! $updated) {
             Log::info("[Dispatch] Đơn #{$order->id}: Tài xế #{$driver->id} accept nhưng log đã đổi (timeout race) → bỏ qua");
+
             return;
         }
 
@@ -272,12 +292,12 @@ class DispatchService
 
         $attempts = OrderDispatchLog::where('order_id', $order->id)->count();
 
-        Log::info("╔══════════════════════════════════════════════════════════════");
+        Log::info('╔══════════════════════════════════════════════════════════════');
         Log::info("║ [Dispatch] KẾT QUẢ: ĐƠN #{$order->id} ĐƯỢC NHẬN");
         Log::info("║  Tài xế  : #{$driver->id} {$driver->name} | SĐT: {$driver->phone}");
         Log::info("║  Sau lần thử: #{$attempts}");
-        Log::info("╚══════════════════════════════════════════════════════════════");
-        broadcast(new DispatchStateChanged());
+        Log::info('╚══════════════════════════════════════════════════════════════');
+        broadcast(new DispatchStateChanged);
     }
 
     // =========================================================================
@@ -295,9 +315,9 @@ class DispatchService
      * vực nào). Lọc cứng theo city_id từng khiến admin toàn hệ thống không bao
      * giờ nhận được thông báo.
      *
-     * @return \Illuminate\Support\Collection<int, User>
+     * @return Collection<int, User>
      */
-    public function noDriverRecipients(Order $order): \Illuminate\Support\Collection
+    public function noDriverRecipients(Order $order): Collection
     {
         return User::query()
             ->where(function ($query) use ($order) {
@@ -324,27 +344,29 @@ class DispatchService
             ->where(fn ($q) => $q->whereNull('cancel_reason')->orWhere('cancel_reason', '!=', 'no_driver'))
             ->update([
                 'dispatching_to_driver_id' => null,
-                'cancel_reason'            => 'no_driver',
-                'updated_at'               => now(),
+                'cancel_reason' => 'no_driver',
+                'updated_at' => now(),
             ]);
 
-        if (!$updated) return;
+        if (! $updated) {
+            return;
+        }
 
         $this->clearDispatchCache($order->id);
-        broadcast(new DispatchStateChanged());
+        broadcast(new DispatchStateChanged);
 
         $timeout = OperationalSettings::dispatchTimeoutMinutes($order->city_id);
 
         // Dòng log trong lịch sử đơn — tổng đài/admin mở đơn lên là thấy.
         OrderHistory::create([
-            'order_id'    => $order->id,
-            'type'        => 'no_driver',
+            'order_id' => $order->id,
+            'type' => 'no_driver',
             'description' => "Quá {$timeout} phút chưa có tài xế nhận — hệ thống đã dừng tự động tìm, cần tổng đài xử lý",
-            'metadata'    => ['timeout_minutes' => $timeout, 'dispatch_attempts' => (int) $order->dispatch_attempts],
+            'metadata' => ['timeout_minutes' => $timeout, 'dispatch_attempts' => (int) $order->dispatch_attempts],
         ]);
 
         foreach ($this->noDriverRecipients($order) as $staff) {
-            \Filament\Notifications\Notification::make()
+            Notification::make()
                 ->title("Đơn #{$order->code} — Không tìm được tài xế")
                 ->body("Đơn từ {$order->pickup_address} đã quá {$timeout} phút không có tài xế nhận. Vui lòng xử lý thủ công.")
                 ->danger()
@@ -363,17 +385,23 @@ class DispatchService
         // nhầm khoá mới nếu TTL hết đúng lúc xử lý chậm.
         $orderId = $order->id;
         $token = bin2hex(random_bytes(16));
-        if (!Redis::set($this->orderLockKey($orderId), $token, 'EX', 30, 'NX')) {
+        if (! Redis::set($this->orderLockKey($orderId), $token, 'EX', 30, 'NX')) {
             Log::debug("│  [Dispatch] Đơn #{$orderId} đang được luồng khác xử lý → bỏ qua luồng trùng");
+
             return;
         }
 
         try {
             $order = $order->fresh();
-            if (!$order || $order->status !== 'pending') return;
-            if ($this->orderMarket->isOpen($order)) return;
+            if (! $order || $order->status !== 'pending') {
+                return;
+            }
+            if ($this->orderMarket->isOpen($order)) {
+                return;
+            }
             if ($order->dispatching_to_driver_id !== null) {
                 Log::debug("│  [Dispatch] Đơn #{$order->id} đang chờ tài xế #{$order->dispatching_to_driver_id} → không phát trùng");
+
                 return;
             }
 
@@ -386,13 +414,14 @@ class DispatchService
                 : 0;
             $radiusKm = DispatchRadiusPolicy::radiusForElapsedSeconds($elapsedSeconds, $order->city_id);
 
-            Log::info("┌─ [Dispatch] Đơn #{$order->id} | Vòng {$radiusKm}km đường thật | Đã chờ: {$elapsedSeconds}s | Đã hỏi: " . count($alreadyOffered));
+            Log::info("┌─ [Dispatch] Đơn #{$order->id} | Vòng {$radiusKm}km đường thật | Đã chờ: {$elapsedSeconds}s | Đã hỏi: ".count($alreadyOffered));
 
             $candidates = $this->candidateFinder->find($order, $alreadyOffered, $radiusKm);
 
             if ($candidates->isEmpty()) {
                 Log::info("└─ [Dispatch] Đơn #{$order->id}: không có ứng viên nào trong {$radiusKm}km đường thật → chờ quét lại");
                 $this->scheduleRetryOrGiveUp($order);
+
                 return;
             }
 
@@ -400,14 +429,15 @@ class DispatchService
             // thất bại gọi đệ quy offerToNext(); cách đó không thể giữ
             // order-lock xuyên suốt và tạo khe hở phát trùng.
             foreach ($candidates as $driver) {
-                Log::info("│  Chọn: #{$driver->id} {$driver->name} | " . count($alreadyOffered) . " đã hỏi trước");
+                Log::info("│  Chọn: #{$driver->id} {$driver->name} | ".count($alreadyOffered).' đã hỏi trước');
                 if ($this->offerSender->send($order, $driver)) {
                     return;
                 }
                 $freshState = Order::find($order->id);
-                if (!$freshState || $freshState->status !== 'pending'
+                if (! $freshState || $freshState->status !== 'pending'
                     || $freshState->dispatching_to_driver_id !== null) {
                     Log::debug("│  [Dispatch] Đơn #{$order->id} đã đổi trạng thái trong lúc gửi → dừng thử ứng viên");
+
                     return;
                 }
             }
@@ -428,11 +458,14 @@ class DispatchService
     private function scheduleRetryOrGiveUp(Order $order): void
     {
         $order = $order->fresh();
-        if (!$order || $order->status !== 'pending') return;
+        if (! $order || $order->status !== 'pending') {
+            return;
+        }
 
         if ($this->orderMarket->shouldOpen($order)) {
-            $this->orderMarket->open($order);
+            $this->orderMarket->open($order, $this->candidateFinder->diagnostics());
             Log::info("╟── [Dispatch] Đơn #{$order->id}: chuyển sang Chợ đơn");
+
             return;
         }
 
@@ -441,6 +474,7 @@ class DispatchService
             if ($elapsed >= OperationalSettings::dispatchTimeoutMinutes($order->city_id)) {
                 Log::info("╟── [Dispatch] Đơn #{$order->id}: Quá {$elapsed} phút không có tài xế → dừng dispatch, giữ pending");
                 $this->cancelNoDriver($order);
+
                 return;
             }
         }
@@ -450,15 +484,15 @@ class DispatchService
         // DispatchOfferSender::send() (thứ tự 'NX','EX',giây trực giác nhưng
         // sai chữ ký thật, khoá không hoạt động).
         $retrySeconds = OperationalSettings::dispatchRetrySeconds($order->city_id);
-        if (!Redis::set($this->retryKey($order->id), 1, 'EX', $retrySeconds + 5, 'NX')) {
+        if (! Redis::set($this->retryKey($order->id), 1, 'EX', $retrySeconds + 5, 'NX')) {
             Log::debug("╟── [Dispatch] Đơn #{$order->id}: Retry đã được lên lịch, bỏ qua");
+
             return;
         }
 
         Log::info("╟── [Dispatch] Đơn #{$order->id}: Chưa có ai → quét lại sau {$retrySeconds}s");
         DispatchOrderRetryJob::dispatch($order->id)->delay(now()->addSeconds($retrySeconds));
     }
-
 
     /**
      * Tổng đài gán CỨNG 1 tài xế cụ thể cho đơn, bỏ qua bước offer — xem
@@ -474,18 +508,19 @@ class DispatchService
     private function notifyCustomer(Order $order, string $type): void
     {
         $customer = User::find($order->sender_platform_id);
-        if (!$customer?->fcm_token) return;
+        if (! $customer?->fcm_token) {
+            return;
+        }
 
         try {
             $fcm = FCMService::getInstance();
             match ($type) {
                 'searching' => $fcm->sendSearchingDriver($customer->fcm_token, $order->code),
                 'expanding' => $fcm->sendExpandingSearch($customer->fcm_token, $order->code),
-                default     => null,
+                default => null,
             };
         } catch (\Throwable $e) {
-            Log::error("[Dispatch] notifyCustomer {$type} failed: " . $e->getMessage());
+            Log::error("[Dispatch] notifyCustomer {$type} failed: ".$e->getMessage());
         }
     }
-
 }
