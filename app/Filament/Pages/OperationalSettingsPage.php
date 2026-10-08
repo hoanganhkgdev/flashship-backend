@@ -3,9 +3,9 @@
 namespace App\Filament\Pages;
 
 use App\Filament\PageWidgets\OperationalHistoryWidget;
-use App\Filament\Traits\RestrictToFullAdmin;
 use App\Filament\Widgets\OperationalSettingsOverview;
 use App\Services\CatalogService;
+use App\Support\AdminAccess;
 use Filament\Actions\Action;
 use Filament\Facades\Filament;
 use Filament\Forms\Components\Grid;
@@ -35,7 +35,11 @@ use Modules\Driver\Services\DriverScoreService;
 class OperationalSettingsPage extends Page implements HasForms
 {
     use InteractsWithForms;
-    use RestrictToFullAdmin;
+
+    public static function canAccess(): bool
+    {
+        return AdminAccess::allows(auth()->user(), AdminAccess::OPERATIONS_MANAGE);
+    }
 
     protected static ?string $navigationIcon = 'heroicon-o-adjustments-horizontal';
 

@@ -4,6 +4,7 @@ namespace App\Filament\Resources;
 
 use App\Filament\Resources\DriverRatingResource\Pages;
 use App\Services\DriverRatingService;
+use App\Support\AdminAccess;
 use Filament\Facades\Filament;
 use Filament\Forms;
 use Filament\Forms\Form;
@@ -14,6 +15,7 @@ use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Str;
 use Modules\Core\Models\ServiceType;
 use Modules\Order\Models\Order;
 
@@ -21,7 +23,7 @@ class DriverRatingResource extends Resource
 {
     public static function canAccess(): bool
     {
-        return ! auth()->user()?->isCallCenter();
+        return AdminAccess::allows(auth()->user(), AdminAccess::OPERATIONS_MANAGE);
     }
 
     protected static ?string $model = Order::class;
@@ -170,14 +172,14 @@ class DriverRatingResource extends Resource
                 Tables\Columns\TextColumn::make('code')
                     ->label('Đơn')
                     ->formatStateUsing(fn ($state) => '#'.$state)
-                    ->description(fn (Order $r): string => \Illuminate\Support\Str::limit(self::serviceLabels()[$r->service_type] ?? (string) $r->service_type, 14))
+                    ->description(fn (Order $r): string => Str::limit(self::serviceLabels()[$r->service_type] ?? (string) $r->service_type, 14))
                     ->copyable()
                     ->searchable(),
 
                 Tables\Columns\TextColumn::make('source')
                     ->label('Nguồn')
                     ->state(fn (Order $r) => self::sourceLabel($r))
-                    ->description(fn (Order $r): ?string => \Illuminate\Support\Str::limit($r->sender?->name ?: $r->sender_name, 16)),
+                    ->description(fn (Order $r): ?string => Str::limit($r->sender?->name ?: $r->sender_name, 16)),
 
                 Tables\Columns\TextColumn::make('rated_at')
                     ->label('Đánh giá lúc')

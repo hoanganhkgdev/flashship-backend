@@ -3,8 +3,10 @@
 namespace App\Filament\Resources\OrderResource\Pages;
 
 use App\Filament\Resources\OrderResource;
+use App\Support\AdminAccess;
 use Filament\Actions;
 use Filament\Resources\Pages\EditRecord;
+use Modules\Order\Services\OrderTimeline;
 
 class EditOrder extends EditRecord
 {
@@ -29,7 +31,7 @@ class EditOrder extends EditRecord
                 ->label('Gán tài xế')
                 ->icon('heroicon-o-user-plus')
                 ->color('info')
-                ->visible(fn (): bool => $this->record->status === 'pending')
+                ->visible(fn (): bool => AdminAccess::allows(auth()->user(), AdminAccess::ORDERS_MANAGE) && $this->record->status === 'pending')
                 ->modalHeading(fn (): string => 'Gán tài xế cho đơn #'.$this->record->code)
                 ->modalDescription('Đơn sẽ ngừng tìm tự động và chuyển thẳng vào danh sách đã nhận của tài xế.')
                 ->form(fn (): array => OrderResource::manualAssignmentForm($this->record))
@@ -91,7 +93,7 @@ class EditOrder extends EditRecord
             }
         }
         if ($changes) {
-            \Modules\Order\Services\OrderTimeline::record($this->record, 'edited', 'Sửa đơn — '.implode('; ', $changes), auth()->id());
+            OrderTimeline::record($this->record, 'edited', 'Sửa đơn — '.implode('; ', $changes), auth()->id());
         }
     }
 }

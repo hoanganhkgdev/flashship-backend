@@ -3,7 +3,7 @@
 namespace App\Filament\Resources;
 
 use App\Filament\Resources\UserResource\Pages;
-use App\Filament\Traits\HideFromCityManager;
+use App\Support\AdminAccess;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Resources\Resource;
@@ -18,10 +18,8 @@ class UserResource extends Resource
 {
     public static function canAccess(): bool
     {
-        return ! auth()->user()?->isCallCenter() && static::canViewAny();
+        return AdminAccess::allows(auth()->user(), AdminAccess::OPERATIONS_MANAGE);
     }
-
-    use HideFromCityManager;
 
     protected static ?string $model = User::class;
 
@@ -193,29 +191,29 @@ class UserResource extends Resource
             ->actions([
                 Tables\Actions\ViewAction::make()->label(''),
                 Tables\Actions\ActionGroup::make([
-                Tables\Actions\EditAction::make()->label('Chỉnh sửa'),
-                Tables\Actions\Action::make('toggle_lock')
-                    ->label(fn (User $record): string => (int) $record->status === 2 ? 'Mở khóa' : 'Khóa tài khoản')
-                    ->icon(fn (User $record): string => (int) $record->status === 2 ? 'heroicon-m-lock-open' : 'heroicon-m-lock-closed')
-                    ->color(fn (User $record): string => (int) $record->status === 2 ? 'success' : 'danger')
-                    ->tooltip(fn (User $record): string => (int) $record->status === 2 ? 'Mở khóa tài khoản' : 'Khóa tài khoản')
-                    ->visible(fn (): bool => auth()->user()?->user_type === 'admin')
-                    ->requiresConfirmation()
-                    ->modalHeading(fn (User $record): string => (int) $record->status === 2 ? 'Mở khóa tài khoản?' : 'Khóa tài khoản?')
-                    ->modalDescription(fn (User $record): string => (int) $record->status === 2
-                        ? "Khách {$record->name} sẽ đăng nhập và đặt đơn lại được."
-                        : "Khách {$record->name} sẽ không đăng nhập và đặt đơn được cho tới khi mở khóa.")
-                    ->action(function (User $record): void {
-                        $record->update(['status' => (int) $record->status === 2 ? 1 : 2]);
-                    }),
-                // users không dùng SoftDeletes — xoá thật, kèm cascade xoá
-                // luôn lịch sử thông báo + lượt dùng voucher (mất dấu chống
-                // dùng lại voucher 1 lần nếu đăng ký lại đúng SĐT), và
-                // orders.sender_platform_id/delivery_man_id bị set NULL (mất
-                // gán chủ đơn trong báo cáo lịch sử). Cảnh báo rõ ràng thay
-                // vì modal xác nhận chung chung mặc định.
-                Tables\Actions\DeleteAction::make()->label('Xóa tài khoản')
-                    ->modalDescription('Xoá hẳn tài khoản này sẽ xoá luôn lịch sử thông báo, lượt dùng voucher (có thể dùng lại voucher 1 lần nếu đăng ký lại đúng SĐT), và làm mất gán chủ đơn ở các đơn hàng cũ. Không thể hoàn tác.'),
+                    Tables\Actions\EditAction::make()->label('Chỉnh sửa'),
+                    Tables\Actions\Action::make('toggle_lock')
+                        ->label(fn (User $record): string => (int) $record->status === 2 ? 'Mở khóa' : 'Khóa tài khoản')
+                        ->icon(fn (User $record): string => (int) $record->status === 2 ? 'heroicon-m-lock-open' : 'heroicon-m-lock-closed')
+                        ->color(fn (User $record): string => (int) $record->status === 2 ? 'success' : 'danger')
+                        ->tooltip(fn (User $record): string => (int) $record->status === 2 ? 'Mở khóa tài khoản' : 'Khóa tài khoản')
+                        ->visible(fn (): bool => auth()->user()?->user_type === 'admin')
+                        ->requiresConfirmation()
+                        ->modalHeading(fn (User $record): string => (int) $record->status === 2 ? 'Mở khóa tài khoản?' : 'Khóa tài khoản?')
+                        ->modalDescription(fn (User $record): string => (int) $record->status === 2
+                            ? "Khách {$record->name} sẽ đăng nhập và đặt đơn lại được."
+                            : "Khách {$record->name} sẽ không đăng nhập và đặt đơn được cho tới khi mở khóa.")
+                        ->action(function (User $record): void {
+                            $record->update(['status' => (int) $record->status === 2 ? 1 : 2]);
+                        }),
+                    // users không dùng SoftDeletes — xoá thật, kèm cascade xoá
+                    // luôn lịch sử thông báo + lượt dùng voucher (mất dấu chống
+                    // dùng lại voucher 1 lần nếu đăng ký lại đúng SĐT), và
+                    // orders.sender_platform_id/delivery_man_id bị set NULL (mất
+                    // gán chủ đơn trong báo cáo lịch sử). Cảnh báo rõ ràng thay
+                    // vì modal xác nhận chung chung mặc định.
+                    Tables\Actions\DeleteAction::make()->label('Xóa tài khoản')
+                        ->modalDescription('Xoá hẳn tài khoản này sẽ xoá luôn lịch sử thông báo, lượt dùng voucher (có thể dùng lại voucher 1 lần nếu đăng ký lại đúng SĐT), và làm mất gán chủ đơn ở các đơn hàng cũ. Không thể hoàn tác.'),
                 ])->icon('heroicon-m-ellipsis-horizontal')->tooltip('Thao tác khác'),
             ])
             ->bulkActions([

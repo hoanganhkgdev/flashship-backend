@@ -3,6 +3,7 @@
 namespace App\Filament\Pages;
 
 use App\Filament\Resources\OrderResource;
+use App\Support\AdminAccess;
 use App\Support\OrderListPresenter;
 use Carbon\Carbon;
 use Filament\Actions\Action;
@@ -47,7 +48,7 @@ class CallCenterPage extends Page implements HasForms
 
     public static function canAccess(): bool
     {
-        return ! in_array(auth()->user()?->user_type, ['city_manager']);
+        return AdminAccess::allows(auth()->user(), AdminAccess::ORDERS_MANAGE);
     }
 
     public function getHeading(): string

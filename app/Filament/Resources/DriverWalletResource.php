@@ -2,10 +2,11 @@
 
 namespace App\Filament\Resources;
 
-use Filament\Facades\Filament;
 use App\Filament\Resources\DriverWalletResource\Pages;
 use App\Filament\Resources\DriverWalletResource\RelationManagers;
-use App\Filament\Traits\RestrictToFullAdmin;
+use App\Filament\Traits\RestrictToFinance;
+use App\Services\DriverWalletReport;
+use Filament\Facades\Filament;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Notifications\Notification;
@@ -14,14 +15,14 @@ use Filament\Tables;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
-use App\Services\DriverWalletReport;
+use Illuminate\Support\Facades\DB;
 use Modules\Core\Services\OperationalSettings;
 use Modules\Driver\Models\DriverWallet;
 use Modules\Driver\Services\DriverWalletService;
 
 class DriverWalletResource extends Resource
 {
-    use RestrictToFullAdmin;
+    use RestrictToFinance;
 
     // DriverWallet không có city_id trực tiếp — khu vực xác định qua driver_id -> users.city_id.
     public static function scopeEloquentQueryToTenant(Builder $query, ?Model $tenant): Builder
@@ -68,7 +69,7 @@ class DriverWalletResource extends Resource
                     ->whereDate('created_at', now()->toDateString()),
             ], 'amount')
             ->addSelect([
-                'pending_withdraw_amount' => \Illuminate\Support\Facades\DB::table('withdraw_requests')
+                'pending_withdraw_amount' => DB::table('withdraw_requests')
                     ->selectRaw('COALESCE(SUM(amount), 0)')
                     ->whereColumn('driver_id', 'driver_wallets.driver_id')
                     ->where('status', 'pending'),
@@ -124,7 +125,9 @@ class DriverWalletResource extends Resource
                 Tables\Columns\TextColumn::make('driver.name')
                     ->label('Tài xế')
                     ->searchable()
-                    ->description(fn (DriverWallet $r) => collect([$r->driver?->phone, match ((int) $r->driver?->status) { 2 => 'Bị khóa', 0 => 'Chờ duyệt', default => null }])->filter()->join(' · ')),
+                    ->description(fn (DriverWallet $r) => collect([$r->driver?->phone, match ((int) $r->driver?->status) {
+                        2 => 'Bị khóa', 0 => 'Chờ duyệt', default => null
+                    }])->filter()->join(' · ')),
 
                 Tables\Columns\TextColumn::make('balance')
                     ->label('Số dư')

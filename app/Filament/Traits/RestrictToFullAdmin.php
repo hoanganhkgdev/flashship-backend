@@ -2,7 +2,7 @@
 
 namespace App\Filament\Traits;
 
-use Modules\Core\Models\User;
+use App\Support\AdminAccess;
 
 /**
  * Giới hạn CHỈ admin đầy đủ (không subadmin/city_manager/call_center) được
@@ -16,6 +16,6 @@ trait RestrictToFullAdmin
 {
     public static function canAccess(): bool
     {
-        return auth()->user()?->user_type === User::ROLE_ADMIN;
+        return AdminAccess::allows(auth()->user(), AdminAccess::SYSTEM_SETTINGS);
     }
 }

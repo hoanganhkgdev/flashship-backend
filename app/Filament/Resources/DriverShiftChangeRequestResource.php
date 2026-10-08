@@ -4,6 +4,7 @@ namespace App\Filament\Resources;
 
 use App\Filament\Resources\DriverShiftChangeRequestResource\Pages;
 use App\Services\ShiftChangeService;
+use App\Support\AdminAccess;
 use Filament\Facades\Filament;
 use Filament\Forms;
 use Filament\Forms\Form;
@@ -14,8 +15,8 @@ use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Auth;
 use Modules\Core\Models\Shift;
 use Modules\Driver\Models\DriverShiftChangeRequest;
 
@@ -23,7 +24,7 @@ class DriverShiftChangeRequestResource extends Resource
 {
     public static function canAccess(): bool
     {
-        return in_array(auth()->user()?->user_type, ['admin', 'subadmin', 'city_manager']) && static::canViewAny();
+        return AdminAccess::allows(auth()->user(), AdminAccess::OPERATIONS_MANAGE);
     }
 
     // DriverShiftChangeRequest không có city_id trực tiếp — khu vực xác định qua driver_id -> users.city_id.

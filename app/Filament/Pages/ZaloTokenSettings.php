@@ -4,6 +4,7 @@ namespace App\Filament\Pages;
 
 use App\Services\CatalogService;
 use App\Services\ZaloTokenService;
+use App\Support\AdminAccess;
 use Carbon\Carbon;
 use Filament\Actions\Action;
 use Filament\Forms\Components\Placeholder;
@@ -37,7 +38,7 @@ class ZaloTokenSettings extends Page
     public static function canAccess(): bool
     {
         // Token Zalo chi phối việc gửi OTP: chỉ quản trị viên đầy đủ được xem trạng thái và thay token.
-        return auth()->user()?->user_type === 'admin';
+        return AdminAccess::allows(auth()->user(), AdminAccess::SYSTEM_SETTINGS);
     }
 
     public static function getNavigationBadge(): ?string
@@ -62,9 +63,7 @@ class ZaloTokenSettings extends Page
     public int $expires_in = 86400;
 
     /** Không bao giờ nạp token đã lưu vào giao diện: ô nhập luôn trống, chỉ hiện trạng thái. */
-    public function mount(): void
-    {
-    }
+    public function mount(): void {}
 
     public function form(Form $form): Form
     {
@@ -221,7 +220,7 @@ class ZaloTokenSettings extends Page
 
         // Token đã lưu (chỉ cho biết có/không và 4 ký tự cuối để nhận diện, không bao giờ hiện đầy đủ)
         $tail = substr((string) ZaloTokenService::decode($row->access_token), -4);
-        $html .= "<div style='margin-bottom:10px;font-size:var(--fs-sm)'>Token đã lưu và mã hóa trong hệ thống · Access token kết thúc bằng <code>…".e($tail)."</code></div>";
+        $html .= "<div style='margin-bottom:10px;font-size:var(--fs-sm)'>Token đã lưu và mã hóa trong hệ thống · Access token kết thúc bằng <code>…".e($tail).'</code></div>';
 
         // Giải thích cơ chế
         $html .= "<div style='margin-top:12px;padding:12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;font-size:var(--fs-sm);color:#475569'>

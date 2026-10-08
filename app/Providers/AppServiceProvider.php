@@ -2,10 +2,15 @@
 
 namespace App\Providers;
 
+use App\Support\AdminAccess;
+use Illuminate\Auth\Events\Login;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
+use Modules\Core\Models\User;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -26,10 +31,10 @@ class AppServiceProvider extends ServiceProvider
         app()->setLocale('vi');
 
         // Ghi nhận lần đăng nhập gần nhất của tài khoản quản trị (trang quản trị trước đây không ghi).
-        \Illuminate\Support\Facades\Event::listen(\Illuminate\Auth\Events\Login::class, function ($event) {
+        Event::listen(Login::class, function ($event) {
             $user = $event->user;
-            if ($user instanceof \Modules\Core\Models\User && in_array($user->user_type, ['admin', 'subadmin', 'city_manager', 'call_center'], true)) {
-                \Illuminate\Support\Facades\DB::table('users')->where('id', $user->id)->update(['last_login_at' => now()]);
+            if ($user instanceof User && AdminAccess::isAdminType($user)) {
+                DB::table('users')->where('id', $user->id)->update(['last_login_at' => now()]);
             }
         });
 

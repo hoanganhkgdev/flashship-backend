@@ -6,8 +6,8 @@ use App\Filament\Resources\AdminUserResource\Pages;
 use App\Filament\Traits\RestrictToFullAdmin;
 use App\Services\AdminAccountService;
 use Filament\Forms;
-use Filament\Notifications\Notification;
 use Filament\Forms\Form;
+use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Filters\SelectFilter;
@@ -46,7 +46,7 @@ class AdminUserResource extends Resource
 
     public static function getEloquentQuery(): Builder
     {
-        return parent::getEloquentQuery()->whereIn('user_type', ['admin', 'subadmin', 'city_manager', 'call_center']);
+        return parent::getEloquentQuery()->whereIn('user_type', array_keys(AdminAccountService::ROLES));
     }
 
     public static function form(Form $form): Form
@@ -93,8 +93,8 @@ class AdminUserResource extends Resource
                             ->orderBy('name')
                             ->pluck('name', 'id'))
                         ->searchable()
-                        ->visible(fn (Forms\Get $get) => in_array($get('user_type'), ['city_manager', 'call_center']))
-                        ->required(fn (Forms\Get $get) => in_array($get('user_type'), ['city_manager', 'call_center'])),
+                        ->visible(fn (Forms\Get $get) => in_array($get('user_type'), ['city_manager', 'call_center', 'viewer'], true))
+                        ->required(fn (Forms\Get $get) => in_array($get('user_type'), ['city_manager', 'call_center', 'viewer'], true)),
 
                     Forms\Components\Select::make('status')
                         ->label('Trạng thái')
@@ -132,7 +132,7 @@ class AdminUserResource extends Resource
                     ->badge()
                     ->formatStateUsing(fn ($state) => AdminAccountService::ROLES[$state] ?? $state)
                     ->color(fn ($state) => match ($state) {
-                        'admin' => 'danger', 'subadmin' => 'warning', 'city_manager' => 'info', 'call_center' => 'success', default => 'gray',
+                        'admin' => 'danger', 'city_manager' => 'info', 'call_center' => 'success', 'accountant' => 'warning', 'viewer' => 'gray', default => 'gray',
                     }),
 
                 Tables\Columns\TextColumn::make('city.name')->label('Khu vực')->default('Tất cả')->badge()->color('gray'),
@@ -146,8 +146,12 @@ class AdminUserResource extends Resource
                 Tables\Columns\TextColumn::make('status')
                     ->label('Trạng thái')
                     ->badge()
-                    ->formatStateUsing(fn ($state) => match ((int) $state) { 1 => 'Hoạt động', 2 => 'Bị khóa', default => 'Không rõ' })
-                    ->color(fn ($state) => match ((int) $state) { 1 => 'success', 2 => 'danger', default => 'gray' }),
+                    ->formatStateUsing(fn ($state) => match ((int) $state) {
+                        1 => 'Hoạt động', 2 => 'Bị khóa', default => 'Không rõ'
+                    })
+                    ->color(fn ($state) => match ((int) $state) {
+                        1 => 'success', 2 => 'danger', default => 'gray'
+                    }),
 
                 Tables\Columns\TextColumn::make('created_at')->label('Ngày tạo')->dateTime('d/m/Y')->sortable(),
             ])

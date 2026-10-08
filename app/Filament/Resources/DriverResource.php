@@ -4,8 +4,10 @@ namespace App\Filament\Resources;
 
 use App\Filament\Resources\DriverResource\Pages;
 use App\Filament\Resources\DriverResource\RelationManagers;
-use App\Filament\Traits\HideFromCityManager;
 use App\Services\DriverAccountService;
+use App\Support\AdminAccess;
+use Carbon\Carbon;
+use Filament\Actions\DeleteAction;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Notifications\Notification;
@@ -14,23 +16,20 @@ use Filament\Tables;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Redis;
 use Illuminate\Support\HtmlString;
+use Illuminate\Support\Str;
 use Modules\Core\Models\User;
 use Modules\Core\Services\RTDBService;
-use Modules\Driver\Models\DriverShiftSession;
 use Modules\Order\Models\Order;
-use Modules\Order\Models\OrderDispatchLog;
-use Modules\Order\Services\DispatchService;
 
 class DriverResource extends Resource
 {
     public static function canAccess(): bool
     {
-        return ! auth()->user()?->isCallCenter() && static::canViewAny();
+        return AdminAccess::allows(auth()->user(), AdminAccess::OPERATIONS_MANAGE);
     }
-
-    use HideFromCityManager;
 
     protected static ?string $model = User::class;
 
@@ -96,7 +95,7 @@ class DriverResource extends Resource
      * Cấu hình dùng chung cho nút Xóa tài xế (bảng + trang hồ sơ).
      * Xóa cứng: kéo theo ví, công nợ, lịch sử điểm, ca; đơn đã xong mất tham chiếu tài xế.
      */
-    public static function configureDeleteAction(Tables\Actions\DeleteAction|\Filament\Actions\DeleteAction $action): void
+    public static function configureDeleteAction(Tables\Actions\DeleteAction|DeleteAction $action): void
     {
         $action
             ->modalHeading('Xóa tài xế')
@@ -121,7 +120,7 @@ class DriverResource extends Resource
                 try {
                     Redis::del("dispatch:lock:driver:{$record->id}");
                 } catch (\Throwable $e) {
-                    \Illuminate\Support\Facades\Log::warning('[DriverDelete] Redis cleanup failed: '.$e->getMessage());
+                    Log::warning('[DriverDelete] Redis cleanup failed: '.$e->getMessage());
                 }
             })
             ->successNotificationTitle('Đã xóa tài xế');
@@ -231,8 +230,8 @@ class DriverResource extends Resource
     {
         return match ((int) $record->status) {
             0 => 'Chờ '.(int) $record->created_at->diffInDays(now()).' ngày',
-            2 => ($record->last_locked_at ? 'Khóa '.\Carbon\Carbon::parse($record->last_locked_at)->format('d/m/Y') : 'Khóa (chưa ghi lý do)')
-                .($record->last_lock_reason ? ' · '.\Illuminate\Support\Str::limit($record->last_lock_reason, 26) : ''),
+            2 => ($record->last_locked_at ? 'Khóa '.Carbon::parse($record->last_locked_at)->format('d/m/Y') : 'Khóa (chưa ghi lý do)')
+                .($record->last_lock_reason ? ' · '.Str::limit($record->last_lock_reason, 26) : ''),
             default => $record->active_orders_count > 0
                 ? $record->active_orders_count.' đơn đang chạy'
                 : ($record->is_online ? 'Cờ online' : 'Offline'),
@@ -286,7 +285,7 @@ class DriverResource extends Resource
                     ->label('Điểm')
                     ->formatStateUsing(fn ($state): string => (string) ($state ?? 80))
                     ->color(fn ($state): ?string => ($state ?? 80) < self::LOW_SCORE ? 'danger' : null)
-                    ->description(fn (User $record): string => \Illuminate\Support\Str::limit($record->registeredShifts->pluck('name')->implode(', ') ?: 'Chưa đăng ký ca', 20))
+                    ->description(fn (User $record): string => Str::limit($record->registeredShifts->pluck('name')->implode(', ') ?: 'Chưa đăng ký ca', 20))
                     ->sortable(),
 
                 Tables\Columns\TextColumn::make('created_at')

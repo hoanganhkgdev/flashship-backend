@@ -3,7 +3,7 @@
 namespace App\Filament\Resources;
 
 use App\Filament\Resources\WithdrawRequestResource\Pages;
-use App\Filament\Traits\RestrictToFullAdmin;
+use App\Filament\Traits\RestrictToFinance;
 use App\Services\WithdrawService;
 use Filament\Facades\Filament;
 use Filament\Forms;
@@ -20,7 +20,7 @@ use Modules\Driver\Models\WithdrawRequest;
 
 class WithdrawRequestResource extends Resource
 {
-    use RestrictToFullAdmin;
+    use RestrictToFinance;
 
     // WithdrawRequest không có city_id trực tiếp — khu vực xác định qua driver_id -> users.city_id.
     public static function scopeEloquentQueryToTenant(Builder $query, ?Model $tenant): Builder

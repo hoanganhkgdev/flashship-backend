@@ -4,6 +4,7 @@ namespace App\Filament\Resources\OrderResource\Pages;
 
 use App\Filament\Pages\CallCenterPage;
 use App\Filament\Resources\OrderResource;
+use App\Support\AdminAccess;
 use Filament\Actions;
 use Filament\Resources\Pages\ViewRecord;
 use Modules\Order\Models\Order;
@@ -29,7 +30,7 @@ class ViewOrder extends ViewRecord
                 ->label('Gán tài xế')
                 ->icon('heroicon-o-user-plus')
                 ->color('info')
-                ->visible(fn (): bool => $this->record->status === 'pending')
+                ->visible(fn (): bool => AdminAccess::allows(auth()->user(), AdminAccess::ORDERS_MANAGE) && $this->record->status === 'pending')
                 ->modalHeading(fn (): string => 'Gán tài xế cho đơn #'.$this->record->code)
                 ->modalDescription('Đơn sẽ ngừng tìm tự động và chuyển thẳng vào danh sách đã nhận của tài xế.')
                 ->form(fn (): array => OrderResource::manualAssignmentForm($this->record))
@@ -42,7 +43,7 @@ class ViewOrder extends ViewRecord
                 ->label('Đặt lại đơn')
                 ->icon('heroicon-o-arrow-path')
                 ->color('gray')
-                ->visible(fn (Order $record): bool => in_array($record->status, ['cancelled', 'completed']))
+                ->visible(fn (Order $record): bool => AdminAccess::allows(auth()->user(), AdminAccess::ORDERS_MANAGE) && in_array($record->status, ['cancelled', 'completed']))
                 ->url(fn (Order $record): string => CallCenterPage::getUrl().'?'.http_build_query(array_filter([
                     'reorder' => $record->id,
                     'service' => $record->service_type,

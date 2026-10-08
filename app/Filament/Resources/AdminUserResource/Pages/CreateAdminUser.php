@@ -22,7 +22,7 @@ class CreateAdminUser extends CreateRecord
 
     protected function mutateFormDataBeforeCreate(array $data): array
     {
-        $data['user_type'] = $data['user_type'] ?? 'subadmin';
+        $data['user_type'] = $data['user_type'] ?? 'call_center';
 
         return $data;
     }

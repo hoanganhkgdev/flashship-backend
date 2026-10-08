@@ -4,6 +4,7 @@ namespace App\Filament\Resources;
 
 use App\Filament\Resources\DriverLeaveRequestResource\Pages;
 use App\Services\DriverLeaveService;
+use App\Support\AdminAccess;
 use Carbon\Carbon;
 use Filament\Facades\Filament;
 use Filament\Forms;
@@ -14,6 +15,7 @@ use Filament\Tables;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\HtmlString;
 use Modules\Core\Models\User;
 use Modules\Driver\Models\DriverLeaveRequest;
@@ -22,7 +24,7 @@ class DriverLeaveRequestResource extends Resource
 {
     public static function canAccess(): bool
     {
-        return in_array(auth()->user()?->user_type, ['admin', 'subadmin', 'city_manager']) && static::canViewAny();
+        return AdminAccess::allows(auth()->user(), AdminAccess::OPERATIONS_MANAGE);
     }
 
     // DriverLeaveRequest không có city_id trực tiếp — khu vực xác định qua driver_id -> users.city_id.
@@ -63,14 +65,14 @@ class DriverLeaveRequestResource extends Resource
     {
         return parent::getEloquentQuery()->with(['driver.city', 'driver.registeredShifts', 'creator'])
             ->addSelect([
-                'recent_leaves' => \Illuminate\Support\Facades\DB::table('driver_leave_requests as l2')->selectRaw('COUNT(*)')
+                'recent_leaves' => DB::table('driver_leave_requests as l2')->selectRaw('COUNT(*)')
                     ->whereColumn('l2.driver_id', 'driver_leave_requests.driver_id')
                     ->where('l2.leave_date', '>=', today()->subDays(30)->toDateString())->where('l2.leave_date', '<=', today()->toDateString()),
-                'worked_before' => \Illuminate\Support\Facades\DB::table('orders as o')->selectRaw('COUNT(*)')
+                'worked_before' => DB::table('orders as o')->selectRaw('COUNT(*)')
                     ->whereColumn('o.delivery_man_id', 'driver_leave_requests.driver_id')->where('o.status', 'completed')
                     ->whereColumn('o.completed_at', '<=', 'driver_leave_requests.created_at')
                     ->whereRaw('DATE(o.completed_at) = driver_leave_requests.leave_date'),
-                'has_shift' => \Illuminate\Support\Facades\DB::table('shift_user as su')->selectRaw('COUNT(*) > 0')
+                'has_shift' => DB::table('shift_user as su')->selectRaw('COUNT(*) > 0')
                     ->whereColumn('su.user_id', 'driver_leave_requests.driver_id'),
             ]);
     }
@@ -190,7 +192,7 @@ class DriverLeaveRequestResource extends Resource
             ->modalDescription(fn (DriverLeaveRequest $r) => 'Hủy sẽ cho '.$r->driver?->name.' bật online và nhận đơn trở lại'.($r->leave_date->isToday() ? ' ngay hôm nay' : '').', và ngày này bị chấm điểm ca bình thường. Việc hủy được ghi nhật ký.')
             ->form([Forms\Components\Textarea::make('reason')->label('Lý do hủy')->required()->minLength(3)->maxLength(250)->rows(2)])
             ->action(function (DriverLeaveRequest $record, array $data): void {
-                $res = \App\Services\DriverLeaveService::cancel($record, $data['reason'], auth()->id());
+                $res = DriverLeaveService::cancel($record, $data['reason'], auth()->id());
                 Notification::make()->title($res['message'])->{$res['ok'] ? 'success' : 'danger'}()->send();
             });
     }

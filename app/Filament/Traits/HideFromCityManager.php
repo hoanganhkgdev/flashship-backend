@@ -2,10 +2,12 @@
 
 namespace App\Filament\Traits;
 
+use App\Support\AdminAccess;
+
 trait HideFromCityManager
 {
     public static function canViewAny(): bool
     {
-        return auth()->user()?->user_type !== 'city_manager';
+        return AdminAccess::allows(auth()->user(), AdminAccess::SYSTEM_SETTINGS);
     }
 }

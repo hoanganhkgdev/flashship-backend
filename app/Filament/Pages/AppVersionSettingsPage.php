@@ -5,6 +5,7 @@ namespace App\Filament\Pages;
 use App\Models\AppVersionSetting;
 use App\Services\AppVersionPolicy;
 use App\Services\CatalogService;
+use App\Support\AdminAccess;
 use Filament\Actions\Action;
 use Filament\Forms;
 use Filament\Forms\Components\Section;
@@ -42,7 +43,7 @@ class AppVersionSettingsPage extends Page implements HasForms
 
     public static function canAccess(): bool
     {
-        return ! in_array(auth()->user()?->user_type, ['city_manager', 'call_center']);
+        return AdminAccess::allows(auth()->user(), AdminAccess::SYSTEM_SETTINGS);
     }
 
     public array $data = [];

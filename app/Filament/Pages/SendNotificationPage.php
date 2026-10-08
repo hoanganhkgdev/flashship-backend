@@ -5,6 +5,7 @@ namespace App\Filament\Pages;
 use App\Jobs\SendNotificationCampaignJob;
 use App\Models\NotificationCampaign;
 use App\Services\NotificationCampaignService;
+use App\Support\AdminAccess;
 use Carbon\Carbon;
 use Filament\Actions\Action;
 use Filament\Facades\Filament;
@@ -19,6 +20,7 @@ use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\HtmlString;
+use Illuminate\Support\Str;
 use Modules\Core\Models\User;
 use Modules\Core\Services\FCMService;
 use Modules\Customer\Http\Controllers\CustomerNotificationController;
@@ -29,7 +31,7 @@ class SendNotificationPage extends Page implements HasTable
 
     public static function canAccess(): bool
     {
-        return ! auth()->user()?->isCallCenter();
+        return AdminAccess::allows(auth()->user(), AdminAccess::OPERATIONS_MANAGE);
     }
 
     protected static ?string $navigationIcon = 'heroicon-o-bell-alert';
@@ -67,7 +69,7 @@ class SendNotificationPage extends Page implements HasTable
     /** Chỉ admin/subadmin gửi được cho khách toàn hệ thống. */
     private function canManageAllCities(): bool
     {
-        return in_array(auth()->user()?->user_type, ['admin', 'subadmin']);
+        return AdminAccess::allows(auth()->user(), AdminAccess::SYSTEM_SETTINGS);
     }
 
     private function cityId(): ?int
@@ -355,7 +357,7 @@ class SendNotificationPage extends Page implements HasTable
                     ->searchable()
                     ->weight('bold')
                     ->limit(48)
-                    ->description(fn (NotificationCampaign $r): string => \Illuminate\Support\Str::limit($r->body, 70))
+                    ->description(fn (NotificationCampaign $r): string => Str::limit($r->body, 70))
                     ->wrap(),
 
                 Tables\Columns\TextColumn::make('scope')

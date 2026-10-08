@@ -2,6 +2,7 @@
 
 namespace Modules\Core\Models;
 
+use App\Support\AdminAccess;
 use Filament\Models\Contracts\FilamentUser;
 use Filament\Models\Contracts\HasDefaultTenant;
 use Filament\Models\Contracts\HasTenants;
@@ -20,6 +21,7 @@ use Modules\Driver\Models\DriverLicense;
 use Modules\Driver\Models\DriverScoreLog;
 use Modules\Driver\Models\DriverScoreSettlement;
 use Modules\Driver\Models\DriverWallet;
+use Modules\Driver\Services\ReferralService;
 use Modules\Order\Models\Order;
 use Spatie\Permission\Traits\HasRoles;
 
@@ -32,6 +34,14 @@ class User extends Authenticatable implements FilamentUser, HasDefaultTenant, Ha
     const ROLE_ADMIN = 'admin';
 
     const ROLE_SUBADMIN = 'subadmin';
+
+    const ROLE_CITY_MANAGER = 'city_manager';
+
+    const ROLE_CALL_CENTER = 'call_center';
+
+    const ROLE_ACCOUNTANT = 'accountant';
+
+    const ROLE_VIEWER = 'viewer';
 
     const ROLE_DRIVER = 'driver';
 
@@ -90,7 +100,7 @@ class User extends Authenticatable implements FilamentUser, HasDefaultTenant, Ha
         // Mỗi tài xế và mỗi shop có một mã giới thiệu cố định ngay khi được tạo.
         static::creating(function (User $user) {
             if (in_array($user->user_type, ['driver', 'shop'], true) && empty($user->referral_code)) {
-                $user->referral_code = \Modules\Driver\Services\ReferralService::generateUniqueCode();
+                $user->referral_code = ReferralService::generateUniqueCode();
             }
         });
     }
@@ -255,13 +265,18 @@ class User extends Authenticatable implements FilamentUser, HasDefaultTenant, Ha
 
     public function canAccessPanel(Panel $panel): bool
     {
-        return in_array($this->user_type, ['admin', 'subadmin', 'city_manager', 'call_center']);
+        return AdminAccess::isAdminType($this) && (int) $this->status === 1;
     }
 
     // ─── Filament Tenancy (khu vực quản lý) ────────────────────────────────
     // admin/subadmin quản lý xuyên suốt mọi thành phố; city_manager/call_center
     // chỉ quản lý đúng thành phố gán ở city_id.
-    const TENANT_UNRESTRICTED_TYPES = ['admin', 'subadmin'];
+    const TENANT_UNRESTRICTED_TYPES = ['admin', 'subadmin', 'accountant'];
+
+    public function canAdmin(string $permission): bool
+    {
+        return AdminAccess::allows($this, $permission);
+    }
 
     public function getTenants(Panel $panel): Collection
     {

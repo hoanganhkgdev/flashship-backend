@@ -5,6 +5,7 @@ namespace App\Filament\Pages;
 use App\Filament\Resources\OrderResource;
 use App\Services\DispatchMonitorReport;
 use App\Services\DriverSupplyService;
+use App\Support\AdminAccess;
 use Filament\Actions\Action;
 use Filament\Facades\Filament;
 use Filament\Forms;
@@ -20,7 +21,7 @@ class DispatchMonitorPage extends Page
     {
         // Tổng đài cần theo dõi tiến trình phát để xử lý đơn chờ lâu.
         // Dữ liệu trên trang luôn bị khóa theo tenant/khu vực hiện tại.
-        return true;
+        return AdminAccess::allows(auth()->user(), AdminAccess::OPERATIONS_VIEW);
     }
 
     protected static ?string $navigationIcon = 'heroicon-o-signal';

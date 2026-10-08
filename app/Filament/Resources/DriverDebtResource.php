@@ -3,7 +3,7 @@
 namespace App\Filament\Resources;
 
 use App\Filament\Resources\DriverDebtResource\Pages;
-use App\Filament\Traits\RestrictToFullAdmin;
+use App\Filament\Traits\RestrictToFinance;
 use App\Services\DriverDebtService;
 use Carbon\Carbon;
 use Filament\Facades\Filament;
@@ -21,7 +21,7 @@ use Modules\Driver\Models\DriverDebt;
 
 class DriverDebtResource extends Resource
 {
-    use RestrictToFullAdmin;
+    use RestrictToFinance;
 
     // DriverDebt không có city_id trực tiếp — khu vực xác định qua driver_id -> users.city_id.
     public static function scopeEloquentQueryToTenant(Builder $query, ?Model $tenant): Builder

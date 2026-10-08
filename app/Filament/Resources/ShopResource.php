@@ -4,7 +4,8 @@ namespace App\Filament\Resources;
 
 use App\Filament\Resources\ShopResource\Pages;
 use App\Filament\Resources\ShopResource\RelationManagers;
-use App\Filament\Traits\HideFromCityManager;
+use App\Support\AdminAccess;
+use Carbon\Carbon;
 use Filament\Facades\Filament;
 use Filament\Forms;
 use Filament\Forms\Form;
@@ -16,16 +17,15 @@ use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Modules\Core\Models\User;
 
 class ShopResource extends Resource
 {
     public static function canAccess(): bool
     {
-        return ! auth()->user()?->isCallCenter() && static::canViewAny();
+        return AdminAccess::allows(auth()->user(), AdminAccess::OPERATIONS_MANAGE);
     }
-
-    use HideFromCityManager;
 
     protected static ?string $model = User::class;
 
@@ -159,7 +159,7 @@ class ShopResource extends Resource
         // Tổng đơn từ app cửa hàng của khu vực, để tính tỷ trọng đóng góp của từng shop.
         $regionOrders = (int) DB::table('orders')->where('platform', 'shop_app')->where('city_id', $cityId)->count();
         $lastActivity = fn (User $record): ?\Carbon\Carbon => $record->last_activity_at && ! str_starts_with((string) $record->last_activity_at, '1970')
-            ? \Carbon\Carbon::parse($record->last_activity_at) : null;
+            ? Carbon::parse($record->last_activity_at) : null;
 
         return $table
             ->columns([
@@ -169,7 +169,7 @@ class ShopResource extends Resource
                     ->sortable()
                     ->limit(32)
                     ->color(fn (User $record): ?string => $record->status == 2 ? 'danger' : null)
-                    ->description(fn (User $record) => ($record->status == 2 ? '🔒 Bị khóa · ' : '').$record->phone.' · '.\Illuminate\Support\Str::limit($record->address ?: '—', 16).($record->shares_driver_phone ? ' · ⚠ Trùng SĐT tài xế' : '')),
+                    ->description(fn (User $record) => ($record->status == 2 ? '🔒 Bị khóa · ' : '').$record->phone.' · '.Str::limit($record->address ?: '—', 16).($record->shares_driver_phone ? ' · ⚠ Trùng SĐT tài xế' : '')),
 
                 Tables\Columns\TextColumn::make('completed_orders_count')
                     ->label('Đơn hoàn thành')

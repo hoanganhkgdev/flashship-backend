@@ -4,10 +4,12 @@ namespace App\Filament\Resources;
 
 use App\Filament\Resources\ShiftResource\Pages;
 use App\Services\ShiftService;
+use App\Support\AdminAccess;
+use Carbon\Carbon;
 use Filament\Facades\Filament;
-use Filament\Notifications\Notification;
 use Filament\Forms;
 use Filament\Forms\Form;
+use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
@@ -18,7 +20,7 @@ class ShiftResource extends Resource
 {
     public static function canAccess(): bool
     {
-        return in_array(auth()->user()?->user_type, ['admin', 'subadmin', 'city_manager']);
+        return AdminAccess::allows(auth()->user(), AdminAccess::OPERATIONS_MANAGE);
     }
 
     protected static ?string $model = Shift::class;
@@ -187,8 +189,8 @@ class ShiftResource extends Resource
 
     public static function scheduleDescription(Shift $shift): string
     {
-        $start = \Carbon\Carbon::parse($shift->start_time);
-        $end = \Carbon\Carbon::parse($shift->end_time);
+        $start = Carbon::parse($shift->start_time);
+        $end = Carbon::parse($shift->end_time);
         $crossesMidnight = $end->lessThanOrEqualTo($start);
         if ($crossesMidnight) {
             $end->addDay();

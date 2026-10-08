@@ -7,18 +7,20 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Schema;
+use Modules\Core\Models\ConfigLog;
 use Modules\Core\Models\User;
 
 /** Chốt chặn và thao tác có nhật ký cho tài khoản quản trị. */
 class AdminAccountService
 {
-    public const ROLES = ['admin' => 'Quản trị viên', 'subadmin' => 'Quản trị viên phụ', 'city_manager' => 'Quản lý khu vực', 'call_center' => 'Tổng đài viên'];
+    public const ROLES = ['admin' => 'Quản trị hệ thống', 'city_manager' => 'Quản lý khu vực', 'call_center' => 'Tổng đài viên', 'accountant' => 'Kế toán', 'viewer' => 'Chỉ xem báo cáo'];
 
     public const ROLE_DESCRIPTIONS = [
-        'admin' => 'Toàn quyền: tiền, điểm, giá cước, tài khoản quản trị và cấu hình hệ thống.',
-        'subadmin' => 'Quản lý mọi khu vực nhưng không vào được tiền (ví, công nợ, rút tiền), điểm, giá và tài khoản quản trị.',
-        'city_manager' => 'Chỉ khu vực được gán; không vào được cấu hình hệ thống và các mục chỉ dành cho quản trị.',
-        'call_center' => 'Chỉ khu vực được gán; chỉ tổng đài đặt đơn và đơn hàng.',
+        'admin' => 'Toàn quyền: vận hành, tài chính, cấu hình hệ thống và tài khoản quản trị.',
+        'city_manager' => 'Quản lý vận hành, tài xế, shop và đơn hàng trong khu vực được gán; không xem tài chính.',
+        'call_center' => 'Tạo, theo dõi, điều phối và xử lý đơn trong khu vực được gán.',
+        'accountant' => 'Xem báo cáo; đối soát doanh thu, ví, công nợ và yêu cầu rút tiền; không điều phối đơn.',
+        'viewer' => 'Chỉ xem dashboard, đơn hàng, chợ đơn và báo cáo trong khu vực được gán; không được thay đổi dữ liệu.',
     ];
 
     public static function activeAdmins(): int
@@ -138,9 +140,9 @@ class AdminAccountService
         ];
     }
 
-    /** @return Collection<int, \Modules\Core\Models\ConfigLog> */
+    /** @return Collection<int, ConfigLog> */
     public static function recentLogs(int $limit = 8): Collection
     {
-        return \Modules\Core\Models\ConfigLog::where('entity', 'admin_user')->latest('id')->limit($limit)->get();
+        return ConfigLog::where('entity', 'admin_user')->latest('id')->limit($limit)->get();
     }
 }

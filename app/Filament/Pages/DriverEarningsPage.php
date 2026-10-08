@@ -3,9 +3,11 @@
 namespace App\Filament\Pages;
 
 use App\Filament\Pages\Concerns\BuildsReportSeries;
+use App\Support\AdminAccess;
 use Carbon\Carbon;
 use Filament\Facades\Filament;
 use Filament\Pages\Page;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
@@ -63,7 +65,7 @@ class DriverEarningsPage extends Page
 
     public static function canAccess(): bool
     {
-        return in_array(auth()->user()?->user_type, ['admin']);
+        return AdminAccess::allows(auth()->user(), AdminAccess::FINANCE_VIEW);
     }
 
     public function mount(): void
@@ -232,7 +234,7 @@ class DriverEarningsPage extends Page
         })->all();
     }
 
-    /** @return \Illuminate\Support\Collection<int, int> driver_id => số tiền ghi có theo mẫu reference */
+    /** @return Collection<int, int> driver_id => số tiền ghi có theo mẫu reference */
     private function walletCredits(array $driverIds, string $referenceLike, Carbon $from, Carbon $to)
     {
         return DB::table('driver_wallet_transactions as t')

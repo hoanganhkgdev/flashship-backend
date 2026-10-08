@@ -2,7 +2,8 @@
 
 namespace App\Livewire;
 
-use Illuminate\Support\Facades\DB;
+use App\Support\AdminAccess;
+use Filament\Facades\Filament;
 use Livewire\Component;
 use Modules\Core\Models\City;
 
@@ -23,17 +24,22 @@ class RainModeControl extends Component
     public function canManage(): bool
     {
         $user = auth()->user();
-        return in_array($user?->user_type, ['admin', 'city_manager', 'call_center']);
+
+        return AdminAccess::allows($user, AdminAccess::OPERATIONS_MANAGE);
     }
 
     public function getCitiesProperty()
     {
-        if (!auth()->user()) return collect();
+        if (! auth()->user()) {
+            return collect();
+        }
 
         // Chỉ điều khiển đúng khu vực (tenant) đang đứng — đổi khu vực thì
         // dùng bộ chuyển tenant trên topbar, không cần danh sách riêng ở đây.
-        $tenantId = \Filament\Facades\Filament::getTenant()?->id;
-        if (!$tenantId) return collect();
+        $tenantId = Filament::getTenant()?->id;
+        if (! $tenantId) {
+            return collect();
+        }
 
         return City::where('id', $tenantId)->get(['id', 'name', 'is_rain_mode', 'rain_mode_started_at']);
     }
@@ -41,28 +47,32 @@ class RainModeControl extends Component
     public function toggleCity(int $cityId): void
     {
         $user = auth()->user();
-        if (!$this->canManage()) return;
+        if (! $this->canManage()) {
+            return;
+        }
 
         // Chặn cứng phía server: chỉ được đụng đúng khu vực (tenant) đang
         // đứng, không chỉ ẩn UI (UI có thể bị qua mặt).
-        if (\Filament\Facades\Filament::getTenant()?->id !== $cityId) {
+        if (Filament::getTenant()?->id !== $cityId) {
             return;
         }
 
         $city = City::find($cityId);
-        if (!$city) return;
+        if (! $city) {
+            return;
+        }
 
         if ($city->is_rain_mode) {
             $city->update([
-                'is_rain_mode'          => false,
-                'rain_mode_started_at'  => null,
-                'rain_mode_by'          => null,
+                'is_rain_mode' => false,
+                'rain_mode_started_at' => null,
+                'rain_mode_by' => null,
             ]);
         } else {
             $city->update([
-                'is_rain_mode'          => true,
-                'rain_mode_started_at'  => now(),
-                'rain_mode_by'          => $user->id,
+                'is_rain_mode' => true,
+                'rain_mode_started_at' => now(),
+                'rain_mode_by' => $user->id,
             ]);
         }
     }

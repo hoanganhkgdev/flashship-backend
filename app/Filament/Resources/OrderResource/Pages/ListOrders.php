@@ -6,6 +6,7 @@ use App\Filament\Pages\CallCenterPage;
 use App\Filament\Resources\OrderResource;
 use App\Filament\Resources\OrderResource\Widgets\OrderListSummaryWidget;
 use App\Filament\Resources\OrderResource\Widgets\OrderOpsWidget;
+use App\Support\AdminAccess;
 use App\Support\OrderListPresenter;
 use Filament\Actions;
 use Filament\Facades\Filament;
@@ -57,7 +58,7 @@ class ListOrders extends ListRecords
                 ->label('Xuất CSV')
                 ->icon('heroicon-o-arrow-down-tray')
                 ->color('gray')
-                ->visible(fn (): bool => auth()->user()?->user_type === 'admin')
+                ->visible(fn (): bool => AdminAccess::allows(auth()->user(), AdminAccess::EXPORT_DATA))
                 ->action(fn () => $this->exportCsv()),
             Actions\Action::make('createFromCallCenter')
                 ->label('Tạo đơn mới')
@@ -159,7 +160,7 @@ class ListOrders extends ListRecords
     /** Xuất đúng kết quả đang lọc/tìm/tab (tối đa 20.000 đơn). Chỉ quản trị viên đầy đủ. */
     public function exportCsv()
     {
-        abort_unless(auth()->user()?->user_type === 'admin', 403);
+        abort_unless(AdminAccess::allows(auth()->user(), AdminAccess::EXPORT_DATA), 403);
 
         $query = $this->getFilteredSortedTableQuery()->with(['city:id,name', 'driver:id,name,phone', 'sender:id,name,phone', 'creator:id,name'])->limit(self::EXPORT_LIMIT);
         $statuses = ['pending' => 'Chờ tài xế', 'assigned' => 'Đã phân công', 'processing' => 'Đã lấy hàng', 'completed' => 'Hoàn thành', 'cancelled' => 'Đã hủy'];

@@ -4,6 +4,7 @@ namespace App\Filament\Pages;
 
 use App\Filament\Resources\DriverResource;
 use App\Filament\Resources\OrderResource;
+use App\Support\AdminAccess;
 use Filament\Actions\Action;
 use Filament\Facades\Filament;
 use Filament\Pages\Page;
@@ -19,7 +20,7 @@ class DriverMapPage extends Page
     // client chỉ lấy từ dbMeta đã lọc khu vực, không đọc thẳng toàn bộ RTDB.
     public static function canAccess(): bool
     {
-        return true;
+        return AdminAccess::allows(auth()->user(), AdminAccess::OPERATIONS_VIEW);
     }
 
     protected static ?string $navigationIcon = 'heroicon-o-map-pin';
@@ -183,13 +184,13 @@ class DriverMapPage extends Page
             ->modalHeading(fn (array $arguments) => ($o = $order($arguments)) ? 'Gán tài xế cho đơn #'.$o->code : 'Gán tài xế')
             ->modalDescription('Đơn sẽ ngừng tìm tự động và chuyển thẳng vào danh sách đã nhận của tài xế.')
             ->form(fn (array $arguments) => ($o = $order($arguments)) ? OrderResource::manualAssignmentForm($o) : [])
-            ->fillForm(function (array $arguments) use ($order): array {
+            ->fillForm(function (array $arguments): array {
                 $driver = (int) ($arguments['driver'] ?? 0);
 
                 return $driver && in_array($driver, $this->eligibleDriverIds((int) ($arguments['order'] ?? 0)), true) ? ['driver_id' => $driver] : [];
             })
             ->action(function (array $arguments, array $data) use ($order): void {
-                OrderResource::assignDriverManually($order($arguments) ?? new Order(), $data);
+                OrderResource::assignDriverManually($order($arguments) ?? new Order, $data);
                 $this->loadDriversMeta();
             });
     }

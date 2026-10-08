@@ -4,32 +4,54 @@ namespace App\Filament\Resources;
 
 use App\Filament\Pages\CallCenterPage;
 use App\Filament\Resources\OrderResource\Pages;
+use App\Support\AdminAccess;
+use App\Support\OrderListPresenter as P;
 use Filament\Forms;
-use Illuminate\Support\Facades\DB;
 use Filament\Forms\Form;
 use Filament\Infolists;
 use Filament\Infolists\Infolist;
 use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
 use Filament\Tables;
+use Filament\Tables\Enums\FiltersLayout;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\HtmlString;
+use Illuminate\Support\Str;
 use Modules\Core\Models\ServiceType;
 use Modules\Core\Models\User;
-use Modules\Core\Services\OperationalSettings;
 use Modules\Core\Services\FCMService;
+use Modules\Core\Services\OperationalSettings;
 use Modules\Core\Services\RTDBService;
 use Modules\Order\Models\Order;
 use Modules\Order\Services\DispatchService;
 use Modules\Order\Services\OrderService;
 use Modules\Order\Services\OrderTimeline;
-use App\Support\OrderListPresenter as P;
-use Filament\Tables\Enums\FiltersLayout;
 
 class OrderResource extends Resource
 {
+    public static function canAccess(): bool
+    {
+        return AdminAccess::allows(auth()->user(), AdminAccess::ORDERS_VIEW);
+    }
+
+    public static function canCreate(): bool
+    {
+        return AdminAccess::allows(auth()->user(), AdminAccess::ORDERS_MANAGE);
+    }
+
+    public static function canEdit($record): bool
+    {
+        return AdminAccess::allows(auth()->user(), AdminAccess::ORDERS_MANAGE);
+    }
+
+    public static function canDelete($record): bool
+    {
+        return AdminAccess::allows(auth()->user(), AdminAccess::ORDERS_MANAGE);
+    }
+
     protected static ?string $model = Order::class;
 
     protected static ?string $navigationIcon = 'heroicon-o-shopping-bag';
@@ -205,6 +227,8 @@ class OrderResource extends Resource
 
     public static function assignDriverManually(Order $record, array $data): bool
     {
+        abort_unless(AdminAccess::allows(auth()->user(), AdminAccess::ORDERS_MANAGE), 403);
+
         $fresh = $record->fresh();
         if (! $fresh || $fresh->status !== 'pending') {
             Notification::make()
@@ -595,7 +619,7 @@ class OrderResource extends Resource
             ->icon('heroicon-o-user-plus')
             ->color('info')
             // $record null khi đơn vừa rời khỏi bảng trong lúc hộp thoại đang mở.
-            ->visible(fn (?Order $record) => $record?->status === 'pending')
+            ->visible(fn (?Order $record) => AdminAccess::allows(auth()->user(), AdminAccess::ORDERS_MANAGE) && $record?->status === 'pending')
             ->modalHeading(fn (?Order $record) => $record ? 'Gán tài xế cho đơn #'.$record->code : 'Gán tài xế')
             ->modalDescription('Đơn sẽ ngừng tìm tự động và chuyển thẳng vào danh sách đã nhận của tài xế.')
             ->form(fn (?Order $record): array => $record ? self::manualAssignmentForm($record) : [])
@@ -609,7 +633,7 @@ class OrderResource extends Resource
             ->label('Hủy đơn')
             ->icon('heroicon-o-x-circle')
             ->color('danger')
-            ->visible(fn (?Order $record) => in_array($record?->status, ['pending', 'assigned', 'processing'], true))
+            ->visible(fn (?Order $record) => AdminAccess::allows(auth()->user(), AdminAccess::ORDERS_MANAGE) && in_array($record?->status, ['pending', 'assigned', 'processing'], true))
             ->modalHeading(fn (?Order $record) => $record ? 'Hủy đơn #'.$record->code : 'Hủy đơn')
             ->modalDescription(fn (?Order $record) => $record?->status === 'processing'
                 ? 'Đơn đã được tài xế bấm lấy hàng. Hủy sẽ chặn thanh toán freeship/bonus mưa khi hoàn thành; lý do và người thao tác được lưu để đối soát.'
@@ -624,6 +648,8 @@ class OrderResource extends Resource
 
     public static function cancelOrder(?Order $record, string $reason, ?string $note): bool
     {
+        abort_unless(AdminAccess::allows(auth()->user(), AdminAccess::ORDERS_MANAGE), 403);
+
         $fresh = $record?->fresh();
         if (! $fresh) {
             return self::notifyRecordGone();
@@ -662,13 +688,15 @@ class OrderResource extends Resource
             ->label('Hoàn thành đơn')
             ->icon('heroicon-o-check-circle')
             ->color('success')
-            ->visible(fn (?Order $record) => $record?->status === 'processing')
+            ->visible(fn (?Order $record) => AdminAccess::allows(auth()->user(), AdminAccess::ORDERS_MANAGE) && $record?->status === 'processing')
             ->requiresConfirmation()
             ->modalHeading('Hoàn thành đơn hàng')
             ->modalDescription(fn (?Order $record) => $record
                 ? 'Xác nhận tài xế đã giao xong đơn '.$record->code.'? Điểm, ví, voucher và các khoản thưởng sẽ được xử lý đầy đủ. Việc này được ghi lại là nhân viên xác nhận.'
                 : null)
             ->action(function (?Order $record) {
+                abort_unless(AdminAccess::allows(auth()->user(), AdminAccess::ORDERS_MANAGE), 403);
+
                 $fresh = $record?->fresh(['driver']);
                 if (! $fresh) {
                     self::notifyRecordGone();
@@ -704,7 +732,7 @@ class OrderResource extends Resource
             ? ' · <span class="fs-ol-wait'.(self::isStaleWait($o) ? ' is-alert' : '').'">chờ '.self::minutesLabel((int) $o->created_at->diffInMinutes(now())).'</span>'
             : ($o->status === 'completed' && $o->completed_at ? ' · giao '.self::minutesLabel((int) $o->created_at->diffInMinutes($o->completed_at)) : '');
 
-        return '<div class="fs-ol-order"><span class="fs-ol-l1"><b>#'.e($o->code).'</b><span class="fs-ol-svc" title="'.e($service).'">'.e(\Illuminate\Support\Str::limit((string) ($service ?: '—'), 14)).'</span></span>'
+        return '<div class="fs-ol-order"><span class="fs-ol-l1"><b>#'.e($o->code).'</b><span class="fs-ol-svc" title="'.e($service).'">'.e(Str::limit((string) ($service ?: '—'), 14)).'</span></span>'
             .'<span class="fs-ol-dim" title="'.e($o->created_at?->format('d/m/Y H:i:s')).'">'.e($o->created_at?->format('H:i · d/m')).$age.'</span></div>';
     }
 
@@ -816,7 +844,7 @@ class OrderResource extends Resource
                     ->orWhere('delivery_phone', 'like', "%{$tail}")
                     ->orWhereHas('driver', fn (Builder $d) => $d->where('phone', 'like', "%{$tail}"))
                     ->orWhereHas('sender', fn (Builder $d) => $d->where('phone', 'like', "%{$tail}")))
-                  ->orWhere(fn (Builder $text) => $matchTerms($text));
+                    ->orWhere(fn (Builder $text) => $matchTerms($text));
             });
         }
 
@@ -872,7 +900,7 @@ class OrderResource extends Resource
                 SelectFilter::make('platform')->label('Nguồn đơn')->options(['customer_app' => 'App khách hàng', 'shop_app' => 'App cửa hàng', 'call_center' => 'Tổng đài']),
                 SelectFilter::make('created_by')
                     ->label('Người tạo đơn')
-                    ->options(fn (): array => User::whereIn('id', \Illuminate\Support\Facades\DB::table('orders')->whereNotNull('created_by')->where('created_at', '>=', now()->subDays(90))->distinct()->pluck('created_by'))->orderBy('name')->pluck('name', 'id')->all()),
+                    ->options(fn (): array => User::whereIn('id', DB::table('orders')->whereNotNull('created_by')->where('created_at', '>=', now()->subDays(90))->distinct()->pluck('created_by'))->orderBy('name')->pluck('name', 'id')->all()),
                 SelectFilter::make('delivery_man_id')
                     ->label('Tài xế')
                     ->relationship('driver', 'name')
@@ -914,7 +942,7 @@ class OrderResource extends Resource
                         ->label('Đặt lại')
                         ->icon('heroicon-o-arrow-path')
                         ->color('success')
-                        ->visible(fn (Order $record) => in_array($record->status, ['cancelled', 'completed']))
+                        ->visible(fn (Order $record) => AdminAccess::allows(auth()->user(), AdminAccess::ORDERS_MANAGE) && in_array($record->status, ['cancelled', 'completed']))
                         ->url(fn (Order $record) => CallCenterPage::getUrl().'?'.http_build_query(array_filter([
                             'reorder' => $record->id,
                             'service' => $record->service_type,

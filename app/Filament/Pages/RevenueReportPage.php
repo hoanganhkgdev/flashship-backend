@@ -3,6 +3,7 @@
 namespace App\Filament\Pages;
 
 use App\Filament\Pages\Concerns\BuildsReportSeries;
+use App\Support\AdminAccess;
 use Carbon\Carbon;
 use Filament\Facades\Filament;
 use Filament\Pages\Page;
@@ -72,7 +73,7 @@ class RevenueReportPage extends Page
 
     public static function canAccess(): bool
     {
-        return ! in_array(auth()->user()?->user_type, ['city_manager', 'call_center']);
+        return AdminAccess::allows(auth()->user(), AdminAccess::REPORTS_VIEW);
     }
 
     public function getHeading(): string

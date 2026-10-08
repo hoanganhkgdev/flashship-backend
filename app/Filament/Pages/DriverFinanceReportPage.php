@@ -3,6 +3,7 @@
 namespace App\Filament\Pages;
 
 use App\Filament\Pages\Concerns\BuildsReportSeries;
+use App\Support\AdminAccess;
 use App\Support\SimpleXlsxWriter;
 use Carbon\Carbon;
 use Filament\Facades\Filament;
@@ -54,7 +55,7 @@ class DriverFinanceReportPage extends Page
 
     public static function canAccess(): bool
     {
-        return in_array(auth()->user()?->user_type, ['admin']);
+        return AdminAccess::allows(auth()->user(), AdminAccess::FINANCE_VIEW);
     }
 
     public function mount(): void
