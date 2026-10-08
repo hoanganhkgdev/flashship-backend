@@ -3,6 +3,7 @@
 namespace App\Providers\Filament;
 
 use App\Filament\Pages\Dashboard;
+use App\Filament\Pages\MyAccountPage;
 use App\Filament\Widgets\OnlineDriversWidget;
 use App\Filament\Widgets\OpsAlertsWidget;
 use App\Filament\Widgets\OrdersByHourWidget;
@@ -13,6 +14,7 @@ use Filament\Http\Middleware\Authenticate;
 use Filament\Http\Middleware\AuthenticateSession;
 use Filament\Http\Middleware\DisableBladeIconComponents;
 use Filament\Http\Middleware\DispatchServingFilamentEvent;
+use Filament\Navigation\MenuItem;
 use Filament\Navigation\NavigationGroup;
 use Filament\Panel;
 use Filament\PanelProvider;
@@ -38,10 +40,10 @@ class AdminPanelProvider extends PanelProvider
             ->login()
             // Menu người dùng có mục "Tài khoản của tôi" (trang riêng trong khu vực đang chọn) để tự đổi tên, email, mật khẩu.
             ->userMenuItems([
-                \Filament\Navigation\MenuItem::make()
+                MenuItem::make()
                     ->label('Tài khoản của tôi')
                     ->icon('heroicon-o-user-circle')
-                    ->url(fn (): string => \App\Filament\Pages\MyAccountPage::getUrl()),
+                    ->url(fn (): string => MyAccountPage::getUrl()),
             ])
             // Chuông thông báo trong panel — nơi đơn không có tài xế báo cho admin/tổng đài.
             ->databaseNotifications()
@@ -50,7 +52,7 @@ class AdminPanelProvider extends PanelProvider
             ->sidebarCollapsibleOnDesktop()
             ->defaultThemeMode(ThemeMode::Dark)
             ->brandName('FlashShip Admin')
-            ->font('Roboto Condensed', url: 'https://fonts.googleapis.com/css2?family=Roboto+Condensed:wght@400;500;600;700;800&display=swap', provider: GoogleFontProvider::class)
+            ->font('Inter', url: 'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap', provider: GoogleFontProvider::class)
             ->renderHook(
                 PanelsRenderHook::STYLES_AFTER,
                 fn (): HtmlString => new HtmlString(

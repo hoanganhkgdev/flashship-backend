@@ -493,17 +493,17 @@
 .fi-sidebar-group-items { row-gap: .1rem; }
 .fi-sidebar-collapse-button, .fi-topbar-open-collapse-sidebar-btn, .fi-topbar-close-collapse-sidebar-btn { color: var(--fs-side-muted); }
 
-/* ===== Cỡ chữ gốc +5% (font Roboto Condensed hẹp nên cần lớn hơn) ===== */
-html { font-size: 105%; }
+/* ===== Cỡ chữ chuẩn cho Inter: 1rem = 16px ===== */
+html { font-size: 100%; }
 :root {
     --sidebar-width: 15.5rem;
-    /* Thang cỡ chữ chuẩn: chỉ dùng các bậc này (rem x html 108%) */
-    --fs-xs: .75rem;    /* nhãn, chú thích, badge  ~13px */
-    --fs-sm: .875rem;   /* nội dung phụ, bảng, menu ~15px */
-    --fs-base: 1rem;    /* nội dung chính ~17px */
-    --fs-lg: 1.125rem;  /* tiêu đề thẻ ~19px */
-    --fs-xl: 1.5rem;    /* tiêu đề trang, số liệu ~26px */
-    --fs-2xl: 1.875rem; /* số KPI lớn, lời chào ~32px */
+    /* Thang cỡ chữ chuẩn theo mặc định trình duyệt. */
+    --fs-xs: .75rem;    /* 12px: nhãn, chú thích, badge */
+    --fs-sm: .875rem;   /* 14px: nội dung phụ, bảng, menu */
+    --fs-base: 1rem;    /* 16px: nội dung chính */
+    --fs-lg: 1.125rem;  /* 18px: tiêu đề thẻ */
+    --fs-xl: 1.5rem;    /* 24px: tiêu đề trang, số liệu */
+    --fs-2xl: 1.875rem; /* 30px: số KPI lớn, lời chào */
 }
 body, .fi-body { font-size: var(--fs-sm); line-height: 1.5; }
 
