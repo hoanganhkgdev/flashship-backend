@@ -1,21 +1,24 @@
 <?php
+
 namespace Modules\Order\Services;
 
+use App\Events\DispatchStateChanged;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Facades\Redis;
+use Illuminate\Support\Facades\URL;
+use Modules\Core\Models\City;
 use Modules\Core\Models\User;
 use Modules\Core\Services\FCMService;
 use Modules\Core\Services\GoogleMapService;
 use Modules\Core\Services\OperationalSettings;
 use Modules\Core\Services\RTDBService;
 use Modules\Driver\Services\DriverScoreService;
+use Modules\Order\Jobs\CheckDriverOfferReceiptJob;
 use Modules\Order\Jobs\DispatchOrderJob;
 use Modules\Order\Models\Order;
 use Modules\Order\Models\OrderDispatchLog;
-use App\Events\DispatchStateChanged;
 
 /**
  * Gửi offer thật cho 1 tài xế cụ thể (RTDB + OrderDispatchLog + FCM + lên
@@ -46,8 +49,9 @@ class DispatchOfferSender
         // gì cả (mọi request đều "acquire" thành công, ghi đè, mất luôn TTL) —
         // phát hiện khi tự verify chức năng thật (không phải chỉ đọc code).
         $lockKey = "dispatch:lock:driver:{$driver->id}";
-        if (!Redis::set($lockKey, $order->id, 'EX', 60, 'NX')) {
+        if (! Redis::set($lockKey, $order->id, 'EX', 60, 'NX')) {
             Log::debug("│  Skip #{$driver->id} {$driver->name}: đang nhận offer từ dispatch khác");
+
             return false;
         }
 
@@ -59,12 +63,13 @@ class DispatchOfferSender
         if ($activeCount > 0) {
             Redis::del($lockKey);
             Log::debug("│  Skip #{$driver->id} {$driver->name}: đã có đơn active, chỉ nhận thêm qua Chợ đơn");
+
             return false;
         }
         // Không cần kiểm tra lại trần khoảng cách ở đây — DispatchCandidateFinder::find()
         // đã tính khoảng cách đường thật và lọc theo trần cấu hình cho MỌI ứng
         // viên trước khi trả về, không chỉ một nhóm nhỏ như cách cũ.
-        $now  = now();
+        $now = now();
         $dist = $driver->_road_km !== null
             ? round($driver->_road_km, 2)
             : round(GoogleMapService::haversineKm(
@@ -73,26 +78,26 @@ class DispatchOfferSender
             ), 2);
 
         $scoreScore = round($this->scoringCalculator->scoreComponent($driver, $order->city_id), 1);
-        $waitScore  = round($this->scoringCalculator->waitTimeScore($driver, $order->city_id), 1);
+        $waitScore = round($this->scoringCalculator->waitTimeScore($driver, $order->city_id), 1);
         $distanceCap = (float) ($driver->_distance_cap_km ?? DispatchRadiusPolicy::radiusForElapsedSeconds(0, $order->city_id));
-        $distScore  = round($this->scoringCalculator->distanceComponent(
+        $distScore = round($this->scoringCalculator->distanceComponent(
             $driver->_road_km ?? $distanceCap,
             $distanceCap,
             $order->city_id,
         ), 1);
-        $total      = round($scoreScore + $waitScore + $distScore, 1);
+        $total = round($scoreScore + $waitScore + $distScore, 1);
 
-        Log::info("│");
+        Log::info('│');
         Log::info("└→ [Dispatch] GỬI ĐƠN #{$order->id}");
         Log::info("     Tài xế     : #{$driver->id} {$driver->name} | SĐT: {$driver->phone}");
         Log::info("     Khoảng cách (đường thật): {$dist} km");
         Log::info("     Điểm tổng  : {$total} = score({$scoreScore}) + wait({$waitScore}) + distance({$distScore})");
-        Log::info("     driver_score: " . ($driver->driver_score ?? DriverScoreService::DEFAULT_SCORE));
-        Log::info("     FCM token  : " . ($driver->fcm_token ? 'có' : 'KHÔNG CÓ'));
+        Log::info('     driver_score: '.($driver->driver_score ?? DriverScoreService::DEFAULT_SCORE));
+        Log::info('     FCM token  : '.($driver->fcm_token ? 'có' : 'KHÔNG CÓ'));
 
         $ok = $this->commitOffer($order, $driver, $now);
 
-        if (!$ok) {
+        if (! $ok) {
             Redis::del($lockKey);
             Log::warning("│  Skip #{$driver->id} {$driver->name}: ghi RTDB thất bại — chuyển ứng viên kế ngay, không đợi hết hạn oan");
         }
@@ -113,25 +118,28 @@ class DispatchOfferSender
                 ->whereNull('dispatching_to_driver_id')
                 ->update([
                     'dispatching_to_driver_id' => $driver->id,
-                    'dispatch_attempts'        => DB::raw('dispatch_attempts + 1'),
-                    'offer_viewed_at'          => null,
-                    'updated_at'               => $now,
+                    'dispatch_attempts' => DB::raw('dispatch_attempts + 1'),
+                    'offer_viewed_at' => null,
+                    'updated_at' => $now,
                 ]);
 
-            if (!$reserved) return null;
+            if (! $reserved) {
+                return null;
+            }
 
             return OrderDispatchLog::create([
-                'order_id'   => $order->id,
-                'driver_id'  => $driver->id,
+                'order_id' => $order->id,
+                'driver_id' => $driver->id,
                 'offered_at' => $now,
-                'result'     => 'pending',
+                'result' => 'pending',
                 'created_at' => $now,
                 'updated_at' => $now,
             ]);
         });
 
-        if (!$dispatchLog) {
+        if (! $dispatchLog) {
             Log::debug("│  Skip #{$driver->id}: đơn #{$order->id} không còn trống để giữ offer");
+
             return false;
         }
 
@@ -153,50 +161,50 @@ class DispatchOfferSender
         // tại đúng lúc gửi offer, không phải giá trị đã khoá. Giá trị áp
         // dụng thật vẫn được chốt độc lập ở OrderService::acceptOrder()
         // (rain_bonus_eligible), không đổi logic đó.
-        $isRainMode = (bool) \Modules\Core\Models\City::where('id', $order->city_id)->value('is_rain_mode');
+        $isRainMode = (bool) City::where('id', $order->city_id)->value('is_rain_mode');
 
         $rtdbOk = RTDBService::writeDriverOffer($driver->id, [
-            'order_id'          => $order->id,
-            'order_code'        => $order->code,
-            'offered_at'        => $offeredAt,
-            'expires_at'        => $expiresAt,
-            'service_type'      => $order->service_type,
-            'pickup_address'    => $order->pickup_address    ?? '',
+            'order_id' => $order->id,
+            'order_code' => $order->code,
+            'offered_at' => $offeredAt,
+            'expires_at' => $expiresAt,
+            'service_type' => $order->service_type,
+            'pickup_address' => $order->pickup_address ?? '',
             'pickup_place_name' => $order->pickup_place_name ?? null,
-            'pickup_name'       => $order->sender_name       ?? '',
-            'pickup_phone'      => $order->pickup_phone      ?? '',
-            'pickup_lat'        => $order->pickup_lat        ? (float) $order->pickup_lat  : null,
-            'pickup_lng'        => $order->pickup_lng        ? (float) $order->pickup_lng  : null,
-            'delivery_address'  => $order->delivery_address  ?? '',
-            'delivery_phone'    => $order->delivery_phone    ?? '',
-            'receiver_name'     => $order->receiver_name     ?? '',
-            'delivery_lat'      => $order->delivery_lat      ? (float) $order->delivery_lat : null,
-            'delivery_lng'      => $order->delivery_lng      ? (float) $order->delivery_lng : null,
-            'order_note'        => $order->order_note        ?? '',
-            'store_name'        => $order->store_name        ?? '',
-            'platform'          => $order->platform          ?? 'customer_app',
+            'pickup_name' => $order->sender_name ?? '',
+            'pickup_phone' => $order->pickup_phone ?? '',
+            'pickup_lat' => $order->pickup_lat ? (float) $order->pickup_lat : null,
+            'pickup_lng' => $order->pickup_lng ? (float) $order->pickup_lng : null,
+            'delivery_address' => $order->delivery_address ?? '',
+            'delivery_phone' => $order->delivery_phone ?? '',
+            'receiver_name' => $order->receiver_name ?? '',
+            'delivery_lat' => $order->delivery_lat ? (float) $order->delivery_lat : null,
+            'delivery_lng' => $order->delivery_lng ? (float) $order->delivery_lng : null,
+            'order_note' => $order->order_note ?? '',
+            'store_name' => $order->store_name ?? '',
+            'platform' => $order->platform ?? 'customer_app',
             'shop_service_type' => $order->shop_service_type ?? null,
-            'cargo_type'        => $order->cargo_type        ?? null,
-            'cargo_note'        => $order->cargo_note        ?? null,
-            'cargo_weight'      => $order->cargo_weight      ? (float) $order->cargo_weight : null,
-            'is_batch'          => (bool) ($order->is_batch  ?? false),
-            'stops_count'       => $order->is_batch ? count($order->stops ?? []) : 0,
-            'stops'             => $order->is_batch ? ($order->stops ?? []) : [],
-            'shipping_fee'      => (int) ($order->shipping_fee    ?? 0),
-            'discount_amount'   => (int) ($order->discount_amount ?? 0),
-            'voucher_code'      => $order->voucher_code      ?? null,
-            'bonus_fee'         => (int) ($order->bonus_fee  ?? 0),
-            'night_surcharge'   => (int) ($order->night_surcharge ?? 0),
-            'payment_method'    => $order->payment_method    ?? 'prepaid',
-            'cod_amount'        => (int) ($order->cod_amount ?? 0),
-            'customer_phone'    => $order->sender?->phone    ?? '',
-            'is_rain_mode'      => $isRainMode,
-            'receipt_url'       => $receiptUrl,
-            'view_url'          => $viewUrl,
+            'cargo_type' => $order->cargo_type ?? null,
+            'cargo_note' => $order->cargo_note ?? null,
+            'cargo_weight' => $order->cargo_weight ? (float) $order->cargo_weight : null,
+            'is_batch' => (bool) ($order->is_batch ?? false),
+            'stops_count' => $order->is_batch ? count($order->stops ?? []) : 0,
+            'stops' => $order->is_batch ? ($order->stops ?? []) : [],
+            'shipping_fee' => (int) ($order->shipping_fee ?? 0),
+            'discount_amount' => (int) ($order->discount_amount ?? 0),
+            'voucher_code' => $order->voucher_code ?? null,
+            'bonus_fee' => (int) ($order->bonus_fee ?? 0),
+            'night_surcharge' => (int) ($order->night_surcharge ?? 0),
+            'payment_method' => $order->payment_method ?? 'prepaid',
+            'cod_amount' => (int) ($order->cod_amount ?? 0),
+            'customer_phone' => $order->sender?->phone ?? '',
+            'is_rain_mode' => $isRainMode,
+            'receipt_url' => $receiptUrl,
+            'view_url' => $viewUrl,
             ...($isRainMode ? ['rain_bonus_amount' => OperationalSettings::rainBonusAmount($order->city_id)] : []),
         ]);
 
-        if (!$rtdbOk) {
+        if (! $rtdbOk) {
             // Hoàn tác con trỏ; giữ log expired để không chọn lại ngay
             // cùng tài xế và không tính lỗi hạ tầng là bỏ lỡ đơn.
             DB::transaction(function () use ($order, $driver, $dispatchLog) {
@@ -209,6 +217,7 @@ class DispatchOfferSender
                     ->where('dispatching_to_driver_id', $driver->id)
                     ->update(['dispatching_to_driver_id' => null, 'updated_at' => $failedAt]);
             });
+
             return false;
         }
 
@@ -219,16 +228,18 @@ class DispatchOfferSender
         if ($driver->fcm_token) {
             try {
                 FCMService::getInstance()->sendDriverWakeUp($driver->fcm_token, $order->id, $order->code, $order->pickup_address ?? '', $expiresAt, $receiptUrl, $viewUrl);
-                Log::debug("     → FCM wake-up gửi thành công");
+                Log::debug('     → FCM wake-up gửi thành công');
             } catch (\Throwable $e) {
-                Log::error("[Dispatch] FCM failed for driver #{$driver->id}: " . $e->getMessage());
+                Log::error("[Dispatch] FCM failed for driver #{$driver->id}: ".$e->getMessage());
             }
         }
 
         DispatchOrderJob::dispatch($order->id, $driver->id)
             ->delay(now()->addSeconds($offerSeconds));
+        CheckDriverOfferReceiptJob::dispatch($order->id, $driver->id)
+            ->delay(now()->addSeconds(OperationalSettings::offerReceiptSeconds($order->city_id)));
 
-        broadcast(new DispatchStateChanged());
+        broadcast(new DispatchStateChanged);
 
         return true;
     }

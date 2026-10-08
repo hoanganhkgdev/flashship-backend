@@ -79,6 +79,7 @@ class OperationalSettingsPage extends Page implements HasForms
         'delayed_reminder_minutes' => 'order.delayed_reminder_minutes',
         'max_active_orders_per_driver' => 'order.max_active_per_driver',
         'offer_open_seconds' => 'dispatch.offer_open_seconds',
+        'offer_receipt_seconds' => 'dispatch.offer_receipt_seconds',
         'offer_decision_seconds' => 'dispatch.offer_decision_seconds',
         'dispatch_timeout_minutes' => 'dispatch.total_timeout_minutes',
         'dispatch_retry_seconds' => 'dispatch.retry_seconds',
@@ -232,6 +233,7 @@ class OperationalSettingsPage extends Page implements HasForms
                     ->description('Thay đổi ảnh hưởng trực tiếp app tài xế — nên cập nhật ngoài giờ cao điểm.')
                     ->columns(['sm' => 2, 'lg' => 4])
                     ->schema([
+                        $this->integer('offer_receipt_seconds', 'Chờ thiết bị nhận offer', 'giây', 3, 30),
                         $this->integer('offer_open_seconds', 'Chờ tài xế mở offer', 'giây', 5, 120),
                         $this->integer('offer_decision_seconds', 'Quyết định sau khi mở', 'giây', 5, 180),
                         $this->integer('dispatch_retry_seconds', 'Quét lại khi chưa có ai', 'giây', 5, 300),

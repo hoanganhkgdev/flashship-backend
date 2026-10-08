@@ -52,7 +52,8 @@ class OperationalSettings
         'order.stack_max_delivery_km' => '1.5',
         // Danh sách khung giờ phụ phí đêm; "to" không tính, khung được vắt qua nửa đêm.
         'pricing.night_windows' => '[{"from":"23:00","to":"01:00","amount":5000},{"from":"01:00","to":"04:00","amount":10000}]',
-        'dispatch.offer_open_seconds' => '25',
+        'dispatch.offer_receipt_seconds' => '8',
+        'dispatch.offer_open_seconds' => '15',
         'dispatch.offer_decision_seconds' => '30',
         'dispatch.total_timeout_minutes' => '15',
         'dispatch.retry_seconds' => '15',
@@ -327,6 +328,11 @@ class OperationalSettings
     public static function offerOpenSeconds(?int $cityId): int
     {
         return (int) self::value('dispatch.offer_open_seconds', $cityId);
+    }
+
+    public static function offerReceiptSeconds(?int $cityId): int
+    {
+        return (int) self::value('dispatch.offer_receipt_seconds', $cityId);
     }
 
     public static function offerDecisionSeconds(?int $cityId): int
