@@ -4,15 +4,15 @@ namespace App\Filament\Pages;
 
 use App\Filament\PageWidgets\OperationalHistoryWidget;
 use App\Filament\Traits\RestrictToFullAdmin;
-use App\Services\CatalogService;
 use App\Filament\Widgets\OperationalSettingsOverview;
+use App\Services\CatalogService;
 use Filament\Actions\Action;
 use Filament\Facades\Filament;
-use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Grid;
 use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Section;
+use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Tabs;
 use Filament\Forms\Components\Tabs\Tab;
 use Filament\Forms\Components\TextInput;
@@ -26,10 +26,11 @@ use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Filament\Support\RawJs;
 use Illuminate\Support\Carbon;
-use Modules\Core\Models\City;
 use Illuminate\Validation\ValidationException;
+use Modules\Core\Models\City;
 use Modules\Core\Services\OperationalSettings;
 use Modules\Core\Services\RTDBService;
+use Modules\Driver\Services\DriverScoreService;
 
 class OperationalSettingsPage extends Page implements HasForms
 {
@@ -82,7 +83,6 @@ class OperationalSettingsPage extends Page implements HasForms
         'dispatch_timeout_minutes' => 'dispatch.total_timeout_minutes',
         'dispatch_retry_seconds' => 'dispatch.retry_seconds',
         'market_enabled' => 'market.enabled',
-        'market_attempts_before_open' => 'market.attempts_before_open',
         'market_wait_seconds_before_open' => 'market.wait_seconds_before_open',
         'market_max_pickup_distance_km' => 'market.max_pickup_distance_km',
         'market_expire_minutes' => 'market.expire_minutes',
@@ -244,8 +244,7 @@ class OperationalSettingsPage extends Page implements HasForms
                     ->columns(['sm' => 2, 'lg' => 5])
                     ->schema([
                         Toggle::make('market_enabled')->label('Bật Chợ đơn')->inline(false),
-                        $this->integer('market_attempts_before_open', 'Mở sau số lượt phát', 'lượt', 1, 20),
-                        $this->integer('market_wait_seconds_before_open', 'Hoặc chờ tối đa', 'giây', 15, 1800),
+                        $this->integer('market_wait_seconds_before_open', 'Đưa vào chợ sau', 'giây', 15, 1800),
                         $this->number('market_max_pickup_distance_km', 'Bán kính thấy đơn', 'km', 0.5, 50, step: 0.1),
                         $this->integer('market_expire_minutes', 'Hết hạn sau', 'phút', 1, 120),
                         $this->integer('market_bundle_window_minutes', 'Thời gian gom chuyến', 'phút', 1, 60),
@@ -330,7 +329,7 @@ class OperationalSettingsPage extends Page implements HasForms
             ->schema([
                 Section::make('Thang điểm')
                     ->icon('heroicon-o-chart-bar')
-                    ->description('Điểm tài xế không vượt quá trần. Đầu tuần mọi tài xế về '.\Modules\Driver\Services\DriverScoreService::DEFAULT_SCORE.' điểm.')
+                    ->description('Điểm tài xế không vượt quá trần. Đầu tuần mọi tài xế về '.DriverScoreService::DEFAULT_SCORE.' điểm.')
                     ->columns(['sm' => 2, 'lg' => 4])
                     ->schema([
                         $this->integer('max_score', 'Trần điểm tài xế', 'điểm', 111, 1000)

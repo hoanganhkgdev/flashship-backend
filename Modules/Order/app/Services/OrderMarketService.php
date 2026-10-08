@@ -33,8 +33,7 @@ class OrderMarketService
         }
         $elapsed = (int) abs(now()->diffInSeconds($order->dispatch_started_at));
 
-        return (int) $order->dispatch_attempts >= OperationalSettings::marketAttemptsBeforeOpen($order->city_id)
-            || $elapsed >= OperationalSettings::marketWaitSecondsBeforeOpen($order->city_id);
+        return $elapsed >= OperationalSettings::marketWaitSecondsBeforeOpen($order->city_id);
     }
 
     public function open(Order $order, array $dispatchDiagnostics = []): ?OrderMarketListing
@@ -42,8 +41,7 @@ class OrderMarketService
         if ($order->status !== 'pending' || ! $order->city_id) {
             return null;
         }
-        $reason = (int) $order->dispatch_attempts >= OperationalSettings::marketAttemptsBeforeOpen($order->city_id)
-            ? 'attempts' : 'timeout';
+        $reason = 'timeout';
         $openedNow = false;
 
         $listing = DB::transaction(function () use ($order, $reason, $dispatchDiagnostics, &$openedNow) {

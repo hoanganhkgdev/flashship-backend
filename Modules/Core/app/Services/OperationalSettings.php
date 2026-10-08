@@ -57,7 +57,6 @@ class OperationalSettings
         'dispatch.total_timeout_minutes' => '15',
         'dispatch.retry_seconds' => '15',
         'market.enabled' => '0',
-        'market.attempts_before_open' => '3',
         'market.wait_seconds_before_open' => '120',
         'market.max_pickup_distance_km' => '8',
         'market.expire_minutes' => '13',
@@ -345,12 +344,30 @@ class OperationalSettings
         return (int) self::value('dispatch.retry_seconds', $cityId);
     }
 
-    public static function orderMarketEnabled(?int $cityId): bool { return (int) self::value('market.enabled', $cityId) === 1; }
-    public static function marketAttemptsBeforeOpen(?int $cityId): int { return (int) self::value('market.attempts_before_open', $cityId); }
-    public static function marketWaitSecondsBeforeOpen(?int $cityId): int { return (int) self::value('market.wait_seconds_before_open', $cityId); }
-    public static function marketMaxPickupDistanceKm(?int $cityId): float { return (float) self::value('market.max_pickup_distance_km', $cityId); }
-    public static function marketExpireMinutes(?int $cityId): int { return (int) self::value('market.expire_minutes', $cityId); }
-    public static function marketBundleWindowMinutes(?int $cityId): int { return (int) self::value('market.bundle_window_minutes', $cityId); }
+    public static function orderMarketEnabled(?int $cityId): bool
+    {
+        return (int) self::value('market.enabled', $cityId) === 1;
+    }
+
+    public static function marketWaitSecondsBeforeOpen(?int $cityId): int
+    {
+        return (int) self::value('market.wait_seconds_before_open', $cityId);
+    }
+
+    public static function marketMaxPickupDistanceKm(?int $cityId): float
+    {
+        return (float) self::value('market.max_pickup_distance_km', $cityId);
+    }
+
+    public static function marketExpireMinutes(?int $cityId): int
+    {
+        return (int) self::value('market.expire_minutes', $cityId);
+    }
+
+    public static function marketBundleWindowMinutes(?int $cityId): int
+    {
+        return (int) self::value('market.bundle_window_minutes', $cityId);
+    }
 
     /** @return array{score: float, wait: float, distance: float} */
     public static function dispatchWeights(?int $cityId): array
