@@ -168,11 +168,24 @@ class DispatchCandidateFinder
             Log::debug("     [Candidates] Loại {$removed} tài xế — đường thật vượt trần {$maxRoadDistanceKm}km của vòng hiện tại");
         }
 
-        $sorted = $withinRange
-            ->each(fn (User $d) => $d->setAttribute('_distance_cap_km', $maxRoadDistanceKm))
-            ->sortByDesc(function (User $d) use ($maxRoadDistanceKm, $order) {
-                return $this->scoringCalculator->composite($d, $d->_road_km, $maxRoadDistanceKm, $order->city_id);
-            })
+        $lastOffers = OrderDispatchLog::whereIn('driver_id', $withinRange->pluck('id'))
+            ->selectRaw('driver_id, MAX(offered_at) as last_offered_at')
+            ->groupBy('driver_id')
+            ->pluck('last_offered_at', 'driver_id');
+
+        $ranked = $withinRange->each(function (User $driver) use ($lastOffers, $maxRoadDistanceKm) {
+            $lastOfferedAt = $lastOffers[$driver->id] ?? null;
+            $driver->setAttribute('_distance_cap_km', $maxRoadDistanceKm);
+            $driver->setAttribute('_last_offered_at', $lastOfferedAt);
+            $driver->setAttribute('_last_offered_timestamp', $lastOfferedAt ? strtotime($lastOfferedAt) : null);
+        });
+
+        $sorted = DispatchRotationPolicy::sort(
+            $ranked,
+            fn (User $driver) => $this->scoringCalculator->composite(
+                $driver, $driver->_road_km, $maxRoadDistanceKm, $order->city_id
+            ),
+        )
             ->take(self::MAX_DRIVERS)
             ->values();
 
@@ -197,7 +210,8 @@ class DispatchCandidateFinder
                 $km = $d->_road_km !== null ? round($d->_road_km, 2).'km' : 'lỗi API';
                 $score = round($this->scoringCalculator->composite($d, $d->_road_km, $maxRoadDistanceKm, $order->city_id), 1);
                 $wait = round($this->scoringCalculator->waitTimeScore($d, $order->city_id), 1);
-                Log::debug('       '.($i + 1).". #{$d->id} {$d->name} | đường thật: {$km} | điểm={$score} | driver_score=".($d->driver_score ?? DriverScoreService::DEFAULT_SCORE)." | wait={$wait}");
+                $lastOffer = $d->_last_offered_at ?? 'chưa từng phát';
+                Log::debug('       '.($i + 1).". #{$d->id} {$d->name} | lượt gần nhất: {$lastOffer} | đường thật: {$km} | điểm={$score} | driver_score=".($d->driver_score ?? DriverScoreService::DEFAULT_SCORE)." | wait={$wait}");
             }
         }
 
