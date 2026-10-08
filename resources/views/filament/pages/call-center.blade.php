@@ -174,6 +174,11 @@
     .cc-recent { flex:none; height:clamp(120px, 32%, 210px); display:flex; flex-direction:column; border-top:1px solid #e5e7eb; background:#fff; }
     .cc-recent__head { flex:none; display:flex; align-items:center; justify-content:space-between; padding:5px 10px; border-bottom:1px solid #eef0f2; font-size:10px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; color:#64748b; }
     .cc-recent__head em { font-style:normal; font-weight:500; text-transform:none; letter-spacing:0; color:#94a3b8; }
+    .cc-recent__tabs { display:flex; align-items:center; gap:4px; }
+    .cc-recent__tab { padding:3px 8px; border:1px solid transparent; border-radius:999px; color:#64748b; font-weight:700; cursor:pointer; }
+    .cc-recent__tab.active { border-color:#fdba74; background:#fff7ed; color:#c2410c; }
+    .cc-recent__tab b { display:inline-flex; min-width:17px; height:17px; align-items:center; justify-content:center; margin-left:3px; border-radius:999px; background:#e2e8f0; color:#475569; font-size:10px; }
+    .cc-recent__tab.active b { background:#fb923c; color:#fff; }
     #cc-recent-list { flex:1; min-height:0; overflow-y:auto; }
     .cc-ro { display:grid; grid-template-columns:62px minmax(96px, 150px) minmax(0, 1fr) auto auto; align-items:center; gap:8px; padding:4px 10px; border-bottom:1px solid #f1f5f9; border-left:3px solid #cbd5e1; font-size:12px; }
     .cc-ro.s-pending { border-left-color:#f59e0b; } .cc-ro.s-assigned, .cc-ro.s-processing { border-left-color:#3b82f6; } .cc-ro.s-completed { border-left-color:#22c55e; } .cc-ro.s-cancelled { border-left-color:#9ca3af; opacity:.65; } .cc-ro.stopped { border-left-color:#ef4444; background:rgba(254,226,226,.45); }
@@ -198,6 +203,7 @@
     .dark .cc-customer { background:#0f2a1a; color:#86efac; } .dark .cc-customer.risky { background:#3a1414; color:#fca5a5; }
     .dark .cc-recent { border-color:#293142; background:#171b25; }
     .dark .cc-recent__head { border-color:#293142; color:#94a3b8; }
+    .dark .cc-recent__tab.active { border-color:#9a3412; background:#431407; color:#fdba74; }
     .dark .cc-ro { border-bottom-color:#232b3b; } .dark .cc-ro.stopped { background:rgba(127,29,29,.3); }
     .dark .cc-ro .route { color:#94a3b8; } .dark .cc-ro .acts button { border-color:#334155; color:#e2e8f0; }
 
@@ -506,7 +512,13 @@
             </div>
         </div>
         <div class="cc-recent" wire:ignore>
-            <div class="cc-recent__head"><span>Đơn vừa đặt hôm nay</span><em id="cc-recent-time"></em></div>
+            <div class="cc-recent__head">
+                <div class="cc-recent__tabs">
+                    <button type="button" class="cc-recent__tab active" data-cc-board="recent" onclick="_ccSelectBoard('recent')">Đơn hôm nay <b id="cc-recent-count">0</b></button>
+                    <button type="button" class="cc-recent__tab" data-cc-board="market" onclick="_ccSelectBoard('market')">Chợ đơn <b id="cc-market-count">0</b></button>
+                </div>
+                <em id="cc-recent-time"></em>
+            </div>
             <div id="cc-recent-list"><div class="cc-recent__empty">Đang tải…</div></div>
         </div>
     </div>
@@ -866,7 +878,7 @@ document.addEventListener('livewire:initialized', () => {
     Livewire.hook('commit', ({ commit, succeed }) => {
         // Lần làm mới danh sách "Đơn vừa đặt" (15s/lần) không được kéo lại bản đồ về điểm lấy
         const calls = (commit && commit.calls) || [];
-        if (calls.length && calls.every((c) => c.method === 'recentOrders')) return;
+        if (calls.length && calls.every((c) => ['recentOrders', 'marketOrders'].includes(c.method))) return;
         succeed(() => {
             setTimeout(_ccFit, 120); // banner kết quả hiện/ẩn làm đổi vị trí khung → tính lại chiều cao
             setTimeout(() => {
@@ -936,18 +948,27 @@ function _syncTypedNow(kind) {
 
 // ── Đơn vừa đặt: tự làm mới 15s, không vẽ lại form ───────────────────────────
 function _ccEsc(v) { const d = document.createElement('div'); d.textContent = v == null ? '' : String(v); return d.innerHTML; }
+let _ccBoardMode = 'recent';
+let _ccRecentOrders = [];
+let _ccMarketOrders = [];
+function _ccSelectBoard(mode) {
+    _ccBoardMode = mode === 'market' ? 'market' : 'recent';
+    document.querySelectorAll('[data-cc-board]').forEach((el) => el.classList.toggle('active', el.dataset.ccBoard === _ccBoardMode));
+    _ccRenderRecent(_ccBoardMode === 'market' ? _ccMarketOrders : _ccRecentOrders);
+}
 function _ccRenderRecent(list) {
     const box = document.getElementById('cc-recent-list');
     if (!box) return;
     const t = document.getElementById('cc-recent-time');
     if (t) t.textContent = new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-    if (!list || !list.length) { box.innerHTML = '<div class="cc-recent__empty">Chưa có đơn nào hôm nay.</div>'; return; }
+    if (!list || !list.length) { box.innerHTML = '<div class="cc-recent__empty">' + (_ccBoardMode === 'market' ? 'Hiện chưa có đơn nào trong Chợ đơn.' : 'Chưa có đơn nào hôm nay.') + '</div>'; return; }
     box.innerHTML = list.map((o) => {
         const canAssign = o.status === 'pending';
         const canCancel = ['pending', 'assigned', 'processing'].includes(o.status);
+        const inMarket = _ccBoardMode === 'market';
         const label = o.stopped ? 'Đã dừng tìm' : o.status_label;
-        const color = o.stopped ? '#dc2626' : (o.status === 'pending' ? '#b45309' : (o.status === 'completed' ? '#15803d' : '#64748b'));
-        const when = o.status === 'pending' ? o.minutes + ' phút' : (o.driver ? _ccEsc(o.driver) : o.minutes + 'p trước');
+        const color = inMarket ? '#c2410c' : (o.stopped ? '#dc2626' : (o.status === 'pending' ? '#b45309' : (o.status === 'completed' ? '#15803d' : '#64748b')));
+        const when = inMarket ? o.minutes + 'p · còn ' + o.remaining_minutes + 'p · ' + o.offer_attempts + ' lượt' : (o.status === 'pending' ? o.minutes + ' phút' : (o.driver ? _ccEsc(o.driver) : o.minutes + 'p trước'));
         const route = '↑ ' + _ccEsc(o.pickup) + ' → ' + (o.no_delivery ? '<i>chưa có điểm giao</i>' : _ccEsc(o.delivery));
         return '<div class="cc-ro s-' + o.status + (o.stopped ? ' stopped' : '') + '">' +
             '<a class="code" href="' + _ccEsc(o.url) + '">#' + _ccEsc(o.code) + '</a>' +
@@ -963,7 +984,15 @@ function _ccRenderRecent(list) {
 }
 function _ccLoadRecent(force) {
     if (document.hidden && force !== true) return; // tab đang ẩn thì thôi làm mới định kỳ; lần tải đầu luôn chạy
-    Promise.resolve(@this.call('recentOrders')).then(_ccRenderRecent).catch(() => {});
+    Promise.all([@this.call('recentOrders'), @this.call('marketOrders')]).then(([recent, market]) => {
+        _ccRecentOrders = recent || [];
+        _ccMarketOrders = market || [];
+        const recentCount = document.getElementById('cc-recent-count');
+        const marketCount = document.getElementById('cc-market-count');
+        if (recentCount) recentCount.textContent = _ccRecentOrders.length;
+        if (marketCount) marketCount.textContent = _ccMarketOrders.length;
+        _ccRenderRecent(_ccBoardMode === 'market' ? _ccMarketOrders : _ccRecentOrders);
+    }).catch(() => {});
 }
 function _ccAssign(id) { @this.call('mountAction', 'assign', { order: id }); }
 function _ccCancel(id) { @this.call('mountAction', 'cancel', { order: id }); }

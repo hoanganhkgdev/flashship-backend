@@ -6,12 +6,18 @@ use App\Filament\Pages\CallCenterPage;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Livewire\Livewire;
 use Modules\Core\Models\City;
 use Modules\Core\Models\ServiceType;
 use Modules\Core\Models\User;
+use Modules\Driver\Models\DriverDebt;
+use Modules\Driver\Services\DriverLocationService;
 use Modules\Order\Models\Order;
+use Modules\Order\Models\OrderMarketListing;
+use Modules\Order\Services\OrderService;
+use Modules\Order\Services\OrderTimeline;
 use Tests\TestCase;
 
 class CallCenterTest extends TestCase
@@ -28,7 +34,7 @@ class CallCenterTest extends TestCase
         $this->assertStringEndsWith('_test', DB::connection()->getDatabaseName());
         Queue::fake();
         // Phát đơn thật chạm Redis/Firebase/broadcast: ở đây chỉ kiểm tra đơn được tạo đúng và được đưa vào phát
-        $this->mock(\Modules\Order\Services\OrderService::class, fn ($m) => $m->shouldReceive('dispatchNewOrder')->andReturnNull());
+        $this->mock(OrderService::class, fn ($m) => $m->shouldReceive('dispatchNewOrder')->andReturnNull());
         foreach (['delivery' => 'Lấy đồ hộ', 'shopping' => 'Mua hộ', 'topup' => 'Nạp tiền'] as $k => $l) {
             ServiceType::updateOrCreate(['key' => $k], ['label' => $l, 'sort_order' => 1, 'is_active' => true]);
         }
@@ -74,7 +80,7 @@ class CallCenterTest extends TestCase
         $this->assertSame('Cơm Cô Ba', $order->sender_name);
         $this->assertStringStartsWith(CallCenterPage::NO_DELIVERY_NOTE, $order->order_note, 'tài xế được báo hỏi shop khi lấy hàng');
         $this->assertStringContainsString('Mang 2 phần', $order->order_note);
-        $this->assertStringContainsString('chưa có điểm giao', \Modules\Order\Services\OrderTimeline::for($order)->where('type', 'created')->pluck('text')->implode(' | '));
+        $this->assertStringContainsString('chưa có điểm giao', OrderTimeline::for($order)->where('type', 'created')->pluck('text')->implode(' | '));
     }
 
     public function test_shopping_only_needs_purchase_note_and_topup_still_needs_amount(): void
@@ -147,6 +153,27 @@ class CallCenterTest extends TestCase
         $this->assertSame('0911 222 333', $recent[0]['phone']);
     }
 
+    public function test_market_orders_only_show_live_listings_in_the_current_city(): void
+    {
+        $visible = Order::create(['code' => 'MARKET1', 'status' => 'pending', 'city_id' => $this->city->id, 'service_type' => 'delivery', 'platform' => 'customer_app',
+            'pickup_address' => 'Điểm lấy', 'delivery_address' => 'Điểm giao', 'shipping_fee' => 15000, 'created_by' => $this->admin->id]);
+        OrderMarketListing::create(['order_id' => $visible->id, 'city_id' => $this->city->id, 'status' => 'open', 'open_reason' => 'attempts',
+            'offer_attempts' => 3, 'opened_at' => now()->subMinutes(2), 'expires_at' => now()->addMinutes(8)]);
+
+        $expired = Order::create(['code' => 'MARKET2', 'status' => 'pending', 'city_id' => $this->city->id, 'service_type' => 'delivery', 'platform' => 'customer_app',
+            'pickup_address' => 'a', 'delivery_address' => 'b', 'created_by' => $this->admin->id]);
+        OrderMarketListing::create(['order_id' => $expired->id, 'city_id' => $this->city->id, 'status' => 'open', 'open_reason' => 'timeout',
+            'offer_attempts' => 1, 'opened_at' => now()->subMinutes(20), 'expires_at' => now()->subMinute()]);
+
+        $market = Livewire::test(CallCenterPage::class)->instance()->marketOrders();
+
+        $this->assertCount(1, $market);
+        $this->assertSame($visible->fresh()->code, $market[0]['code']);
+        $this->assertSame(3, $market[0]['offer_attempts']);
+        $this->assertSame('Đủ lượt phát', $market[0]['open_reason']);
+        $this->assertGreaterThanOrEqual(7, $market[0]['remaining_minutes']);
+    }
+
     public function test_risky_customer_is_flagged_and_old_url_redirects_with_query(): void
     {
         foreach (['cancelled', 'cancelled', 'completed'] as $st) {
@@ -163,7 +190,7 @@ class CallCenterTest extends TestCase
 
     public function test_a_dispatch_failure_after_creating_the_order_is_reported_as_created_not_failed(): void
     {
-        $this->mock(\Modules\Order\Services\OrderService::class, fn ($m) => $m->shouldReceive('dispatchNewOrder')->andThrow(new \RuntimeException('Connection refused')));
+        $this->mock(OrderService::class, fn ($m) => $m->shouldReceive('dispatchNewOrder')->andThrow(new \RuntimeException('Connection refused')));
 
         $page = $this->page('delivery')->set('data', $this->data())->call('placeOrder');
 
@@ -199,7 +226,7 @@ class CallCenterTest extends TestCase
         $ok = $this->user('driver', ['is_online' => true, 'name' => 'Sẵn sàng']);
         $this->user('driver', ['is_online' => false, 'name' => 'Đang nghỉ']);
         $debt = $this->user('driver', ['is_online' => true, 'name' => 'Có nợ']);
-        \Modules\Driver\Models\DriverDebt::create(['driver_id' => $debt->id, 'debt_type' => 'weekly', 'status' => 'overdue', 'amount_due' => 100000, 'amount_paid' => 0, 'week_start' => now()->subWeek()->startOfWeek()->toDateString(), 'week_end' => now()->subWeek()->endOfWeek()->toDateString(), 'note' => 'test']);
+        DriverDebt::create(['driver_id' => $debt->id, 'debt_type' => 'weekly', 'status' => 'overdue', 'amount_due' => 100000, 'amount_paid' => 0, 'week_start' => now()->subWeek()->startOfWeek()->toDateString(), 'week_end' => now()->subWeek()->endOfWeek()->toDateString(), 'note' => 'test']);
 
         $page = Livewire::test(CallCenterPage::class); // chưa chọn điểm lấy
 
@@ -212,7 +239,7 @@ class CallCenterTest extends TestCase
 
     public function test_map_shows_online_drivers_within_4km_of_the_pickup_with_their_state(): void
     {
-        \Illuminate\Support\Facades\Http::fake(); // khoảng cách đường đi (Google) không được gọi thật trong test
+        Http::fake(); // khoảng cách đường đi (Google) không được gọi thật trong test
         $free = $this->user('driver', ['is_online' => true, 'name' => 'Rảnh gần']);
         $busy = $this->user('driver', ['is_online' => true, 'name' => 'Đang giao gần']);
         $far = $this->user('driver', ['is_online' => true, 'name' => 'Xa 6km']);
@@ -223,7 +250,7 @@ class CallCenterTest extends TestCase
             'pickup_address' => 'a', 'delivery_address' => 'b', 'created_by' => $this->admin->id]);
 
         // Điểm lấy (10.0, 105.0); 0,01° vĩ độ ≈ 1,1 km
-        $this->mock(\Modules\Driver\Services\DriverLocationService::class, fn ($m) => $m->shouldReceive('freshLocationsFor')->andReturn([
+        $this->mock(DriverLocationService::class, fn ($m) => $m->shouldReceive('freshLocationsFor')->andReturn([
             $free->id => ['lat' => 10.009, 'lng' => 105.0, 'bearing' => null],
             $busy->id => ['lat' => 10.0, 'lng' => 105.02, 'bearing' => null],
             $far->id => ['lat' => 10.054, 'lng' => 105.0, 'bearing' => null],

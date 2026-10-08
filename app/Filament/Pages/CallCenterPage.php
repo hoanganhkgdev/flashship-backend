@@ -3,25 +3,27 @@
 namespace App\Filament\Pages;
 
 use App\Filament\Resources\OrderResource;
+use App\Support\OrderListPresenter;
+use Carbon\Carbon;
 use Filament\Actions\Action;
 use Filament\Facades\Filament;
 use Filament\Forms;
-use Livewire\Attributes\Renderless;
 use Filament\Forms\Concerns\InteractsWithForms;
 use Filament\Forms\Contracts\HasForms;
 use Filament\Forms\Form;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Illuminate\Support\Facades\DB;
+use Livewire\Attributes\Renderless;
 use Modules\Core\Models\ServiceType;
-use Modules\Core\Models\User;
 use Modules\Core\Services\GoogleMapService;
 use Modules\Core\Services\RTDBService;
 use Modules\Driver\Services\DriverLocationService;
 use Modules\Order\Models\Order;
-use Modules\Order\Services\OrderTimeline;
+use Modules\Order\Models\OrderMarketListing;
 use Modules\Order\Services\DispatchService;
 use Modules\Order\Services\OrderService;
+use Modules\Order\Services\OrderTimeline;
 use Modules\Pricing\Services\PricingService;
 use Modules\Shop\Services\ShopPricingService;
 
@@ -507,7 +509,7 @@ class CallCenterPage extends Page implements HasForms
             'cancelled' => $cancelled,
             // Hủy nhiều so với số đơn: nhắc tổng đài xác nhận kỹ trước khi phát đơn
             'risky' => $total >= 3 && $cancelled / $total >= 0.4,
-            'last_at' => $agg->last_at ? \Carbon\Carbon::parse($agg->last_at)->format('d/m H:i') : null,
+            'last_at' => $agg->last_at ? Carbon::parse($agg->last_at)->format('d/m H:i') : null,
         ];
         if ($name !== '' && trim((string) ($this->data['contact_name'] ?? '')) === '') {
             $this->data['contact_name'] = $name;
@@ -834,12 +836,57 @@ class CallCenterPage extends Page implements HasForms
                 'pickup' => trim((string) $o->pickup_address) ?: '—',
                 'delivery' => trim((string) $o->delivery_address) ?: 'Chưa có điểm giao',
                 'no_delivery' => trim((string) $o->delivery_address) === '',
-                'phone' => \App\Support\OrderListPresenter::phone(\App\Support\OrderListPresenter::contactPhone($o)),
+                'phone' => OrderListPresenter::phone(OrderListPresenter::contactPhone($o)),
                 'name' => $o->sender_name ?: '',
                 'driver' => $o->driver?->name,
                 'fee' => (int) $o->shipping_fee,
                 'url' => OrderResource::getUrl('view', ['record' => $o->id]),
             ])->all();
+    }
+
+    /**
+     * Các đơn đang thật sự mở trong Chợ đơn của khu vực Tổng đài đang trực.
+     *
+     * @return array<int, array>
+     */
+    #[Renderless]
+    public function marketOrders(): array
+    {
+        $labels = ServiceType::pluck('label', 'key');
+        $now = now();
+
+        return OrderMarketListing::query()
+            ->where('city_id', $this->userCityId())
+            ->where('status', 'open')
+            ->where('expires_at', '>', $now)
+            ->whereHas('order', fn ($query) => $query->where('status', 'pending'))
+            ->with(['order.driver:id,name,phone', 'order.sender:id,name,phone'])
+            ->latest('opened_at')
+            ->get()
+            ->map(function (OrderMarketListing $listing) use ($labels, $now) {
+                $o = $listing->order;
+
+                return [
+                    'id' => $o->id,
+                    'code' => $o->code,
+                    'service' => $labels[$o->service_type] ?? $o->service_type,
+                    'status' => $o->status,
+                    'status_label' => 'Trong Chợ đơn',
+                    'stopped' => false,
+                    'minutes' => (int) $listing->opened_at->diffInMinutes($now),
+                    'remaining_minutes' => max(1, (int) ceil(($listing->expires_at->timestamp - $now->timestamp) / 60)),
+                    'offer_attempts' => (int) $listing->offer_attempts,
+                    'open_reason' => $listing->open_reason === 'attempts' ? 'Đủ lượt phát' : 'Chờ quá lâu',
+                    'pickup' => trim((string) $o->pickup_address) ?: '—',
+                    'delivery' => trim((string) $o->delivery_address) ?: 'Chưa có điểm giao',
+                    'no_delivery' => trim((string) $o->delivery_address) === '',
+                    'phone' => OrderListPresenter::phone(OrderListPresenter::contactPhone($o)),
+                    'name' => $o->sender_name ?: '',
+                    'driver' => null,
+                    'fee' => (int) $o->shipping_fee,
+                    'url' => OrderResource::getUrl('view', ['record' => $o->id]),
+                ];
+            })->all();
     }
 
     private function recentOrder(array $arguments): ?Order
@@ -857,7 +904,7 @@ class CallCenterPage extends Page implements HasForms
             ->modalDescription('Đơn sẽ ngừng tìm tự động và chuyển thẳng vào danh sách đã nhận của tài xế.')
             ->form(fn (array $arguments) => ($o = $this->recentOrder($arguments)) ? OrderResource::manualAssignmentForm($o) : [])
             ->action(function (array $arguments, array $data): void {
-                OrderResource::assignDriverManually($this->recentOrder($arguments) ?? new Order(), $data);
+                OrderResource::assignDriverManually($this->recentOrder($arguments) ?? new Order, $data);
                 $this->dispatch('cc-recent-refresh');
             });
     }
