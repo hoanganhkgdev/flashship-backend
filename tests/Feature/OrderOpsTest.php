@@ -9,16 +9,18 @@ use App\Filament\Resources\OrderResource;
 use App\Filament\Resources\OrderResource\Pages\EditOrder;
 use App\Filament\Resources\OrderResource\Pages\ListOrders;
 use App\Filament\Resources\OrderResource\Pages\ViewOrder;
+use App\Support\OrderListPresenter;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Route;
 use Livewire\Livewire;
 use Modules\Core\Models\City;
 use Modules\Core\Models\ServiceType;
 use Modules\Core\Models\User;
 use Modules\Order\Models\Order;
+use Modules\Order\Models\OrderMarketListing;
 use Modules\Order\Services\OrderTimeline;
-use App\Support\OrderListPresenter;
 use Tests\TestCase;
 
 class OrderOpsTest extends TestCase
@@ -98,7 +100,7 @@ class OrderOpsTest extends TestCase
 
         Livewire::test(ListOrders::class)->callTableAction('cancel', $o, ['reason' => 'duplicate'])->assertHasNoTableActionErrors();
         $this->assertSame('duplicate', $o->fresh()->cancel_reason);
-        $this->assertFalse(\Illuminate\Support\Facades\Route::has('filament.admin.resources.orders.delete'));
+        $this->assertFalse(Route::has('filament.admin.resources.orders.delete'));
     }
 
     public function test_finished_orders_only_allow_note_edits_and_edits_are_logged(): void
@@ -282,6 +284,22 @@ class OrderOpsTest extends TestCase
         $this->assertSame(1, $badge('new'));
     }
 
+    public function test_market_tab_only_lists_orders_currently_open_in_the_market(): void
+    {
+        $open = $this->order();
+        OrderMarketListing::create(['order_id' => $open->id, 'city_id' => $this->city->id, 'status' => 'open', 'open_reason' => 'attempts',
+            'offer_attempts' => 3, 'opened_at' => now()->subMinute(), 'expires_at' => now()->addMinutes(9)]);
+
+        $expired = $this->order();
+        OrderMarketListing::create(['order_id' => $expired->id, 'city_id' => $this->city->id, 'status' => 'open', 'open_reason' => 'timeout',
+            'offer_attempts' => 1, 'opened_at' => now()->subMinutes(20), 'expires_at' => now()->subMinute()]);
+
+        $page = Livewire::test(ListOrders::class)->set('activeTab', 'market');
+
+        $page->assertCanSeeTableRecords([$open])->assertCanNotSeeTableRecords([$expired]);
+        $this->assertSame(1, $page->instance()->getTabs()['market']->getBadge());
+    }
+
     public function test_export_is_admin_only_and_follows_the_current_filters(): void
     {
         $this->order(['status' => 'completed', 'completed_at' => now(), 'delivery_address' => 'Địa chỉ xuất 1']);
@@ -299,6 +317,7 @@ class OrderOpsTest extends TestCase
         $poll = fn (string $tab) => str_contains($this->get(OrderResource::getUrl('index').'?activeTab='.$tab)->assertOk()->getContent(), 'wire:poll.15s');
 
         $this->assertTrue($poll('new'));
+        $this->assertTrue($poll('market'));
         $this->assertTrue($poll('processing'));
         $this->assertFalse($poll('completed'));
         $this->assertFalse($poll('cancelled'));

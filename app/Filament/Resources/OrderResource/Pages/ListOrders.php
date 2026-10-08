@@ -4,13 +4,19 @@ namespace App\Filament\Resources\OrderResource\Pages;
 
 use App\Filament\Pages\CallCenterPage;
 use App\Filament\Resources\OrderResource;
+use App\Filament\Resources\OrderResource\Widgets\OrderListSummaryWidget;
+use App\Filament\Resources\OrderResource\Widgets\OrderOpsWidget;
+use App\Support\OrderListPresenter;
 use Filament\Actions;
+use Filament\Facades\Filament;
 use Filament\Notifications\Notification;
 use Filament\Pages\Concerns\ExposesTableToWidgets;
-use Filament\Tables\Table;
 use Filament\Resources\Components\Tab;
 use Filament\Resources\Pages\ListRecords;
+use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Modules\Core\Services\OperationalSettings;
+use Modules\Order\Services\OrderTimeline;
 
 class ListOrders extends ListRecords
 {
@@ -65,8 +71,8 @@ class ListOrders extends ListRecords
     protected function getHeaderWidgets(): array
     {
         return [
-            \App\Filament\Resources\OrderResource\Widgets\OrderOpsWidget::class,
-            \App\Filament\Resources\OrderResource\Widgets\OrderListSummaryWidget::class,
+            OrderOpsWidget::class,
+            OrderListSummaryWidget::class,
         ];
     }
 
@@ -78,7 +84,7 @@ class ListOrders extends ListRecords
     /** Chế độ trực: chỉ các tab đang chờ/đang chạy tự làm mới (15 giây); tab lịch sử thì không. */
     public function table(Table $table): Table
     {
-        return parent::table($table)->poll(in_array($this->activeTab, ['new', 'attention', 'processing'], true) ? '15s' : null);
+        return parent::table($table)->poll(in_array($this->activeTab, ['new', 'market', 'attention', 'processing'], true) ? '15s' : null);
     }
 
     public function getDefaultActiveTab(): string|int|null
@@ -90,15 +96,20 @@ class ListOrders extends ListRecords
     private function counts(): array
     {
         static $memo = [];
-        $key = \Filament\Facades\Filament::getTenant()?->getKey() ?? 0;
+        $key = Filament::getTenant()?->getKey() ?? 0;
         if (isset($memo[$key])) {
             return $memo[$key];
         }
         $cut = now()->subMinutes(self::attentionMinutes());
+        $now = now();
         $r = OrderResource::getEloquentQuery()->toBase()->reorder()->selectRaw(
             "COUNT(*) total, SUM(status = 'pending') pending, SUM(status IN ('assigned','processing')) active,
              SUM(status = 'completed') completed, SUM(status = 'cancelled') cancelled,
-             SUM(status = 'pending' AND (cancel_reason = 'no_driver' OR created_at <= ?)) attention", [$cut]
+             SUM(status = 'pending' AND (cancel_reason = 'no_driver' OR created_at <= ?)) attention,
+             SUM(status = 'pending' AND EXISTS (
+                 SELECT 1 FROM order_market_listings market
+                 WHERE market.order_id = orders.id AND market.status = 'open' AND market.expires_at > ?
+             )) market", [$cut, $now]
         )->first();
 
         return $memo[$key] = collect((array) $r)->map(fn ($v) => (int) $v)->all();
@@ -115,6 +126,10 @@ class ListOrders extends ListRecords
             // Chế độ trực: chờ lâu nhất lên đầu.
             'new' => Tab::make('Đơn mới')->icon('heroicon-m-bell-alert')->badge($c('pending'))->badgeColor('warning')
                 ->modifyQueryUsing(fn (Builder $query) => $query->where('status', 'pending')->orderBy('created_at')),
+            'market' => Tab::make('Chợ đơn')->icon('heroicon-m-building-storefront')->badge($c('market'))->badgeColor('warning')
+                ->modifyQueryUsing(fn (Builder $query) => $query->where('status', 'pending')
+                    ->whereHas('marketListing', fn (Builder $market) => $market->where('status', 'open')->where('expires_at', '>', now()))
+                    ->orderBy('created_at')),
             'attention' => Tab::make('Cần xử lý')->icon('heroicon-m-exclamation-triangle')->badge($c('attention'))->badgeColor('danger')
                 ->modifyQueryUsing(fn (Builder $query) => $attention($query)->orderBy('created_at')),
             'processing' => Tab::make('Đang xử lý')->icon('heroicon-m-clock')->badge($c('active'))->badgeColor('info')
@@ -129,7 +144,7 @@ class ListOrders extends ListRecords
     /** Đơn chờ quá thời gian tìm tài xế (cấu hình khu vực) thì cần xử lý. */
     public static function attentionMinutes(): int
     {
-        return \Modules\Core\Services\OperationalSettings::dispatchTimeoutMinutes(\Filament\Facades\Filament::getTenant()?->id);
+        return OperationalSettings::dispatchTimeoutMinutes(Filament::getTenant()?->id);
     }
 
     private const EXPORT_LIMIT = 20000;
@@ -149,9 +164,9 @@ class ListOrders extends ListRecords
             foreach ($query->cursor() as $o) {
                 fputcsv($out, [
                     $o->code, $o->created_at?->format('Y-m-d H:i:s'), $o->service_type, $o->platform, $o->creator?->name,
-                    \App\Support\OrderListPresenter::customerName($o), \App\Support\OrderListPresenter::contactPhone($o),
+                    OrderListPresenter::customerName($o), OrderListPresenter::contactPhone($o),
                     $o->pickup_address, $o->delivery_address, (int) $o->shipping_fee, (int) $o->cod_amount, $o->payment_method,
-                    $statuses[$o->status] ?? $o->status, $o->status === 'cancelled' ? \Modules\Order\Services\OrderTimeline::cancelReasonLabel($o->cancel_reason) : '',
+                    $statuses[$o->status] ?? $o->status, $o->status === 'cancelled' ? OrderTimeline::cancelReasonLabel($o->cancel_reason) : '',
                     $o->driver?->name, $o->driver?->phone, $o->completed_at?->format('Y-m-d H:i:s'),
                 ]);
             }
