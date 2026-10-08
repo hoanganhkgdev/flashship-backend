@@ -158,6 +158,9 @@ class OrderMarketService
 
         return OrderMarketListing::with('order')
             ->where('city_id', $driver->city_id)->where('status', 'open')->where('expires_at', '>', now())
+            ->when(! $driver->has_car_license, fn ($query) => $query->whereHas(
+                'order', fn ($orders) => $orders->where('service_type', '!=', 'car')
+            ))
             ->latest('opened_at')->get()->map(function (OrderMarketListing $listing) use ($location, $maxKm) {
                 $o = $listing->order;
                 if (! $o || $o->status !== 'pending' || ! is_numeric($o->pickup_lat) || ! is_numeric($o->pickup_lng)) {
