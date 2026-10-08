@@ -2,22 +2,25 @@
 
 namespace App\Filament\Pages;
 
+use App\Filament\Resources\OrderResource;
 use App\Services\DispatchMonitorReport;
 use App\Services\DriverSupplyService;
-use App\Filament\Resources\OrderResource;
 use Filament\Actions\Action;
 use Filament\Facades\Filament;
 use Filament\Forms;
-use Modules\Core\Services\OperationalSettings;
 use Filament\Pages\Page;
 use Livewire\Attributes\On;
+use Modules\Core\Services\OperationalSettings;
 use Modules\Order\Models\Order;
+use Modules\Order\Services\OrderTimeline;
 
 class DispatchMonitorPage extends Page
 {
     public static function canAccess(): bool
     {
-        return ! auth()->user()?->isCallCenter();
+        // Tổng đài cần theo dõi tiến trình phát để xử lý đơn chờ lâu.
+        // Dữ liệu trên trang luôn bị khóa theo tenant/khu vực hiện tại.
+        return true;
     }
 
     protected static ?string $navigationIcon = 'heroicon-o-signal';
@@ -137,7 +140,7 @@ class DispatchMonitorPage extends Page
             ->modalHeading(fn (array $arguments) => ($o = $this->pendingOrder($arguments)) ? 'Gán tài xế cho đơn #'.$o->code : 'Gán tài xế')
             ->modalDescription('Đơn sẽ ngừng tìm tự động và chuyển thẳng vào danh sách đã nhận của tài xế.')
             ->form(fn (array $arguments) => ($o = $this->pendingOrder($arguments)) ? OrderResource::manualAssignmentForm($o) : [])
-            ->action(fn (array $arguments, array $data) => OrderResource::assignDriverManually($this->pendingOrder($arguments) ?? new Order(), $data));
+            ->action(fn (array $arguments, array $data) => OrderResource::assignDriverManually($this->pendingOrder($arguments) ?? new Order, $data));
     }
 
     public function cancelAction(): Action
@@ -148,7 +151,7 @@ class DispatchMonitorPage extends Page
             ->color('danger')
             ->modalHeading(fn (array $arguments) => ($o = $this->pendingOrder($arguments)) ? 'Hủy đơn #'.$o->code : 'Hủy đơn')
             ->form([
-                Forms\Components\Select::make('reason')->label('Lý do hủy')->options(\Modules\Order\Services\OrderTimeline::CANCEL_REASONS)->required()->live(),
+                Forms\Components\Select::make('reason')->label('Lý do hủy')->options(OrderTimeline::CANCEL_REASONS)->required()->live(),
                 Forms\Components\Textarea::make('note')->label('Ghi chú')->rows(2)->maxLength(250)->required(fn (Forms\Get $get) => $get('reason') === 'other')->minLength(3),
             ])
             ->action(fn (array $arguments, array $data) => OrderResource::cancelOrder($this->pendingOrder($arguments), $data['reason'], $data['note'] ?? null));

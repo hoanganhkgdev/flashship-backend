@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Filament\Pages\DispatchMonitorPage;
 use App\Services\DispatchMonitorReport;
 use App\Services\DriverSupplyService;
+use App\Support\OrderListPresenter;
 use Carbon\Carbon;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
@@ -70,6 +71,15 @@ class DispatchMonitorTest extends TestCase
         ]);
     }
 
+    public function test_call_center_can_access_dispatch_monitor_in_its_city(): void
+    {
+        $callCenter = $this->user('call_center');
+        $this->actingAs($callCenter);
+
+        $this->assertTrue(DispatchMonitorPage::canAccess());
+        Livewire::test(DispatchMonitorPage::class)->assertSuccessful();
+    }
+
     public function test_orders_split_into_attention_and_active_with_longest_wait_first(): void
     {
         $fresh = $this->order(['dispatch_started_at' => $this->now->copy()->subSeconds(30)]);
@@ -85,7 +95,7 @@ class DispatchMonitorTest extends TestCase
         $this->assertSame('timeout', $r['attention'][0]['kind']);
         $this->assertSame('no_driver', $r['attention'][1]['kind']);
         $this->assertSame('Gọi trước khi tới', $r['attention'][1]['note']);
-        $this->assertSame('0911 222 333', \App\Support\OrderListPresenter::phone($r['attention'][1]['phone']));
+        $this->assertSame('0911 222 333', OrderListPresenter::phone($r['attention'][1]['phone']));
         $this->assertSame([$old->id, $fresh->id], array_column($r['active'], 'id'), 'đơn đang phát: chờ lâu nhất trước, không cắt đơn cũ');
         $ids = array_merge(array_column($r['active'], 'id'), array_column($r['attention'], 'id'));
         $this->assertNotContains($assigned->id, $ids);
