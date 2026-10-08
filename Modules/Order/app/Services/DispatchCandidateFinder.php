@@ -134,11 +134,7 @@ class DispatchCandidateFinder
 
         // Không lọc theo tuyến các đơn đang giữ. Trần số đơn active ở
         // bước 1 là điều kiện duy nhất liên quan tới việc tài xế đang có đơn.
-        $cooldownIds = $this->cooldownDriverIds($afterLicense);
-        $afterDetour = $afterLicense->reject(fn (User $driver) => isset($cooldownIds[$driver->id]))->values();
-        if ($cooldownIds) {
-            Log::debug('     [Candidates] Loại '.count($cooldownIds).' tài xế đang cooldown offer liên đơn');
-        }
+        $afterDetour = $afterLicense;
 
         // ── 5. Tính khoảng cách đường thật cho TOÀN BỘ ứng viên còn lại — 1 lần
         // gọi Google Distance Matrix duy nhất (không phải 1 lần/tài xế) — rồi
@@ -199,7 +195,6 @@ class DispatchCandidateFinder
             'missing_or_stale_gps' => $metadataEligible - $freshGpsCount,
             'blocked_debt' => $candidates->count() - $afterDebt->count(),
             'wrong_license' => $afterDebt->count() - $afterLicense->count(),
-            'offer_cooldown' => count($cooldownIds),
             'outside_radius' => $afterDetour->count() - $withinRange->count(),
             'eligible_now' => $sorted->count(),
         ];
@@ -221,33 +216,6 @@ class DispatchCandidateFinder
     public function diagnostics(): array
     {
         return $this->lastDiagnostics;
-    }
-
-    /** @return array<int, true> */
-    private function cooldownDriverIds(Collection $drivers): array
-    {
-        if ($drivers->isEmpty()) {
-            return [];
-        }
-
-        $logs = OrderDispatchLog::whereIn('driver_id', $drivers->pluck('id'))
-            ->whereIn('result', ['accepted', 'declined', 'expired'])
-            ->where('offered_at', '>=', now()->subMinutes(5))
-            ->orderByDesc('offered_at')
-            ->get()
-            ->groupBy('driver_id');
-
-        $blocked = [];
-        foreach ($logs as $driverId => $driverLogs) {
-            $latest = $driverLogs->first();
-            $seconds = DispatchOfferCooldownPolicy::seconds($driverLogs->pluck('result')->all());
-            $reference = $latest?->responded_at ?? $latest?->offered_at;
-            if ($seconds > 0 && $reference?->copy()->addSeconds($seconds)->isFuture()) {
-                $blocked[(int) $driverId] = true;
-            }
-        }
-
-        return $blocked;
     }
 
     private function hasBlockedDebt(User $driver): bool
