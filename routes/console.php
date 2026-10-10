@@ -3,6 +3,7 @@
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
+use Modules\Order\Services\DispatchExpirySweeper;
 
 Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
@@ -20,3 +21,9 @@ Schedule::call(fn () => app(\App\Services\NotificationCampaignService::class)->d
     ->everyMinute()
     ->name('notification-campaigns-dispatch-due')
     ->withoutOverlapping();
+
+// Deadline phát đơn cần chính xác tới giây; delayed job trên queue chung vẫn
+// được giữ làm fallback, còn sweeper này xử lý đúng hạn khi queue đang bận.
+Schedule::call(fn () => app(DispatchExpirySweeper::class)->sweep())
+    ->everySecond()
+    ->name('dispatch-expire-offers');

@@ -188,7 +188,7 @@ class DispatchService
 
             // Kiểm tra lại dưới cùng khoá dòng với thao tác trừ điểm + Offline.
             // Hai timeout chạy đồng thời vì vậy không thể cùng trừ điểm.
-            $window = $this->unviewedOfferWindow($driverId, $driver->online_since);
+            $window = $this->unviewedOfferWindow($driverId, $driver->online_since, DriverScoreService::cityOf($driverId));
             if (! $window['should_offline']) {
                 return null;
             }

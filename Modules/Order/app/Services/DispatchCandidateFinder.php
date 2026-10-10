@@ -6,6 +6,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
 use Modules\Core\Models\User;
 use Modules\Core\Services\GoogleMapService;
+use Modules\Core\Services\OperationalSettings;
 use Modules\Driver\Services\DriverLocationService;
 use Modules\Driver\Services\DriverScoreService;
 use Modules\Order\Models\Order;
@@ -181,6 +182,7 @@ class DispatchCandidateFinder
             fn (User $driver) => $this->scoringCalculator->composite(
                 $driver, $driver->_road_km, $maxRoadDistanceKm, $order->city_id
             ),
+            OperationalSettings::dispatchFairScoreBand($order->city_id),
         )
             ->take(self::MAX_DRIVERS)
             ->values();

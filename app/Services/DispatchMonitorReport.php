@@ -84,7 +84,7 @@ class DispatchMonitorReport
      * Thống kê phát đơn trong khoảng [$from, $to]. Dùng cùng một khoảng giờ cho hôm nay
      * và hôm qua để so sánh công bằng.
      *
-     * @return array{total:int, accepted:int, accept_rate:int, first_try:int, first_try_rate:int, no_driver:int, avg_attempts:float, avg_wait_secs:int, max_wait_secs:int}
+     * @return array{total:int, accepted:int, accept_rate:int, first_try:int, first_try_rate:int, no_driver:int, avg_attempts:float, avg_wait_secs:int, max_wait_secs:int, avg_timeout_overshoot_secs:int, max_timeout_overshoot_secs:int, offer_fairness_rate:int}
      */
     public function window(CarbonInterface $from, CarbonInterface $to, ?int $cityId): array
     {
@@ -111,6 +111,30 @@ class DispatchMonitorReport
             ->selectRaw('AVG(TIMESTAMPDIFF(SECOND, o.dispatch_started_at, l.responded_at)) as avg_w, MAX(TIMESTAMPDIFF(SECOND, o.dispatch_started_at, l.responded_at)) as max_w')
             ->first();
 
+        $timeout = DB::table('order_dispatch_logs as l')
+            ->join('orders as o', 'o.id', '=', 'l.order_id')
+            ->whereBetween('l.offered_at', [$from, $to])
+            ->where('l.result', 'expired')
+            ->whereNotNull('l.expires_at')
+            ->whereNotNull('l.responded_at')
+            ->when($cityId, fn ($query) => $query->where('o.city_id', $cityId))
+            ->selectRaw('AVG(GREATEST(0, TIMESTAMPDIFF(SECOND, l.expires_at, l.responded_at))) as avg_o,
+                MAX(GREATEST(0, TIMESTAMPDIFF(SECOND, l.expires_at, l.responded_at))) as max_o')
+            ->first();
+
+        $offersByDriver = DB::table('order_dispatch_logs as l')
+            ->join('orders as o', 'o.id', '=', 'l.order_id')
+            ->whereBetween('l.offered_at', [$from, $to])
+            ->when($cityId, fn ($query) => $query->where('o.city_id', $cityId))
+            ->selectRaw('l.driver_id, COUNT(*) as offers')
+            ->groupBy('l.driver_id')
+            ->pluck('offers');
+        $offerSum = (int) $offersByDriver->sum();
+        $offerSquares = (int) $offersByDriver->sum(fn ($offers) => $offers * $offers);
+        $fairness = $offersByDriver->isEmpty() || $offerSquares === 0
+            ? 100
+            : (int) round(($offerSum * $offerSum) / ($offersByDriver->count() * $offerSquares) * 100);
+
         $total = (int) ($agg->total ?? 0);
         $accepted = (int) ($agg->accepted ?? 0);
 
@@ -124,6 +148,11 @@ class DispatchMonitorReport
             'avg_attempts' => round((float) ($agg->avg_attempts ?? 0), 1),
             'avg_wait_secs' => (int) round((float) ($wait->avg_w ?? 0)),
             'max_wait_secs' => max(0, (int) ($wait->max_w ?? 0)),
+            'avg_timeout_overshoot_secs' => max(0, (int) round((float) ($timeout->avg_o ?? 0))),
+            'max_timeout_overshoot_secs' => max(0, (int) ($timeout->max_o ?? 0)),
+            // Chỉ số Jain trên số lượt offer; dùng để so sánh trước/sau trong
+            // cùng khu vực và khung giờ, không thay thế chuẩn hoá theo giờ online.
+            'offer_fairness_rate' => $fairness,
         ];
     }
 

@@ -95,6 +95,7 @@ class OperationalSettingsPage extends Page implements HasForms
         'dispatch_score_weight' => 'dispatch.score_weight',
         'dispatch_wait_weight' => 'dispatch.wait_weight',
         'dispatch_distance_weight' => 'dispatch.distance_weight',
+        'dispatch_fair_score_band' => 'dispatch.fair_score_band',
         'dispatch_wait_cap_minutes' => 'dispatch.wait_cap_minutes',
         'rain_mode_auto_off_hours' => 'rain_mode.auto_off_hours',
         'penalty_debt_overdue_hours' => 'debt.penalty_overdue_hours',
@@ -266,6 +267,7 @@ class OperationalSettingsPage extends Page implements HasForms
                         $this->weight('dispatch_score_weight', 'Điểm tài xế'),
                         $this->weight('dispatch_wait_weight', 'Thời gian chờ'),
                         $this->weight('dispatch_distance_weight', 'Khoảng cách'),
+                        $this->number('dispatch_fair_score_band', 'Biên điểm công bằng', 'điểm', 0, 50, step: 0.5),
                         $this->integer('dispatch_wait_cap_minutes', 'Chờ đạt điểm tối đa', 'phút', 1, 2880),
                     ]),
             ]);

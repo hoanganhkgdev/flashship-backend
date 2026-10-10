@@ -281,12 +281,17 @@ class OrderService
             return ['success' => false, 'message' => 'Đơn đã có người nhận hoặc không khả dụng', 'status' => 409];
         }
 
-        $wasOffered = OrderDispatchLog::where('order_id', $order->id)
+        $activeOffer = OrderDispatchLog::where('order_id', $order->id)
             ->where('driver_id', $user->id)
             ->where('result', 'pending')
-            ->exists();
-        if (!$wasOffered) {
+            ->first();
+        if (! $activeOffer) {
             return ['success' => false, 'message' => 'Đơn này không được phát cho bạn.', 'status' => 403];
+        }
+        if ($activeOffer->expires_at && $activeOffer->expires_at->isPast()) {
+            $this->expireLateAcceptance($order->id, $user->id);
+
+            return ['success' => false, 'message' => 'Thời gian nhận đơn đã hết, hệ thống đang chuyển cho tài xế khác.', 'status' => 409];
         }
 
         if ($order->service_type === 'car' && !$user->has_car_license) {
@@ -298,6 +303,15 @@ class OrderService
             // tay từ tổng đài. Hai luồng không thể cùng đếm activeCount cũ
             // rồi cùng gán vượt giới hạn đơn active.
             User::where('id', $user->id)->lockForUpdate()->firstOrFail();
+
+            $offer = OrderDispatchLog::where('order_id', $order->id)
+                ->where('driver_id', $user->id)
+                ->where('result', 'pending')
+                ->lockForUpdate()
+                ->first();
+            if (! $offer || ($offer->expires_at && $offer->expires_at->isPast())) {
+                return 'expired';
+            }
 
             $activeOrders = Order::where('delivery_man_id', $user->id)
                 ->whereIn('status', ['assigned', 'processing'])
@@ -354,6 +368,12 @@ class OrderService
             return ['success' => false, 'message' => $message, 'status' => 409];
         }
 
+        if ($assignment === 'expired') {
+            $this->expireLateAcceptance($order->id, $user->id);
+
+            return ['success' => false, 'message' => 'Thời gian nhận đơn đã hết, hệ thống đang chuyển cho tài xế khác.', 'status' => 409];
+        }
+
         if ($assignment === 0) {
             return ['success' => false, 'message' => 'Đơn đã có người nhận trước bạn.', 'status' => 409];
         }
@@ -404,6 +424,17 @@ class OrderService
         })->afterResponse();
 
         return ['success' => true, 'order' => $this->formatOrderForDriver($order->fresh()), 'status' => 200];
+    }
+
+    private function expireLateAcceptance(int $orderId, int $driverId): void
+    {
+        dispatch(function () use ($orderId, $driverId) {
+            $freshOrder = Order::find($orderId);
+            if ($freshOrder?->status === 'pending'
+                && (int) $freshOrder->dispatching_to_driver_id === $driverId) {
+                app(DispatchService::class)->handleTimeout($freshOrder, $driverId);
+            }
+        })->afterResponse();
     }
 
     public function declineOrder(Order $order, User $user): array

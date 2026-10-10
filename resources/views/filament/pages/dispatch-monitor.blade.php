@@ -46,10 +46,10 @@
         {{-- Thanh số liệu --}}
         <div class="fs-dispatch-kpis fs-dispatch-kpis--5">
             @foreach ([
-                ['Đơn phát hôm nay', $t['total'], 'Cùng giờ hôm qua: ' . $y['total'], 'gray', 'heroicon-o-paper-airplane'],
+                ['Đơn phát hôm nay', $t['total'], 'Cùng giờ hôm qua: ' . $y['total'] . ' · chia lượt ' . $t['offer_fairness_rate'] . '%', 'gray', 'heroicon-o-paper-airplane'],
                 ['Tỷ lệ có tài xế', $t['accept_rate'] . '%', $t['accepted'] . '/' . $t['total'] . ' đơn · hôm qua ' . $y['accept_rate'] . '%', 'green', 'heroicon-o-check-circle'],
                 ['Chờ trung bình', $dur($t['avg_wait_secs']), $t['avg_attempts'] . ' lượt hỏi · hôm qua ' . $dur($y['avg_wait_secs']), 'orange', 'heroicon-o-clock'],
-                ['Chờ lâu nhất', $dur($longest), ($longestNow > 0 ? 'Đang chờ ' . $dur($longestNow) . ' · ' : '') . 'hôm qua ' . $dur($y['max_wait_secs']), $longest > $timeoutSecs * 0.5 ? 'red' : 'orange', 'heroicon-o-bolt'],
+                ['Chờ lâu nhất', $dur($longest), ($longestNow > 0 ? 'Đang chờ ' . $dur($longestNow) . ' · ' : '') . 'timeout lệch TB ' . $dur($t['avg_timeout_overshoot_secs']), $longest > $timeoutSecs * 0.5 ? 'red' : 'orange', 'heroicon-o-bolt'],
                 ['Không tìm được', $t['no_driver'], count($attention) . ' đơn đang chờ xử lý · hôm qua ' . $y['no_driver'], 'red', 'heroicon-o-exclamation-triangle'],
             ] as $card)
                 <article class="fs-dispatch-kpi fs-dispatch-kpi--{{ $card[3] }}">

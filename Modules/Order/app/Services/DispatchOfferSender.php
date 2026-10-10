@@ -107,11 +107,14 @@ class DispatchOfferSender
 
     private function commitOffer(Order $order, User $driver, Carbon $now): bool
     {
+        $offerSeconds = OperationalSettings::offerOpenSeconds($order->city_id);
+        $expiresAt = $now->copy()->addSeconds($offerSeconds);
+
         // Giữ chỗ nguyên tử trong DB trước khi ghi Firebase. Đơn vừa
         // bị huỷ/được luồng khác xử lý sẽ không hiện thành offer ma.
         // Log pending được tạo cùng transaction để lúc app nhìn thấy
         // offer, API accept đã có đủ con trỏ và log để xác thực.
-        $dispatchLog = DB::transaction(function () use ($order, $driver, $now) {
+        $dispatchLog = DB::transaction(function () use ($order, $driver, $now, $expiresAt) {
             $reserved = DB::table('orders')
                 ->where('id', $order->id)
                 ->where('status', 'pending')
@@ -131,6 +134,7 @@ class DispatchOfferSender
                 'order_id' => $order->id,
                 'driver_id' => $driver->id,
                 'offered_at' => $now,
+                'expires_at' => $expiresAt,
                 'result' => 'pending',
                 'created_at' => $now,
                 'updated_at' => $now,
@@ -144,8 +148,6 @@ class DispatchOfferSender
         }
 
         $offeredAt = $now->timestamp;
-        $offerSeconds = OperationalSettings::offerOpenSeconds($order->city_id);
-        $expiresAt = $offeredAt + $offerSeconds;
         $receiptUrl = URL::temporarySignedRoute(
             'api.dispatch.offer.received',
             now()->addSeconds($offerSeconds + 10),
@@ -167,7 +169,7 @@ class DispatchOfferSender
             'order_id' => $order->id,
             'order_code' => $order->code,
             'offered_at' => $offeredAt,
-            'expires_at' => $expiresAt,
+            'expires_at' => $expiresAt->timestamp,
             'service_type' => $order->service_type,
             'pickup_address' => $order->pickup_address ?? '',
             'pickup_place_name' => $order->pickup_place_name ?? null,
@@ -221,13 +223,13 @@ class DispatchOfferSender
             return false;
         }
 
-        Log::debug("     → RTDB offer ghi thành công (expires_at: {$expiresAt})");
+        Log::debug("     → RTDB offer ghi thành công (expires_at: {$expiresAt->timestamp})");
 
         $order->offer_viewed_at = null;
 
         if ($driver->fcm_token) {
             try {
-                FCMService::getInstance()->sendDriverWakeUp($driver->fcm_token, $order->id, $order->code, $order->pickup_address ?? '', $expiresAt, $receiptUrl, $viewUrl);
+                FCMService::getInstance()->sendDriverWakeUp($driver->fcm_token, $order->id, $order->code, $order->pickup_address ?? '', $expiresAt->timestamp, $receiptUrl, $viewUrl);
                 Log::debug('     → FCM wake-up gửi thành công');
             } catch (\Throwable $e) {
                 Log::error("[Dispatch] FCM failed for driver #{$driver->id}: ".$e->getMessage());
@@ -235,7 +237,7 @@ class DispatchOfferSender
         }
 
         DispatchOrderJob::dispatch($order->id, $driver->id)
-            ->delay(now()->addSeconds($offerSeconds));
+            ->delay($expiresAt);
         CheckDriverOfferReceiptJob::dispatch($order->id, $driver->id)
             ->delay(now()->addSeconds(OperationalSettings::offerReceiptSeconds($order->city_id)));
 

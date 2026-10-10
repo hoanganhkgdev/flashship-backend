@@ -53,8 +53,8 @@ class OperationalSettings
         // Danh sách khung giờ phụ phí đêm; "to" không tính, khung được vắt qua nửa đêm.
         'pricing.night_windows' => '[{"from":"23:00","to":"01:00","amount":5000},{"from":"01:00","to":"04:00","amount":10000}]',
         'dispatch.offer_receipt_seconds' => '8',
-        'dispatch.offer_open_seconds' => '15',
-        'dispatch.offer_decision_seconds' => '30',
+        'dispatch.offer_open_seconds' => '10',
+        'dispatch.offer_decision_seconds' => '15',
         'dispatch.total_timeout_minutes' => '15',
         'dispatch.retry_seconds' => '15',
         'market.enabled' => '0',
@@ -65,6 +65,7 @@ class OperationalSettings
         'dispatch.score_weight' => '15',
         'dispatch.wait_weight' => '42.5',
         'dispatch.distance_weight' => '42.5',
+        'dispatch.fair_score_band' => '8',
         'dispatch.wait_cap_minutes' => '480',
         'rain_mode.auto_off_hours' => '6',
         'debt.penalty_overdue_hours' => '24',
@@ -388,6 +389,15 @@ class OperationalSettings
     public static function dispatchWaitCapMinutes(?int $cityId): int
     {
         return (int) self::value('dispatch.wait_cap_minutes', $cityId);
+    }
+
+    /**
+     * Các tài xế có điểm composite chênh lệch không quá ngưỡng này được xem là
+     * tương đương về hiệu quả; trong nhóm sẽ xoay vòng theo cơ hội đã nhận.
+     */
+    public static function dispatchFairScoreBand(?int $cityId): float
+    {
+        return max(0, (float) self::value('dispatch.fair_score_band', $cityId));
     }
 
     public static function rainModeAutoOffHours(?int $cityId): int

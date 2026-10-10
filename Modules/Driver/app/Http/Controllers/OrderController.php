@@ -93,48 +93,28 @@ class OrderController extends Controller
     /** Popup Android báo tài xế đã chủ động bấm xem trước khi Flutter mở xong. */
     public function viewSignedOffer(OrderDispatchLog $dispatchLog): JsonResponse
     {
-        $order = Order::find($dispatchLog->order_id);
-        if (! $order || $dispatchLog->result !== 'pending'
-            || $order->status !== 'pending'
-            || (int) $order->dispatching_to_driver_id !== (int) $dispatchLog->driver_id) {
+        $view = $this->markOfferViewed(
+            (int) $dispatchLog->order_id,
+            (int) $dispatchLog->driver_id,
+            (int) $dispatchLog->id,
+        );
+        if (! $view) {
             return response()->json(['success' => false], 409);
         }
 
-        $viewedAt = now();
-        $updated = DB::table('orders')
-            ->where('id', $order->id)
-            ->where('status', 'pending')
-            ->where('dispatching_to_driver_id', $dispatchLog->driver_id)
-            ->whereNull('offer_viewed_at')
-            ->update(['offer_viewed_at' => $viewedAt, 'updated_at' => $viewedAt]);
-
-        $fresh = Order::find($order->id);
-        if (! $updated && ! $fresh?->offer_viewed_at) {
-            return response()->json(['success' => false], 409);
-        }
-
-        $effectiveViewedAt = $updated ? $viewedAt : $fresh->offer_viewed_at;
-        $expiresAt = $effectiveViewedAt->copy()->addSeconds(OperationalSettings::offerDecisionSeconds($order->city_id));
-        if ($updated) {
-            DB::table('order_dispatch_logs')->where('id', $dispatchLog->id)
-                ->where('result', 'pending')->whereNull('viewed_at')
-                ->update([
-                    'received_at' => DB::raw('COALESCE(received_at, CURRENT_TIMESTAMP)'),
-                    'viewed_at' => $viewedAt,
-                    'updated_at' => $viewedAt,
-                ]);
+        if ($view['updated']) {
             RTDBService::updateDriverOfferExpiry(
                 (int) $dispatchLog->driver_id,
-                (int) $order->id,
-                $expiresAt->timestamp,
+                (int) $dispatchLog->order_id,
+                $view['expires_at']->timestamp,
             );
-            DispatchOrderJob::dispatch($order->id, $dispatchLog->driver_id, true)
-                ->delay($expiresAt);
+            DispatchOrderJob::dispatch($dispatchLog->order_id, $dispatchLog->driver_id, true)
+                ->delay($view['expires_at']);
         }
 
         return response()->json([
             'success' => true,
-            'data' => ['expires_at' => $expiresAt->timestamp],
+            'data' => ['expires_at' => $view['expires_at']->timestamp],
         ]);
     }
 
@@ -161,65 +141,66 @@ class OrderController extends Controller
     public function viewOffer(Request $request, Order $order): JsonResponse
     {
         $driver = $request->user();
-
-        // Chỉ xử lý nếu đơn đang pending và đang được phát cho driver này
-        if ($order->status !== 'pending' || (int) $order->dispatching_to_driver_id !== $driver->id) {
+        $view = $this->markOfferViewed((int) $order->id, (int) $driver->id);
+        if (! $view) {
             return response()->json(['success' => false], 200);
         }
 
-        // Cập nhật có điều kiện trong một câu SQL: request xem cũ đến
-        // muộn không được reset offer của tài xế mới; hai request trùng
-        // cũng chỉ có đúng một request được gia hạn 30 giây.
-        $viewedAt = now();
-        $updated = DB::table('orders')
-            ->where('id', $order->id)
-            ->where('status', 'pending')
-            ->where('dispatching_to_driver_id', $driver->id)
-            ->whereNull('offer_viewed_at')
-            ->update([
-                'offer_viewed_at' => now(),
-                'updated_at'      => $viewedAt,
-            ]);
-
-        $effectiveExpiresAt = null;
-        if ($updated) {
-            $expiresAt = $viewedAt->copy()->addSeconds(OperationalSettings::offerDecisionSeconds($order->city_id));
-            $effectiveExpiresAt = $expiresAt->timestamp;
-
-            // Ghi thêm vào đúng dòng log offer này (khác cột chung ở trên) —
-            // hạ tầng tính % offer bị bỏ lỡ (không mở xem) mỗi ca sau này.
-            DB::table('order_dispatch_logs')
-                ->where('order_id', $order->id)
-                ->where('driver_id', $driver->id)
-                ->where('result', 'pending')
-                ->whereNull('viewed_at')
-                ->update(['received_at' => DB::raw('COALESCE(received_at, CURRENT_TIMESTAMP)'), 'viewed_at' => $viewedAt]);
-
-            // Reset đồng hồ RTDB về thời gian quyết định đang cấu hình.
-            RTDBService::updateDriverOfferExpiry($driver->id, $order->id, $expiresAt->timestamp);
-
-            // Job timeout tính từ lúc driver mở app.
+        if ($view['updated']) {
+            RTDBService::updateDriverOfferExpiry($driver->id, $order->id, $view['expires_at']->timestamp);
             DispatchOrderJob::dispatch($order->id, $driver->id, true)
-                ->delay($expiresAt);
-        } else {
-            // Request retry: trả lại đúng deadline đã cấp ở request đầu,
-            // không tự cộng thêm 30 giây lần nữa.
-            $fresh = Order::where('id', $order->id)
-                ->where('status', 'pending')
-                ->where('dispatching_to_driver_id', $driver->id)
-                ->first();
-            if ($fresh?->offer_viewed_at) {
-                $effectiveExpiresAt = $fresh->offer_viewed_at
-                    ->copy()
-                    ->addSeconds(OperationalSettings::offerDecisionSeconds($order->city_id))
-                    ->timestamp;
-            }
+                ->delay($view['expires_at']);
         }
 
         return response()->json([
             'success' => true,
-            'data' => ['expires_at' => $effectiveExpiresAt],
+            'data' => ['expires_at' => $view['expires_at']->timestamp],
         ], 200);
+    }
+
+    /**
+     * @return array{updated: bool, expires_at: \Illuminate\Support\Carbon}|null
+     */
+    private function markOfferViewed(int $orderId, int $driverId, ?int $dispatchLogId = null): ?array
+    {
+        return DB::transaction(function () use ($orderId, $driverId, $dispatchLogId) {
+            $log = OrderDispatchLog::query()
+                ->when($dispatchLogId, fn ($query) => $query->whereKey($dispatchLogId))
+                ->where('order_id', $orderId)
+                ->where('driver_id', $driverId)
+                ->where('result', 'pending')
+                ->lockForUpdate()
+                ->first();
+            if (! $log || ($log->expires_at && $log->expires_at->isPast())) {
+                return null;
+            }
+
+            $order = Order::whereKey($orderId)->lockForUpdate()->first();
+            if (! $order || $order->status !== 'pending'
+                || (int) $order->dispatching_to_driver_id !== $driverId) {
+                return null;
+            }
+
+            if ($order->offer_viewed_at) {
+                return [
+                    'updated' => false,
+                    'expires_at' => $log->expires_at
+                        ?? $order->offer_viewed_at->copy()->addSeconds(OperationalSettings::offerDecisionSeconds($order->city_id)),
+                ];
+            }
+
+            $viewedAt = now();
+            $expiresAt = $viewedAt->copy()->addSeconds(OperationalSettings::offerDecisionSeconds($order->city_id));
+            $order->forceFill(['offer_viewed_at' => $viewedAt, 'updated_at' => $viewedAt])->save();
+            $log->update([
+                'received_at' => $log->received_at ?? $viewedAt,
+                'viewed_at' => $viewedAt,
+                'expires_at' => $expiresAt,
+                'updated_at' => $viewedAt,
+            ]);
+
+            return ['updated' => true, 'expires_at' => $expiresAt];
+        });
     }
 
     /** App xác nhận thiết bị đã nhận và xử lý thông báo offer. */
