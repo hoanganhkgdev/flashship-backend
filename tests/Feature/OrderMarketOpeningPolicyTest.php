@@ -27,6 +27,14 @@ class OrderMarketOpeningPolicyTest extends TestCase
             'created_at' => now(),
             'updated_at' => now(),
         ]);
+        DB::table(OperationalSettings::CITY_TABLE)->updateOrInsert([
+            'city_id' => $city->id,
+            'key' => 'market.wait_seconds_before_open',
+        ], [
+            'value' => '180',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
         OperationalSettings::flush($city->id);
 
         $order = Order::create([
@@ -38,7 +46,10 @@ class OrderMarketOpeningPolicyTest extends TestCase
 
         $this->assertFalse($service->shouldOpen($order));
 
-        $order->dispatch_started_at = now()->subSeconds(121);
+        $order->dispatch_started_at = now()->subSeconds(179);
+        $this->assertFalse($service->shouldOpen($order));
+
+        $order->dispatch_started_at = now()->subSeconds(181);
         $this->assertTrue($service->shouldOpen($order));
     }
 }

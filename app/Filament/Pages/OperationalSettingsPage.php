@@ -253,7 +253,7 @@ class OperationalSettingsPage extends Page implements HasForms
                     ->columns(['sm' => 2, 'lg' => 5])
                     ->schema([
                         Toggle::make('market_enabled')->label('Bật Chợ đơn')->inline(false),
-                        $this->integer('market_wait_seconds_before_open', 'Đưa vào chợ sau', 'giây', 15, 1800),
+                        $this->integer('market_wait_seconds_before_open', 'Đưa vào chợ sau', 'giây', 15, 180),
                         $this->number('market_max_pickup_distance_km', 'Bán kính thấy đơn', 'km', 0.5, 50, step: 0.1),
                         $this->integer('market_expire_minutes', 'Hết hạn sau', 'phút', 1, 120),
                         $this->integer('market_bundle_window_minutes', 'Thời gian gom chuyến', 'phút', 1, 60),

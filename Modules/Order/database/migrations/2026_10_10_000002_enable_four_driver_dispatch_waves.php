@@ -14,12 +14,12 @@ return new class extends Migration
         );
 
         DB::table('settings')->where('key', 'market.wait_seconds_before_open')
-            ->update(['value' => '90', 'updated_at' => now()]);
+            ->update(['value' => '180', 'updated_at' => now()]);
 
         if (DB::getSchemaBuilder()->hasTable(OperationalSettings::CITY_TABLE)) {
             DB::table(OperationalSettings::CITY_TABLE)
                 ->where('key', 'market.wait_seconds_before_open')
-                ->update(['value' => '90', 'updated_at' => now()]);
+                ->update(['value' => '180', 'updated_at' => now()]);
 
             $cityIds = DB::table('cities')->pluck('id');
             foreach ($cityIds as $cityId) {

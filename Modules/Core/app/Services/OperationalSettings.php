@@ -59,7 +59,7 @@ class OperationalSettings
         'dispatch.total_timeout_minutes' => '15',
         'dispatch.retry_seconds' => '15',
         'market.enabled' => '0',
-        'market.wait_seconds_before_open' => '90',
+        'market.wait_seconds_before_open' => '180',
         'market.max_pickup_distance_km' => '8',
         'market.expire_minutes' => '13',
         'market.bundle_window_minutes' => '10',
@@ -364,7 +364,7 @@ class OperationalSettings
 
     public static function marketWaitSecondsBeforeOpen(?int $cityId): int
     {
-        return (int) self::value('market.wait_seconds_before_open', $cityId);
+        return min(180, max(15, (int) self::value('market.wait_seconds_before_open', $cityId)));
     }
 
     public static function marketMaxPickupDistanceKm(?int $cityId): float
