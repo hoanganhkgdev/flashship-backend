@@ -73,8 +73,8 @@ class DispatchService
             return;
         }
 
-        if ($order->dispatching_to_driver_id !== null) {
-            Log::info("[Dispatch] Đơn #{$order->id} đang chờ tài xế #{$order->dispatching_to_driver_id} → bỏ qua restart");
+        if (OrderDispatchLog::where('order_id', $order->id)->where('result', 'pending')->exists()) {
+            Log::info("[Dispatch] Đơn #{$order->id} đang có một wave offer → bỏ qua restart");
 
             return;
         }
@@ -137,18 +137,14 @@ class DispatchService
 
         Redis::del("dispatch:lock:driver:{$driverId}");
 
-        // Offer đã kết thúc — xoá con trỏ "đang hỏi ai" NGAY, đừng đợi tìm được
-        // người kế. Nếu không còn ứng viên, con trỏ ôi sẽ (1) hiển thị sai
-        // "Đang chờ X" trên monitor và (2) khoá X khỏi mọi đơn khác vì bộ quét
-        // coi X là "đang cầm offer" trong suốt thời gian tìm tài xế. Guard theo driverId để
-        // không đè con trỏ nếu luồng khác đã kịp trỏ sang tài xế mới.
-        DB::table('orders')->where('id', $order->id)
-            ->where('dispatching_to_driver_id', $driverId)
-            ->update(['dispatching_to_driver_id' => null, 'updated_at' => now()]);
+        $remainingDriverId = OrderDispatchLog::where('order_id', $order->id)
+            ->where('result', 'pending')->value('driver_id');
+        DB::table('orders')->where('id', $order->id)->where('status', 'pending')
+            ->update(['dispatching_to_driver_id' => $remainingDriverId, 'updated_at' => now()]);
 
         // Điểm phạt/cửa sổ bỏ lỡ là luật của tài xế → theo khu vực của tài xế.
         $driverCityId = DriverScoreService::cityOf($driverId);
-        if ($timedOutLog->viewed_at || $order->offer_viewed_at) {
+        if ($timedOutLog->viewed_at) {
             DriverScoreService::onViewedTimeout($driverId);
             Log::info("⏱  [Dispatch] Đơn #{$order->id}: Tài xế {$name} xem đơn nhưng không nhận → ".DriverScoreService::viewedTimeoutPenalty($driverCityId).' điểm, pop tiếp');
         } elseif ($timedOutLog->received_at) {
@@ -175,7 +171,12 @@ class DispatchService
 
         RTDBService::clearDriverOffer($driverId, $order->id);
 
-        $this->sendToNextDriver($order->fresh());
+        // Chỉ phát wave kế khi cả wave hiện tại đã kết thúc. Một tài xế hết
+        // hạn sớm không được làm phát thêm người trong lúc 3 người còn lại
+        // vẫn đang có quyền bấm nhận.
+        if (! $remainingDriverId) {
+            $this->sendToNextDriver($order->fresh());
+        }
     }
 
     private function autoOfflineAfterUnviewedOffers(int $driverId): void
@@ -203,14 +204,16 @@ class DispatchService
             DriverScoreService::onUnviewedOfferWindowLimit($driverId);
 
             $now = now();
-            $offers = Order::where('status', 'pending')
-                ->where('dispatching_to_driver_id', $driverId)
+            $offerOrderIds = OrderDispatchLog::where('driver_id', $driverId)
+                ->where('result', 'pending')->pluck('order_id');
+            $offers = Order::where('status', 'pending')->whereIn('id', $offerOrderIds)
                 ->lockForUpdate()->get();
             foreach ($offers as $offer) {
-                $offer->update(['dispatching_to_driver_id' => null, 'offer_viewed_at' => null]);
                 OrderDispatchLog::where('order_id', $offer->id)
                     ->where('driver_id', $driverId)->where('result', 'pending')
                     ->update(['result' => 'expired', 'responded_at' => $now]);
+                $offer->update(['dispatching_to_driver_id' => OrderDispatchLog::where('order_id', $offer->id)
+                    ->where('result', 'pending')->value('driver_id')]);
             }
 
             DriverShiftSession::where('driver_id', $driverId)
@@ -281,7 +284,8 @@ class DispatchService
                 ->update(['result' => 'accepted', 'responded_at' => now()]);
         });
 
-        if (! $updated) {
+        if (! $updated && ! OrderDispatchLog::where('order_id', $order->id)
+            ->where('driver_id', $driver->id)->where('result', 'accepted')->exists()) {
             Log::info("[Dispatch] Đơn #{$order->id}: Tài xế #{$driver->id} accept nhưng log đã đổi (timeout race) → bỏ qua");
 
             return;
@@ -380,8 +384,8 @@ class DispatchService
     {
         // Khoá THEO ĐƠN, không chỉ theo tài xế. start/retry/decline/
         // timeout có thể cùng kích hoạt trong vài mili-giây; nếu hai luồng
-        // cùng find() trước khi dispatching_to_driver_id được ghi, cùng một
-        // đơn sẽ bị offer cho hai người. Token + Lua tránh luồng cũ xoá
+        // cùng mở wave, một đơn có thể bị phát vượt quá số lượng cấu hình.
+        // Token + Lua tránh luồng cũ xoá
         // nhầm khoá mới nếu TTL hết đúng lúc xử lý chậm.
         $orderId = $order->id;
         $token = bin2hex(random_bytes(16));
@@ -399,8 +403,8 @@ class DispatchService
             if ($this->orderMarket->isOpen($order)) {
                 return;
             }
-            if ($order->dispatching_to_driver_id !== null) {
-                Log::debug("│  [Dispatch] Đơn #{$order->id} đang chờ tài xế #{$order->dispatching_to_driver_id} → không phát trùng");
+            if (OrderDispatchLog::where('order_id', $order->id)->where('result', 'pending')->exists()) {
+                Log::debug("│  [Dispatch] Đơn #{$order->id} đang có wave offer → không phát trùng");
 
                 return;
             }
@@ -425,21 +429,29 @@ class DispatchService
                 return;
             }
 
-            // Thử lần lượt ngay trong cùng khoá đơn. Trước đây send()
-            // thất bại gọi đệ quy offerToNext(); cách đó không thể giữ
-            // order-lock xuyên suốt và tạo khe hở phát trùng.
+            $waveSize = OperationalSettings::dispatchWaveSize($order->city_id);
+            $sent = 0;
             foreach ($candidates as $driver) {
                 Log::info("│  Chọn: #{$driver->id} {$driver->name} | ".count($alreadyOffered).' đã hỏi trước');
                 if ($this->offerSender->send($order, $driver)) {
-                    return;
+                    $sent++;
+                    if ($sent >= $waveSize) {
+                        break;
+                    }
+                    continue;
                 }
                 $freshState = Order::find($order->id);
-                if (! $freshState || $freshState->status !== 'pending'
-                    || $freshState->dispatching_to_driver_id !== null) {
+                if (! $freshState || $freshState->status !== 'pending') {
                     Log::debug("│  [Dispatch] Đơn #{$order->id} đã đổi trạng thái trong lúc gửi → dừng thử ứng viên");
 
                     return;
                 }
+            }
+
+            if ($sent > 0) {
+                Log::info("└─ [Dispatch] Đơn #{$order->id}: đã phát đồng thời cho {$sent}/{$waveSize} tài xế");
+
+                return;
             }
 
             Log::info("└─ [Dispatch] Đơn #{$order->id}: mọi ứng viên vòng này đều bị skip/lỗi → chờ quét lại");

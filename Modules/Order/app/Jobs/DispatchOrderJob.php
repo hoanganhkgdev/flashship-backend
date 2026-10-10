@@ -29,12 +29,14 @@ class DispatchOrderJob implements ShouldQueue
 
         if (!$order) return;
 
-        if ($order->status !== 'pending' || (int) $order->dispatching_to_driver_id !== $this->driverId) {
+        $offer = \Modules\Order\Models\OrderDispatchLog::where('order_id', $this->orderId)
+            ->where('driver_id', $this->driverId)->where('result', 'pending')->first();
+        if ($order->status !== 'pending' || ! $offer) {
             Log::info("[Dispatch] Job #{$this->orderId}: already handled (status={$order->status}), skip");
             return;
         }
 
-        if (!$this->isAppDecision && $order->offer_viewed_at !== null) {
+        if (!$this->isAppDecision && $offer->viewed_at !== null) {
             // Driver opened the app — the app-decision job handles the timeout, skip this one.
             Log::info("[Dispatch] Job #{$this->orderId}: driver opened app, callkit-timeout job skipped");
             return;

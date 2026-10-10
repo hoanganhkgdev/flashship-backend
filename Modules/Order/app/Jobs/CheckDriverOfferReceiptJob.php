@@ -28,8 +28,7 @@ class CheckDriverOfferReceiptJob implements ShouldQueue
     public function handle(DispatchService $dispatch): void
     {
         $order = Order::find($this->orderId);
-        if (! $order || $order->status !== 'pending'
-            || (int) $order->dispatching_to_driver_id !== $this->driverId) {
+        if (! $order || $order->status !== 'pending') {
             return;
         }
 

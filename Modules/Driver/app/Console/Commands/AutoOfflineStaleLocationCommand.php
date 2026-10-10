@@ -203,19 +203,18 @@ class AutoOfflineStaleLocationCommand extends Command
                 return null;
             }
 
-            $offers = Order::where('status', 'pending')
-                ->where('dispatching_to_driver_id', $driverId)
+            $offerOrderIds = OrderDispatchLog::where('driver_id', $driverId)
+                ->where('result', 'pending')->pluck('order_id');
+            $offers = Order::where('status', 'pending')->whereIn('id', $offerOrderIds)
                 ->lockForUpdate()
                 ->get();
             foreach ($offers as $offer) {
-                $offer->update([
-                    'dispatching_to_driver_id' => null,
-                    'offer_viewed_at' => null,
-                ]);
                 OrderDispatchLog::where('order_id', $offer->id)
                     ->where('driver_id', $driverId)
                     ->where('result', 'pending')
                     ->update(['result' => 'expired', 'responded_at' => $now]);
+                $offer->update(['dispatching_to_driver_id' => OrderDispatchLog::where('order_id', $offer->id)
+                    ->where('result', 'pending')->value('driver_id')]);
             }
 
             $openSessions = DriverShiftSession::where('driver_id', $driverId)

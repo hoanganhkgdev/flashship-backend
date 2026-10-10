@@ -60,10 +60,12 @@ class DispatchCandidateFinder
             ->having('cnt', '>=', 1)
             ->pluck('delivery_man_id');
 
-        $receivingOfferIds = Order::where('status', 'pending')
-            ->whereNotNull('dispatching_to_driver_id')
-            ->where('id', '!=', $order->id)
-            ->pluck('dispatching_to_driver_id');
+        $receivingOfferIds = OrderDispatchLog::query()
+            ->join('orders', 'orders.id', '=', 'order_dispatch_logs.order_id')
+            ->where('order_dispatch_logs.result', 'pending')
+            ->where('orders.status', 'pending')
+            ->where('orders.id', '!=', $order->id)
+            ->pluck('order_dispatch_logs.driver_id');
 
         $unavailableIds = $busyDriverIds->merge($receivingOfferIds)->unique();
 

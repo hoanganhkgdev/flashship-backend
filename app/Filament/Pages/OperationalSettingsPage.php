@@ -83,6 +83,7 @@ class OperationalSettingsPage extends Page implements HasForms
         'delayed_reminder_minutes' => 'order.delayed_reminder_minutes',
         'max_active_orders_per_driver' => 'order.max_active_per_driver',
         'offer_open_seconds' => 'dispatch.offer_open_seconds',
+        'dispatch_wave_size' => 'dispatch.wave_size',
         'offer_receipt_seconds' => 'dispatch.offer_receipt_seconds',
         'offer_decision_seconds' => 'dispatch.offer_decision_seconds',
         'dispatch_timeout_minutes' => 'dispatch.total_timeout_minutes',
@@ -240,6 +241,7 @@ class OperationalSettingsPage extends Page implements HasForms
                     ->schema([
                         $this->integer('offer_receipt_seconds', 'Chờ thiết bị nhận offer', 'giây', 3, 30),
                         $this->integer('offer_open_seconds', 'Chờ tài xế mở offer', 'giây', 5, 120),
+                        $this->integer('dispatch_wave_size', 'Tài xế mỗi lượt phát', 'tài xế', 1, 10),
                         $this->integer('offer_decision_seconds', 'Quyết định sau khi mở', 'giây', 5, 180),
                         $this->integer('dispatch_retry_seconds', 'Quét lại khi chưa có ai', 'giây', 5, 300),
                         $this->integer('dispatch_timeout_minutes', 'Dừng tìm tài xế sau', 'phút', 1, 120),

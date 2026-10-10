@@ -6,4 +6,9 @@ class OrderDispatchLog extends Model
 {
     protected $fillable = ['order_id', 'driver_id', 'offered_at', 'received_at', 'viewed_at', 'expires_at', 'responded_at', 'result'];
     protected $casts    = ['offered_at' => 'datetime', 'received_at' => 'datetime', 'viewed_at' => 'datetime', 'expires_at' => 'datetime', 'responded_at' => 'datetime'];
+
+    public function order()
+    {
+        return $this->belongsTo(Order::class);
+    }
 }

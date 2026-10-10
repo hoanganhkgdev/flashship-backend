@@ -80,12 +80,7 @@ class OrderMarketService
         return $listing;
     }
 
-    /**
-     * Báo cho tài xế rảnh có thể nhận làm đơn chính, hoặc tài xế đang có phiên
-     * gom chuyến hợp lệ và còn quota nhận đơn phụ.
-     *
-     * @return array<int, string>
-     */
+    /** @return array<int, string> */
     public function eligibleNotificationTokens(Order $order): array
     {
         if (! is_numeric($order->pickup_lat) || ! is_numeric($order->pickup_lng)) {
@@ -100,12 +95,7 @@ class OrderMarketService
             ->whereNotNull('fcm_token')->where('fcm_token', '!=', '')
             ->where(fn ($query) => $query->whereNull('score_suspended_until')->orWhere('score_suspended_until', '<=', now()))
             ->whereDoesntHave('debts', fn ($query) => $query->where('status', 'overdue'))
-            ->where(function ($query) {
-                $query->whereDoesntHave('orders', fn ($orders) => $orders->whereIn('status', ['assigned', 'processing']))
-                    ->orWhereHas('orders', fn ($orders) => $orders->where('driver_order_role', 'main')
-                        ->where('status', 'assigned')->where('extra_claimed_count', '<', 2)
-                        ->where('bundle_window_expires_at', '>', now()));
-            })
+            ->withCount(['orders as active_orders_count' => fn ($orders) => $orders->whereIn('status', ['assigned', 'processing'])])
             ->whereNotExists(fn ($query) => $query->selectRaw('1')->from('driver_leave_requests')
                 ->whereColumn('driver_leave_requests.driver_id', 'users.id')->whereDate('leave_date', today()))
             ->when($order->service_type === 'car', fn ($query) => $query->where('has_car_license', true))
@@ -114,10 +104,12 @@ class OrderMarketService
         $locations = $this->locations->freshLocationsFor($drivers->pluck('id')->all());
         $maxKm = OperationalSettings::marketMaxPickupDistanceKm($order->city_id);
 
-        return $drivers->filter(function (User $driver) use ($locations, $order, $maxKm) {
+        $maxActive = OperationalSettings::maxActiveOrdersPerDriver($order->city_id);
+        return $drivers->filter(function (User $driver) use ($locations, $order, $maxKm, $maxActive) {
             $location = $locations[$driver->id] ?? null;
 
-            return $location && GoogleMapService::haversineKm($location['lat'], $location['lng'], $order->pickup_lat, $order->pickup_lng) <= $maxKm;
+            return $driver->active_orders_count < $maxActive && $location
+                && GoogleMapService::haversineKm($location['lat'], $location['lng'], $order->pickup_lat, $order->pickup_lng) <= $maxKm;
         })->pluck('fcm_token')->filter()->unique()->values()->all();
     }
 
@@ -144,10 +136,6 @@ class OrderMarketService
         $activeCount = Order::where('delivery_man_id', $driver->id)
             ->whereIn('status', ['assigned', 'processing'])->count();
         if ($activeCount >= OperationalSettings::maxActiveOrdersPerDriver($driver->city_id)) {
-            return [];
-        }
-        $session = $this->activeBundleSession($driver);
-        if ($activeCount > 0 && (! $session || (int) $session->extra_claimed_count >= 2)) {
             return [];
         }
         $location = $this->locations->freshLocationsFor([$driver->id])[$driver->id] ?? null;
@@ -215,36 +203,18 @@ class OrderMarketService
                 return 'busy';
             }
 
-            $main = Order::where('delivery_man_id', $driver->id)
-                ->where('driver_order_role', 'main')
-                ->where('status', 'assigned')
-                ->where('bundle_window_expires_at', '>', now())
-                ->lockForUpdate()->first();
-            if ($active->isNotEmpty() && ! $main) {
-                return 'no_session';
-            }
-            if ($main && (int) $main->extra_claimed_count >= 2) {
-                return 'quota';
-            }
-
-            $claimedAsMain = ! $main;
-            $fresh->update($claimedAsMain ? [
+            // Chợ đơn không còn khái niệm chính/phụ hay phiên gom chuyến.
+            // Tài xế chủ động chọn bất kỳ đơn nào tới khi chạm trần active.
+            $fresh->update([
                 'status' => 'assigned', 'delivery_man_id' => $driver->id,
-                'driver_order_role' => 'main', 'main_order_id' => null,
+                'driver_order_role' => 'market', 'main_order_id' => null,
                 'extra_claimed_count' => 0,
-                'bundle_window_expires_at' => now()->addMinutes(OperationalSettings::marketBundleWindowMinutes($fresh->city_id)),
-                'dispatching_to_driver_id' => null,
-            ] : [
-                'status' => 'assigned', 'delivery_man_id' => $driver->id,
-                'driver_order_role' => 'extra', 'main_order_id' => $main->id,
+                'bundle_window_expires_at' => null,
                 'dispatching_to_driver_id' => null,
             ]);
-            if ($main) {
-                $main->increment('extra_claimed_count');
-            }
             $listing->update(['status' => 'claimed', 'claimed_at' => now(), 'claimed_by' => $driver->id]);
             OrderHistory::create(['order_id' => $fresh->id, 'user_id' => $driver->id, 'type' => 'market_claimed',
-                'description' => "{$driver->name} nhận đơn từ Chợ đơn làm ".($claimedAsMain ? 'đơn chính' : 'đơn phụ')]);
+                'description' => "{$driver->name} nhận đơn từ Chợ đơn"]);
 
             return $fresh;
         });
@@ -252,8 +222,6 @@ class OrderMarketService
         if (is_string($result)) {
             $message = match ($result) {
                 'taken' => 'Đơn này vừa được tài xế khác nhận.',
-                'no_session' => 'Phiên gom chuyến đã hết hạn hoặc đơn chính đã lấy hàng.',
-                'quota' => 'Phiên này đã nhận đủ 2 đơn phụ.',
                 default => 'Bạn không còn đủ điều kiện nhận đơn này.',
             };
 

@@ -26,8 +26,7 @@ class DispatchExpirySweeper
         $handled = 0;
         foreach ($dueOffers as $offer) {
             $order = Order::find($offer->order_id);
-            if (! $order || $order->status !== 'pending'
-                || (int) $order->dispatching_to_driver_id !== (int) $offer->driver_id) {
+            if (! $order || $order->status !== 'pending') {
                 continue;
             }
 

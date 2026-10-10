@@ -54,11 +54,12 @@ class OperationalSettings
         'pricing.night_windows' => '[{"from":"23:00","to":"01:00","amount":5000},{"from":"01:00","to":"04:00","amount":10000}]',
         'dispatch.offer_receipt_seconds' => '8',
         'dispatch.offer_open_seconds' => '10',
+        'dispatch.wave_size' => '4',
         'dispatch.offer_decision_seconds' => '15',
         'dispatch.total_timeout_minutes' => '15',
         'dispatch.retry_seconds' => '15',
         'market.enabled' => '0',
-        'market.wait_seconds_before_open' => '120',
+        'market.wait_seconds_before_open' => '90',
         'market.max_pickup_distance_km' => '8',
         'market.expire_minutes' => '13',
         'market.bundle_window_minutes' => '10',
@@ -329,6 +330,11 @@ class OperationalSettings
     public static function offerOpenSeconds(?int $cityId): int
     {
         return (int) self::value('dispatch.offer_open_seconds', $cityId);
+    }
+
+    public static function dispatchWaveSize(?int $cityId): int
+    {
+        return max(1, min(10, (int) self::value('dispatch.wave_size', $cityId)));
     }
 
     public static function offerReceiptSeconds(?int $cityId): int

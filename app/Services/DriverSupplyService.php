@@ -59,10 +59,11 @@ class DriverSupplyService
             ->selectRaw('delivery_man_id, COUNT(*) as cnt')
             ->pluck('cnt', 'delivery_man_id');
 
-        $holdingOffer = DB::table('orders')
-            ->where('status', 'pending')
-            ->whereIn('dispatching_to_driver_id', $ids)
-            ->pluck('dispatching_to_driver_id')
+        $holdingOffer = DB::table('order_dispatch_logs as logs')
+            ->join('orders', 'orders.id', '=', 'logs.order_id')
+            ->where('orders.status', 'pending')->where('logs.result', 'pending')
+            ->whereIn('logs.driver_id', $ids)
+            ->pluck('logs.driver_id')
             ->flip();
 
         $online = $drivers->count();

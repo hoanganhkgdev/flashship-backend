@@ -221,16 +221,19 @@ class AuthController extends Controller
                 'is_online' => false,
                 'online_since' => null,
             ]);
+            $offerOrderIds = \Modules\Order\Models\OrderDispatchLog::where('driver_id', $user->id)
+                ->where('result', 'pending')->pluck('order_id');
             $offers = \Modules\Order\Models\Order::where('status', 'pending')
-                ->where('dispatching_to_driver_id', $user->id)
+                ->whereIn('id', $offerOrderIds)
                 ->lockForUpdate()
                 ->get();
             foreach ($offers as $offer) {
-                $offer->update(['dispatching_to_driver_id' => null, 'offer_viewed_at' => null]);
                 \Modules\Order\Models\OrderDispatchLog::where('order_id', $offer->id)
                     ->where('driver_id', $user->id)
                     ->where('result', 'pending')
                     ->update(['result' => 'expired', 'responded_at' => now()]);
+                $offer->update(['dispatching_to_driver_id' => \Modules\Order\Models\OrderDispatchLog::where('order_id', $offer->id)
+                    ->where('result', 'pending')->value('driver_id')]);
             }
             \Modules\Driver\Models\DriverShiftSession::where('driver_id', $user->id)
                 ->whereNull('ended_at')

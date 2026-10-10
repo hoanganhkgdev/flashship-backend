@@ -110,25 +110,30 @@ class DispatchOfferSender
         $offerSeconds = OperationalSettings::offerOpenSeconds($order->city_id);
         $expiresAt = $now->copy()->addSeconds($offerSeconds);
 
-        // Giữ chỗ nguyên tử trong DB trước khi ghi Firebase. Đơn vừa
-        // bị huỷ/được luồng khác xử lý sẽ không hiện thành offer ma.
-        // Log pending được tạo cùng transaction để lúc app nhìn thấy
-        // offer, API accept đã có đủ con trỏ và log để xác thực.
+        // Khoá dòng đơn để nhiều tài xế trong cùng một wave có thể cùng giữ
+        // offer, nhưng không vượt quá kích thước wave và không lọt offer ma
+        // sau khi đơn đã được nhận/hủy.
         $dispatchLog = DB::transaction(function () use ($order, $driver, $now, $expiresAt) {
-            $reserved = DB::table('orders')
-                ->where('id', $order->id)
-                ->where('status', 'pending')
-                ->whereNull('dispatching_to_driver_id')
-                ->update([
-                    'dispatching_to_driver_id' => $driver->id,
-                    'dispatch_attempts' => DB::raw('dispatch_attempts + 1'),
-                    'offer_viewed_at' => null,
-                    'updated_at' => $now,
-                ]);
-
-            if (! $reserved) {
+            $fresh = Order::whereKey($order->id)->lockForUpdate()->first();
+            if (! $fresh || $fresh->status !== 'pending') {
                 return null;
             }
+
+            $pending = OrderDispatchLog::where('order_id', $order->id)
+                ->where('result', 'pending')->lockForUpdate()->get();
+            if ($pending->count() >= OperationalSettings::dispatchWaveSize($order->city_id)
+                || $pending->contains('driver_id', $driver->id)) {
+                return null;
+            }
+
+            $fresh->forceFill([
+                // Cột cũ chỉ còn là con trỏ tương thích cho màn admin. Quyền
+                // nhận đơn được xác thực bằng log pending của từng tài xế.
+                'dispatching_to_driver_id' => $fresh->dispatching_to_driver_id ?? $driver->id,
+                'dispatch_attempts' => (int) $fresh->dispatch_attempts + 1,
+                'offer_viewed_at' => null,
+                'updated_at' => $now,
+            ])->save();
 
             return OrderDispatchLog::create([
                 'order_id' => $order->id,
@@ -207,17 +212,17 @@ class DispatchOfferSender
         ]);
 
         if (! $rtdbOk) {
-            // Hoàn tác con trỏ; giữ log expired để không chọn lại ngay
+            // Giữ log expired để không chọn lại ngay
             // cùng tài xế và không tính lỗi hạ tầng là bỏ lỡ đơn.
             DB::transaction(function () use ($order, $driver, $dispatchLog) {
                 $failedAt = now();
                 OrderDispatchLog::where('id', $dispatchLog->id)
                     ->where('result', 'pending')
                     ->update(['result' => 'expired', 'responded_at' => $failedAt, 'updated_at' => $failedAt]);
-                DB::table('orders')->where('id', $order->id)
-                    ->where('status', 'pending')
-                    ->where('dispatching_to_driver_id', $driver->id)
-                    ->update(['dispatching_to_driver_id' => null, 'updated_at' => $failedAt]);
+                $replacement = OrderDispatchLog::where('order_id', $order->id)
+                    ->where('result', 'pending')->value('driver_id');
+                DB::table('orders')->where('id', $order->id)->where('status', 'pending')
+                    ->update(['dispatching_to_driver_id' => $replacement, 'updated_at' => $failedAt]);
             });
 
             return false;

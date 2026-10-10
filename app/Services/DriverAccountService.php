@@ -92,17 +92,19 @@ class DriverAccountService
                 return ['blocked' => false, 'active_order' => $activeOrder];
             }
 
-            $offers = Order::where('dispatching_to_driver_id', $locked->id)
-                ->where('status', 'pending')
+            $offerOrderIds = OrderDispatchLog::where('driver_id', $locked->id)
+                ->where('result', 'pending')->pluck('order_id');
+            $offers = Order::whereIn('id', $offerOrderIds)->where('status', 'pending')
                 ->lockForUpdate()
                 ->get();
 
             foreach ($offers as $offer) {
-                $offer->update(['dispatching_to_driver_id' => null, 'offer_viewed_at' => null]);
                 OrderDispatchLog::where('order_id', $offer->id)
                     ->where('driver_id', $locked->id)
                     ->where('result', 'pending')
                     ->update(['result' => 'expired', 'responded_at' => now()]);
+                $offer->update(['dispatching_to_driver_id' => OrderDispatchLog::where('order_id', $offer->id)
+                    ->where('result', 'pending')->value('driver_id')]);
             }
 
             DriverShiftSession::where('driver_id', $locked->id)->whereNull('ended_at')->lockForUpdate()->update(['ended_at' => now()]);

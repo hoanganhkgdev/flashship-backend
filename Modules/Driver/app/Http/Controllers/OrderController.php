@@ -43,31 +43,21 @@ class OrderController extends Controller
     {
         $driverId = $request->user()->id;
 
-        // orders.dispatching_to_driver_id mới là con trỏ offer hiện hành.
-        // Không lấy "log pending mới nhất": log là lịch sử và nếu callback
-        // timeout/afterResponse từng lỗi, một dòng cũ có thể còn pending rồi
-        // làm app khôi phục nhầm đơn đã phát trước đó.
-        $order = Order::with('city')
-            ->where('status', 'pending')
-            ->where('dispatching_to_driver_id', $driverId)
-            ->latest('updated_at')
-            ->first();
-
-        $activeLog = $order
-            ? OrderDispatchLog::where('order_id', $order->id)
-                ->where('driver_id', $driverId)
-                ->where('result', 'pending')
-                ->exists()
-            : false;
+        $activeLog = OrderDispatchLog::query()
+            ->where('driver_id', $driverId)->where('result', 'pending')
+            ->where(fn ($query) => $query->whereNull('expires_at')->orWhere('expires_at', '>', now()))
+            ->whereHas('order', fn ($query) => $query->where('status', 'pending'))
+            ->latest('offered_at')->first();
+        $order = $activeLog ? Order::with('city')->find($activeLog->order_id) : null;
 
         // Tự chữa lịch sử của riêng tài xế mỗi lần app đồng bộ offer. Chỉ
         // giữ đúng log khớp đồng thời cả order + driver + trạng thái pending.
         OrderDispatchLog::where('driver_id', $driverId)
             ->where('result', 'pending')
-            ->when($order && $activeLog, fn ($query) => $query->where('order_id', '!=', $order->id))
+            ->when($activeLog, fn ($query) => $query->where('id', '!=', $activeLog->id))
             ->update(['result' => 'expired', 'responded_at' => now()]);
 
-        if (!$activeLog) {
+        if (! $activeLog) {
             $order = null;
         }
 
@@ -176,22 +166,22 @@ class OrderController extends Controller
             }
 
             $order = Order::whereKey($orderId)->lockForUpdate()->first();
-            if (! $order || $order->status !== 'pending'
-                || (int) $order->dispatching_to_driver_id !== $driverId) {
+            if (! $order || $order->status !== 'pending') {
                 return null;
             }
 
-            if ($order->offer_viewed_at) {
+            if ($log->viewed_at) {
                 return [
                     'updated' => false,
-                    'expires_at' => $log->expires_at
-                        ?? $order->offer_viewed_at->copy()->addSeconds(OperationalSettings::offerDecisionSeconds($order->city_id)),
+                    'expires_at' => $log->expires_at,
                 ];
             }
 
             $viewedAt = now();
-            $expiresAt = $viewedAt->copy()->addSeconds(OperationalSettings::offerDecisionSeconds($order->city_id));
-            $order->forceFill(['offer_viewed_at' => $viewedAt, 'updated_at' => $viewedAt])->save();
+            // Wave có một hạn chung 10 giây; mở app không kéo dài riêng offer
+            // của một người, nhờ vậy "ai nhận trước" thật sự công bằng.
+            $expiresAt = $log->expires_at
+                ?? $viewedAt->copy()->addSeconds(OperationalSettings::offerOpenSeconds($order->city_id));
             $log->update([
                 'received_at' => $log->received_at ?? $viewedAt,
                 'viewed_at' => $viewedAt,
@@ -217,8 +207,7 @@ class OrderController extends Controller
                 ->selectRaw('1')
                 ->from('orders')
                 ->whereColumn('orders.id', 'order_dispatch_logs.order_id')
-                ->where('orders.status', 'pending')
-                ->where('orders.dispatching_to_driver_id', $driverId))
+                ->where('orders.status', 'pending'))
             ->update(['received_at' => now(), 'updated_at' => now()]);
 
         // Idempotent: retry sau ACK đầu vẫn thành công nếu offer còn hiệu lực.

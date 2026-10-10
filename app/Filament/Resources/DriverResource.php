@@ -102,7 +102,11 @@ class DriverResource extends Resource
             ->modalDescription('Xóa vĩnh viễn tài khoản tài xế cùng ví, công nợ, lịch sử điểm và ca làm việc. Các đơn cũ sẽ không còn thông tin tài xế. Không thể khôi phục.')
             ->before(function (User $record, $action) {
                 $busy = Order::where(fn ($q) => $q->where('delivery_man_id', $record->id)->whereIn('status', ['assigned', 'processing'])
-                    ->orWhere(fn ($q) => $q->where('dispatching_to_driver_id', $record->id)->where('status', 'pending')))
+                    ->orWhere(fn ($q) => $q->where('status', 'pending')->whereExists(fn ($logs) => $logs
+                        ->selectRaw('1')->from('order_dispatch_logs')
+                        ->whereColumn('order_dispatch_logs.order_id', 'orders.id')
+                        ->where('order_dispatch_logs.driver_id', $record->id)
+                        ->where('order_dispatch_logs.result', 'pending'))))
                     ->first(['id', 'code']);
 
                 if ($busy) {

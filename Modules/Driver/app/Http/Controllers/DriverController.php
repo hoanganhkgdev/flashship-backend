@@ -141,16 +141,18 @@ class DriverController extends Controller
                 // Firebase qua DriverLocationService.
                 $locked->last_heartbeat_at = now();
             } else {
-                $offers = Order::where('status', 'pending')
-                    ->where('dispatching_to_driver_id', $locked->id)
+                $offerOrderIds = OrderDispatchLog::where('driver_id', $locked->id)
+                    ->where('result', 'pending')->pluck('order_id');
+                $offers = Order::where('status', 'pending')->whereIn('id', $offerOrderIds)
                     ->lockForUpdate()
                     ->get();
                 foreach ($offers as $offer) {
-                    $offer->update(['dispatching_to_driver_id' => null, 'offer_viewed_at' => null]);
                     OrderDispatchLog::where('order_id', $offer->id)
                         ->where('driver_id', $locked->id)
                         ->where('result', 'pending')
                         ->update(['result' => 'expired', 'responded_at' => now()]);
+                    $offer->update(['dispatching_to_driver_id' => OrderDispatchLog::where('order_id', $offer->id)
+                        ->where('result', 'pending')->value('driver_id')]);
                 }
                 // Đóng TẤT CẢ phiên đang mở, không chỉ phiên gần nhất — nếu
                 // có sót lại phiên chồng lấp nào (bug cũ, hoặc lỗi khác trong
@@ -835,13 +837,16 @@ class DriverController extends Controller
                 return ['error' => 'Bạn đang có yêu cầu rút tiền chờ xử lý'];
             }
 
-            $offers = Order::where('dispatching_to_driver_id', $driver->id)
+            $offerOrderIds = OrderDispatchLog::where('driver_id', $driver->id)
+                ->where('result', 'pending')->pluck('order_id');
+            $offers = Order::whereIn('id', $offerOrderIds)
                 ->where('status', 'pending')->lockForUpdate()->get();
             foreach ($offers as $offer) {
-                $offer->update(['dispatching_to_driver_id' => null, 'offer_viewed_at' => null]);
                 OrderDispatchLog::where('order_id', $offer->id)
                     ->where('driver_id', $driver->id)->where('result', 'pending')
                     ->update(['result' => 'expired', 'responded_at' => now()]);
+                $offer->update(['dispatching_to_driver_id' => OrderDispatchLog::where('order_id', $offer->id)
+                    ->where('result', 'pending')->value('driver_id')]);
             }
 
             \Modules\Driver\Models\DriverShiftSession::where('driver_id', $driver->id)

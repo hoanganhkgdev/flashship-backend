@@ -90,6 +90,8 @@ class DispatchManualAssignment
                     return ['busy' => $activeCount, 'affected' => 0, 'previous_driver_id' => null, 'reused_log' => false];
                 }
                 $previousDriverId = $freshOrder->dispatching_to_driver_id;
+                $offeredDriverIds = OrderDispatchLog::where('order_id', $order->id)
+                    ->where('result', 'pending')->pluck('driver_id')->map(fn ($id) => (int) $id)->all();
                 $freshOrder->update([
                     'status'                   => 'assigned',
                     'delivery_man_id'          => $driver->id,
@@ -117,6 +119,7 @@ class DispatchManualAssignment
                     'busy' => null,
                     'affected' => 1,
                     'previous_driver_id' => $previousDriverId ? (int) $previousDriverId : null,
+                    'offered_driver_ids' => $offeredDriverIds,
                     'reused_log' => $reusedLog > 0,
                 ];
             });
@@ -140,12 +143,12 @@ class DispatchManualAssignment
         // Nếu đơn đang hiện offer trên máy một tài xế, gán tay phải thu hồi
         // đúng offer đó. Compare-by-orderId ngăn cleanup trễ xóa offer mới.
         $previousDriverId = $assignment['previous_driver_id'];
-        if ($previousDriverId) {
-            RTDBService::clearDriverOffer($previousDriverId, $order->id);
+        foreach ($assignment['offered_driver_ids'] ?? array_filter([$previousDriverId]) as $offeredDriverId) {
+            RTDBService::clearDriverOffer($offeredDriverId, $order->id);
             Redis::eval(
                 "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
                 1,
-                "dispatch:lock:driver:{$previousDriverId}",
+                "dispatch:lock:driver:{$offeredDriverId}",
                 (string) $order->id,
             );
         }

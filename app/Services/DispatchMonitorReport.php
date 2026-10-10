@@ -39,9 +39,12 @@ class DispatchMonitorReport
             ->limit(200)
             ->get();
 
-        $driverNames = DB::table('users')
-            ->whereIn('id', $orders->pluck('dispatching_to_driver_id')->filter())
-            ->pluck('name', 'id');
+        $pendingOffers = DB::table('order_dispatch_logs as logs')
+            ->join('users', 'users.id', '=', 'logs.driver_id')
+            ->whereIn('logs.order_id', $orders->pluck('id'))
+            ->where('logs.result', 'pending')
+            ->get(['logs.order_id', 'logs.driver_id', 'users.name'])
+            ->groupBy('order_id');
         $services = ServiceType::pluck('label', 'key');
 
         $attention = [];
@@ -50,7 +53,8 @@ class DispatchMonitorReport
         foreach ($orders as $o) {
             $elapsed = max(0, $now->getTimestamp() - $o->dispatch_started_at->getTimestamp());
             $kind = $o->cancel_reason === 'no_driver' ? 'no_driver' : ($elapsed > $timeoutSecs ? 'timeout' : 'active');
-            $offeringTo = $o->dispatching_to_driver_id;
+            $offers = $pendingOffers->get($o->id, collect());
+            $offeringTo = $offers->pluck('driver_id')->map(fn ($id) => (int) $id)->all();
 
             $row = [
                 'id' => $o->id,
@@ -65,8 +69,8 @@ class DispatchMonitorReport
                 'elapsed' => $elapsed,
                 'started_at' => $o->dispatch_started_at->getTimestamp(),
                 'attempts' => (int) $o->dispatch_attempts,
-                'offering_id' => $offeringTo,
-                'offering_to' => $offeringTo ? ($driverNames[$offeringTo] ?? null) : null,
+                'offering_id' => $offeringTo[0] ?? null,
+                'offering_to' => $offers->pluck('name')->filter()->implode(', ') ?: null,
                 'kind' => $kind,
             ];
 

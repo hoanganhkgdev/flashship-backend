@@ -44,9 +44,8 @@ class OrderService
                 return ['success' => false, 'driver_id' => null, 'order' => $fresh];
             }
 
-            $driverId = $fresh->dispatching_to_driver_id
-                ? (int) $fresh->dispatching_to_driver_id
-                : null;
+            $driverIds = OrderDispatchLog::where('order_id', $fresh->id)
+                ->where('result', 'pending')->pluck('driver_id')->map(fn ($id) => (int) $id)->all();
 
             $fresh->update([
                 'status' => 'cancelled',
@@ -67,7 +66,7 @@ class OrderService
             // được usage, nên request hủy lặp không thể hoàn voucher hai lần.
             $this->releaseVoucherUsage($fresh->id);
 
-            return ['success' => true, 'driver_id' => $driverId, 'order' => $fresh];
+            return ['success' => true, 'driver_ids' => $driverIds, 'order' => $fresh];
         });
 
         if (!$result['success']) {
@@ -80,8 +79,7 @@ class OrderService
         try {
             RTDBService::clearOrder($cancelled->code);
 
-            $driverId = $result['driver_id'];
-            if ($driverId) {
+            foreach ($result['driver_ids'] as $driverId) {
                 RTDBService::clearDriverOffer($driverId, $cancelled->id);
                 Redis::eval(
                     "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
@@ -299,19 +297,22 @@ class OrderService
         }
 
         $assignment = DB::transaction(function () use ($order, $user) {
-            // Khóa tài xế là chốt nghiệp vụ chung cho accept từ app và gán
-            // tay từ tổng đài. Hai luồng không thể cùng đếm activeCount cũ
-            // rồi cùng gán vượt giới hạn đơn active.
-            User::where('id', $user->id)->lockForUpdate()->firstOrFail();
-
+            // Khóa đơn là chốt "ai nhận trước thắng". Bốn request accept có
+            // thể tới cùng lúc nhưng chỉ request đầu tiên còn thấy pending.
+            $fresh = Order::whereKey($order->id)->lockForUpdate()->first();
+            if (! $fresh || $fresh->status !== 'pending') {
+                return ['status' => 'taken', 'loser_ids' => []];
+            }
             $offer = OrderDispatchLog::where('order_id', $order->id)
                 ->where('driver_id', $user->id)
                 ->where('result', 'pending')
                 ->lockForUpdate()
                 ->first();
             if (! $offer || ($offer->expires_at && $offer->expires_at->isPast())) {
-                return 'expired';
+                return ['status' => 'expired', 'loser_ids' => []];
             }
+
+            User::where('id', $user->id)->lockForUpdate()->firstOrFail();
 
             $activeOrders = Order::where('delivery_man_id', $user->id)
                 ->whereIn('status', ['assigned', 'processing'])
@@ -325,34 +326,36 @@ class OrderService
                     // Đây là offer không còn hợp lệ do tài xế vừa đạt trần đơn,
                     // không phải hành vi từ chối để bị trừ điểm.
                     ->update(['result' => 'expired', 'responded_at' => now()]);
-                DB::table('orders')->where('id', $order->id)
-                    ->where('status', 'pending')
-                    ->where('dispatching_to_driver_id', $user->id)
-                    ->update(['dispatching_to_driver_id' => null, 'updated_at' => now()]);
+                $replacement = OrderDispatchLog::where('order_id', $order->id)
+                    ->where('result', 'pending')->value('driver_id');
+                $fresh->update(['dispatching_to_driver_id' => $replacement, 'updated_at' => now()]);
 
-                return 'busy';
+                return ['status' => 'busy', 'loser_ids' => []];
             }
 
-            return DB::table('orders')
-                ->where('id', $order->id)
-                ->where('status', 'pending')
-                // Log pending cũ chưa đủ quyền nhận đơn: timeout có thể vừa
-                // chuyển offer sang người khác. Chỉ đúng tài xế mà order
-                // hiện đang trỏ tới mới được accept.
-                ->where('dispatching_to_driver_id', $user->id)
-                ->update([
-                    'status'                   => 'assigned',
-                    'delivery_man_id'          => $user->id,
-                    'driver_order_role'        => 'main',
-                    'main_order_id'            => $order->id,
-                    'extra_claimed_count'      => 0,
-                    'bundle_window_expires_at' => now()->addMinutes(OperationalSettings::marketBundleWindowMinutes($order->city_id)),
-                    'dispatching_to_driver_id' => null,
-                    'updated_at'               => now(),
-                ]);
+            $now = now();
+            $loserIds = OrderDispatchLog::where('order_id', $order->id)
+                ->where('result', 'pending')->where('driver_id', '!=', $user->id)
+                ->pluck('driver_id')->map(fn ($id) => (int) $id)->all();
+
+            $fresh->update([
+                'status'                   => 'assigned',
+                'delivery_man_id'          => $user->id,
+                'driver_order_role'        => 'main',
+                'main_order_id'            => $order->id,
+                'extra_claimed_count'      => 0,
+                'bundle_window_expires_at' => null,
+                'dispatching_to_driver_id' => null,
+                'updated_at'               => $now,
+            ]);
+            $offer->update(['result' => 'accepted', 'responded_at' => $now]);
+            OrderDispatchLog::where('order_id', $order->id)->where('result', 'pending')
+                ->update(['result' => 'expired', 'responded_at' => $now]);
+
+            return ['status' => 'won', 'loser_ids' => $loserIds];
         });
 
-        if ($assignment === 'busy') {
+        if ($assignment['status'] === 'busy') {
             Redis::del("dispatch:lock:driver:{$user->id}");
             RTDBService::clearDriverOffer($user->id, $order->id);
             $orderId = $order->id;
@@ -368,13 +371,13 @@ class OrderService
             return ['success' => false, 'message' => $message, 'status' => 409];
         }
 
-        if ($assignment === 'expired') {
+        if ($assignment['status'] === 'expired') {
             $this->expireLateAcceptance($order->id, $user->id);
 
             return ['success' => false, 'message' => 'Thời gian nhận đơn đã hết, hệ thống đang chuyển cho tài xế khác.', 'status' => 409];
         }
 
-        if ($assignment === 0) {
+        if ($assignment['status'] === 'taken') {
             return ['success' => false, 'message' => 'Đơn đã có người nhận trước bạn.', 'status' => 409];
         }
 
@@ -389,7 +392,15 @@ class OrderService
             ]);
         }
 
-        \Illuminate\Support\Facades\Redis::del("dispatch:lock:driver:{$user->id}");
+        foreach (array_merge([$user->id], $assignment['loser_ids']) as $offeredDriverId) {
+            RTDBService::clearDriverOffer((int) $offeredDriverId, $order->id);
+            Redis::eval(
+                "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
+                1,
+                "dispatch:lock:driver:{$offeredDriverId}",
+                (string) $order->id,
+            );
+        }
         DB::table('users')->where('id', $user->id)->update([
             'last_order_accepted_at' => now(),
         ]);
@@ -430,8 +441,7 @@ class OrderService
     {
         dispatch(function () use ($orderId, $driverId) {
             $freshOrder = Order::find($orderId);
-            if ($freshOrder?->status === 'pending'
-                && (int) $freshOrder->dispatching_to_driver_id === $driverId) {
+            if ($freshOrder?->status === 'pending') {
                 app(DispatchService::class)->handleTimeout($freshOrder, $driverId);
             }
         })->afterResponse();
@@ -445,8 +455,7 @@ class OrderService
 
         $log = DB::transaction(function () use ($order, $user) {
             $fresh = Order::whereKey($order->id)->lockForUpdate()->first();
-            if (!$fresh || $fresh->status !== 'pending'
-                || (int) $fresh->dispatching_to_driver_id !== (int) $user->id) {
+            if (!$fresh || $fresh->status !== 'pending') {
                 return null;
             }
 
@@ -459,12 +468,11 @@ class OrderService
             if (!$log) return null;
 
             $log->update(['result' => 'declined', 'responded_at' => now()]);
-            $fresh->update([
-                'dispatching_to_driver_id' => null,
-                'offer_viewed_at' => null,
-                'updated_at' => now(),
-            ]);
-            return $log;
+            $replacement = OrderDispatchLog::where('order_id', $order->id)
+                ->where('result', 'pending')->value('driver_id');
+            $fresh->update(['dispatching_to_driver_id' => $replacement, 'updated_at' => now()]);
+
+            return ['log' => $log, 'wave_finished' => ! $replacement];
         });
 
         if (!$log) {
@@ -477,14 +485,15 @@ class OrderService
 
         RTDBService::clearDriverOffer($user->id, $order->id);
 
-        // Chuyển ngay sang tài xế tiếp theo, không chờ job 30s
-        $orderId = $order->id;
-        dispatch(function () use ($orderId) {
-            $freshOrder = Order::find($orderId);
-            if ($freshOrder) {
-                app(DispatchService::class)->sendToNextDriver($freshOrder);
-            }
-        })->afterResponse();
+        if ($log['wave_finished']) {
+            $orderId = $order->id;
+            dispatch(function () use ($orderId) {
+                $freshOrder = Order::find($orderId);
+                if ($freshOrder) {
+                    app(DispatchService::class)->sendToNextDriver($freshOrder);
+                }
+            })->afterResponse();
+        }
 
         return ['success' => true, 'message' => 'Đã từ chối đơn hàng.', 'status' => 200];
     }
