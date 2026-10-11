@@ -5,13 +5,17 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Redis;
 use Modules\Core\Services\RTDBService;
 use Modules\Core\Services\OperationalSettings;
+use Modules\Core\Models\User;
 use Modules\Order\Jobs\DispatchOrderJob;
 use Modules\Order\Models\Order;
 use Modules\Order\Models\OrderDispatchLog;
 use Modules\Order\Services\OrderService;
 use Modules\Order\Services\OrderMarketService;
+use Modules\Order\Services\DispatchOfferPayload;
+use Modules\Order\Services\DispatchService;
 
 class OrderController extends Controller
 {
@@ -40,31 +44,119 @@ class OrderController extends Controller
 
     public function pendingOffer(Request $request): JsonResponse
     {
-        $driverId = $request->user()->id;
+        $driverId = (int) $request->user()->id;
+        $state = DB::transaction(function () use ($driverId) {
+            User::whereKey($driverId)->lockForUpdate()->firstOrFail();
+            $orderIds = OrderDispatchLog::where('driver_id', $driverId)
+                ->where('result', 'pending')->pluck('order_id');
+            $orders = Order::whereIn('id', $orderIds)
+                ->orderBy('id')
+                ->lockForUpdate()
+                ->get()
+                ->keyBy('id');
+            $logs = OrderDispatchLog::where('driver_id', $driverId)
+                ->where('result', 'pending')
+                ->orderByDesc('offered_at')
+                ->lockForUpdate()
+                ->get();
+            $active = null;
+            $due = [];
+            $stale = [];
 
-        $activeLog = OrderDispatchLog::query()
-            ->where('driver_id', $driverId)->where('result', 'pending')
-            ->where(fn ($query) => $query->whereNull('expires_at')->orWhere('expires_at', '>', now()))
-            ->whereHas('order', fn ($query) => $query->where('status', 'pending'))
-            ->latest('offered_at')->first();
-        $order = $activeLog ? Order::with('city')->find($activeLog->order_id) : null;
+            foreach ($logs as $log) {
+                $order = $orders->get($log->order_id);
+                if ($order?->status !== 'pending') {
+                    $stale[] = $log;
+                } elseif ($log->expires_at && $log->expires_at->isPast()) {
+                    $due[] = $log;
+                } elseif ($active === null) {
+                    $active = $log;
+                } else {
+                    // Một tài xế chỉ được giữ một offer. Nếu lịch sử lỗi để
+                    // sót nhiều log hợp lệ, giữ offer mới nhất và thu hồi phần
+                    // còn lại mà không quy lỗi cho tài xế.
+                    $stale[] = $log;
+                }
+            }
 
-        // Tự chữa lịch sử của riêng tài xế mỗi lần app đồng bộ offer. Chỉ
-        // giữ đúng log khớp đồng thời cả order + driver + trạng thái pending.
-        OrderDispatchLog::where('driver_id', $driverId)
-            ->where('result', 'pending')
-            ->when($activeLog, fn ($query) => $query->where('id', '!=', $activeLog->id))
-            ->update([
-                'result' => 'expired',
-                'responded_at' => now(),
-                'close_reason' => OrderDispatchLog::CLOSE_STALE_RECOVERY,
-            ]);
+            $now = now();
+            foreach ($stale as $log) {
+                $log->update([
+                    'result' => 'expired',
+                    'responded_at' => $now,
+                    'close_reason' => OrderDispatchLog::CLOSE_STALE_RECOVERY,
+                ]);
+                $order = $orders->get($log->order_id);
+                if ($order?->status === 'pending') {
+                    $order->update([
+                        'dispatching_to_driver_id' => OrderDispatchLog::where('order_id', $order->id)
+                            ->where('result', 'pending')->value('driver_id'),
+                    ]);
+                }
+            }
 
-        if (! $activeLog) {
-            $order = null;
+            return [
+                'active_id' => $active?->id,
+                'due' => collect($due)->map(fn ($log) => [(int) $log->order_id, (int) $log->driver_id])->all(),
+                'stale_order_ids' => collect($stale)->pluck('order_id')->map(fn ($id) => (int) $id)->all(),
+            ];
+        });
+
+        foreach ($state['stale_order_ids'] as $orderId) {
+            RTDBService::clearDriverOffer($driverId, $orderId);
+            Redis::eval(
+                "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
+                1,
+                "dispatch:lock:driver:{$driverId}",
+                (string) $orderId,
+            );
+            $staleOrder = Order::find($orderId);
+            if ($staleOrder?->status === 'pending') {
+                app(DispatchService::class)->sendToNextDriver($staleOrder);
+            }
+        }
+        foreach ($state['due'] as [$orderId, $dueDriverId]) {
+            $dueOrder = Order::find($orderId);
+            if ($dueOrder?->status === 'pending') {
+                app(DispatchService::class)->handleTimeout($dueOrder, $dueDriverId, true);
+            }
         }
 
-        return response()->json(['success' => true, 'data' => ['order' => $order]]);
+        $activeLog = $state['active_id']
+            ? OrderDispatchLog::whereKey($state['active_id'])->where('result', 'pending')->first()
+            : null;
+        $order = $activeLog ? Order::with('sender')->find($activeLog->order_id) : null;
+        if (! $activeLog || ! $order || $order->status !== 'pending'
+            || ($activeLog->expires_at && $activeLog->expires_at->isPast())) {
+            // Dọn node Firebase bị sót từ một log đã đóng trước lần sync này.
+            // clearDriverOffer() chỉ xoá khi order_id vẫn khớp nên không thể
+            // xóa nhầm một offer mới vừa được phát đồng thời.
+            $lastOrderId = (int) OrderDispatchLog::where('driver_id', $driverId)
+                ->latest('offered_at')->value('order_id');
+            if ($lastOrderId > 0) {
+                dispatch(fn () => RTDBService::clearDriverOffer($driverId, $lastOrderId))
+                    ->afterResponse();
+            }
+
+            return response()->json(['success' => true, 'data' => ['offer' => null, 'order' => null]]);
+        }
+
+        $payload = DispatchOfferPayload::make($order, $activeLog);
+        // API là nguồn đối chiếu, đồng thời ghi lại RTDB để listener realtime
+        // tự phục hồi nếu node bị mất trong lúc mạng/Firebase chập chờn.
+        RTDBService::writeDriverOffer($driverId, $payload);
+
+        $stillActive = OrderDispatchLog::whereKey($activeLog->id)
+            ->where('result', 'pending')
+            ->whereHas('order', fn ($query) => $query->where('status', 'pending'))
+            ->exists();
+        if (! $stillActive) {
+            RTDBService::clearDriverOffer($driverId, $order->id);
+
+            return response()->json(['success' => true, 'data' => ['offer' => null, 'order' => null]]);
+        }
+
+        return response()->json(['success' => true, 'data' => ['offer' => $payload, 'order' => $payload]]);
     }
 
     public function receiveSignedOffer(OrderDispatchLog $dispatchLog): JsonResponse

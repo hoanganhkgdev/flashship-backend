@@ -7,8 +7,6 @@ use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Redis;
-use Illuminate\Support\Facades\URL;
-use Modules\Core\Models\City;
 use Modules\Core\Models\User;
 use Modules\Core\Services\FCMService;
 use Modules\Core\Services\GoogleMapService;
@@ -131,6 +129,10 @@ class DispatchOfferSender
         // offer, nhưng không vượt quá kích thước wave và không lọt offer ma
         // sau khi đơn đã được nhận/hủy.
         $dispatchLog = DB::transaction(function () use ($order, $driver, $now, $expiresAt) {
+            // Cùng thứ tự lock với accept/gán tay/reconciliation:
+            // tài xế → đơn → dispatch logs, tránh deadlock khi app vừa sync
+            // đúng lúc backend đang phát offer mới.
+            User::whereKey($driver->id)->lockForUpdate()->firstOrFail();
             $fresh = Order::whereKey($order->id)->lockForUpdate()->first();
             if (! $fresh || $fresh->status !== 'pending') {
                 return null;
@@ -169,65 +171,8 @@ class DispatchOfferSender
             return false;
         }
 
-        $offeredAt = $now->timestamp;
-        $receiptUrl = URL::temporarySignedRoute(
-            'api.dispatch.offer.received',
-            now()->addSeconds($offerSeconds + 10),
-            ['dispatchLog' => $dispatchLog->id],
-        );
-        $viewUrl = URL::temporarySignedRoute(
-            'api.dispatch.offer.viewed',
-            now()->addSeconds($offerSeconds + 10),
-            ['dispatchLog' => $dispatchLog->id],
-        );
-
-        // Xem trước cho tài xế lúc đang cân nhắc — đọc LIVE trạng thái mưa
-        // tại đúng lúc gửi offer, không phải giá trị đã khoá. Giá trị áp
-        // dụng thật vẫn được chốt độc lập ở OrderService::acceptOrder()
-        // (rain_bonus_eligible), không đổi logic đó.
-        $isRainMode = (bool) City::where('id', $order->city_id)->value('is_rain_mode');
-
-        $rtdbOk = RTDBService::writeDriverOffer($driver->id, [
-            'order_id' => $order->id,
-            'order_code' => $order->code,
-            'offered_at' => $offeredAt,
-            'expires_at' => $expiresAt->timestamp,
-            'service_type' => $order->service_type,
-            'pickup_address' => $order->pickup_address ?? '',
-            'pickup_place_name' => $order->pickup_place_name ?? null,
-            'pickup_name' => $order->sender_name ?? '',
-            'pickup_phone' => $order->pickup_phone ?? '',
-            'pickup_lat' => $order->pickup_lat ? (float) $order->pickup_lat : null,
-            'pickup_lng' => $order->pickup_lng ? (float) $order->pickup_lng : null,
-            'delivery_address' => $order->delivery_address ?? '',
-            'delivery_phone' => $order->delivery_phone ?? '',
-            'receiver_name' => $order->receiver_name ?? '',
-            'delivery_lat' => $order->delivery_lat ? (float) $order->delivery_lat : null,
-            'delivery_lng' => $order->delivery_lng ? (float) $order->delivery_lng : null,
-            'order_note' => $order->order_note ?? '',
-            'store_name' => $order->store_name ?? '',
-            'platform' => $order->platform ?? 'customer_app',
-            'shop_service_type' => $order->shop_service_type ?? null,
-            'cargo_type' => $order->cargo_type ?? null,
-            'cargo_note' => $order->cargo_note ?? null,
-            'cargo_weight' => $order->cargo_weight ? (float) $order->cargo_weight : null,
-            'is_batch' => (bool) ($order->is_batch ?? false),
-            'stops_count' => $order->is_batch ? count($order->stops ?? []) : 0,
-            'stops' => $order->is_batch ? ($order->stops ?? []) : [],
-            'shipping_fee' => (int) ($order->shipping_fee ?? 0),
-            'discount_amount' => (int) ($order->discount_amount ?? 0),
-            'voucher_code' => $order->voucher_code ?? null,
-            'bonus_fee' => (int) ($order->bonus_fee ?? 0),
-            'night_surcharge' => (int) ($order->night_surcharge ?? 0),
-            'payment_method' => $order->payment_method ?? 'prepaid',
-            'cod_amount' => (int) ($order->cod_amount ?? 0),
-            'customer_phone' => $order->sender?->phone ?? '',
-            'is_rain_mode' => $isRainMode,
-            'decision_seconds' => OperationalSettings::offerDecisionSeconds($order->city_id),
-            'receipt_url' => $receiptUrl,
-            'view_url' => $viewUrl,
-            ...($isRainMode ? ['rain_bonus_amount' => OperationalSettings::rainBonusAmount($order->city_id)] : []),
-        ]);
+        $payload = DispatchOfferPayload::make($order, $dispatchLog);
+        $rtdbOk = RTDBService::writeDriverOffer($driver->id, $payload);
 
         if (! $rtdbOk) {
             // Giữ log expired để không chọn lại ngay
@@ -257,7 +202,15 @@ class DispatchOfferSender
 
         if ($driver->fcm_token) {
             try {
-                FCMService::getInstance()->sendDriverWakeUp($driver->fcm_token, $order->id, $order->code, $order->pickup_address ?? '', $expiresAt->timestamp, $receiptUrl, $viewUrl);
+                FCMService::getInstance()->sendDriverWakeUp(
+                    $driver->fcm_token,
+                    $order->id,
+                    $order->code,
+                    $order->pickup_address ?? '',
+                    $expiresAt->timestamp,
+                    $payload['receipt_url'],
+                    $payload['view_url'],
+                );
                 Log::debug('     → FCM wake-up gửi thành công');
             } catch (\Throwable $e) {
                 Log::error("[Dispatch] FCM failed for driver #{$driver->id}: ".$e->getMessage());
