@@ -163,6 +163,10 @@ class OrderMarketService
 
         return OrderMarketListing::with('order')
             ->where('city_id', $driver->city_id)->where('status', 'open')->where('expires_at', '>', now())
+            ->whereHas('order', fn ($orders) => $orders
+                ->where('status', 'pending')
+                ->where('dispatch_mode', 'self_pick')
+                ->whereColumn('orders.city_id', 'order_market_listings.city_id'))
             ->when(! $driver->has_car_license, fn ($query) => $query->whereHas(
                 'order', fn ($orders) => $orders->where('service_type', '!=', 'car')
             ))
@@ -193,36 +197,53 @@ class OrderMarketService
         if (! $order->usesSelfPickDispatch()) {
             return $this->error('Khu vực này không sử dụng hình thức đơn tự chọn.', 409);
         }
-        if (! $this->baseEligible($driver)) {
-            return $this->error('Bạn hiện không đủ điều kiện nhận đơn.', 403);
-        }
-        $location = $this->locations->freshLocationsFor([$driver->id])[$driver->id] ?? null;
-        if (! $location || ! is_numeric($order->pickup_lat) || ! is_numeric($order->pickup_lng)) {
-            return $this->error('Không có vị trí GPS mới để nhận đơn.', 409);
-        }
-        $km = GoogleMapService::haversineKm($location['lat'], $location['lng'], $order->pickup_lat, $order->pickup_lng);
-        if ($km > OperationalSettings::marketMaxPickupDistanceKm($order->city_id)) {
-            return $this->error('Bạn đang ở ngoài phạm vi nhận đơn này.', 409);
+
+        // Retry sau khi request trước đã commit nhưng điện thoại mất phản hồi
+        // phải trả lại đúng kết quả thành công. Nếu kiểm tra Online/GPS trước,
+        // chính tài xế vừa nhận đơn có thể bị báo nhầm "không đủ điều kiện".
+        if ($this->alreadyClaimedBy($order, $driver)) {
+            return $this->claimSuccess($order);
         }
 
-        $result = DB::transaction(function () use ($order, $driver) {
+        $location = $this->locations->freshLocationsFor([$driver->id])[$driver->id] ?? null;
+
+        $result = DB::transaction(function () use ($order, $driver, $location) {
             $lockedDriver = User::whereKey($driver->id)->lockForUpdate()->firstOrFail();
             $fresh = Order::whereKey($order->id)->lockForUpdate()->firstOrFail();
             $listing = OrderMarketListing::where('order_id', $fresh->id)->lockForUpdate()->first();
+
+            // Hai request cùng lúc đều có thể đọc thấy pending trước khi vào
+            // transaction. Request thắng gán đơn; request còn lại chờ lock và
+            // phải nhận lại success nếu cũng thuộc chính tài xế đó.
+            if ($this->alreadyClaimedBy($fresh, $lockedDriver)) {
+                return ['state' => 'already_claimed', 'order' => $fresh];
+            }
             if ($fresh->status !== 'pending' || ! $listing || $listing->status !== 'open' || $listing->expires_at <= now()) {
-                return 'taken';
+                return ['state' => 'taken'];
             }
             if (! $fresh->usesSelfPickDispatch()
                 || ! $this->baseEligible($lockedDriver)
                 || (int) $fresh->city_id !== (int) $lockedDriver->city_id
                 || ($fresh->service_type === 'car' && ! $lockedDriver->has_car_license)) {
-                return 'ineligible';
+                return ['state' => 'ineligible'];
+            }
+            if (! $location || ! is_numeric($fresh->pickup_lat) || ! is_numeric($fresh->pickup_lng)) {
+                return ['state' => 'gps'];
+            }
+            $km = GoogleMapService::haversineKm(
+                $location['lat'],
+                $location['lng'],
+                $fresh->pickup_lat,
+                $fresh->pickup_lng,
+            );
+            if ($km > OperationalSettings::marketMaxPickupDistanceKm($fresh->city_id)) {
+                return ['state' => 'distance'];
             }
             $active = Order::where('delivery_man_id', $driver->id)->whereIn('status', ['assigned', 'processing'])->lockForUpdate()->get();
             // Chợ đơn chỉ dành cho tài xế đang rảnh. Nhận thêm khi đang chạy
             // phải đi qua luồng ghép đơn riêng để kiểm tra tuyến lấy/giao.
             if ($active->isNotEmpty()) {
-                return 'busy';
+                return ['state' => 'busy'];
             }
 
             // Đơn tự chọn là một đơn độc lập, không có vai trò chính/phụ.
@@ -237,17 +258,28 @@ class OrderMarketService
             OrderHistory::create(['order_id' => $fresh->id, 'user_id' => $driver->id, 'type' => 'market_claimed',
                 'description' => "{$driver->name} nhận đơn từ Chợ đơn"]);
 
-            return $fresh;
+            return ['state' => 'claimed', 'order' => $fresh];
         });
 
-        if (is_string($result)) {
-            $message = match ($result) {
+        if ($result['state'] !== 'claimed' && $result['state'] !== 'already_claimed') {
+            $message = match ($result['state']) {
                 'taken' => 'Đơn này vừa được tài xế khác nhận.',
+                'gps' => 'Không có vị trí GPS mới để nhận đơn.',
+                'distance' => 'Bạn đang ở ngoài phạm vi nhận đơn này.',
+                'busy' => 'Bạn đang có đơn hoạt động nên chưa thể nhận đơn tự chọn.',
                 default => 'Bạn không còn đủ điều kiện nhận đơn này.',
             };
 
-            return $this->error($message, 409);
+            return $this->error($message, $result['state'] === 'ineligible' ? 403 : 409);
         }
+
+        /** @var Order $claimedOrder */
+        $claimedOrder = $result['order'];
+        if ($result['state'] === 'already_claimed') {
+            return $this->claimSuccess($claimedOrder);
+        }
+
+        $result = $claimedOrder;
         if (DB::table('cities')->where('id', $result->city_id)->value('is_rain_mode')) {
             $result->update(['rain_bonus_eligible' => true, 'rain_bonus_amount' => OperationalSettings::rainBonusAmount($result->city_id)]);
         }
@@ -287,7 +319,23 @@ class OrderMarketService
         }
         broadcast(new DispatchStateChanged);
 
-        return ['success' => true, 'order' => app(OrderService::class)->formatOrderForDriver($result->fresh()), 'status' => 200];
+        return $this->claimSuccess($result->fresh());
+    }
+
+    private function alreadyClaimedBy(Order $order, User $driver): bool
+    {
+        return $order->status === 'assigned'
+            && (int) $order->delivery_man_id === (int) $driver->id
+            && $order->driver_order_role === 'market';
+    }
+
+    private function claimSuccess(Order $order): array
+    {
+        return [
+            'success' => true,
+            'order' => app(OrderService::class)->formatOrderForDriver($order),
+            'status' => 200,
+        ];
     }
 
     public function close(Order $order, string $status = 'cancelled'): void

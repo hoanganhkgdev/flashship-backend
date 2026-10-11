@@ -92,6 +92,87 @@ class OrderMarketIdleClaimTest extends TestCase
         ]);
     }
 
+    public function test_same_driver_can_retry_claim_without_duplicate_side_effects(): void
+    {
+        $this->assertStringEndsWith('_test', DB::connection()->getDatabaseName());
+        Redis::shouldReceive('del')->once();
+
+        $city = City::create(['name' => 'Retry market', 'slug' => 'retry-market-'.uniqid(), 'is_active' => true]);
+        $this->enableSelfPick($city);
+        $customer = User::create([
+            'name' => 'Retry customer', 'email' => uniqid().'@test.local', 'phone' => '08'.random_int(10000000, 99999999),
+            'password' => 'test-password', 'user_type' => 'customer', 'status' => 1, 'city_id' => $city->id,
+        ]);
+        $driver = User::create([
+            'name' => 'Retry driver', 'email' => uniqid().'@test.local', 'phone' => '09'.random_int(10000000, 99999999),
+            'password' => 'test-password', 'user_type' => 'driver', 'status' => 1, 'is_online' => true, 'city_id' => $city->id,
+        ]);
+        $order = Order::create([
+            'code' => 'RETRY-'.uniqid(), 'status' => 'pending', 'city_id' => $city->id,
+            'service_type' => 'delivery', 'platform' => 'customer_app', 'sender_platform_id' => $customer->id,
+            'pickup_address' => 'Điểm lấy', 'delivery_address' => 'Điểm giao',
+            'pickup_lat' => 10.0, 'pickup_lng' => 105.0,
+        ]);
+        OrderMarketListing::create([
+            'order_id' => $order->id, 'city_id' => $city->id, 'status' => 'open',
+            'open_reason' => 'self_pick', 'offer_attempts' => 0, 'opened_at' => now(), 'expires_at' => now()->addMinutes(10),
+        ]);
+
+        $locations = $this->mock(DriverLocationService::class);
+        $locations->shouldReceive('freshLocationsFor')->once()->with([$driver->id])->andReturn([
+            $driver->id => ['lat' => 10.001, 'lng' => 105.0, 'bearing' => null],
+        ]);
+        $market = new OrderMarketService($locations);
+
+        $first = $market->claim($order, $driver);
+        $retry = $market->claim($order->fresh(), $driver->fresh());
+
+        $this->assertTrue($first['success']);
+        $this->assertTrue($retry['success']);
+        $this->assertSame($order->id, $retry['order']['id']);
+        $this->assertSame(1, DB::table('order_histories')->where('order_id', $order->id)->where('type', 'market_claimed')->count());
+        $this->assertSame(1, DB::table('customer_notifications')->where('user_id', $customer->id)
+            ->where('type', 'order_status')->where('order_code', $order->code)->count());
+    }
+
+    public function test_first_driver_keeps_order_when_another_driver_claims_afterward(): void
+    {
+        $this->assertStringEndsWith('_test', DB::connection()->getDatabaseName());
+        Redis::shouldReceive('del')->once();
+
+        $city = City::create(['name' => 'Claim race', 'slug' => 'claim-race-'.uniqid(), 'is_active' => true]);
+        $this->enableSelfPick($city);
+        $winner = User::create([
+            'name' => 'Winner', 'email' => uniqid().'@test.local', 'phone' => '09'.random_int(10000000, 99999999),
+            'password' => 'test-password', 'user_type' => 'driver', 'status' => 1, 'is_online' => true, 'city_id' => $city->id,
+        ]);
+        $loser = User::create([
+            'name' => 'Loser', 'email' => uniqid().'@test.local', 'phone' => '08'.random_int(10000000, 99999999),
+            'password' => 'test-password', 'user_type' => 'driver', 'status' => 1, 'is_online' => true, 'city_id' => $city->id,
+        ]);
+        $order = $this->marketOrder($city, 'delivery');
+
+        $locations = $this->mock(DriverLocationService::class);
+        $locations->shouldReceive('freshLocationsFor')->once()->with([$winner->id])->andReturn([
+            $winner->id => ['lat' => 10.001, 'lng' => 105.0, 'bearing' => null],
+        ]);
+        $locations->shouldReceive('freshLocationsFor')->once()->with([$loser->id])->andReturn([
+            $loser->id => ['lat' => 10.001, 'lng' => 105.0, 'bearing' => null],
+        ]);
+        $market = new OrderMarketService($locations);
+
+        $won = $market->claim($order, $winner);
+        $lost = $market->claim($order->fresh(), $loser);
+
+        $this->assertTrue($won['success']);
+        $this->assertFalse($lost['success']);
+        $this->assertSame(409, $lost['status']);
+        $this->assertSame('Đơn này vừa được tài xế khác nhận.', $lost['message']);
+        $this->assertSame($winner->id, $order->fresh()->delivery_man_id);
+        $this->assertSame($winner->id, $order->marketListing()->value('claimed_by'));
+        $this->assertSame(1, DB::table('order_histories')->where('order_id', $order->id)->where('type', 'market_claimed')->count());
+    }
+
     public function test_driver_without_car_license_does_not_see_car_order_in_market(): void
     {
         $city = City::create(['name' => 'Car market', 'slug' => 'car-market-'.uniqid(), 'is_active' => true]);
