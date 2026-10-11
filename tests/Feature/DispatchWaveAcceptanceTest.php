@@ -50,4 +50,34 @@ class DispatchWaveAcceptanceTest extends TestCase
         $this->assertSame('accepted', OrderDispatchLog::where('driver_id', $drivers[0]->id)->value('result'));
         $this->assertSame('expired', OrderDispatchLog::where('driver_id', $drivers[1]->id)->value('result'));
     }
+
+    public function test_driver_who_became_offline_cannot_accept_a_stale_offer(): void
+    {
+        Redis::shouldReceive('del')->once()->andReturn(1);
+        $city = City::create(['name' => 'Offline accept', 'slug' => 'offline-accept-'.uniqid(), 'is_active' => true]);
+        $driver = User::create([
+            'name' => 'Offline driver', 'email' => uniqid().'@test.local',
+            'phone' => '09'.random_int(10000000, 99999999), 'password' => 'test-password',
+            'user_type' => 'driver', 'status' => 1, 'is_online' => true, 'city_id' => $city->id,
+        ]);
+        $order = Order::create([
+            'code' => 'OFFLINE-'.uniqid(), 'status' => 'pending', 'city_id' => $city->id,
+            'service_type' => 'delivery', 'platform' => 'customer_app',
+            'pickup_address' => 'a', 'delivery_address' => 'b',
+            'dispatching_to_driver_id' => $driver->id,
+        ]);
+        $offer = OrderDispatchLog::create([
+            'order_id' => $order->id, 'driver_id' => $driver->id, 'offered_at' => now(),
+            'expires_at' => now()->addSeconds(10), 'result' => 'pending',
+        ]);
+        $driver->update(['is_online' => false]);
+
+        $result = app(OrderService::class)->acceptOrder($order, $driver);
+
+        $this->assertFalse($result['success']);
+        $this->assertSame(403, $result['status']);
+        $this->assertSame('expired', $offer->fresh()->result);
+        $this->assertSame('pending', $order->fresh()->status);
+        $this->assertNull($order->fresh()->delivery_man_id);
+    }
 }

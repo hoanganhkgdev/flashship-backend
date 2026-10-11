@@ -4,6 +4,7 @@ use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
 use Modules\Order\Services\DispatchExpirySweeper;
+use Modules\Order\Services\OrderMarketExpirySweeper;
 
 Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
@@ -27,3 +28,10 @@ Schedule::call(fn () => app(\App\Services\NotificationCampaignService::class)->d
 Schedule::call(fn () => app(DispatchExpirySweeper::class)->sweep())
     ->everySecond()
     ->name('dispatch-expire-offers');
+
+// Delayed job là đường chính; vòng quét mỗi phút là lưới an toàn nếu worker
+// restart hoặc job hết hạn Chợ đơn thất bại giữa chừng.
+Schedule::call(fn () => app(OrderMarketExpirySweeper::class)->sweep())
+    ->everyMinute()
+    ->name('order-market-expire-listings')
+    ->withoutOverlapping();

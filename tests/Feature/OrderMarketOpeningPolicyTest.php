@@ -15,23 +15,21 @@ class OrderMarketOpeningPolicyTest extends TestCase
 {
     use DatabaseTransactions;
 
-    public function test_offer_attempt_count_no_longer_opens_market_before_wait_time(): void
+    protected function setUp(): void
+    {
+        parent::setUp();
+        config()->set('dispatch.self_pick_enabled', true);
+    }
+
+    public function test_order_keeps_dispatch_mode_snapshot_when_city_setting_changes(): void
     {
         $this->assertStringEndsWith('_test', DB::connection()->getDatabaseName());
         $city = City::create(['name' => 'Market policy', 'slug' => 'market-policy-'.uniqid(), 'is_active' => true]);
         DB::table(OperationalSettings::CITY_TABLE)->updateOrInsert([
             'city_id' => $city->id,
-            'key' => 'market.enabled',
+            'key' => 'dispatch.mode',
         ], [
-            'value' => '1',
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]);
-        DB::table(OperationalSettings::CITY_TABLE)->updateOrInsert([
-            'city_id' => $city->id,
-            'key' => 'market.wait_seconds_before_open',
-        ], [
-            'value' => '180',
+            'value' => 'system_assigned',
             'created_at' => now(),
             'updated_at' => now(),
         ]);
@@ -46,10 +44,21 @@ class OrderMarketOpeningPolicyTest extends TestCase
 
         $this->assertFalse($service->shouldOpen($order));
 
-        $order->dispatch_started_at = now()->subSeconds(179);
-        $this->assertFalse($service->shouldOpen($order));
+        DB::table(OperationalSettings::CITY_TABLE)->where('city_id', $city->id)
+            ->where('key', 'dispatch.mode')->update(['value' => 'self_pick', 'updated_at' => now()]);
+        OperationalSettings::flush($city->id);
 
-        $order->dispatch_started_at = now()->subSeconds(181);
-        $this->assertTrue($service->shouldOpen($order));
+        $this->assertFalse($service->shouldOpen($order->fresh()));
+
+        $newOrder = Order::create([
+            'status' => 'pending', 'city_id' => $city->id, 'service_type' => 'delivery',
+            'platform' => 'customer_app', 'pickup_address' => 'a', 'delivery_address' => 'b',
+        ]);
+        $this->assertSame('system_assigned', $order->fresh()->effectiveDispatchMode());
+        $this->assertSame('self_pick', $newOrder->effectiveDispatchMode());
+        $this->assertTrue($service->shouldOpen($newOrder));
+
+        DB::table('orders')->where('id', $order->id)->update(['dispatch_mode' => null]);
+        $this->assertSame('system_assigned', $order->fresh()->effectiveDispatchMode());
     }
 }

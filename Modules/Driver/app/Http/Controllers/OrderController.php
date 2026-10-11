@@ -26,7 +26,6 @@ class OrderController extends Controller
             'success' => true,
             'market_enabled' => $enabled,
             'city_id' => (int) $driver->city_id,
-            'bundle_session' => $enabled ? $this->orderMarket->bundleSession($driver) : null,
             'data' => $enabled ? $this->orderMarket->listForDriver($driver) : [],
         ]);
     }
@@ -178,10 +177,13 @@ class OrderController extends Controller
             }
 
             $viewedAt = now();
-            // Wave có một hạn chung 10 giây; mở app không kéo dài riêng offer
-            // của một người, nhờ vậy "ai nhận trước" thật sự công bằng.
-            $expiresAt = $log->expires_at
-                ?? $viewedAt->copy()->addSeconds(OperationalSettings::offerOpenSeconds($order->city_id));
+            // Giai đoạn 1 cho thiết bị thời gian mở offer. Khi tài xế thật sự
+            // xem, chuyển đúng một lần sang giai đoạn quyết định theo cấu hình.
+            // Mỗi người vẫn chỉ có một quyền nhận; transaction accept quyết
+            // định ai bấm trước trong wave.
+            $expiresAt = $viewedAt->copy()->addSeconds(
+                OperationalSettings::offerDecisionSeconds($order->city_id),
+            );
             $log->update([
                 'received_at' => $log->received_at ?? $viewedAt,
                 'viewed_at' => $viewedAt,

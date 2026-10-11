@@ -292,13 +292,10 @@ class OrderService
             return ['success' => false, 'message' => 'Thời gian nhận đơn đã hết, hệ thống đang chuyển cho tài xế khác.', 'status' => 409];
         }
 
-        if ($order->service_type === 'car' && !$user->has_car_license) {
-            return ['success' => false, 'message' => 'Đơn này yêu cầu tài xế có bằng lái ô tô.', 'status' => 403];
-        }
-
         $assignment = DB::transaction(function () use ($order, $user) {
-            // Khóa đơn là chốt "ai nhận trước thắng". Bốn request accept có
-            // thể tới cùng lúc nhưng chỉ request đầu tiên còn thấy pending.
+            // Thống nhất thứ tự lock tài xế → đơn với gán thủ công và các
+            // luồng nhận khác để giảm deadlock khi hai thao tác xảy ra cùng lúc.
+            $lockedUser = User::where('id', $user->id)->lockForUpdate()->firstOrFail();
             $fresh = Order::whereKey($order->id)->lockForUpdate()->first();
             if (! $fresh || $fresh->status !== 'pending') {
                 return ['status' => 'taken', 'loser_ids' => []];
@@ -312,7 +309,21 @@ class OrderService
                 return ['status' => 'expired', 'loser_ids' => []];
             }
 
-            User::where('id', $user->id)->lockForUpdate()->firstOrFail();
+            $unavailable = ! $fresh->usesSystemAssignedDispatch()
+                || (int) $lockedUser->status !== 1
+                || ! $lockedUser->is_online
+                || ($lockedUser->score_suspended_until && $lockedUser->score_suspended_until > now())
+                || $lockedUser->debts()->where('status', 'overdue')->exists()
+                || DB::table('driver_leave_requests')->where('driver_id', $lockedUser->id)->whereDate('leave_date', today())->exists()
+                || ($fresh->service_type === 'car' && ! $lockedUser->has_car_license);
+            if ($unavailable) {
+                $offer->update(['result' => 'expired', 'responded_at' => now()]);
+                $replacement = OrderDispatchLog::where('order_id', $order->id)
+                    ->where('result', 'pending')->value('driver_id');
+                $fresh->update(['dispatching_to_driver_id' => $replacement, 'updated_at' => now()]);
+
+                return ['status' => 'ineligible', 'loser_ids' => []];
+            }
 
             $activeOrders = Order::where('delivery_man_id', $user->id)
                 ->whereIn('status', ['assigned', 'processing'])
@@ -355,7 +366,7 @@ class OrderService
             return ['status' => 'won', 'loser_ids' => $loserIds];
         });
 
-        if ($assignment['status'] === 'busy') {
+        if (in_array($assignment['status'], ['busy', 'ineligible'], true)) {
             Redis::del("dispatch:lock:driver:{$user->id}");
             RTDBService::clearDriverOffer($user->id, $order->id);
             $orderId = $order->id;
@@ -366,9 +377,11 @@ class OrderService
                 }
             })->afterResponse();
 
-            $message = 'Bạn đã có đơn đang thực hiện. Offer tự động chỉ dành cho tài xế đang rảnh; bạn có thể chủ động nhận thêm trong Chợ đơn.';
+            $message = $assignment['status'] === 'busy'
+                ? 'Bạn đã có đơn đang thực hiện. Vui lòng hoàn thành đơn hiện tại trước khi nhận đơn mới.'
+                : 'Bạn không còn đủ điều kiện nhận đơn này. Hệ thống đang chuyển cho tài xế khác.';
 
-            return ['success' => false, 'message' => $message, 'status' => 409];
+            return ['success' => false, 'message' => $message, 'status' => $assignment['status'] === 'busy' ? 409 : 403];
         }
 
         if ($assignment['status'] === 'expired') {

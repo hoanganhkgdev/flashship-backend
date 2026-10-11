@@ -2,6 +2,7 @@
 namespace Modules\Core\Services;
 
 use Kreait\Firebase\Factory;
+use Kreait\Firebase\Http\HttpClientOptions;
 use Kreait\Firebase\Database\Transaction;
 use Illuminate\Support\Facades\Log;
 
@@ -13,11 +14,24 @@ class RTDBService
     {
         if (!self::$db) {
             self::$db = (new Factory)
+                ->withHttpClientOptions(self::httpOptions())
                 ->withServiceAccount(storage_path('app/firebase-service-account.json'))
                 ->withDatabaseUri(config('services.firebase.database_url'))
                 ->createDatabase();
         }
         return self::$db;
+    }
+
+    /**
+     * Guzzle mặc định không có timeout: khi mạng tới Google chập chờn, request
+     * treo vô thời hạn và chiếm hết worker php-fpm, làm cả web không vào được.
+     */
+    public static function httpOptions(): HttpClientOptions
+    {
+        return HttpClientOptions::default()
+            ->withConnectTimeout(3)
+            ->withReadTimeout(8)
+            ->withTimeout(10);
     }
 
     /**
@@ -315,6 +329,7 @@ class RTDBService
     {
         try {
             $factory = (new Factory)
+                ->withHttpClientOptions(self::httpOptions())
                 ->withServiceAccount(storage_path('app/firebase-service-account.json'));
             return $factory->createAuth()->createCustomToken($uid)->toString();
         } catch (\Throwable $e) {

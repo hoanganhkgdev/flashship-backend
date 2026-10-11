@@ -25,6 +25,13 @@ class OperationalSettingsOverview extends StatsOverviewWidget
         $cityId = Filament::getTenant()?->getKey();
 
         return [
+            Stat::make('Hình thức phát đơn', match (OperationalSettings::dispatchMode($cityId)) {
+                'self_pick' => 'Đơn tự chọn',
+                default => 'Hệ thống gán',
+            })
+                ->description('Gán thủ công luôn khả dụng')
+                ->descriptionIcon('heroicon-m-arrows-right-left')
+                ->color('primary'),
             Stat::make('Phạm vi phát đơn', rtrim(rtrim(number_format(OperationalSettings::dispatchMaxRoadDistanceKm($cityId), 1, ',', '.'), '0'), ',').' km')
                 ->description('Tối đa '.OperationalSettings::maxActiveOrdersPerDriver($cityId).' đơn active / tài xế')
                 ->descriptionIcon('heroicon-m-map-pin')

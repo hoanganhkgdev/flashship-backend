@@ -43,6 +43,6 @@ class DispatchOrderJob implements ShouldQueue
         }
 
         Log::info("[Dispatch] Job: offer to driver #{$this->driverId} for order #{$this->orderId} expired → trying next");
-        $dispatch->handleTimeout($order, $this->driverId);
+        $dispatch->handleTimeout($order, $this->driverId, true);
     }
 }

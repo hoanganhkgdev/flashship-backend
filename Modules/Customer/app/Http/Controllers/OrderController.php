@@ -13,6 +13,7 @@ use Modules\Core\Models\VoucherUsage;
 use Modules\Core\Services\OperationalSettings;
 use Modules\Core\Services\VoucherService;
 use Modules\Customer\Models\CustomerAddress;
+use Modules\Order\Jobs\RouteNewOrderJob;
 use Modules\Order\Models\Order;
 use Modules\Order\Services\OrderService;
 use Modules\Pricing\Services\PricingService;
@@ -40,13 +41,15 @@ class OrderController extends Controller
         $data = $request->validate([
             'service_type' => 'required|in:delivery,shopping,topup,bike,motor,car',
             'pickup_address' => 'required|string',
-            'pickup_lat' => 'nullable|numeric',
-            'pickup_lng' => 'nullable|numeric',
+            // Luồng tự chọn lọc đơn theo khoảng cách GPS. Không cho tạo một
+            // đơn pending nhưng vĩnh viễn không thể hiện trong Chợ đơn.
+            'pickup_lat' => 'required|numeric|between:-90,90',
+            'pickup_lng' => 'required|numeric|between:-180,180',
             'pickup_phone' => 'nullable|string',
             'pickup_name' => 'nullable|string',
             'delivery_address' => 'required|string',
-            'delivery_lat' => 'nullable|numeric',
-            'delivery_lng' => 'nullable|numeric',
+            'delivery_lat' => 'required|numeric|between:-90,90',
+            'delivery_lng' => 'required|numeric|between:-180,180',
             'delivery_phone' => 'required|string',
             'delivery_name' => 'nullable|string',
             'order_note' => 'nullable|string',
@@ -187,28 +190,37 @@ class OrderController extends Controller
                 return $order;
             });
 
-            // Auto-save địa chỉ có tên cửa hàng vào danh sách địa chỉ đã lưu
-            if (! empty($data['pickup_place_name']) && ! empty($data['pickup_address'])) {
-                $exists = CustomerAddress::where('user_id', $user->id)
-                    ->where('address', $data['pickup_address'])
-                    ->exists();
-                if (! $exists) {
-                    CustomerAddress::create([
-                        'user_id' => $user->id,
-                        'place_name' => $data['pickup_place_name'],
-                        'address' => $data['pickup_address'],
-                        'latitude' => $data['pickup_lat'] ?? null,
-                        'longitude' => $data['pickup_lng'] ?? null,
-                        'is_default' => false,
-                    ]);
+            // Lưu địa chỉ là tiện ích phụ. Đơn đã commit không được trả HTTP
+            // 500 chỉ vì bước auto-save này lỗi, khiến khách bấm lại và tạo
+            // trùng đơn.
+            try {
+                if (! empty($data['pickup_place_name']) && ! empty($data['pickup_address'])) {
+                    $exists = CustomerAddress::where('user_id', $user->id)
+                        ->where('address', $data['pickup_address'])
+                        ->exists();
+                    if (! $exists) {
+                        CustomerAddress::create([
+                            'user_id' => $user->id,
+                            'place_name' => $data['pickup_place_name'],
+                            'address' => $data['pickup_address'],
+                            'latitude' => $data['pickup_lat'],
+                            'longitude' => $data['pickup_lng'],
+                            'is_default' => false,
+                        ]);
+                    }
                 }
+            } catch (\Throwable $e) {
+                Log::warning('[CustomerOrder] Không auto-save được địa chỉ', [
+                    'order_id' => $order->id,
+                    'user_id' => $user->id,
+                    'message' => $e->getMessage(),
+                ]);
             }
 
-            // Trigger dispatch after response
-            $orderId = $order->id;
-            dispatch(function () use ($orderId) {
-                app(OrderService::class)->dispatchNewOrder($orderId);
-            })->afterResponse();
+            // Job bền vững trong database queue và có retry. Closure
+            // afterResponse trước đây mất hẳn nếu process chết sau khi trả
+            // HTTP, để lại đơn pending nhưng không có market listing.
+            RouteNewOrderJob::dispatch($order->id)->afterCommit();
 
             return response()->json(['success' => true, 'message' => 'Đặt đơn thành công', 'data' => $this->formatOrder($order)], 201);
         } catch (ValidationException $e) {

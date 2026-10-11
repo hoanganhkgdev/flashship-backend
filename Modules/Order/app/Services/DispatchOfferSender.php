@@ -55,14 +55,31 @@ class DispatchOfferSender
             return false;
         }
 
-        // Verify lại lần cuối — tài xế có thể nhận đơn giữa lúc pop và lock
+        // Verify lại lần cuối — trạng thái tài xế có thể đổi giữa lúc quét
+        // ứng viên và lúc lấy được lock (offline, bị khóa, phát sinh nợ hoặc
+        // bắt đầu nghỉ phép). Không gửi offer rồi chờ timeout oan.
+        $freshDriver = User::find($driver->id);
+        $unavailable = ! $freshDriver
+            || (int) $freshDriver->status !== 1
+            || ! $freshDriver->is_online
+            || ($freshDriver->score_suspended_until && $freshDriver->score_suspended_until > now())
+            || $freshDriver->debts()->where('status', 'overdue')->exists()
+            || DB::table('driver_leave_requests')->where('driver_id', $driver->id)->whereDate('leave_date', today())->exists();
+        if ($unavailable) {
+            Redis::del($lockKey);
+            Log::debug("│  Skip #{$driver->id} {$driver->name}: trạng thái vừa đổi, không còn đủ điều kiện");
+
+            return false;
+        }
+
+        // Verify lại đơn active sau khi đã lấy lock tài xế.
         $activeOrders = Order::where('delivery_man_id', $driver->id)
             ->whereIn('status', ['assigned', 'processing'])
             ->get();
         $activeCount = $activeOrders->count();
         if ($activeCount > 0) {
             Redis::del($lockKey);
-            Log::debug("│  Skip #{$driver->id} {$driver->name}: đã có đơn active, chỉ nhận thêm qua Chợ đơn");
+            Log::debug("│  Skip #{$driver->id} {$driver->name}: đã có đơn active");
 
             return false;
         }
@@ -206,6 +223,7 @@ class DispatchOfferSender
             'cod_amount' => (int) ($order->cod_amount ?? 0),
             'customer_phone' => $order->sender?->phone ?? '',
             'is_rain_mode' => $isRainMode,
+            'decision_seconds' => OperationalSettings::offerDecisionSeconds($order->city_id),
             'receipt_url' => $receiptUrl,
             'view_url' => $viewUrl,
             ...($isRainMode ? ['rain_bonus_amount' => OperationalSettings::rainBonusAmount($order->city_id)] : []),

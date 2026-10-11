@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\Log;
 use Modules\Order\Models\Order;
 use Modules\Order\Models\OrderDispatchLog;
 use Modules\Order\Services\DispatchService;
+use Modules\Core\Services\OperationalSettings;
 
 class CheckDriverOfferReceiptJob implements ShouldQueue
 {
@@ -42,7 +43,8 @@ class CheckDriverOfferReceiptJob implements ShouldQueue
             return;
         }
 
-        Log::info("[Dispatch] Đơn #{$this->orderId}: sau 8 giây thiết bị tài xế #{$this->driverId} chưa ACK → chuyển người kế");
+        $receiptSeconds = OperationalSettings::offerReceiptSeconds($order->city_id);
+        Log::info("[Dispatch] Đơn #{$this->orderId}: sau {$receiptSeconds} giây thiết bị tài xế #{$this->driverId} chưa ACK → chuyển người kế");
         $dispatch->handleTimeout($order, $this->driverId);
     }
 }

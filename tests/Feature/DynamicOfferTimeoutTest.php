@@ -6,6 +6,7 @@ use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Facades\DB;
 use Modules\Core\Models\City;
 use Modules\Core\Models\User;
+use Modules\Core\Services\OperationalSettings;
 use Modules\Driver\Http\Controllers\OrderController;
 use Modules\Order\Jobs\CheckDriverOfferReceiptJob;
 use Modules\Order\Models\Order;
@@ -58,7 +59,9 @@ class DynamicOfferTimeoutTest extends TestCase
         $log->update(['expires_at' => now()->subSecond()]);
         $dispatch = $this->mock(DispatchService::class);
         $dispatch->shouldReceive('handleTimeout')->once()->withArgs(
-            fn (Order $receivedOrder, int $driverId) => $receivedOrder->is($order) && $driverId === $driver->id
+            fn (Order $receivedOrder, int $driverId, bool $onlyIfDue) => $receivedOrder->is($order)
+                && $driverId === $driver->id
+                && $onlyIfDue
         );
 
         $handled = (new DispatchExpirySweeper($dispatch))->sweep();
@@ -76,6 +79,17 @@ class DynamicOfferTimeoutTest extends TestCase
         $handled = (new DispatchExpirySweeper($dispatch))->sweep();
 
         $this->assertSame(0, $handled);
+    }
+
+    public function test_stale_deadline_job_does_not_expire_an_offer_that_was_extended(): void
+    {
+        [$order, $driver, $log] = $this->activeOffer();
+        $log->update(['expires_at' => now()->addSeconds(15), 'viewed_at' => now()]);
+
+        app(DispatchService::class)->handleTimeout($order, $driver->id, true);
+
+        $this->assertSame('pending', $log->fresh()->result);
+        $this->assertSame('pending', $order->fresh()->status);
     }
 
     public function test_driver_cannot_accept_an_expired_offer_before_sweeper_runs(): void
@@ -98,6 +112,7 @@ class DynamicOfferTimeoutTest extends TestCase
         $method = new \ReflectionMethod(OrderController::class, 'markOfferViewed');
         $method->setAccessible(true);
         $controller = app(OrderController::class);
+        $initialDeadline = $log->expires_at;
 
         $first = $method->invoke($controller, $order->id, $driver->id, $log->id);
         $second = $method->invoke($controller, $order->id, $driver->id, $log->id);
@@ -108,6 +123,11 @@ class DynamicOfferTimeoutTest extends TestCase
         $this->assertNotNull($log->fresh()->viewed_at);
         $this->assertNotNull($log->fresh()->received_at);
         $this->assertSame($first['expires_at']->timestamp, $log->fresh()->expires_at->timestamp);
+        $this->assertGreaterThan($initialDeadline->timestamp, $first['expires_at']->timestamp);
+        $this->assertGreaterThanOrEqual(
+            OperationalSettings::offerDecisionSeconds($order->city_id) - 1,
+            now()->diffInSeconds($first['expires_at'], false),
+        );
     }
 
     private function activeOffer(): array

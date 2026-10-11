@@ -17,7 +17,6 @@ use Filament\Forms\Components\Tabs;
 use Filament\Forms\Components\Tabs\Tab;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\TimePicker;
-use Filament\Forms\Components\Toggle;
 use Filament\Forms\Concerns\InteractsWithForms;
 use Filament\Forms\Contracts\HasForms;
 use Filament\Forms\Form;
@@ -55,6 +54,7 @@ class OperationalSettingsPage extends Page implements HasForms
 
     /** Ô form => key trong bảng settings (trừ streak_milestones và night_windows, xử lý riêng). */
     private const FIELDS = [
+        'dispatch_mode' => 'dispatch.mode',
         'dispatch_max_road_distance_km' => 'dispatch.max_road_distance_km',
         'daily_bonus_cap' => 'driver_score.daily_bonus_cap',
         'max_score' => 'driver_score.max_score',
@@ -88,11 +88,8 @@ class OperationalSettingsPage extends Page implements HasForms
         'offer_decision_seconds' => 'dispatch.offer_decision_seconds',
         'dispatch_timeout_minutes' => 'dispatch.total_timeout_minutes',
         'dispatch_retry_seconds' => 'dispatch.retry_seconds',
-        'market_enabled' => 'market.enabled',
-        'market_wait_seconds_before_open' => 'market.wait_seconds_before_open',
         'market_max_pickup_distance_km' => 'market.max_pickup_distance_km',
         'market_expire_minutes' => 'market.expire_minutes',
-        'market_bundle_window_minutes' => 'market.bundle_window_minutes',
         'dispatch_score_weight' => 'dispatch.score_weight',
         'dispatch_wait_weight' => 'dispatch.wait_weight',
         'dispatch_distance_weight' => 'dispatch.distance_weight',
@@ -225,6 +222,27 @@ class OperationalSettingsPage extends Page implements HasForms
         return Tab::make('Phát đơn')
             ->icon('heroicon-o-signal')
             ->schema([
+                Section::make('Hình thức phát đơn')
+                    ->icon('heroicon-o-arrows-right-left')
+                    ->description('Mỗi khu vực dùng đúng một luồng. Thay đổi chỉ áp dụng cho đơn tạo sau khi lưu; đơn đang chạy giữ nguyên luồng cũ.')
+                    ->schema([
+                        Select::make('dispatch_mode')
+                            ->label('Luồng mặc định của khu vực')
+                            ->options(fn (): array => OperationalSettings::selfPickReleaseEnabled()
+                                ? [
+                                    'self_pick' => 'Đơn tự chọn — đưa thẳng vào Chợ đơn',
+                                    'system_assigned' => 'Hệ thống gán — phát offer cho tài xế phù hợp',
+                                ]
+                                : [
+                                    'system_assigned' => 'Hệ thống gán — phát offer cho tài xế phù hợp',
+                                ])
+                            ->helperText(fn (): string => OperationalSettings::selfPickReleaseEnabled()
+                                ? 'Có thể chọn luồng riêng cho khu vực này.'
+                                : 'Đợt triển khai hiện tại đang khóa Đơn tự chọn; mọi khu vực dùng Hệ thống gán.')
+                            ->required()
+                            ->native(false),
+                    ]),
+
                 Section::make('Phạm vi & số đơn')
                     ->icon('heroicon-o-map-pin')
                     ->description('Chỉ phát cho tài xế trong khoảng cách đường thực tế và chưa đủ trần đơn active.')
@@ -249,14 +267,11 @@ class OperationalSettingsPage extends Page implements HasForms
 
                 Section::make('Chợ đơn')
                     ->icon('heroicon-o-building-storefront')
-                    ->description('Đơn không có người nhận sau ngưỡng quy định sẽ hiện cho các tài xế đủ điều kiện trong khu vực.')
-                    ->columns(['sm' => 2, 'lg' => 5])
+                    ->description('Áp dụng khi chọn Đơn tự chọn: đơn mới hiện ngay cho các tài xế đủ điều kiện trong khu vực.')
+                    ->columns(['sm' => 2, 'lg' => 2])
                     ->schema([
-                        Toggle::make('market_enabled')->label('Bật Chợ đơn')->inline(false),
-                        $this->integer('market_wait_seconds_before_open', 'Đưa vào chợ sau', 'giây', 15, 180),
                         $this->number('market_max_pickup_distance_km', 'Bán kính thấy đơn', 'km', 0.5, 50, step: 0.1),
                         $this->integer('market_expire_minutes', 'Hết hạn sau', 'phút', 1, 120),
-                        $this->integer('market_bundle_window_minutes', 'Thời gian gom chuyến', 'phút', 1, 60),
                     ]),
 
                 Section::make('Trọng số xếp hạng tài xế')
@@ -538,7 +553,7 @@ class OperationalSettingsPage extends Page implements HasForms
         $state = [];
         foreach (self::FIELDS as $field => $key) {
             // "+ 0" giữ đúng kiểu int/float của chuỗi đã lưu, tránh 55 → 55.00000000000001.
-            $state[$field] = $value($key) + 0;
+            $state[$field] = $key === 'dispatch.mode' ? $value($key) : $value($key) + 0;
         }
 
         $state['streak_milestones'] = collect($milestones)
@@ -658,9 +673,9 @@ class OperationalSettingsPage extends Page implements HasForms
         OperationalSettings::put($settings, $this->cityId());
         $this->logChanges($before, $settings);
 
-        // App tài xế đang mở sẽ tải lại cấu hình và ẩn/hiện tab
-        // Chợ đơn ngay khi khu vực được bật hoặc tắt.
-        if ((string) ($before['market.enabled'] ?? '0') !== (string) $settings['market.enabled']) {
+        // App tài xế đang mở sẽ tải lại cấu hình và ẩn/hiện tab Chợ đơn ngay
+        // khi khu vực đổi hình thức phát đơn.
+        if ((string) ($before['dispatch.mode'] ?? 'system_assigned') !== (string) $settings['dispatch.mode']) {
             RTDBService::pingOrderMarket($this->cityId());
         }
 

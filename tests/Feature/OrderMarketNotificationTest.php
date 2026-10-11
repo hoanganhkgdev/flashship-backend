@@ -15,7 +15,7 @@ class OrderMarketNotificationTest extends TestCase
 {
     use DatabaseTransactions;
 
-    public function test_market_notification_targets_nearby_drivers_below_active_order_cap(): void
+    public function test_market_notification_only_targets_nearby_idle_drivers(): void
     {
         $this->assertStringEndsWith('_test', DB::connection()->getDatabaseName());
         $city = City::create(['name' => 'Market notify', 'slug' => 'market-notify-'.uniqid(), 'is_active' => true]);
@@ -24,9 +24,9 @@ class OrderMarketNotificationTest extends TestCase
         $noSession = $this->driver($city, 'no-session-token');
         $full = $this->driver($city, 'full-token');
 
-        $this->mainOrder($city, $eligible, 0);
-        $this->mainOrder($city, $far, 0);
-        $this->mainOrder($city, $full, 2);
+        $this->activeOrder($city, $eligible);
+        $this->activeOrder($city, $far);
+        $this->activeOrder($city, $full);
 
         $marketOrder = Order::create([
             'status' => 'pending', 'city_id' => $city->id, 'service_type' => 'delivery', 'platform' => 'customer_app',
@@ -43,7 +43,7 @@ class OrderMarketNotificationTest extends TestCase
 
         $tokens = (new OrderMarketService($locations))->eligibleNotificationTokens($marketOrder);
 
-        $this->assertEqualsCanonicalizing(['eligible-token', 'no-session-token', 'full-token'], $tokens);
+        $this->assertSame(['no-session-token'], $tokens);
     }
 
     private function driver(City $city, string $token): User
@@ -55,12 +55,12 @@ class OrderMarketNotificationTest extends TestCase
         ]);
     }
 
-    private function mainOrder(City $city, User $driver, int $claimed): Order
+    private function activeOrder(City $city, User $driver): Order
     {
         return Order::create([
             'status' => 'assigned', 'city_id' => $city->id, 'service_type' => 'delivery', 'platform' => 'customer_app',
             'pickup_address' => 'a', 'delivery_address' => 'b', 'delivery_man_id' => $driver->id,
-            'driver_order_role' => 'main', 'extra_claimed_count' => $claimed, 'bundle_window_expires_at' => now()->addMinutes(8),
+            'driver_order_role' => 'market',
         ]);
     }
 }

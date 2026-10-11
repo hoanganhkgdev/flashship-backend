@@ -26,6 +26,7 @@ class OperationalSettingsTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        config()->set('dispatch.self_pick_enabled', true);
 
         // Chỉ tạo bảng cho SQLite in-memory; DDL trên MySQL tự commit, phá transaction.
         if (! Schema::hasTable('settings')) {
@@ -72,6 +73,15 @@ class OperationalSettingsTest extends TestCase
         $this->cityB = City::create(['name' => 'Ops B', 'slug' => 'ops-b-'.uniqid()])->id;
     }
 
+    public function test_release_gate_keeps_new_orders_on_system_assigned_even_if_database_says_self_pick(): void
+    {
+        OperationalSettings::put(['dispatch.mode' => 'self_pick'], $this->cityA);
+        config()->set('dispatch.self_pick_enabled', false);
+
+        $this->assertSame('system_assigned', OperationalSettings::dispatchMode($this->cityA));
+        $this->assertFalse(OperationalSettings::usesSelfPickDispatch($this->cityA));
+    }
+
     protected function tearDown(): void
     {
         // Bộ nhớ đệm static sống qua các test trong cùng process.
@@ -99,6 +109,7 @@ class OperationalSettingsTest extends TestCase
     public function test_changing_one_city_does_not_affect_another(): void
     {
         OperationalSettings::put([
+            'dispatch.mode' => 'self_pick',
             'dispatch.max_road_distance_km' => 6.5,
             'driver_score.streak_milestones' => '2:1,5:3',
             'driver_score.weekly_bonus_amount' => 250_000,
@@ -111,6 +122,9 @@ class OperationalSettingsTest extends TestCase
             'dispatch.score_weight' => 20,
         ], $this->cityA);
 
+        $this->assertSame('self_pick', OperationalSettings::dispatchMode($this->cityA));
+        $this->assertTrue(OperationalSettings::usesSelfPickDispatch($this->cityA));
+        $this->assertFalse(OperationalSettings::usesSystemAssignedDispatch($this->cityA));
         $this->assertSame(6.5, DispatchRadiusPolicy::radiusForElapsedSeconds(300, $this->cityA));
         $this->assertSame([2 => 1, 5 => 3], DriverScoreService::streakMilestones($this->cityA));
         $this->assertSame(250_000, DriverScoreService::weeklyBonusAmount($this->cityA));
@@ -125,6 +139,8 @@ class OperationalSettingsTest extends TestCase
         ], $this->cityA)['should_offline']);
 
         // Khu vực B vẫn giữ nguyên chính sách cũ.
+        $this->assertSame('system_assigned', OperationalSettings::dispatchMode($this->cityB));
+        $this->assertTrue(OperationalSettings::usesSystemAssignedDispatch($this->cityB));
         $this->assertSame(4.0, DispatchRadiusPolicy::radiusForElapsedSeconds(300, $this->cityB));
         $this->assertSame([3 => 1, 6 => 2, 10 => 4], DriverScoreService::streakMilestones($this->cityB));
         $this->assertSame(200_000, DriverScoreService::weeklyBonusAmount($this->cityB));

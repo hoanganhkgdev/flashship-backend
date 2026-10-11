@@ -20,6 +20,9 @@ class OperationalSettings
     public const CITY_TABLE = 'city_operational_settings';
 
     public const DEFAULTS = [
+        // Mỗi khu vực chỉ chọn đúng một luồng phát đơn tự động. Gán thủ công
+        // luôn khả dụng và không phụ thuộc cấu hình này.
+        'dispatch.mode' => 'system_assigned',
         'dispatch.max_road_distance_km' => '4',
         'driver_score.streak_milestones' => '3:1,6:2,10:4',
         'driver_score.daily_bonus_cap' => '10',
@@ -332,6 +335,36 @@ class OperationalSettings
         return (int) self::value('dispatch.offer_open_seconds', $cityId);
     }
 
+    public static function dispatchMode(?int $cityId): string
+    {
+        // Kill switch của từng đợt phát hành: dữ liệu cũ/staging có lỡ lưu
+        // self_pick cũng không làm đơn mới rẽ sang luồng chưa được mở.
+        if (! self::selfPickReleaseEnabled()) {
+            return 'system_assigned';
+        }
+
+        $mode = self::value('dispatch.mode', $cityId);
+
+        return in_array($mode, ['self_pick', 'system_assigned'], true)
+            ? $mode
+            : 'system_assigned';
+    }
+
+    public static function selfPickReleaseEnabled(): bool
+    {
+        return (bool) config('dispatch.self_pick_enabled', false);
+    }
+
+    public static function usesSelfPickDispatch(?int $cityId): bool
+    {
+        return self::dispatchMode($cityId) === 'self_pick';
+    }
+
+    public static function usesSystemAssignedDispatch(?int $cityId): bool
+    {
+        return self::dispatchMode($cityId) === 'system_assigned';
+    }
+
     public static function dispatchWaveSize(?int $cityId): int
     {
         return max(1, min(10, (int) self::value('dispatch.wave_size', $cityId)));
@@ -359,7 +392,7 @@ class OperationalSettings
 
     public static function orderMarketEnabled(?int $cityId): bool
     {
-        return (int) self::value('market.enabled', $cityId) === 1;
+        return self::usesSelfPickDispatch($cityId);
     }
 
     public static function marketWaitSecondsBeforeOpen(?int $cityId): int

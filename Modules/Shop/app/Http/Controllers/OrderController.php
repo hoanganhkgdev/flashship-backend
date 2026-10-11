@@ -11,6 +11,7 @@ use Modules\Core\Models\Voucher;
 use Modules\Core\Models\VoucherUsage;
 use Modules\Core\Services\OperationalSettings;
 use Modules\Core\Services\VoucherService;
+use Modules\Order\Jobs\RouteNewOrderJob;
 use Modules\Order\Models\Order;
 use Modules\Order\Services\OrderService;
 use Modules\Shop\Http\Requests\StoreBatchOrderRequest;
@@ -218,10 +219,7 @@ class OrderController extends Controller
                 return $order;
             });
 
-            $orderId = $order->id;
-            dispatch(function () use ($orderId) {
-                app(OrderService::class)->dispatchNewOrder($orderId);
-            })->afterResponse();
+            RouteNewOrderJob::dispatch($order->id)->afterCommit();
 
             return response()->json([
                 'success' => true,
@@ -352,10 +350,7 @@ class OrderController extends Controller
                 return $order;
             });
 
-            $orderId = $order->id;
-            dispatch(function () use ($orderId) {
-                app(OrderService::class)->dispatchNewOrder($orderId);
-            })->afterResponse();
+            RouteNewOrderJob::dispatch($order->id)->afterCommit();
 
             return response()->json([
                 'success' => true,

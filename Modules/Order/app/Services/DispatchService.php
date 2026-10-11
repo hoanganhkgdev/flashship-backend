@@ -79,6 +79,14 @@ class DispatchService
             return;
         }
 
+        // Mỗi khu vực chỉ chạy một trong hai luồng. Chế độ tự chọn đưa đơn
+        // thẳng vào Chợ đơn, tuyệt đối không phát offer hệ thống trước.
+        if ($order->usesSelfPickDispatch()) {
+            $this->orderMarket->openForSelfPick($order);
+
+            return;
+        }
+
         $now = now();
 
         Log::info('╔══════════════════════════════════════════════════════════════');
@@ -109,18 +117,25 @@ class DispatchService
         $this->offerToNext($order);
     }
 
-    public function handleTimeout(Order $order, int $driverId): void
+    public function handleTimeout(Order $order, int $driverId, bool $onlyIfDeadlineDue = false): void
     {
         $driver = User::find($driverId);
         $name = $driver?->name ?? "#{$driverId}";
 
-        $timedOutLog = DB::transaction(function () use ($order, $driverId) {
+        $timedOutLog = DB::transaction(function () use ($order, $driverId, $onlyIfDeadlineDue) {
             $log = OrderDispatchLog::where('order_id', $order->id)
                 ->where('driver_id', $driverId)
                 ->where('result', 'pending')
                 ->lockForUpdate()
                 ->first();
             if (! $log) {
+                return null;
+            }
+            // Sweeper/job có thể đã đọc deadline cũ đúng lúc app vừa gia hạn
+            // giai đoạn quyết định. Kiểm tra lại dưới row lock để không thu
+            // hồi offer còn hạn. Receipt checkpoint chủ động gọi với false vì
+            // nó được phép loại thiết bị không ACK trước deadline hiển thị.
+            if ($onlyIfDeadlineDue && (! $log->expires_at || $log->expires_at->isFuture())) {
                 return null;
             }
 
@@ -308,9 +323,9 @@ class DispatchService
     // PRIVATE — DISPATCH CONTROL FLOW
     // =========================================================================
 
-    public function markNoDriver(Order $order): void
+    public function markNoDriver(Order $order, ?int $waitMinutes = null, string $source = 'system'): bool
     {
-        $this->cancelNoDriver($order);
+        return $this->cancelNoDriver($order, $waitMinutes, $source);
     }
 
     /**
@@ -335,7 +350,7 @@ class DispatchService
             ->get();
     }
 
-    private function cancelNoDriver(Order $order): void
+    private function cancelNoDriver(Order $order, ?int $waitMinutes = null, string $source = 'system'): bool
     {
         // Giữ đơn ở trạng thái pending, không hủy
         // Chỉ dừng dispatch và thông báo cho admin xử lý thủ công
@@ -353,20 +368,27 @@ class DispatchService
             ]);
 
         if (! $updated) {
-            return;
+            return false;
         }
 
         $this->clearDispatchCache($order->id);
         broadcast(new DispatchStateChanged);
 
-        $timeout = OperationalSettings::dispatchTimeoutMinutes($order->city_id);
+        $timeout = $waitMinutes ?? OperationalSettings::dispatchTimeoutMinutes($order->city_id);
+        $description = $source === 'self_pick'
+            ? "Chợ đơn hết hạn sau {$timeout} phút chưa có tài xế nhận — cần tổng đài hỗ trợ"
+            : "Quá {$timeout} phút chưa có tài xế nhận — hệ thống đã dừng tự động tìm, cần tổng đài xử lý";
 
         // Dòng log trong lịch sử đơn — tổng đài/admin mở đơn lên là thấy.
         OrderHistory::create([
             'order_id' => $order->id,
             'type' => 'no_driver',
-            'description' => "Quá {$timeout} phút chưa có tài xế nhận — hệ thống đã dừng tự động tìm, cần tổng đài xử lý",
-            'metadata' => ['timeout_minutes' => $timeout, 'dispatch_attempts' => (int) $order->dispatch_attempts],
+            'description' => $description,
+            'metadata' => [
+                'timeout_minutes' => $timeout,
+                'dispatch_attempts' => (int) $order->dispatch_attempts,
+                'source' => $source,
+            ],
         ]);
 
         foreach ($this->noDriverRecipients($order) as $staff) {
@@ -377,7 +399,9 @@ class DispatchService
                 ->sendToDatabase($staff);
         }
 
-        Log::info("╟── [Dispatch] Đơn #{$order->id}: Không tìm được tài xế sau ".OperationalSettings::dispatchTimeoutMinutes($order->city_id).' phút → giữ pending, dừng dispatch');
+        Log::info("╟── [Dispatch] Đơn #{$order->id}: Không tìm được tài xế sau {$timeout} phút ({$source}) → giữ pending, dừng dispatch");
+
+        return true;
     }
 
     public function offerToNext(Order $order): void
@@ -405,6 +429,13 @@ class DispatchService
             }
             if (OrderDispatchLog::where('order_id', $order->id)->where('result', 'pending')->exists()) {
                 Log::debug("│  [Dispatch] Đơn #{$order->id} đang có wave offer → không phát trùng");
+
+                return;
+            }
+            // Retry luôn tôn trọng mode đã chụp trên đơn lúc tạo, không đọc
+            // lại cấu hình khu vực rồi đổi luồng giữa chừng.
+            if ($order->usesSelfPickDispatch()) {
+                $this->orderMarket->openForSelfPick($order);
 
                 return;
             }

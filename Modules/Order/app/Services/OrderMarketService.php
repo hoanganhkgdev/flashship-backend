@@ -4,6 +4,7 @@ namespace Modules\Order\Services;
 
 use App\Events\DispatchStateChanged;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Redis;
 use Illuminate\Support\Facades\Schema;
 use Modules\Core\Models\User;
@@ -11,6 +12,7 @@ use Modules\Core\Services\FCMService;
 use Modules\Core\Services\GoogleMapService;
 use Modules\Core\Services\OperationalSettings;
 use Modules\Core\Services\RTDBService;
+use Modules\Customer\Http\Controllers\CustomerNotificationController;
 use Modules\Driver\Services\DriverLocationService;
 use Modules\Order\Jobs\ExpireOrderMarketListingJob;
 use Modules\Order\Models\Order;
@@ -28,20 +30,32 @@ class OrderMarketService
 
     public function shouldOpen(Order $order): bool
     {
-        if (! OperationalSettings::orderMarketEnabled($order->city_id) || ! $order->dispatch_started_at) {
-            return false;
-        }
-        $elapsed = (int) abs(now()->diffInSeconds($order->dispatch_started_at));
-
-        return $elapsed >= OperationalSettings::marketWaitSecondsBeforeOpen($order->city_id);
+        return $order->usesSelfPickDispatch();
     }
 
-    public function open(Order $order, array $dispatchDiagnostics = []): ?OrderMarketListing
+    public function openForSelfPick(Order $order): ?OrderMarketListing
     {
-        if ($order->status !== 'pending' || ! $order->city_id) {
+        if (! $order->usesSelfPickDispatch()) {
             return null;
         }
-        $reason = 'timeout';
+
+        DB::table('orders')->where('id', $order->id)->where('status', 'pending')->update([
+            'dispatch_started_at' => $order->dispatch_started_at ?? now(),
+            'cancel_reason' => null,
+            'updated_at' => now(),
+        ]);
+
+        $fresh = $order->fresh();
+
+        return $fresh ? $this->open($fresh, [], 'self_pick') : null;
+    }
+
+    public function open(Order $order, array $dispatchDiagnostics = [], string $reason = 'self_pick'): ?OrderMarketListing
+    {
+        if ($order->status !== 'pending' || ! $order->city_id
+            || ! $order->usesSelfPickDispatch()) {
+            return null;
+        }
         $openedNow = false;
 
         $listing = DB::transaction(function () use ($order, $reason, $dispatchDiagnostics, &$openedNow) {
@@ -64,7 +78,9 @@ class OrderMarketService
             ]);
             $fresh->update(['dispatching_to_driver_id' => null, 'offer_viewed_at' => null]);
             OrderHistory::create(['order_id' => $fresh->id, 'type' => 'market_opened',
-                'description' => "Đưa vào Chợ đơn sau {$fresh->dispatch_attempts} lượt phát; đã quét ".($dispatchDiagnostics['online_total'] ?? 0).' tài xế online',
+                'description' => $reason === 'self_pick'
+                    ? 'Đưa vào Chợ đơn theo hình thức phát đơn của khu vực'
+                    : "Đưa vào Chợ đơn sau {$fresh->dispatch_attempts} lượt phát; đã quét ".($dispatchDiagnostics['online_total'] ?? 0).' tài xế online',
                 'metadata' => ['reason' => $reason, 'dispatch_scan' => $dispatchDiagnostics]]);
 
             return $listing;
@@ -95,7 +111,7 @@ class OrderMarketService
             ->whereNotNull('fcm_token')->where('fcm_token', '!=', '')
             ->where(fn ($query) => $query->whereNull('score_suspended_until')->orWhere('score_suspended_until', '<=', now()))
             ->whereDoesntHave('debts', fn ($query) => $query->where('status', 'overdue'))
-            ->withCount(['orders as active_orders_count' => fn ($orders) => $orders->whereIn('status', ['assigned', 'processing'])])
+            ->whereDoesntHave('orders', fn ($orders) => $orders->whereIn('status', ['assigned', 'processing']))
             ->whereNotExists(fn ($query) => $query->selectRaw('1')->from('driver_leave_requests')
                 ->whereColumn('driver_leave_requests.driver_id', 'users.id')->whereDate('leave_date', today()))
             ->when($order->service_type === 'car', fn ($query) => $query->where('has_car_license', true))
@@ -104,11 +120,10 @@ class OrderMarketService
         $locations = $this->locations->freshLocationsFor($drivers->pluck('id')->all());
         $maxKm = OperationalSettings::marketMaxPickupDistanceKm($order->city_id);
 
-        $maxActive = OperationalSettings::maxActiveOrdersPerDriver($order->city_id);
-        return $drivers->filter(function (User $driver) use ($locations, $order, $maxKm, $maxActive) {
+        return $drivers->filter(function (User $driver) use ($locations, $order, $maxKm) {
             $location = $locations[$driver->id] ?? null;
 
-            return $driver->active_orders_count < $maxActive && $location
+            return $location
                 && GoogleMapService::haversineKm($location['lat'], $location['lng'], $order->pickup_lat, $order->pickup_lng) <= $maxKm;
         })->pluck('fcm_token')->filter()->unique()->values()->all();
     }
@@ -123,7 +138,7 @@ class OrderMarketService
         FCMService::getInstance()->broadcast(
             $tokens,
             'Có đơn mới trong Chợ đơn',
-            'Mở Chợ đơn để xem tuyến và nhận thêm đơn.',
+            'Mở Chợ đơn để xem tuyến và nhận đơn.',
             ['type' => 'order_market', 'order_id' => (string) $order->id, 'order_code' => (string) $order->code],
         );
     }
@@ -135,7 +150,9 @@ class OrderMarketService
         }
         $activeCount = Order::where('delivery_man_id', $driver->id)
             ->whereIn('status', ['assigned', 'processing'])->count();
-        if ($activeCount >= OperationalSettings::maxActiveOrdersPerDriver($driver->city_id)) {
+        // Đơn tự chọn là đơn độc lập. Tài xế đang chạy đơn chỉ được nhận thêm
+        // qua luồng ghép đơn riêng, nơi hệ thống còn phải kiểm tra tuyến.
+        if ($activeCount > 0) {
             return [];
         }
         $location = $this->locations->freshLocationsFor([$driver->id])[$driver->id] ?? null;
@@ -173,6 +190,9 @@ class OrderMarketService
 
     public function claim(Order $order, User $driver): array
     {
+        if (! $order->usesSelfPickDispatch()) {
+            return $this->error('Khu vực này không sử dụng hình thức đơn tự chọn.', 409);
+        }
         if (! $this->baseEligible($driver)) {
             return $this->error('Bạn hiện không đủ điều kiện nhận đơn.', 403);
         }
@@ -192,19 +212,20 @@ class OrderMarketService
             if ($fresh->status !== 'pending' || ! $listing || $listing->status !== 'open' || $listing->expires_at <= now()) {
                 return 'taken';
             }
-            if ((int) $fresh->city_id !== (int) $lockedDriver->city_id || ($fresh->service_type === 'car' && ! $lockedDriver->has_car_license)) {
+            if (! $fresh->usesSelfPickDispatch()
+                || ! $this->baseEligible($lockedDriver)
+                || (int) $fresh->city_id !== (int) $lockedDriver->city_id
+                || ($fresh->service_type === 'car' && ! $lockedDriver->has_car_license)) {
                 return 'ineligible';
             }
             $active = Order::where('delivery_man_id', $driver->id)->whereIn('status', ['assigned', 'processing'])->lockForUpdate()->get();
-            // Chợ đơn là luồng tài xế chủ động xem tuyến và chọn đơn.
-            // Giai đoạn thử nghiệm chỉ chặn theo trần số đơn, không ép điểm
-            // lấy/giao phải gần các đơn đang giữ.
-            if ($active->count() >= OperationalSettings::maxActiveOrdersPerDriver($fresh->city_id)) {
+            // Chợ đơn chỉ dành cho tài xế đang rảnh. Nhận thêm khi đang chạy
+            // phải đi qua luồng ghép đơn riêng để kiểm tra tuyến lấy/giao.
+            if ($active->isNotEmpty()) {
                 return 'busy';
             }
 
-            // Chợ đơn không còn khái niệm chính/phụ hay phiên gom chuyến.
-            // Tài xế chủ động chọn bất kỳ đơn nào tới khi chạm trần active.
+            // Đơn tự chọn là một đơn độc lập, không có vai trò chính/phụ.
             $fresh->update([
                 'status' => 'assigned', 'delivery_man_id' => $driver->id,
                 'driver_order_role' => 'market', 'main_order_id' => null,
@@ -234,6 +255,36 @@ class OrderMarketService
         Redis::del("dispatch:retry_pending:{$result->id}");
         RTDBService::updateOrderStatus($result->code, 'assigned');
         RTDBService::pingOrderMarket((int) $result->city_id);
+
+        // Khách phải nhận cùng mức cập nhật như khi tài xế accept offer hệ
+        // thống: RTDB cho màn đang mở, FCM cho app nền và inbox để xem lại.
+        $customer = User::find($result->sender_platform_id);
+        if ($customer) {
+            try {
+                if ($customer->fcm_token) {
+                    FCMService::getInstance()->sendOrderStatusUpdate(
+                        $customer->fcm_token,
+                        $result->code,
+                        'assigned',
+                    );
+                }
+                CustomerNotificationController::create(
+                    $customer->id,
+                    "Đơn #{$result->code}",
+                    'Tài xế đã nhận đơn và đang trên đường đến',
+                    'order_status',
+                    $result->code,
+                );
+            } catch (\Throwable $e) {
+                // Assignment đã commit; lỗi kênh thông báo không được biến
+                // lần claim thành thất bại để tài xế bấm lại.
+                Log::warning('[OrderMarket] Không thông báo được cho khách sau khi nhận đơn', [
+                    'order_id' => $result->id,
+                    'customer_id' => $customer->id,
+                    'message' => $e->getMessage(),
+                ]);
+            }
+        }
         broadcast(new DispatchStateChanged);
 
         return ['success' => true, 'order' => app(OrderService::class)->formatOrderForDriver($result->fresh()), 'status' => 200];
@@ -267,8 +318,43 @@ class OrderMarketService
             RTDBService::pingOrderMarket((int) $listing->city_id);
             $order = Order::find($listing->order_id);
             if ($order?->status === 'pending') {
-                app(DispatchService::class)->markNoDriver($order);
+                if ($order->usesSystemAssignedDispatch()) {
+                    app(DispatchService::class)->startDispatch($order);
+                } else {
+                    $waitMinutes = OperationalSettings::marketExpireMinutes($order->city_id);
+                    $marked = app(DispatchService::class)->markNoDriver($order, $waitMinutes, 'self_pick');
+                    if ($marked) {
+                        $this->notifyCustomerNoDriver($order);
+                    }
+                }
             }
+        }
+    }
+
+    private function notifyCustomerNoDriver(Order $order): void
+    {
+        $customer = User::find($order->sender_platform_id);
+        if (! $customer) {
+            return;
+        }
+
+        try {
+            if ($customer->fcm_token) {
+                FCMService::getInstance()->sendNoDriverPending($customer->fcm_token, $order->code);
+            }
+            CustomerNotificationController::create(
+                $customer->id,
+                "Đơn #{$order->code} đang được hỗ trợ",
+                'Chưa có tài xế nhận đơn. Tổng đài đang hỗ trợ tìm tài xế cho bạn.',
+                'order_status',
+                $order->code,
+            );
+        } catch (\Throwable $e) {
+            Log::warning('[OrderMarket] Không thông báo được cho khách khi Chợ đơn hết hạn', [
+                'order_id' => $order->id,
+                'customer_id' => $customer->id,
+                'message' => $e->getMessage(),
+            ]);
         }
     }
 
@@ -285,31 +371,6 @@ class OrderMarketService
         }
 
         return ! DB::table('driver_leave_requests')->where('driver_id', $driver->id)->whereDate('leave_date', today())->exists();
-    }
-
-    public function bundleSession(User $driver): ?array
-    {
-        $main = $this->activeBundleSession($driver);
-        if (! $main) {
-            return null;
-        }
-
-        return [
-            'main_order_id' => $main->id,
-            'main_order_code' => $main->code,
-            'extras_claimed' => (int) $main->extra_claimed_count,
-            'extras_remaining' => max(0, 2 - (int) $main->extra_claimed_count),
-            'expires_at' => $main->bundle_window_expires_at?->toIso8601String(),
-        ];
-    }
-
-    private function activeBundleSession(User $driver): ?Order
-    {
-        return Order::where('delivery_man_id', $driver->id)
-            ->where('driver_order_role', 'main')
-            ->where('status', 'assigned')
-            ->where('bundle_window_expires_at', '>', now())
-            ->first();
     }
 
     private function error(string $message, int $status): array

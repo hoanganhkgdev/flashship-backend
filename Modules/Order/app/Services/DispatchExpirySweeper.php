@@ -30,7 +30,7 @@ class DispatchExpirySweeper
                 continue;
             }
 
-            $this->dispatch->handleTimeout($order, (int) $offer->driver_id);
+            $this->dispatch->handleTimeout($order, (int) $offer->driver_id, true);
             $handled++;
         }
 

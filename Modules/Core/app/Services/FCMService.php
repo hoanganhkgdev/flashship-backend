@@ -15,7 +15,7 @@ class FCMService
 
     private function __construct()
     {
-        $factory = (new Factory)->withServiceAccount(
+        $factory = (new Factory)->withHttpClientOptions(RTDBService::httpOptions())->withServiceAccount(
             storage_path('app/firebase-service-account.json')
         );
         $this->messaging = $factory->createMessaging();
@@ -178,6 +178,24 @@ class FCMService
                 'type'          => 'order_status',
                 'order_code'    => $orderCode,
                 'status'        => 'cancelled',
+                'cancel_reason' => 'no_driver',
+            ],
+        ]);
+    }
+
+    /**
+     * Đơn vẫn còn hiệu lực nhưng Chợ đơn đã hết thời gian chờ. Tổng đài sẽ
+     * tiếp tục xử lý thủ công nên không được gửi nội dung như đơn đã huỷ.
+     */
+    public function sendNoDriverPending(string $fcmToken, string $orderCode): void
+    {
+        $this->send($fcmToken, [
+            'title' => "Đơn $orderCode đang được hỗ trợ",
+            'body'  => 'Chưa có tài xế nhận đơn. Tổng đài đang hỗ trợ tìm tài xế cho bạn.',
+            'data'  => [
+                'type'          => 'order_status',
+                'order_code'    => $orderCode,
+                'status'        => 'pending',
                 'cancel_reason' => 'no_driver',
             ],
         ]);

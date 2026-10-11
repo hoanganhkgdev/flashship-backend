@@ -2,6 +2,7 @@
 namespace Modules\Order\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Modules\Core\Services\OperationalSettings;
 
 class Order extends Model
 {
@@ -11,6 +12,9 @@ class Order extends Model
     {
         static::creating(function ($order) {
             if (empty($order->status) || $order->status === 'draft') $order->status = 'pending';
+            if (empty($order->dispatch_mode)) {
+                $order->dispatch_mode = OperationalSettings::dispatchMode($order->city_id);
+            }
             $order->bonus_fee    = $order->bonus_fee ?? 0;
             $order->shipping_fee = $order->shipping_fee ?? 0;
             $order->is_freeship  = $order->is_freeship ?? false;
@@ -26,7 +30,7 @@ class Order extends Model
     }
 
     protected $fillable = [
-        'code', 'service_type', 'city_id', 'delivery_man_id', 'driver_order_role', 'main_order_id',
+        'code', 'service_type', 'city_id', 'dispatch_mode', 'delivery_man_id', 'driver_order_role', 'main_order_id',
         'extra_claimed_count', 'bundle_window_expires_at', 'dispatching_to_driver_id',
         'dispatch_attempts', 'sender_platform_id', 'platform', 'created_by', 'status', 'cancel_reason',
         'pickup_address', 'pickup_place_name', 'pickup_lat', 'pickup_lng', 'pickup_phone', 'sender_name', 'store_name',
@@ -74,6 +78,23 @@ class Order extends Model
     public function city()     { return $this->belongsTo(\Modules\Core\Models\City::class); }
     public function histories(){ return $this->hasMany(OrderHistory::class)->latest(); }
     public function marketListing(){ return $this->hasOne(OrderMarketListing::class); }
+
+    public function effectiveDispatchMode(): string
+    {
+        return in_array($this->dispatch_mode, ['self_pick', 'system_assigned'], true)
+            ? $this->dispatch_mode
+            : 'system_assigned';
+    }
+
+    public function usesSelfPickDispatch(): bool
+    {
+        return $this->effectiveDispatchMode() === 'self_pick';
+    }
+
+    public function usesSystemAssignedDispatch(): bool
+    {
+        return $this->effectiveDispatchMode() === 'system_assigned';
+    }
 
     protected $appends = ['city_name'];
     public function getCityNameAttribute() { return $this->city?->name ?? 'N/A'; }

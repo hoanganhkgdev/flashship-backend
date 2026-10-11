@@ -18,12 +18,41 @@ class OrderMarketIdleClaimTest extends TestCase
 {
     use DatabaseTransactions;
 
+    protected function setUp(): void
+    {
+        parent::setUp();
+        config()->set('dispatch.self_pick_enabled', true);
+    }
+
+    public function test_system_assigned_city_rejects_direct_market_claim(): void
+    {
+        $city = City::create(['name' => 'System dispatch', 'slug' => 'system-dispatch-'.uniqid(), 'is_active' => true]);
+        $driver = User::create([
+            'name' => 'System driver', 'email' => uniqid().'@test.local', 'phone' => '09'.random_int(10000000, 99999999),
+            'password' => 'test-password', 'user_type' => 'driver', 'status' => 1, 'is_online' => true, 'city_id' => $city->id,
+        ]);
+        $order = $this->marketOrder($city, 'delivery');
+        $locations = $this->mock(DriverLocationService::class);
+        $locations->shouldNotReceive('freshLocationsFor');
+
+        $result = (new OrderMarketService($locations))->claim($order, $driver);
+
+        $this->assertFalse($result['success']);
+        $this->assertSame(409, $result['status']);
+        $this->assertSame('pending', $order->fresh()->status);
+    }
+
     public function test_idle_driver_claims_market_order_without_main_or_extra_role(): void
     {
         $this->assertStringEndsWith('_test', DB::connection()->getDatabaseName());
         Redis::shouldReceive('del')->once();
 
         $city = City::create(['name' => 'Idle market', 'slug' => 'idle-market-'.uniqid(), 'is_active' => true]);
+        $this->enableSelfPick($city);
+        $customer = User::create([
+            'name' => 'Market customer', 'email' => uniqid().'@test.local', 'phone' => '08'.random_int(10000000, 99999999),
+            'password' => 'test-password', 'user_type' => 'customer', 'status' => 1, 'city_id' => $city->id,
+        ]);
         $driver = User::create([
             'name' => 'Idle driver', 'email' => uniqid().'@test.local', 'phone' => '09'.random_int(10000000, 99999999),
             'password' => 'test-password', 'user_type' => 'driver', 'status' => 1, 'is_online' => true, 'city_id' => $city->id,
@@ -31,6 +60,7 @@ class OrderMarketIdleClaimTest extends TestCase
         $order = Order::create([
             'code' => 'MKT-'.uniqid(), 'status' => 'pending', 'city_id' => $city->id,
             'service_type' => 'delivery', 'platform' => 'customer_app',
+            'sender_platform_id' => $customer->id,
             'pickup_address' => 'Điểm lấy', 'delivery_address' => 'Điểm giao',
             'pickup_lat' => 10.0, 'pickup_lng' => 105.0,
         ]);
@@ -55,13 +85,18 @@ class OrderMarketIdleClaimTest extends TestCase
         $this->assertSame(0, (int) $fresh->extra_claimed_count);
         $this->assertNull($fresh->bundle_window_expires_at);
         $this->assertSame('claimed', $order->marketListing()->first()->status);
+        $this->assertDatabaseHas('customer_notifications', [
+            'user_id' => $customer->id,
+            'type' => 'order_status',
+            'order_code' => $order->code,
+        ]);
     }
 
     public function test_driver_without_car_license_does_not_see_car_order_in_market(): void
     {
         $city = City::create(['name' => 'Car market', 'slug' => 'car-market-'.uniqid(), 'is_active' => true]);
         DB::table(OperationalSettings::CITY_TABLE)->where('city_id', $city->id)
-            ->where('key', 'market.enabled')->update(['value' => '1', 'updated_at' => now()]);
+            ->where('key', 'dispatch.mode')->update(['value' => 'self_pick', 'updated_at' => now()]);
         OperationalSettings::flush($city->id);
 
         $driver = User::create([
@@ -83,10 +118,10 @@ class OrderMarketIdleClaimTest extends TestCase
         $this->assertNotContains($car->id, collect($orders)->pluck('id')->all());
     }
 
-    public function test_driver_with_two_active_orders_can_claim_a_third_without_bundle_session(): void
+    public function test_busy_driver_cannot_claim_a_self_pick_order(): void
     {
-        Redis::shouldReceive('del')->once();
         $city = City::create(['name' => 'Simple market', 'slug' => 'simple-market-'.uniqid(), 'is_active' => true]);
+        $this->enableSelfPick($city);
         $driver = User::create([
             'name' => 'Two orders', 'email' => uniqid().'@test.local', 'phone' => '09'.random_int(10000000, 99999999),
             'password' => 'test-password', 'user_type' => 'driver', 'status' => 1, 'is_online' => true, 'city_id' => $city->id,
@@ -106,9 +141,10 @@ class OrderMarketIdleClaimTest extends TestCase
 
         $result = (new OrderMarketService($locations))->claim($order, $driver);
 
-        $this->assertTrue($result['success']);
-        $this->assertSame('market', $order->fresh()->driver_order_role);
-        $this->assertCount(3, Order::where('delivery_man_id', $driver->id)->whereIn('status', ['assigned', 'processing'])->get());
+        $this->assertFalse($result['success']);
+        $this->assertSame(409, $result['status']);
+        $this->assertSame('pending', $order->fresh()->status);
+        $this->assertCount(2, Order::where('delivery_man_id', $driver->id)->whereIn('status', ['assigned', 'processing'])->get());
     }
 
     private function marketOrder(City $city, string $serviceType): Order
@@ -125,5 +161,12 @@ class OrderMarketIdleClaimTest extends TestCase
         ]);
 
         return $order;
+    }
+
+    private function enableSelfPick(City $city): void
+    {
+        DB::table(OperationalSettings::CITY_TABLE)->where('city_id', $city->id)
+            ->where('key', 'dispatch.mode')->update(['value' => 'self_pick', 'updated_at' => now()]);
+        OperationalSettings::flush($city->id);
     }
 }
