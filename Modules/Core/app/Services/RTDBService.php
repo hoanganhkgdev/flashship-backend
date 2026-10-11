@@ -25,10 +25,13 @@ class RTDBService
     /**
      * Guzzle mặc định không có timeout: khi mạng tới Google chập chờn, request
      * treo vô thời hạn và chiếm hết worker php-fpm, làm cả web không vào được.
+     * VPS không có route IPv6 nhưng DNS vẫn trả AAAA của Google → ép IPv4 để
+     * không chờ hết connect timeout trên IPv6 rồi mới thử lại.
      */
     public static function httpOptions(): HttpClientOptions
     {
         return HttpClientOptions::default()
+            ->withGuzzleConfigOptions(['force_ip_resolve' => 'v4'])
             ->withConnectTimeout(3)
             ->withReadTimeout(8)
             ->withTimeout(10);
