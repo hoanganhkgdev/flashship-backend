@@ -212,7 +212,11 @@ class AutoOfflineStaleLocationCommand extends Command
                 OrderDispatchLog::where('order_id', $offer->id)
                     ->where('driver_id', $driverId)
                     ->where('result', 'pending')
-                    ->update(['result' => 'expired', 'responded_at' => $now]);
+                    ->update([
+                        'result' => 'expired',
+                        'responded_at' => $now,
+                        'close_reason' => OrderDispatchLog::CLOSE_DRIVER_OFFLINE,
+                    ]);
                 $offer->update(['dispatching_to_driver_id' => OrderDispatchLog::where('order_id', $offer->id)
                     ->where('result', 'pending')->value('driver_id')]);
             }

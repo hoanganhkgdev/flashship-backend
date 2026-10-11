@@ -54,7 +54,11 @@ class OrderController extends Controller
         OrderDispatchLog::where('driver_id', $driverId)
             ->where('result', 'pending')
             ->when($activeLog, fn ($query) => $query->where('id', '!=', $activeLog->id))
-            ->update(['result' => 'expired', 'responded_at' => now()]);
+            ->update([
+                'result' => 'expired',
+                'responded_at' => now(),
+                'close_reason' => OrderDispatchLog::CLOSE_STALE_RECOVERY,
+            ]);
 
         if (! $activeLog) {
             $order = null;

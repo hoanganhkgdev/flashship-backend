@@ -2,6 +2,7 @@
 
 namespace Tests\Unit\Order;
 
+use Modules\Order\Models\OrderDispatchLog;
 use Modules\Order\Services\UnviewedOfferWindowPolicy;
 use PHPUnit\Framework\TestCase;
 
@@ -66,6 +67,7 @@ class UnviewedOfferWindowPolicyTest extends TestCase
         $result = UnviewedOfferWindowPolicy::evaluate([
             [
                 'result' => 'expired',
+                'close_reason' => OrderDispatchLog::CLOSE_ANOTHER_DRIVER_ACCEPTED,
                 'viewed_at' => null,
                 'expires_at' => now()->addSeconds(20),
                 'responded_at' => now(),
@@ -79,10 +81,25 @@ class UnviewedOfferWindowPolicyTest extends TestCase
         $this->assertFalse($result['should_offline']);
     }
 
+    public function test_explicit_non_timeout_reason_wins_over_legacy_timestamps(): void
+    {
+        $result = UnviewedOfferWindowPolicy::evaluate([[
+            'result' => 'expired',
+            'close_reason' => OrderDispatchLog::CLOSE_ANOTHER_DRIVER_ACCEPTED,
+            'viewed_at' => null,
+            'expires_at' => now()->subSecond(),
+            'responded_at' => now(),
+        ]], null);
+
+        $this->assertSame(0, $result['total']);
+        $this->assertSame(0, $result['unviewed']);
+    }
+
     private function timedOut(bool $viewed = false): array
     {
         return [
             'result' => 'expired',
+            'close_reason' => OrderDispatchLog::CLOSE_DEADLINE_EXPIRED,
             'viewed_at' => $viewed ? now()->subSecond() : null,
             'expires_at' => now()->subSecond(),
             'responded_at' => now(),

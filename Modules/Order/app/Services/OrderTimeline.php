@@ -6,6 +6,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Modules\Order\Models\Order;
+use Modules\Order\Models\OrderDispatchLog;
 use Modules\Order\Models\OrderHistory;
 
 /**
@@ -77,7 +78,12 @@ class OrderTimeline
                 $events->push(['at' => \Carbon\Carbon::parse($l->offered_at), 'type' => 'offer', 'text' => "Gửi đơn cho {$driver}", 'who' => null]);
             }
             if ($l->responded_at && $l->result !== 'pending') {
-                $verb = ['accepted' => 'nhận đơn', 'declined' => 'từ chối đơn', 'expired' => 'không phản hồi, đơn chuyển người khác'][$l->result] ?? $l->result;
+                $verb = match ($l->result) {
+                    'accepted' => 'nhận đơn',
+                    'declined' => 'từ chối đơn',
+                    'expired' => self::expiredOfferLabel($l->close_reason),
+                    default => $l->result,
+                };
                 $events->push(['at' => \Carbon\Carbon::parse($l->responded_at), 'type' => 'offer_'.$l->result, 'text' => "{$driver} {$verb}", 'who' => null]);
             }
         }
@@ -98,6 +104,22 @@ class OrderTimeline
         }
 
         return $events->sortBy(fn ($e) => $e['at']?->getTimestamp() ?? 0)->values();
+    }
+
+    private static function expiredOfferLabel(?string $reason): string
+    {
+        return match ($reason) {
+            OrderDispatchLog::CLOSE_ANOTHER_DRIVER_ACCEPTED => 'được thu hồi vì tài xế khác đã nhận đơn',
+            OrderDispatchLog::CLOSE_DEVICE_UNRECEIVED => 'không nhận được offer trên thiết bị',
+            OrderDispatchLog::CLOSE_DELIVERY_FAILED => 'không nhận được offer do lỗi kết nối',
+            OrderDispatchLog::CLOSE_DRIVER_INELIGIBLE => 'không còn đủ điều kiện nhận đơn',
+            OrderDispatchLog::CLOSE_DRIVER_BUSY => 'đang bận đơn khác',
+            OrderDispatchLog::CLOSE_ORDER_CANCELLED => 'được thu hồi vì đơn đã hủy',
+            OrderDispatchLog::CLOSE_MANUAL_ASSIGNMENT => 'được thu hồi do tổng đài gán thủ công',
+            OrderDispatchLog::CLOSE_DRIVER_OFFLINE, OrderDispatchLog::CLOSE_ACCOUNT_LOCKED => 'được thu hồi khi tài xế Offline',
+            OrderDispatchLog::CLOSE_STALE_RECOVERY => 'được đóng khi đồng bộ lại offer',
+            default => 'không phản hồi, đơn chuyển người khác',
+        };
     }
 
     private static function platform(string $p): string

@@ -60,7 +60,11 @@ class OrderService
 
             OrderDispatchLog::where('order_id', $fresh->id)
                 ->where('result', 'pending')
-                ->update(['result' => 'expired', 'responded_at' => now()]);
+                ->update([
+                    'result' => 'expired',
+                    'responded_at' => now(),
+                    'close_reason' => OrderDispatchLog::CLOSE_ORDER_CANCELLED,
+                ]);
 
             // Hoàn đúng usage của đơn; chỉ giảm used_count nếu thật sự xóa
             // được usage, nên request hủy lặp không thể hoàn voucher hai lần.
@@ -317,7 +321,11 @@ class OrderService
                 || DB::table('driver_leave_requests')->where('driver_id', $lockedUser->id)->whereDate('leave_date', today())->exists()
                 || ($fresh->service_type === 'car' && ! $lockedUser->has_car_license);
             if ($unavailable) {
-                $offer->update(['result' => 'expired', 'responded_at' => now()]);
+                $offer->update([
+                    'result' => 'expired',
+                    'responded_at' => now(),
+                    'close_reason' => OrderDispatchLog::CLOSE_DRIVER_INELIGIBLE,
+                ]);
                 $replacement = OrderDispatchLog::where('order_id', $order->id)
                     ->where('result', 'pending')->value('driver_id');
                 $fresh->update(['dispatching_to_driver_id' => $replacement, 'updated_at' => now()]);
@@ -336,7 +344,11 @@ class OrderService
                     // Enum DB chỉ có pending/accepted/declined/expired.
                     // Đây là offer không còn hợp lệ do tài xế vừa đạt trần đơn,
                     // không phải hành vi từ chối để bị trừ điểm.
-                    ->update(['result' => 'expired', 'responded_at' => now()]);
+                    ->update([
+                        'result' => 'expired',
+                        'responded_at' => now(),
+                        'close_reason' => OrderDispatchLog::CLOSE_DRIVER_BUSY,
+                    ]);
                 $replacement = OrderDispatchLog::where('order_id', $order->id)
                     ->where('result', 'pending')->value('driver_id');
                 $fresh->update(['dispatching_to_driver_id' => $replacement, 'updated_at' => now()]);
@@ -359,9 +371,17 @@ class OrderService
                 'dispatching_to_driver_id' => null,
                 'updated_at'               => $now,
             ]);
-            $offer->update(['result' => 'accepted', 'responded_at' => $now]);
+            $offer->update([
+                'result' => 'accepted',
+                'responded_at' => $now,
+                'close_reason' => OrderDispatchLog::CLOSE_ACCEPTED,
+            ]);
             OrderDispatchLog::where('order_id', $order->id)->where('result', 'pending')
-                ->update(['result' => 'expired', 'responded_at' => $now]);
+                ->update([
+                    'result' => 'expired',
+                    'responded_at' => $now,
+                    'close_reason' => OrderDispatchLog::CLOSE_ANOTHER_DRIVER_ACCEPTED,
+                ]);
 
             return ['status' => 'won', 'loser_ids' => $loserIds];
         });
@@ -480,7 +500,11 @@ class OrderService
 
             if (!$log) return null;
 
-            $log->update(['result' => 'declined', 'responded_at' => now()]);
+            $log->update([
+                'result' => 'declined',
+                'responded_at' => now(),
+                'close_reason' => OrderDispatchLog::CLOSE_DRIVER_DECLINED,
+            ]);
             $replacement = OrderDispatchLog::where('order_id', $order->id)
                 ->where('result', 'pending')->value('driver_id');
             $fresh->update(['dispatching_to_driver_id' => $replacement, 'updated_at' => now()]);

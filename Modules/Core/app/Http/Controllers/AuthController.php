@@ -231,7 +231,11 @@ class AuthController extends Controller
                 \Modules\Order\Models\OrderDispatchLog::where('order_id', $offer->id)
                     ->where('driver_id', $user->id)
                     ->where('result', 'pending')
-                    ->update(['result' => 'expired', 'responded_at' => now()]);
+                    ->update([
+                        'result' => 'expired',
+                        'responded_at' => now(),
+                        'close_reason' => \Modules\Order\Models\OrderDispatchLog::CLOSE_DRIVER_OFFLINE,
+                    ]);
                 $offer->update(['dispatching_to_driver_id' => \Modules\Order\Models\OrderDispatchLog::where('order_id', $offer->id)
                     ->where('result', 'pending')->value('driver_id')]);
             }

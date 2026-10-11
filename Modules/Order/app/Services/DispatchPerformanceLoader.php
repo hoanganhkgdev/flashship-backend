@@ -37,8 +37,14 @@ final class DispatchPerformanceLoader
                     WHEN result IN ('accepted', 'declined') THEN 1
                     WHEN result = 'expired'
                         AND received_at IS NOT NULL
-                        AND expires_at IS NOT NULL
-                        AND responded_at >= expires_at THEN 1
+                        AND (
+                            close_reason = 'deadline_expired'
+                            OR (
+                                close_reason IS NULL
+                                AND expires_at IS NOT NULL
+                                AND responded_at >= expires_at
+                            )
+                        ) THEN 1
                     ELSE 0
                 END) AS actionable_count")
             ->get()

@@ -73,6 +73,13 @@ class DispatchPerformanceLoaderTest extends TestCase
                 ? ($timeout ? now() : now()->subSeconds(30))
                 : now()->subMinute(),
             'result' => $result,
+            'close_reason' => match ($result) {
+                'accepted' => OrderDispatchLog::CLOSE_ACCEPTED,
+                'declined' => OrderDispatchLog::CLOSE_DRIVER_DECLINED,
+                default => $timeout
+                    ? ($received ? OrderDispatchLog::CLOSE_DEADLINE_EXPIRED : OrderDispatchLog::CLOSE_DEVICE_UNRECEIVED)
+                    : OrderDispatchLog::CLOSE_ANOTHER_DRIVER_ACCEPTED,
+            },
         ]);
     }
 

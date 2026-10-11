@@ -110,10 +110,18 @@ class DispatchManualAssignment
                 $reusedLog = OrderDispatchLog::where('order_id', $order->id)
                     ->where('driver_id', $driver->id)
                     ->where('result', 'pending')
-                    ->update(['result' => 'accepted', 'responded_at' => $now]);
+                    ->update([
+                        'result' => 'accepted',
+                        'responded_at' => $now,
+                        'close_reason' => OrderDispatchLog::CLOSE_MANUAL_ASSIGNMENT,
+                    ]);
                 OrderDispatchLog::where('order_id', $order->id)
                     ->where('result', 'pending')
-                    ->update(['result' => 'expired', 'responded_at' => $now]);
+                    ->update([
+                        'result' => 'expired',
+                        'responded_at' => $now,
+                        'close_reason' => OrderDispatchLog::CLOSE_MANUAL_ASSIGNMENT,
+                    ]);
 
                 return [
                     'busy' => null,
@@ -172,6 +180,7 @@ class DispatchManualAssignment
                 'offered_at'   => $now,
                 'responded_at' => $now,
                 'result'       => 'accepted',
+                'close_reason' => OrderDispatchLog::CLOSE_MANUAL_ASSIGNMENT,
                 'created_at'   => $now,
                 'updated_at'   => $now,
             ]);

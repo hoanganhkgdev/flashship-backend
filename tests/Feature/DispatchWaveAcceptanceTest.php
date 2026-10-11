@@ -10,6 +10,7 @@ use Modules\Core\Models\User;
 use Modules\Order\Models\Order;
 use Modules\Order\Models\OrderDispatchLog;
 use Modules\Order\Services\OrderService;
+use Modules\Order\Services\OrderTimeline;
 use Modules\Order\Services\UnviewedOfferWindowPolicy;
 use Tests\TestCase;
 
@@ -49,14 +50,19 @@ class DispatchWaveAcceptanceTest extends TestCase
         $this->assertSame(409, $late['status']);
         $this->assertSame($drivers[0]->id, $order->fresh()->delivery_man_id);
         $this->assertSame('accepted', OrderDispatchLog::where('driver_id', $drivers[0]->id)->value('result'));
+        $this->assertSame(OrderDispatchLog::CLOSE_ACCEPTED, OrderDispatchLog::where('driver_id', $drivers[0]->id)->value('close_reason'));
         $loserOffer = OrderDispatchLog::where('driver_id', $drivers[1]->id)->first();
         $this->assertSame('expired', $loserOffer->result);
+        $this->assertSame(OrderDispatchLog::CLOSE_ANOTHER_DRIVER_ACCEPTED, $loserOffer->close_reason);
         $this->assertTrue($loserOffer->responded_at->lt($loserOffer->expires_at));
 
         $window = UnviewedOfferWindowPolicy::evaluate([$loserOffer], $city->id);
         $this->assertSame(0, $window['total']);
         $this->assertSame(0, $window['unviewed']);
         $this->assertFalse($window['should_offline']);
+        $this->assertTrue(OrderTimeline::for($order->fresh())->pluck('text')->contains(
+            fn (string $text) => str_contains($text, 'được thu hồi vì tài xế khác đã nhận đơn')
+        ));
     }
 
     public function test_driver_who_became_offline_cannot_accept_a_stale_offer(): void
@@ -85,6 +91,7 @@ class DispatchWaveAcceptanceTest extends TestCase
         $this->assertFalse($result['success']);
         $this->assertSame(403, $result['status']);
         $this->assertSame('expired', $offer->fresh()->result);
+        $this->assertSame(OrderDispatchLog::CLOSE_DRIVER_INELIGIBLE, $offer->fresh()->close_reason);
         $this->assertSame('pending', $order->fresh()->status);
         $this->assertNull($order->fresh()->delivery_man_id);
     }

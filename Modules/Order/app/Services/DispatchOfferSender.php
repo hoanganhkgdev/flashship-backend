@@ -236,7 +236,12 @@ class DispatchOfferSender
                 $failedAt = now();
                 OrderDispatchLog::where('id', $dispatchLog->id)
                     ->where('result', 'pending')
-                    ->update(['result' => 'expired', 'responded_at' => $failedAt, 'updated_at' => $failedAt]);
+                    ->update([
+                        'result' => 'expired',
+                        'responded_at' => $failedAt,
+                        'close_reason' => OrderDispatchLog::CLOSE_DELIVERY_FAILED,
+                        'updated_at' => $failedAt,
+                    ]);
                 $replacement = OrderDispatchLog::where('order_id', $order->id)
                     ->where('result', 'pending')->value('driver_id');
                 DB::table('orders')->where('id', $order->id)->where('status', 'pending')

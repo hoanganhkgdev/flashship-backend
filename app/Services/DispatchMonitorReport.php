@@ -119,8 +119,15 @@ class DispatchMonitorReport
             ->join('orders as o', 'o.id', '=', 'l.order_id')
             ->whereBetween('l.offered_at', [$from, $to])
             ->where('l.result', 'expired')
-            ->whereNotNull('l.expires_at')
-            ->whereNotNull('l.responded_at')
+            ->where(function ($query) {
+                $query->where('l.close_reason', OrderDispatchLog::CLOSE_DEADLINE_EXPIRED)
+                    ->orWhere(function ($legacy) {
+                        $legacy->whereNull('l.close_reason')
+                            ->whereNotNull('l.expires_at')
+                            ->whereNotNull('l.responded_at')
+                            ->whereColumn('l.responded_at', '>=', 'l.expires_at');
+                    });
+            })
             ->when($cityId, fn ($query) => $query->where('o.city_id', $cityId))
             ->selectRaw('AVG(GREATEST(0, TIMESTAMPDIFF(SECOND, l.expires_at, l.responded_at))) as avg_o,
                 MAX(GREATEST(0, TIMESTAMPDIFF(SECOND, l.expires_at, l.responded_at))) as max_o')
@@ -194,6 +201,7 @@ class DispatchMonitorReport
                 'order_dispatch_logs.offered_at',
                 'order_dispatch_logs.responded_at',
                 'order_dispatch_logs.result',
+                'order_dispatch_logs.close_reason',
             ])
             ->map(function ($r) {
                 $responseSecs = $r->responded_at
@@ -208,6 +216,7 @@ class DispatchMonitorReport
                     'driver_name' => $r->driver_name,
                     'offered_at' => date('H:i:s d/m', strtotime($r->offered_at)),
                     'result' => $r->result,
+                    'close_reason' => $r->close_reason,
                     'response_sec' => $responseSecs,
                 ];
             })

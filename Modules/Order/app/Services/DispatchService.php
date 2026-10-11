@@ -150,7 +150,13 @@ class DispatchService
                 return null;
             }
 
-            $log->update(['result' => 'expired', 'responded_at' => now()]);
+            $log->update([
+                'result' => 'expired',
+                'responded_at' => now(),
+                'close_reason' => $onlyIfUnreceived
+                    ? OrderDispatchLog::CLOSE_DEVICE_UNRECEIVED
+                    : OrderDispatchLog::CLOSE_DEADLINE_EXPIRED,
+            ]);
 
             return $log;
         });
@@ -242,7 +248,11 @@ class DispatchService
             foreach ($offers as $offer) {
                 OrderDispatchLog::where('order_id', $offer->id)
                     ->where('driver_id', $driverId)->where('result', 'pending')
-                    ->update(['result' => 'expired', 'responded_at' => $now]);
+                    ->update([
+                        'result' => 'expired',
+                        'responded_at' => $now,
+                        'close_reason' => OrderDispatchLog::CLOSE_DRIVER_OFFLINE,
+                    ]);
                 $offer->update(['dispatching_to_driver_id' => OrderDispatchLog::where('order_id', $offer->id)
                     ->where('result', 'pending')->value('driver_id')]);
             }
@@ -305,14 +315,20 @@ class DispatchService
                 $query->whereIn('result', ['accepted', 'declined'])
                     ->orWhere(function ($expired) {
                         $expired->where('result', 'expired')
-                            ->whereNotNull('expires_at')
-                            ->whereNotNull('responded_at')
-                            ->whereColumn('responded_at', '>=', 'expires_at');
+                            ->where(function ($timeout) {
+                                $timeout->where('close_reason', OrderDispatchLog::CLOSE_DEADLINE_EXPIRED)
+                                    ->orWhere(function ($legacy) {
+                                        $legacy->whereNull('close_reason')
+                                            ->whereNotNull('expires_at')
+                                            ->whereNotNull('responded_at')
+                                            ->whereColumn('responded_at', '>=', 'expires_at');
+                                    });
+                            });
                     });
             })
             ->orderByDesc('offered_at')
             ->limit(OperationalSettings::unviewedWindowSize($cityId))
-            ->get(['viewed_at', 'result', 'expires_at', 'responded_at']);
+            ->get(['viewed_at', 'result', 'expires_at', 'responded_at', 'close_reason']);
 
         return UnviewedOfferWindowPolicy::evaluate($offers, $cityId);
     }
@@ -324,7 +340,11 @@ class DispatchService
                 ->where('driver_id', $driver->id)
                 ->where('result', 'pending')
                 ->lockForUpdate()
-                ->update(['result' => 'accepted', 'responded_at' => now()]);
+                ->update([
+                    'result' => 'accepted',
+                    'responded_at' => now(),
+                    'close_reason' => OrderDispatchLog::CLOSE_ACCEPTED,
+                ]);
         });
 
         if (! $updated && ! OrderDispatchLog::where('order_id', $order->id)
