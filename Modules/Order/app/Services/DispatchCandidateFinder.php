@@ -36,6 +36,7 @@ class DispatchCandidateFinder
     public function __construct(
         private readonly DriverLocationService $locationService,
         private readonly DispatchScoringCalculator $scoringCalculator,
+        private readonly DispatchPerformanceLoader $performanceLoader,
     ) {}
 
     public function find(Order $order, array $excludeIds = [], ?float $maxRoadDistanceKm = null): Collection
@@ -191,6 +192,9 @@ class DispatchCandidateFinder
             Log::debug("     [Candidates] Loại {$removed} tài xế — đường thật vượt trần {$maxRoadDistanceKm}km của vòng hiện tại");
         }
 
+        // Nạp hiệu suất gần đây theo lô; không truy vấn riêng cho từng tài xế.
+        $withinRange = $this->performanceLoader->hydrate($withinRange);
+
         $lastOffers = OrderDispatchLog::whereIn('driver_id', $withinRange->pluck('id'))
             ->selectRaw('driver_id, MAX(offered_at) as last_offered_at')
             ->groupBy('driver_id')
@@ -233,8 +237,9 @@ class DispatchCandidateFinder
                 $km = $d->_road_km !== null ? round($d->_road_km, 2).'km' : 'lỗi API';
                 $score = round($this->scoringCalculator->composite($d, $d->_road_km, $maxRoadDistanceKm, $order->city_id), 1);
                 $wait = round($this->scoringCalculator->waitTimeScore($d, $order->city_id), 1);
+                $performance = round($this->scoringCalculator->servicePerformance($d, $order->city_id) * 100, 1);
                 $lastOffer = $d->_last_offered_at ?? 'chưa từng phát';
-                Log::debug('       '.($i + 1).". #{$d->id} {$d->name} | lượt gần nhất: {$lastOffer} | đường thật: {$km} | điểm={$score} | driver_score=".($d->driver_score ?? DriverScoreService::DEFAULT_SCORE)." | wait={$wait}");
+                Log::debug('       '.($i + 1).". #{$d->id} {$d->name} | lượt gần nhất: {$lastOffer} | đường thật: {$km} | điểm={$score} | hiệu suất={$performance}% | driver_score=".($d->driver_score ?? DriverScoreService::DEFAULT_SCORE)." | wait={$wait}");
             }
         }
 

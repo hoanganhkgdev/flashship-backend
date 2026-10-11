@@ -276,12 +276,12 @@ class OperationalSettingsPage extends Page implements HasForms
 
                 Section::make('Trọng số xếp hạng tài xế')
                     ->icon('heroicon-o-scale')
-                    ->description('Hệ thống dùng tỷ lệ tương đối giữa ba trọng số, không bắt buộc tổng bằng 100.')
+                    ->description('Hiệu suất gồm phản hồi offer 14 ngày, đánh giá 90 ngày và điểm vận hành. Tài xế mới dùng điểm nền trung tính. Các trọng số là tỷ lệ tương đối, không bắt buộc tổng bằng 100.')
                     ->collapsible()
                     ->collapsed()
                     ->columns(['sm' => 2, 'lg' => 4])
                     ->schema([
-                        $this->weight('dispatch_score_weight', 'Điểm tài xế'),
+                        $this->weight('dispatch_score_weight', 'Hiệu suất dịch vụ'),
                         $this->weight('dispatch_wait_weight', 'Thời gian chờ'),
                         $this->weight('dispatch_distance_weight', 'Khoảng cách'),
                         $this->number('dispatch_fair_score_band', 'Biên điểm công bằng', 'điểm', 0, 50, step: 0.5),

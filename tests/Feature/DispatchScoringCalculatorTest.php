@@ -42,7 +42,8 @@ class DispatchScoringCalculatorTest extends TestCase
     {
         $driver = $this->driver(score: 100, onlineSince: now()->subMinutes(30));
 
-        $this->assertEqualsWithDelta(33.333, $this->calculator->scoreComponent($driver, $this->city->id), 0.01);
+        // Chưa có lịch sử dùng điểm nền: 80% phản hồi, 4.5 sao và điểm vận hành tối đa.
+        $this->assertEqualsWithDelta(29.0, $this->calculator->scoreComponent($driver, $this->city->id), 0.01);
         $this->assertEqualsWithDelta(16.667, $this->calculator->waitTimeScore($driver, $this->city->id), 0.01);
         $this->assertEqualsWithDelta(16.667, $this->calculator->distanceComponent(2, 4, $this->city->id), 0.01);
     }
@@ -70,9 +71,31 @@ class DispatchScoringCalculatorTest extends TestCase
     {
         $driver = $this->driver(score: 150, onlineSince: now());
 
-        $this->assertEqualsWithDelta(33.333, $this->calculator->scoreComponent($driver, $this->city->id), 0.01);
+        $this->assertEqualsWithDelta(29.0, $this->calculator->scoreComponent($driver, $this->city->id), 0.01);
         $this->assertSame(0.0, $this->calculator->distanceComponent(10, 4, $this->city->id));
         $this->assertEqualsWithDelta(33.333, $this->calculator->distanceComponent(-1, 4, $this->city->id), 0.01);
+    }
+
+    public function test_recent_service_performance_uses_smoothed_offer_and_rating_history(): void
+    {
+        $newDriver = $this->driver(score: 100, onlineSince: now());
+
+        $strong = $this->driver(score: 100, onlineSince: now());
+        $strong->setAttribute('_dispatch_accepted_count', 20);
+        $strong->setAttribute('_dispatch_actionable_count', 20);
+        $strong->setAttribute('_dispatch_rating_count', 10);
+        $strong->setAttribute('_dispatch_rating_sum', 50);
+
+        $poor = $this->driver(score: 0, onlineSince: now());
+        $poor->setAttribute('_dispatch_accepted_count', 0);
+        $poor->setAttribute('_dispatch_actionable_count', 20);
+        $poor->setAttribute('_dispatch_rating_count', 10);
+        $poor->setAttribute('_dispatch_rating_sum', 20);
+
+        $this->assertEqualsWithDelta(0.87, $this->calculator->servicePerformance($newDriver, $this->city->id), 0.001);
+        // Điểm nền vẫn làm mượt 20 mẫu tốt, tránh nhảy thẳng lên tuyệt đối.
+        $this->assertEqualsWithDelta(0.97, $this->calculator->servicePerformance($strong, $this->city->id), 0.001);
+        $this->assertEqualsWithDelta(0.25, $this->calculator->servicePerformance($poor, $this->city->id), 0.001);
     }
 
     private function driver(int $score, mixed $onlineSince): User

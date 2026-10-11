@@ -14,23 +14,53 @@ use Modules\Driver\Services\DriverScoreService;
  */
 class DispatchScoringCalculator
 {
-    // 2026-08-13: bỏ tiêu chí số lượt đánh giá (chưa cần thiết), dồn điểm cho
-    // chờ lâu + khoảng cách bằng nhau — ưu tiên tài xế gần hơn để giảm thời
-    // gian chờ của khách, nhưng vẫn giữ công bằng cho tài xế chờ lâu chứ
-    // không để khoảng cách áp đảo hoàn toàn.
-    //
-    // Phát đơn KHÔNG phân biệt trong/ngoài ca — công bằng như nhau cho mọi
-    // tài xế online. Trách nhiệm đăng ký ca chỉ còn tính qua chấm điểm
-    // (luật riêng — % online trong ca, cuối ca), không còn ảnh hưởng thứ tự
-    // nhận đơn nữa (trước đây có cộng điểm ưu tiên mềm W_IN_SHIFT, đã bỏ).
+    // Điểm nền kiểu Bayesian: tài xế mới bắt đầu ở mức khá/trung tính, không
+    // được 100% chỉ vì chưa từng bị từ chối, cũng không bị xếp cuối vì chưa có
+    // lịch sử. Khi số mẫu tăng, dữ liệu thật dần thay thế điểm nền.
+    private const RESPONSE_PRIOR_TOTAL = 5;
+
+    private const RESPONSE_PRIOR_ACCEPTED = 4;
+
+    private const RATING_PRIOR_COUNT = 5;
+
+    private const RATING_PRIOR_AVERAGE = 4.5;
+
+    private const RESPONSE_SHARE = 0.50;
+
+    private const RATING_SHARE = 0.30;
+
+    private const OPERATIONAL_SCORE_SHARE = 0.20;
 
     // $cityId là khu vực của đơn — trọng số xếp hạng theo cấu hình khu vực đó.
     public function scoreComponent(User $driver, ?int $cityId): float
     {
+        return $this->servicePerformance($driver, $cityId)
+            * $this->normalizedWeights($cityId)['score'];
+    }
+
+    /** Điểm hiệu suất 0..1: phản hồi offer + đánh giá khách + điểm vận hành. */
+    public function servicePerformance(User $driver, ?int $cityId): float
+    {
+        $accepted = max(0, (int) $driver->getAttribute('_dispatch_accepted_count'));
+        $actionable = max($accepted, (int) $driver->getAttribute('_dispatch_actionable_count'));
+        $responseRate = ($accepted + self::RESPONSE_PRIOR_ACCEPTED)
+            / ($actionable + self::RESPONSE_PRIOR_TOTAL);
+
+        $ratingCount = max(0, (int) $driver->getAttribute('_dispatch_rating_count'));
+        $ratingSum = max(0, (float) $driver->getAttribute('_dispatch_rating_sum'));
+        $ratingAverage = ($ratingSum + self::RATING_PRIOR_AVERAGE * self::RATING_PRIOR_COUNT)
+            / ($ratingCount + self::RATING_PRIOR_COUNT);
+        $ratingRate = min(1, max(0, $ratingAverage / 5));
+
         $maxScore = max(1, DriverScoreService::maxScore($cityId));
         $score = min($maxScore, max(0, (int) ($driver->driver_score ?? DriverScoreService::DEFAULT_SCORE)));
+        $operationalRate = $score / $maxScore;
 
-        return $score / $maxScore * $this->normalizedWeights($cityId)['score'];
+        return min(1, max(0,
+            $responseRate * self::RESPONSE_SHARE
+            + $ratingRate * self::RATING_SHARE
+            + $operationalRate * self::OPERATIONAL_SCORE_SHARE
+        ));
     }
 
     public function waitTimeScore(User $driver, ?int $cityId): float
