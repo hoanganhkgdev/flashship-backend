@@ -50,24 +50,25 @@ class DispatchCandidateFinder
 
         $now = now();
 
-        // ── 1. Loại tài xế bận / đang nhận offer khác ────────────────────────────
-        $busyDriverIds = Order::selectRaw('delivery_man_id, COUNT(*) as cnt')
+        // Chỉ đếm trong khu vực để phục vụ diagnostics; điều kiện loại thật
+        // dùng NOT EXISTS ở query ứng viên phía dưới, tránh kéo toàn bộ ID bận
+        // của mọi khu vực về PHP rồi nhét vào WHERE NOT IN.
+        $busyCount = Order::query()
             ->whereIn('status', ['assigned', 'processing'])
             ->whereNotNull('delivery_man_id')
-            ->groupBy('delivery_man_id')
-            // Offer tự động chỉ dành cho tài xế đang rảnh. Tài xế đã
-            // có đơn muốn nhận thêm sẽ chủ động chọn trong Chợ đơn.
-            ->having('cnt', '>=', 1)
-            ->pluck('delivery_man_id');
+            ->whereHas('driver', fn ($query) => $query->where('city_id', $order->city_id))
+            ->distinct()
+            ->count('delivery_man_id');
 
-        $receivingOfferIds = OrderDispatchLog::query()
+        $receivingOfferCount = OrderDispatchLog::query()
             ->join('orders', 'orders.id', '=', 'order_dispatch_logs.order_id')
+            ->join('users', 'users.id', '=', 'order_dispatch_logs.driver_id')
             ->where('order_dispatch_logs.result', 'pending')
             ->where('orders.status', 'pending')
             ->where('orders.id', '!=', $order->id)
-            ->pluck('order_dispatch_logs.driver_id');
-
-        $unavailableIds = $busyDriverIds->merge($receivingOfferIds)->unique();
+            ->where('users.city_id', $order->city_id)
+            ->distinct()
+            ->count('order_dispatch_logs.driver_id');
 
         $onlineTotal = User::where('user_type', 'driver')
             ->where('city_id', $order->city_id)
@@ -88,20 +89,49 @@ class DispatchCandidateFinder
         $candidates = User::where('user_type', 'driver')
             ->where('city_id', $order->city_id)
             ->whereNotIn('id', $excludeIds)
-            ->whereNotIn('id', $unavailableIds)
             ->where('status', 1)
             ->where('is_online', true)
+            // Offer hệ thống chỉ dành cho tài xế rảnh. Dùng correlated
+            // NOT EXISTS để DB dừng ngay khi thấy một đơn active, không tải
+            // danh sách tài xế bận toàn hệ thống về ứng dụng.
+            ->whereNotExists(function ($query) {
+                $query->selectRaw('1')->from('orders')
+                    ->whereColumn('orders.delivery_man_id', 'users.id')
+                    ->whereIn('orders.status', ['assigned', 'processing']);
+            })
+            ->whereNotExists(function ($query) use ($order) {
+                $query->selectRaw('1')
+                    ->from('order_dispatch_logs')
+                    ->join('orders as offered_orders', 'offered_orders.id', '=', 'order_dispatch_logs.order_id')
+                    ->whereColumn('order_dispatch_logs.driver_id', 'users.id')
+                    ->where('order_dispatch_logs.result', 'pending')
+                    ->where('offered_orders.status', 'pending')
+                    ->where('offered_orders.id', '!=', $order->id);
+            })
             ->whereNotExists(function ($query) {
                 $query->selectRaw('1')->from('driver_leave_requests')
                     ->whereColumn('driver_leave_requests.driver_id', 'users.id')
                     ->whereDate('driver_leave_requests.leave_date', today());
             })
+            ->whereNotExists(function ($query) {
+                $query->selectRaw('1')->from('driver_debts')
+                    ->whereColumn('driver_debts.driver_id', 'users.id')
+                    ->where('driver_debts.status', 'overdue');
+            })
             ->where(function ($q) use ($now) {
                 $q->whereNull('score_suspended_until')
                     ->orWhere('score_suspended_until', '<=', $now);
-            })
-            ->with(['debts', 'driverLicenses'])
-            ->get();
+            });
+
+        if ($order->service_type === 'car') {
+            $candidates->whereExists(function ($query) {
+                $query->selectRaw('1')->from('driver_licenses')
+                    ->whereColumn('driver_licenses.user_id', 'users.id')
+                    ->where('driver_licenses.status', 'approved');
+            });
+        }
+
+        $candidates = $candidates->get();
 
         $metadataEligible = $candidates->count();
 
@@ -115,37 +145,31 @@ class DispatchCandidateFinder
         foreach ($candidates as $d) {
             $d->setAttribute('latitude', $locations[$d->id]['lat']);
             $d->setAttribute('longitude', $locations[$d->id]['lng']);
+            $d->setAttribute('_gps_age_seconds', (int) ($locations[$d->id]['age_seconds'] ?? 0));
         }
 
-        Log::debug("     [Candidates] Online/active: {$candidates->count()} | Bận: {$busyDriverIds->count()} | Đang nhận offer: {$receivingOfferIds->count()} | Đã hỏi: ".count($excludeIds));
-
-        $afterDebt = $candidates->filter(fn (User $d) => ! $this->hasBlockedDebt($d));
-        if (($removed = $candidates->count() - $afterDebt->count()) > 0) {
-            Log::debug("     [Candidates] Loại {$removed} tài xế do nợ quá hạn");
-        }
-
-        $afterLicense = $afterDebt->filter(function (User $d) use ($order) {
-            if ($order->service_type === 'car') {
-                return $d->has_car_license;
-            }
-
-            return true;
-        });
-        if (($removed = $afterDebt->count() - $afterLicense->count()) > 0) {
-            Log::debug("     [Candidates] Loại {$removed} tài xế do không phù hợp loại xe ({$order->service_type})");
-        }
+        Log::debug("     [Candidates] Online/active: {$candidates->count()} | Bận: {$busyCount} | Đang nhận offer: {$receivingOfferCount} | Đã hỏi: ".count($excludeIds));
 
         // Không lọc theo tuyến các đơn đang giữ. Trần số đơn active ở
         // bước 1 là điều kiện duy nhất liên quan tới việc tài xế đang có đơn.
-        $afterDetour = $afterLicense;
+        $afterDetour = $candidates;
 
-        // ── 5. Tính khoảng cách đường thật cho TOÀN BỘ ứng viên còn lại — 1 lần
-        // gọi Google Distance Matrix duy nhất (không phải 1 lần/tài xế) — rồi
-        // lọc thẳng ai vượt trần của vòng hiện tại. Không còn khái
-        // niệm "bán kính chim bay lọc thô rồi lọc lại" — quét city-wide ngay
-        // từ bước 2 ở trên rồi.
-        $origins = $afterDetour
-            ->filter(fn (User $d) => $d->latitude && $d->longitude)
+        // Khoảng cách đường đi không thể ngắn hơn đường chim bay. Loại trước
+        // những người đã vượt trần ngay cả theo đường thẳng để không tốn một
+        // Directions API request cho từng tài xế chắc chắn không đủ điều kiện.
+        $straightLineEligible = $afterDetour->filter(fn (User $d) => $d->latitude !== null && $d->longitude !== null
+            && GoogleMapService::haversineKm(
+                (float) $d->latitude,
+                (float) $d->longitude,
+                (float) $order->pickup_lat,
+                (float) $order->pickup_lng,
+            ) <= $maxRoadDistanceKm
+        );
+
+        // ── 5. Tính khoảng cách đường thật cho nhóm còn khả năng đạt trần.
+        // GoogleMapService hiện gọi Directions song song cho các điểm chưa có
+        // cache; bước lọc chim bay phía trên giảm số request mà không loại oan.
+        $origins = $straightLineEligible
             ->mapWithKeys(fn (User $d) => [$d->id => ['lat' => (float) $d->latitude, 'lng' => (float) $d->longitude]])
             ->all();
 
@@ -153,14 +177,14 @@ class DispatchCandidateFinder
             $origins, (float) $order->pickup_lat, (float) $order->pickup_lng
         );
 
-        foreach ($afterDetour as $d) {
+        foreach ($straightLineEligible as $d) {
             $d->setAttribute('_road_km', $roadDistances[$d->id] ?? null);
         }
 
         // GoogleMapService luôn fallback sang haversine×2 khi Directions lỗi.
         // Nếu vẫn không có khoảng cách thì loại, không được gán đại
         // tài xế xa vào đúng mép bán kính.
-        $withinRange = $afterDetour->filter(
+        $withinRange = $straightLineEligible->filter(
             fn (User $d) => $d->_road_km !== null && $d->_road_km <= $maxRoadDistanceKm
         );
         if (($removed = $afterDetour->count() - $withinRange->count()) > 0) {
@@ -179,26 +203,26 @@ class DispatchCandidateFinder
             $driver->setAttribute('_last_offered_timestamp', $lastOfferedAt ? strtotime($lastOfferedAt) : null);
         });
 
-        $sorted = DispatchRotationPolicy::sort(
+        $sorted = DispatchGpsFreshnessPolicy::prioritize(DispatchRotationPolicy::sort(
             $ranked,
             fn (User $driver) => $this->scoringCalculator->composite(
                 $driver, $driver->_road_km, $maxRoadDistanceKm, $order->city_id
             ),
             OperationalSettings::dispatchFairScoreBand($order->city_id),
-        )
+        ))
             ->take(self::MAX_DRIVERS)
             ->values();
 
         $this->lastDiagnostics = [
             'radius_km' => $maxRoadDistanceKm,
             'online_total' => $onlineTotal,
-            'busy' => $busyDriverIds->count(),
-            'receiving_offer' => $receivingOfferIds->count(),
+            'busy' => $busyCount,
+            'receiving_offer' => $receivingOfferCount,
             'already_offered_this_order' => count($excludeIds),
             'metadata_eligible' => $metadataEligible,
             'missing_or_stale_gps' => $metadataEligible - $freshGpsCount,
-            'blocked_debt' => $candidates->count() - $afterDebt->count(),
-            'wrong_license' => $afterDebt->count() - $afterLicense->count(),
+            'outside_straight_radius' => $afterDetour->count() - $straightLineEligible->count(),
+            'gps_grace_priority' => $withinRange->filter(fn (User $d) => $d->_gps_age_seconds > DriverLocationService::POS_FRESH_PRIORITY_SECS)->count(),
             'outside_radius' => $afterDetour->count() - $withinRange->count(),
             'eligible_now' => $sorted->count(),
         ];
@@ -220,10 +244,5 @@ class DispatchCandidateFinder
     public function diagnostics(): array
     {
         return $this->lastDiagnostics;
-    }
-
-    private function hasBlockedDebt(User $driver): bool
-    {
-        return $driver->debts->where('status', 'overdue')->isNotEmpty();
     }
 }

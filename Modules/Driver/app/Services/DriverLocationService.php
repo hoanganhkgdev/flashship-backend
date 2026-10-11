@@ -1,4 +1,5 @@
 <?php
+
 namespace Modules\Driver\Services;
 
 use Modules\Core\Services\RTDBService;
@@ -15,9 +16,13 @@ class DriverLocationService
     // quá mốc này thì không thể phát đơn và cơ chế bảo vệ sẽ cảnh báo/Offline.
     const POS_MAX_AGE_SECS = 180;
 
+    // Vị trí trong 90 giây đầu được ưu tiên bình thường. Từ 91–180 giây vẫn
+    // được giữ làm vùng đệm cho mạng yếu, nhưng xếp sau tài xế có GPS mới.
+    const POS_FRESH_PRIORITY_SECS = 90;
+
     /**
-     * @param  array<int> $driverIds
-     * @return array<int, array{lat: float, lng: float, bearing: ?float}> chỉ gồm tài xế có vị trí đủ mới
+     * @param  array<int>  $driverIds
+     * @return array<int, array{lat: float, lng: float, bearing: ?float, age_seconds: int}> chỉ gồm tài xế có vị trí đủ mới
      */
     public function freshLocationsFor(array $driverIds): array
     {
@@ -30,20 +35,21 @@ class DriverLocationService
 
         foreach ($driverIds as $id) {
             $data = $raw["driver_{$id}"] ?? null;
-            if (!$data || !isset($data['lat'], $data['lng'])) {
+            if (! $data || ! isset($data['lat'], $data['lng'])) {
                 continue;
             }
 
             $updatedAt = $data['updated_at'] ?? 0;
-            $posAge    = is_numeric($updatedAt) ? $now - (int) ($updatedAt / 1000) : PHP_INT_MAX;
+            $posAge = is_numeric($updatedAt) ? $now - (int) ($updatedAt / 1000) : PHP_INT_MAX;
             if ($posAge > self::POS_MAX_AGE_SECS) {
                 continue;
             }
 
             $out[$id] = [
-                'lat'     => (float) $data['lat'],
-                'lng'     => (float) $data['lng'],
+                'lat' => (float) $data['lat'],
+                'lng' => (float) $data['lng'],
                 'bearing' => isset($data['bearing']) ? (float) $data['bearing'] : null,
+                'age_seconds' => max(0, $posAge),
             ];
         }
 
@@ -54,7 +60,7 @@ class DriverLocationService
      * Thời điểm (unix) nhận vị trí gần nhất của từng tài xế — một lần đọc Firebase.
      * Dùng cho màn theo dõi: vừa biết ai còn sống, vừa biết người mất kết nối đã im bao lâu.
      *
-     * @param  array<int> $driverIds
+     * @param  array<int>  $driverIds
      * @return array<int, ?int> id => unix time, null nếu chưa có vị trí hợp lệ
      */
     public function lastSeenFor(array $driverIds): array
