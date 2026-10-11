@@ -56,9 +56,9 @@ class OperationalSettings
         // Danh sách khung giờ phụ phí đêm; "to" không tính, khung được vắt qua nửa đêm.
         'pricing.night_windows' => '[{"from":"23:00","to":"01:00","amount":5000},{"from":"01:00","to":"04:00","amount":10000}]',
         'dispatch.offer_receipt_seconds' => '8',
-        'dispatch.offer_open_seconds' => '10',
+        'dispatch.offer_open_seconds' => '15',
         'dispatch.wave_size' => '4',
-        'dispatch.offer_decision_seconds' => '15',
+        'dispatch.offer_decision_seconds' => '20',
         'dispatch.total_timeout_minutes' => '15',
         'dispatch.retry_seconds' => '15',
         'market.enabled' => '0',

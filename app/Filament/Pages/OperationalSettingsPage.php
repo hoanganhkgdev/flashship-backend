@@ -254,13 +254,13 @@ class OperationalSettingsPage extends Page implements HasForms
 
                 Section::make('Thời gian')
                     ->icon('heroicon-o-clock')
-                    ->description('Thay đổi ảnh hưởng trực tiếp app tài xế — nên cập nhật ngoài giờ cao điểm.')
+                    ->description('Mặc định: thiết bị ACK trong 8 giây, tài xế có 15 giây mở offer và thêm 20 giây xem để quyết định.')
                     ->columns(['sm' => 2, 'lg' => 4])
                     ->schema([
                         $this->integer('offer_receipt_seconds', 'Chờ thiết bị nhận offer', 'giây', 3, 30),
-                        $this->integer('offer_open_seconds', 'Chờ tài xế mở offer', 'giây', 5, 120),
+                        $this->integer('offer_open_seconds', 'Chuông & chờ mở offer', 'giây', 5, 120),
                         $this->integer('dispatch_wave_size', 'Tài xế mỗi lượt phát', 'tài xế', 1, 10),
-                        $this->integer('offer_decision_seconds', 'Quyết định sau khi mở', 'giây', 5, 180),
+                        $this->integer('offer_decision_seconds', 'Xem & quyết định sau khi mở', 'giây', 5, 180),
                         $this->integer('dispatch_retry_seconds', 'Quét lại khi chưa có ai', 'giây', 5, 300),
                         $this->integer('dispatch_timeout_minutes', 'Dừng tìm tài xế sau', 'phút', 1, 120),
                     ]),
