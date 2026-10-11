@@ -298,9 +298,21 @@ class DispatchService
         $offers = OrderDispatchLog::where('driver_id', $driverId)
             ->whereNotNull('received_at')
             ->where('offered_at', '>=', $onlineSince)
+            // Chỉ lấy những offer có hành động thật sự của tài xế hoặc hết
+            // deadline thật. Offer đóng sớm vì người khác nhận không được
+            // chen vào cửa sổ 5 mẫu và không thể gây trừ điểm gián tiếp.
+            ->where(function ($query) {
+                $query->whereIn('result', ['accepted', 'declined'])
+                    ->orWhere(function ($expired) {
+                        $expired->where('result', 'expired')
+                            ->whereNotNull('expires_at')
+                            ->whereNotNull('responded_at')
+                            ->whereColumn('responded_at', '>=', 'expires_at');
+                    });
+            })
             ->orderByDesc('offered_at')
             ->limit(OperationalSettings::unviewedWindowSize($cityId))
-            ->get(['viewed_at', 'result']);
+            ->get(['viewed_at', 'result', 'expires_at', 'responded_at']);
 
         return UnviewedOfferWindowPolicy::evaluate($offers, $cityId);
     }

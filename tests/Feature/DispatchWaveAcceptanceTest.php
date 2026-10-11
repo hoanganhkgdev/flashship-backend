@@ -10,6 +10,7 @@ use Modules\Core\Models\User;
 use Modules\Order\Models\Order;
 use Modules\Order\Models\OrderDispatchLog;
 use Modules\Order\Services\OrderService;
+use Modules\Order\Services\UnviewedOfferWindowPolicy;
 use Tests\TestCase;
 
 class DispatchWaveAcceptanceTest extends TestCase
@@ -48,7 +49,14 @@ class DispatchWaveAcceptanceTest extends TestCase
         $this->assertSame(409, $late['status']);
         $this->assertSame($drivers[0]->id, $order->fresh()->delivery_man_id);
         $this->assertSame('accepted', OrderDispatchLog::where('driver_id', $drivers[0]->id)->value('result'));
-        $this->assertSame('expired', OrderDispatchLog::where('driver_id', $drivers[1]->id)->value('result'));
+        $loserOffer = OrderDispatchLog::where('driver_id', $drivers[1]->id)->first();
+        $this->assertSame('expired', $loserOffer->result);
+        $this->assertTrue($loserOffer->responded_at->lt($loserOffer->expires_at));
+
+        $window = UnviewedOfferWindowPolicy::evaluate([$loserOffer], $city->id);
+        $this->assertSame(0, $window['total']);
+        $this->assertSame(0, $window['unviewed']);
+        $this->assertFalse($window['should_offline']);
     }
 
     public function test_driver_who_became_offline_cannot_accept_a_stale_offer(): void

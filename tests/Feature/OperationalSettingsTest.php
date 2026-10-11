@@ -134,8 +134,8 @@ class OperationalSettingsTest extends TestCase
         $this->assertSame(7_000, OperationalSettings::nightSurcharge($this->cityA, $this->at('23:00')));
         $this->assertSame(20.0, OperationalSettings::dispatchWeights($this->cityA)['score']);
         $this->assertTrue(UnviewedOfferWindowPolicy::evaluate([
-            ['result' => 'expired', 'viewed_at' => null],
-            ['result' => 'expired', 'viewed_at' => null],
+            ['result' => 'expired', 'viewed_at' => null, 'expires_at' => now()->subSecond(), 'responded_at' => now()],
+            ['result' => 'expired', 'viewed_at' => null, 'expires_at' => now()->subSecond(), 'responded_at' => now()],
         ], $this->cityA)['should_offline']);
 
         // Khu vực B vẫn giữ nguyên chính sách cũ.
