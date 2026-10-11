@@ -117,12 +117,17 @@ class DispatchService
         $this->offerToNext($order);
     }
 
-    public function handleTimeout(Order $order, int $driverId, bool $onlyIfDeadlineDue = false): void
+    public function handleTimeout(
+        Order $order,
+        int $driverId,
+        bool $onlyIfDeadlineDue = false,
+        bool $onlyIfUnreceived = false,
+    ): void
     {
         $driver = User::find($driverId);
         $name = $driver?->name ?? "#{$driverId}";
 
-        $timedOutLog = DB::transaction(function () use ($order, $driverId, $onlyIfDeadlineDue) {
+        $timedOutLog = DB::transaction(function () use ($order, $driverId, $onlyIfDeadlineDue, $onlyIfUnreceived) {
             $log = OrderDispatchLog::where('order_id', $order->id)
                 ->where('driver_id', $driverId)
                 ->where('result', 'pending')
@@ -138,6 +143,12 @@ class DispatchService
             if ($onlyIfDeadlineDue && (! $log->expires_at || $log->expires_at->isFuture())) {
                 return null;
             }
+            // Receipt job đã đọc trạng thái trước khi vào transaction. App có
+            // thể ACK đúng trong khe đó, nên phải kiểm tra lại dưới row lock;
+            // nếu không offer hợp lệ vẫn bị thu hồi oan ở mốc receipt.
+            if ($onlyIfUnreceived && $log->received_at) {
+                return null;
+            }
 
             $log->update(['result' => 'expired', 'responded_at' => now()]);
 
@@ -145,12 +156,19 @@ class DispatchService
         });
 
         if (! $timedOutLog) {
-            Log::info("⏱  [Dispatch] Đơn #{$order->id}: Tài xế {$name} đã xử lý trước (decline/accept) → bỏ qua timeout");
+            Log::info("⏱  [Dispatch] Đơn #{$order->id}: offer của {$name} đã được xử lý/ACK/gia hạn → bỏ qua timeout cũ");
 
             return;
         }
 
-        Redis::del("dispatch:lock:driver:{$driverId}");
+        // Chỉ xoá đúng lock thuộc đơn này. Một timeout job trễ không được xoá
+        // lock mới của tài xế cho đơn khác.
+        Redis::eval(
+            "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
+            1,
+            "dispatch:lock:driver:{$driverId}",
+            (string) $order->id,
+        );
 
         $remainingDriverId = OrderDispatchLog::where('order_id', $order->id)
             ->where('result', 'pending')->value('driver_id');
@@ -186,12 +204,10 @@ class DispatchService
 
         RTDBService::clearDriverOffer($driverId, $order->id);
 
-        // Chỉ phát wave kế khi cả wave hiện tại đã kết thúc. Một tài xế hết
-        // hạn sớm không được làm phát thêm người trong lúc 3 người còn lại
-        // vẫn đang có quyền bấm nhận.
-        if (! $remainingDriverId) {
-            $this->sendToNextDriver($order->fresh());
-        }
+        // Bù ngay chỗ vừa trống trong wave. offerToNext() tự đếm số offer
+        // pending dưới order lock nên tổng quyền nhận đồng thời không bao giờ
+        // vượt dispatch.wave_size.
+        $this->sendToNextDriver($order->fresh());
     }
 
     private function autoOfflineAfterUnviewedOffers(int $driverId): void
@@ -427,15 +443,21 @@ class DispatchService
             if ($this->orderMarket->isOpen($order)) {
                 return;
             }
-            if (OrderDispatchLog::where('order_id', $order->id)->where('result', 'pending')->exists()) {
-                Log::debug("│  [Dispatch] Đơn #{$order->id} đang có wave offer → không phát trùng");
-
-                return;
-            }
             // Retry luôn tôn trọng mode đã chụp trên đơn lúc tạo, không đọc
             // lại cấu hình khu vực rồi đổi luồng giữa chừng.
             if ($order->usesSelfPickDispatch()) {
                 $this->orderMarket->openForSelfPick($order);
+
+                return;
+            }
+
+            $waveSize = OperationalSettings::dispatchWaveSize($order->city_id);
+            $pendingCount = OrderDispatchLog::where('order_id', $order->id)
+                ->where('result', 'pending')
+                ->count();
+            $availableSlots = max(0, $waveSize - $pendingCount);
+            if ($availableSlots === 0) {
+                Log::debug("│  [Dispatch] Đơn #{$order->id} đang đủ {$pendingCount}/{$waveSize} offer → không phát thêm");
 
                 return;
             }
@@ -454,19 +476,23 @@ class DispatchService
             $candidates = $this->candidateFinder->find($order, $alreadyOffered, $radiusKm);
 
             if ($candidates->isEmpty()) {
+                if ($pendingCount > 0) {
+                    Log::info("└─ [Dispatch] Đơn #{$order->id}: còn {$pendingCount}/{$waveSize} offer mở, chưa có người để bù wave");
+
+                    return;
+                }
                 Log::info("└─ [Dispatch] Đơn #{$order->id}: không có ứng viên nào trong {$radiusKm}km đường thật → chờ quét lại");
                 $this->scheduleRetryOrGiveUp($order);
 
                 return;
             }
 
-            $waveSize = OperationalSettings::dispatchWaveSize($order->city_id);
             $sent = 0;
             foreach ($candidates as $driver) {
                 Log::info("│  Chọn: #{$driver->id} {$driver->name} | ".count($alreadyOffered).' đã hỏi trước');
                 if ($this->offerSender->send($order, $driver)) {
                     $sent++;
-                    if ($sent >= $waveSize) {
+                    if ($sent >= $availableSlots) {
                         break;
                     }
                     continue;
@@ -480,7 +506,14 @@ class DispatchService
             }
 
             if ($sent > 0) {
-                Log::info("└─ [Dispatch] Đơn #{$order->id}: đã phát đồng thời cho {$sent}/{$waveSize} tài xế");
+                $activeOffers = $pendingCount + $sent;
+                Log::info("└─ [Dispatch] Đơn #{$order->id}: đã bù {$sent} offer, wave hiện có {$activeOffers}/{$waveSize} tài xế");
+
+                return;
+            }
+
+            if ($pendingCount > 0) {
+                Log::info("└─ [Dispatch] Đơn #{$order->id}: không bù được wave, giữ {$pendingCount}/{$waveSize} offer đang mở");
 
                 return;
             }

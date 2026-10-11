@@ -25,7 +25,10 @@ class DynamicOfferTimeoutTest extends TestCase
         [$order, $driver] = $this->activeOffer();
         $dispatch = $this->mock(DispatchService::class);
         $dispatch->shouldReceive('handleTimeout')->once()->withArgs(
-            fn (Order $receivedOrder, int $driverId) => $receivedOrder->is($order) && $driverId === $driver->id
+            fn (Order $receivedOrder, int $driverId, bool $onlyIfDue, bool $onlyIfUnreceived) => $receivedOrder->is($order)
+                && $driverId === $driver->id
+                && ! $onlyIfDue
+                && $onlyIfUnreceived
         );
 
         (new CheckDriverOfferReceiptJob($order->id, $driver->id))->handle($dispatch);
@@ -39,6 +42,21 @@ class DynamicOfferTimeoutTest extends TestCase
         $dispatch->shouldNotReceive('handleTimeout');
 
         (new CheckDriverOfferReceiptJob($order->id, $driver->id))->handle($dispatch);
+    }
+
+    public function test_receipt_timeout_rechecks_ack_under_the_offer_lock(): void
+    {
+        [$order, $driver, $log] = $this->activeOffer();
+        $log->update([
+            'received_at' => now(),
+            'expires_at' => now()->addSeconds(10),
+        ]);
+
+        // Mô phỏng job đã đọc "chưa ACK" trước đó, nhưng app vừa ACK ngay
+        // trước khi DispatchService khoá dòng offer.
+        app(DispatchService::class)->handleTimeout($order, $driver->id, false, true);
+
+        $this->assertSame('pending', $log->fresh()->result);
     }
 
     public function test_auto_offline_check_evaluates_unviewed_window_without_error(): void

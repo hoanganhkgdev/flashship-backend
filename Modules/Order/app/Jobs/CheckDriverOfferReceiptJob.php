@@ -45,6 +45,8 @@ class CheckDriverOfferReceiptJob implements ShouldQueue
 
         $receiptSeconds = OperationalSettings::offerReceiptSeconds($order->city_id);
         Log::info("[Dispatch] Đơn #{$this->orderId}: sau {$receiptSeconds} giây thiết bị tài xế #{$this->driverId} chưa ACK → chuyển người kế");
-        $dispatch->handleTimeout($order, $this->driverId);
+        // Cờ cuối buộc DispatchService kiểm tra lại received_at dưới row lock,
+        // tránh race khi app ACK ngay sau truy vấn phía trên.
+        $dispatch->handleTimeout($order, $this->driverId, false, true);
     }
 }

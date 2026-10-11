@@ -485,7 +485,7 @@ class OrderService
                 ->where('result', 'pending')->value('driver_id');
             $fresh->update(['dispatching_to_driver_id' => $replacement, 'updated_at' => now()]);
 
-            return ['log' => $log, 'wave_finished' => ! $replacement];
+            return ['log' => $log];
         });
 
         if (!$log) {
@@ -498,15 +498,15 @@ class OrderService
 
         RTDBService::clearDriverOffer($user->id, $order->id);
 
-        if ($log['wave_finished']) {
-            $orderId = $order->id;
-            dispatch(function () use ($orderId) {
-                $freshOrder = Order::find($orderId);
-                if ($freshOrder) {
-                    app(DispatchService::class)->sendToNextDriver($freshOrder);
-                }
-            })->afterResponse();
-        }
+        // Bù ngay một chỗ trống trong wave; DispatchService vẫn giữ trần số
+        // offer đồng thời và order lock chống hai request bù trùng nhau.
+        $orderId = $order->id;
+        dispatch(function () use ($orderId) {
+            $freshOrder = Order::find($orderId);
+            if ($freshOrder?->status === 'pending') {
+                app(DispatchService::class)->sendToNextDriver($freshOrder);
+            }
+        })->afterResponse();
 
         return ['success' => true, 'message' => 'Đã từ chối đơn hàng.', 'status' => 200];
     }
