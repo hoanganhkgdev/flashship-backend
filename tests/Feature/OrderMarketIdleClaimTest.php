@@ -199,15 +199,15 @@ class OrderMarketIdleClaimTest extends TestCase
         $this->assertNotContains($car->id, collect($orders)->pluck('id')->all());
     }
 
-    public function test_busy_driver_cannot_claim_a_self_pick_order(): void
+    public function test_driver_at_active_order_limit_cannot_claim_a_self_pick_order(): void
     {
         $city = City::create(['name' => 'Simple market', 'slug' => 'simple-market-'.uniqid(), 'is_active' => true]);
         $this->enableSelfPick($city);
         $driver = User::create([
-            'name' => 'Two orders', 'email' => uniqid().'@test.local', 'phone' => '09'.random_int(10000000, 99999999),
+            'name' => 'Three orders', 'email' => uniqid().'@test.local', 'phone' => '09'.random_int(10000000, 99999999),
             'password' => 'test-password', 'user_type' => 'driver', 'status' => 1, 'is_online' => true, 'city_id' => $city->id,
         ]);
-        foreach (range(1, 2) as $index) {
+        foreach (range(1, 3) as $index) {
             Order::create([
                 'code' => "ACTIVE-{$index}-".uniqid(), 'status' => 'assigned', 'city_id' => $city->id,
                 'service_type' => 'delivery', 'platform' => 'customer_app', 'delivery_man_id' => $driver->id,
@@ -225,7 +225,39 @@ class OrderMarketIdleClaimTest extends TestCase
         $this->assertFalse($result['success']);
         $this->assertSame(409, $result['status']);
         $this->assertSame('pending', $order->fresh()->status);
-        $this->assertCount(2, Order::where('delivery_man_id', $driver->id)->whereIn('status', ['assigned', 'processing'])->get());
+        $this->assertCount(3, Order::where('delivery_man_id', $driver->id)->whereIn('status', ['assigned', 'processing'])->get());
+    }
+
+    public function test_driver_below_active_order_limit_can_claim_another_self_pick_order(): void
+    {
+        $city = City::create(['name' => 'Below limit market', 'slug' => 'below-limit-market-'.uniqid(), 'is_active' => true]);
+        $this->enableSelfPick($city);
+        $driver = User::create([
+            'name' => 'Two orders', 'email' => uniqid().'@test.local', 'phone' => '09'.random_int(10000000, 99999999),
+            'password' => 'test-password', 'user_type' => 'driver', 'status' => 1, 'is_online' => true, 'city_id' => $city->id,
+        ]);
+        foreach (range(1, 2) as $index) {
+            Order::create([
+                'code' => "ACTIVE-{$index}-".uniqid(), 'status' => 'processing', 'city_id' => $city->id,
+                'service_type' => 'delivery', 'platform' => 'customer_app', 'delivery_man_id' => $driver->id,
+                'pickup_address' => 'a', 'delivery_address' => 'b', 'driver_order_role' => null,
+            ]);
+        }
+        $order = $this->marketOrder($city, 'delivery');
+        Redis::shouldReceive('del')->once();
+        $locations = $this->mock(DriverLocationService::class);
+        $locations->shouldReceive('freshLocationsFor')->with([$driver->id])->andReturn([
+            $driver->id => ['lat' => 10.001, 'lng' => 105.0, 'bearing' => null],
+        ]);
+        $service = new OrderMarketService($locations);
+
+        $this->assertSame([$order->id], collect($service->listForDriver($driver))->pluck('id')->all());
+
+        $result = $service->claim($order, $driver);
+
+        $this->assertTrue($result['success']);
+        $this->assertSame($driver->id, $order->fresh()->delivery_man_id);
+        $this->assertCount(3, Order::where('delivery_man_id', $driver->id)->whereIn('status', ['assigned', 'processing'])->get());
     }
 
     private function marketOrder(City $city, string $serviceType): Order

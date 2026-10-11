@@ -15,7 +15,7 @@ class OrderMarketNotificationTest extends TestCase
 {
     use DatabaseTransactions;
 
-    public function test_market_notification_only_targets_nearby_idle_drivers(): void
+    public function test_market_notification_only_targets_nearby_drivers_below_active_order_limit(): void
     {
         $this->assertStringEndsWith('_test', DB::connection()->getDatabaseName());
         $city = City::create(['name' => 'Market notify', 'slug' => 'market-notify-'.uniqid(), 'is_active' => true]);
@@ -26,7 +26,9 @@ class OrderMarketNotificationTest extends TestCase
 
         $this->activeOrder($city, $eligible);
         $this->activeOrder($city, $far);
-        $this->activeOrder($city, $full);
+        foreach (range(1, 3) as $ignored) {
+            $this->activeOrder($city, $full);
+        }
 
         $marketOrder = Order::create([
             'status' => 'pending', 'city_id' => $city->id, 'service_type' => 'delivery', 'platform' => 'customer_app',
@@ -43,7 +45,7 @@ class OrderMarketNotificationTest extends TestCase
 
         $tokens = (new OrderMarketService($locations))->eligibleNotificationTokens($marketOrder);
 
-        $this->assertSame(['no-session-token'], $tokens);
+        $this->assertSame(['eligible-token', 'no-session-token'], $tokens);
     }
 
     private function driver(City $city, string $token): User

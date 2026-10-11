@@ -111,7 +111,8 @@ class OrderMarketService
             ->whereNotNull('fcm_token')->where('fcm_token', '!=', '')
             ->where(fn ($query) => $query->whereNull('score_suspended_until')->orWhere('score_suspended_until', '<=', now()))
             ->whereDoesntHave('debts', fn ($query) => $query->where('status', 'overdue'))
-            ->whereDoesntHave('orders', fn ($orders) => $orders->whereIn('status', ['assigned', 'processing']))
+            ->has('orders', '<', OperationalSettings::maxActiveOrdersPerDriver($order->city_id), 'and',
+                fn ($orders) => $orders->whereIn('status', ['assigned', 'processing']))
             ->whereNotExists(fn ($query) => $query->selectRaw('1')->from('driver_leave_requests')
                 ->whereColumn('driver_leave_requests.driver_id', 'users.id')->whereDate('leave_date', today()))
             ->when($order->service_type === 'car', fn ($query) => $query->where('has_car_license', true))
@@ -150,9 +151,9 @@ class OrderMarketService
         }
         $activeCount = Order::where('delivery_man_id', $driver->id)
             ->whereIn('status', ['assigned', 'processing'])->count();
-        // Đơn tự chọn là đơn độc lập. Tài xế đang chạy đơn chỉ được nhận thêm
-        // qua luồng ghép đơn riêng, nơi hệ thống còn phải kiểm tra tuyến.
-        if ($activeCount > 0) {
+        // Tài xế đang cầm đơn vẫn được nhận thêm đơn tự chọn cho tới khi chạm
+        // giới hạn số đơn active của khu vực.
+        if ($activeCount >= OperationalSettings::maxActiveOrdersPerDriver($driver->city_id)) {
             return [];
         }
         $location = $this->locations->freshLocationsFor([$driver->id])[$driver->id] ?? null;
@@ -240,9 +241,8 @@ class OrderMarketService
                 return ['state' => 'distance'];
             }
             $active = Order::where('delivery_man_id', $driver->id)->whereIn('status', ['assigned', 'processing'])->lockForUpdate()->get();
-            // Chợ đơn chỉ dành cho tài xế đang rảnh. Nhận thêm khi đang chạy
-            // phải đi qua luồng ghép đơn riêng để kiểm tra tuyến lấy/giao.
-            if ($active->isNotEmpty()) {
+            // Cho nhận thêm khi đang cầm đơn, miễn chưa đủ số đơn active tối đa.
+            if ($active->count() >= OperationalSettings::maxActiveOrdersPerDriver($fresh->city_id)) {
                 return ['state' => 'busy'];
             }
 
@@ -266,7 +266,7 @@ class OrderMarketService
                 'taken' => 'Đơn này vừa được tài xế khác nhận.',
                 'gps' => 'Không có vị trí GPS mới để nhận đơn.',
                 'distance' => 'Bạn đang ở ngoài phạm vi nhận đơn này.',
-                'busy' => 'Bạn đang có đơn hoạt động nên chưa thể nhận đơn tự chọn.',
+                'busy' => 'Bạn đã nhận đủ số đơn tối đa nên chưa thể nhận thêm đơn tự chọn.',
                 default => 'Bạn không còn đủ điều kiện nhận đơn này.',
             };
 
