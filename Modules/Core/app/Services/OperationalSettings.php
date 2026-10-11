@@ -70,7 +70,7 @@ class OperationalSettings
         'dispatch.wait_weight' => '42.5',
         'dispatch.distance_weight' => '42.5',
         'dispatch.fair_score_band' => '8',
-        'dispatch.wait_cap_minutes' => '480',
+        'dispatch.wait_cap_minutes' => '240',
         'rain_mode.auto_off_hours' => '6',
         'debt.penalty_overdue_hours' => '24',
         'wallet.low_balance_threshold' => '100000',
