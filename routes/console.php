@@ -4,6 +4,7 @@ use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
 use Modules\Order\Services\DispatchExpirySweeper;
+use Modules\Order\Services\DispatchRecoverySweeper;
 use Modules\Order\Services\OrderMarketExpirySweeper;
 
 Artisan::command('inspire', function () {
@@ -28,6 +29,13 @@ Schedule::call(fn () => app(\App\Services\NotificationCampaignService::class)->d
 Schedule::call(fn () => app(DispatchExpirySweeper::class)->sweep())
     ->everySecond()
     ->name('dispatch-expire-offers');
+
+// Delayed retry có thể thất lạc khi worker restart hoặc hai timeout tranh
+// cùng khóa đơn. Quét các đơn đã bắt đầu nhưng không còn offer để tự nối lại.
+Schedule::call(fn () => app(DispatchRecoverySweeper::class)->sweep())
+    ->everyTenSeconds()
+    ->name('dispatch-recover-orphaned-orders')
+    ->withoutOverlapping();
 
 // Delayed job là đường chính; vòng quét mỗi phút là lưới an toàn nếu worker
 // restart hoặc job hết hạn Chợ đơn thất bại giữa chừng.

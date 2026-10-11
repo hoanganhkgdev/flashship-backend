@@ -6,6 +6,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Redis;
 use Modules\Core\Models\User;
 use Modules\Order\Models\Order;
+use Modules\Order\Models\OrderDispatchLog;
 use Modules\Order\Services\DispatchService;
 use Tests\TestCase;
 
@@ -72,6 +73,47 @@ class NoDriverNotificationTest extends TestCase
         $fresh = $order->fresh();
         $this->assertSame('pending', $fresh->status);
         $this->assertSame('no_driver', $fresh->cancel_reason);
+    }
+
+    public function test_customer_is_told_the_pending_order_is_being_supported(): void
+    {
+        $city = $this->city();
+        $customer = $this->staff('customer', $city);
+        $order = $this->pendingOrder($city);
+        DB::table('orders')->where('id', $order->id)->update([
+            'sender_platform_id' => $customer->id,
+            'platform' => 'customer_app',
+        ]);
+
+        app(DispatchService::class)->markNoDriver($order->fresh());
+
+        $notice = DB::table('customer_notifications')
+            ->where('user_id', $customer->id)
+            ->where('order_code', $order->code)
+            ->first();
+        $this->assertNotNull($notice);
+        $this->assertStringContainsString('đang được hỗ trợ', $notice->title);
+        $this->assertStringContainsString('Tổng đài', $notice->body);
+    }
+
+    public function test_order_is_not_stopped_while_a_driver_offer_is_still_open(): void
+    {
+        $city = $this->city();
+        $driver = $this->staff('driver', $city);
+        $order = $this->pendingOrder($city);
+        OrderDispatchLog::create([
+            'order_id' => $order->id,
+            'driver_id' => $driver->id,
+            'offered_at' => now(),
+            'expires_at' => now()->addSeconds(15),
+            'result' => 'pending',
+        ]);
+
+        $marked = app(DispatchService::class)->markNoDriver($order);
+
+        $this->assertFalse($marked);
+        $this->assertNull($order->fresh()->cancel_reason);
+        $this->assertSame(0, DB::table('order_histories')->where('order_id', $order->id)->count());
     }
 
     public function test_no_notification_when_the_order_is_no_longer_pending(): void

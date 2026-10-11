@@ -10,7 +10,6 @@ use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Redis;
-use Modules\Core\Services\OperationalSettings;
 
 class DispatchOrderRetryJob implements ShouldQueue
 {
@@ -33,14 +32,10 @@ class DispatchOrderRetryJob implements ShouldQueue
             return;
         }
 
-        $timeoutMinutes = OperationalSettings::dispatchTimeoutMinutes($order->city_id);
-        if ($order->dispatch_started_at && (int) abs(now()->diffInMinutes($order->dispatch_started_at)) >= $timeoutMinutes) {
-            Log::info("╟── [Dispatch] Đơn #{$order->id}: Quá {$timeoutMinutes} phút → dừng quét");
-            $dispatch->markNoDriver($order);
-            return;
-        }
-
         Log::info("╟── [Dispatch] Đơn #{$order->id}: Retry quét lại toàn thành phố");
+        // offerToNext() là nơi duy nhất quyết định hết hạn. Nếu vẫn còn offer
+        // mở, tài xế được dùng hết thời gian phản hồi dù job retry chạy đúng
+        // lúc chạm hạn tổng.
         $dispatch->offerToNext($order);
     }
 }

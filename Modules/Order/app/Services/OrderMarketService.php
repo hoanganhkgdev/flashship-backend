@@ -322,39 +322,9 @@ class OrderMarketService
                     app(DispatchService::class)->startDispatch($order);
                 } else {
                     $waitMinutes = OperationalSettings::marketExpireMinutes($order->city_id);
-                    $marked = app(DispatchService::class)->markNoDriver($order, $waitMinutes, 'self_pick');
-                    if ($marked) {
-                        $this->notifyCustomerNoDriver($order);
-                    }
+                    app(DispatchService::class)->markNoDriver($order, $waitMinutes, 'self_pick');
                 }
             }
-        }
-    }
-
-    private function notifyCustomerNoDriver(Order $order): void
-    {
-        $customer = User::find($order->sender_platform_id);
-        if (! $customer) {
-            return;
-        }
-
-        try {
-            if ($customer->fcm_token) {
-                FCMService::getInstance()->sendNoDriverPending($customer->fcm_token, $order->code);
-            }
-            CustomerNotificationController::create(
-                $customer->id,
-                "Đơn #{$order->code} đang được hỗ trợ",
-                'Chưa có tài xế nhận đơn. Tổng đài đang hỗ trợ tìm tài xế cho bạn.',
-                'order_status',
-                $order->code,
-            );
-        } catch (\Throwable $e) {
-            Log::warning('[OrderMarket] Không thông báo được cho khách khi Chợ đơn hết hạn', [
-                'order_id' => $order->id,
-                'customer_id' => $customer->id,
-                'message' => $e->getMessage(),
-            ]);
         }
     }
 

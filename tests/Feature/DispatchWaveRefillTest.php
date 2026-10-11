@@ -90,6 +90,32 @@ class DispatchWaveRefillTest extends TestCase
         $this->service($finder, $sender, $market)->offerToNext($order);
     }
 
+    public function test_it_does_not_open_a_new_wave_after_the_total_deadline(): void
+    {
+        [$city, $order] = $this->order();
+        DB::table('orders')->where('id', $order->id)->update([
+            'dispatch_started_at' => now()->subMinutes(
+                OperationalSettings::dispatchTimeoutMinutes($city->id) + 1
+            ),
+        ]);
+
+        $finder = Mockery::mock(DispatchCandidateFinder::class);
+        $finder->shouldNotReceive('find');
+        $sender = Mockery::mock(DispatchOfferSender::class);
+        $sender->shouldNotReceive('send');
+        $market = Mockery::mock(OrderMarketService::class);
+        $market->shouldReceive('isOpen')->once()->andReturn(false);
+
+        Redis::shouldReceive('set')->once()->andReturn(true);
+        Redis::shouldReceive('del')->once()->andReturn(1);
+        Redis::shouldReceive('eval')->once()->andReturn(1);
+
+        $this->service($finder, $sender, $market)->offerToNext($order->fresh());
+
+        $this->assertSame('no_driver', $order->fresh()->cancel_reason);
+        $this->assertSame(0, OrderDispatchLog::where('order_id', $order->id)->count());
+    }
+
     private function service(
         DispatchCandidateFinder $finder,
         DispatchOfferSender $sender,

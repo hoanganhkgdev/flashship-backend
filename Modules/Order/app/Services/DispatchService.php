@@ -12,6 +12,7 @@ use Modules\Core\Models\User;
 use Modules\Core\Services\FCMService;
 use Modules\Core\Services\OperationalSettings;
 use Modules\Core\Services\RTDBService;
+use Modules\Customer\Http\Controllers\CustomerNotificationController;
 use Modules\Driver\Models\DriverShiftSession;
 use Modules\Driver\Services\DriverScoreService;
 use Modules\Order\Jobs\DispatchOrderRetryJob;
@@ -409,6 +410,16 @@ class DispatchService
             ->where('id', $order->id)
             ->where('status', 'pending')
             ->where(fn ($q) => $q->whereNull('cancel_reason')->orWhere('cancel_reason', '!=', 'no_driver'))
+            // Không được dừng tìm khi tài xế vẫn còn quyền nhận. Điều kiện
+            // NOT EXISTS nằm ngay trong UPDATE để retry job và accept/offer
+            // chạy đồng thời cũng không thể tạo trạng thái mâu thuẫn.
+            ->whereNotExists(function ($query) use ($order) {
+                $query->selectRaw('1')
+                    ->from('order_dispatch_logs')
+                    ->whereColumn('order_dispatch_logs.order_id', 'orders.id')
+                    ->where('order_dispatch_logs.order_id', $order->id)
+                    ->where('order_dispatch_logs.result', 'pending');
+            })
             ->update([
                 'dispatching_to_driver_id' => null,
                 'cancel_reason' => 'no_driver',
@@ -447,6 +458,8 @@ class DispatchService
                 ->sendToDatabase($staff);
         }
 
+        $this->notifyNoDriverCustomer($order);
+
         Log::info("╟── [Dispatch] Đơn #{$order->id}: Không tìm được tài xế sau {$timeout} phút ({$source}) → giữ pending, dừng dispatch");
 
         return true;
@@ -472,6 +485,11 @@ class DispatchService
             if (! $order || $order->status !== 'pending') {
                 return;
             }
+            // no_driver là trạng thái đã dừng có chủ đích. Chỉ startDispatch()
+            // (tổng đài bấm tìm lại) mới xóa cờ trước khi gọi vào đây.
+            if ($order->cancel_reason === 'no_driver') {
+                return;
+            }
             if ($this->orderMarket->isOpen($order)) {
                 return;
             }
@@ -490,6 +508,15 @@ class DispatchService
             $availableSlots = max(0, $waveSize - $pendingCount);
             if ($availableSlots === 0) {
                 Log::debug("│  [Dispatch] Đơn #{$order->id} đang đủ {$pendingCount}/{$waveSize} offer → không phát thêm");
+
+                return;
+            }
+
+            // Cho mọi offer đã phát đủ thời gian phản hồi, nhưng khi wave đã
+            // trống thì không mở wave mới sau hạn tổng. Đặt luật tại đây để
+            // retry job, timeout job và recovery sweeper cho cùng một kết quả.
+            if ($pendingCount === 0 && $this->dispatchDeadlineReached($order)) {
+                $this->cancelNoDriver($order);
 
                 return;
             }
@@ -577,14 +604,12 @@ class DispatchService
             return;
         }
 
-        if ($order->dispatch_started_at) {
-            $elapsed = (int) abs(now()->diffInMinutes($order->dispatch_started_at));
-            if ($elapsed >= OperationalSettings::dispatchTimeoutMinutes($order->city_id)) {
-                Log::info("╟── [Dispatch] Đơn #{$order->id}: Quá {$elapsed} phút không có tài xế → dừng dispatch, giữ pending");
-                $this->cancelNoDriver($order);
+        if ($this->dispatchDeadlineReached($order)) {
+            $timeout = OperationalSettings::dispatchTimeoutMinutes($order->city_id);
+            Log::info("╟── [Dispatch] Đơn #{$order->id}: Quá {$timeout} phút không có tài xế → dừng dispatch, giữ pending");
+            $this->cancelNoDriver($order);
 
-                return;
-            }
+            return;
         }
 
         // Chống tích lũy RetryJob: chỉ schedule 1 retry tại 1 thời điểm. Thứ
@@ -600,6 +625,19 @@ class DispatchService
 
         Log::info("╟── [Dispatch] Đơn #{$order->id}: Chưa có ai → quét lại sau {$retrySeconds}s");
         DispatchOrderRetryJob::dispatch($order->id)->delay(now()->addSeconds($retrySeconds));
+    }
+
+    private function dispatchDeadlineReached(Order $order): bool
+    {
+        if (! $order->dispatch_started_at) {
+            return false;
+        }
+
+        return now()->greaterThanOrEqualTo(
+            $order->dispatch_started_at->copy()->addMinutes(
+                OperationalSettings::dispatchTimeoutMinutes($order->city_id)
+            )
+        );
     }
 
     /**
@@ -629,6 +667,33 @@ class DispatchService
             };
         } catch (\Throwable $e) {
             Log::error("[Dispatch] notifyCustomer {$type} failed: ".$e->getMessage());
+        }
+    }
+
+    private function notifyNoDriverCustomer(Order $order): void
+    {
+        $customer = User::find($order->sender_platform_id);
+        if (! $customer) {
+            return;
+        }
+
+        try {
+            if ($customer->fcm_token) {
+                FCMService::getInstance()->sendNoDriverPending($customer->fcm_token, $order->code);
+            }
+            CustomerNotificationController::create(
+                $customer->id,
+                "Đơn #{$order->code} đang được hỗ trợ",
+                'Chưa có tài xế nhận đơn. Tổng đài đang hỗ trợ tìm tài xế cho bạn.',
+                'order_status',
+                $order->code,
+            );
+        } catch (\Throwable $e) {
+            Log::warning('[Dispatch] Không thông báo được cho khách khi dừng tìm tài xế', [
+                'order_id' => $order->id,
+                'customer_id' => $customer->id,
+                'message' => $e->getMessage(),
+            ]);
         }
     }
 }

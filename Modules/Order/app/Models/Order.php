@@ -77,6 +77,7 @@ class Order extends Model
     public function creator()  { return $this->belongsTo(\Modules\Core\Models\User::class, 'created_by'); }
     public function city()     { return $this->belongsTo(\Modules\Core\Models\City::class); }
     public function histories(){ return $this->hasMany(OrderHistory::class)->latest(); }
+    public function dispatchLogs(){ return $this->hasMany(OrderDispatchLog::class); }
     public function marketListing(){ return $this->hasOne(OrderMarketListing::class); }
 
     public function effectiveDispatchMode(): string
