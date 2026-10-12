@@ -374,19 +374,7 @@ class OrderController extends Controller
         if (! $requestedStop) {
             return response()->json(['success' => false, 'message' => 'Không tìm thấy điểm giao'], 404);
         }
-        $proximityError = $this->orderService->checkDriverProximity(
-            $driver,
-            $requestedStop['lat'] ?? null,
-            $requestedStop['lng'] ?? null,
-            $order->city_id,
-            $requestedStop['area_radius_km'] ?? null,
-        );
-        if ($proximityError) {
-            $status = $proximityError['status'];
-            unset($proximityError['status']);
-
-            return response()->json($proximityError, $status);
-        }
+        // Đơn gộp không kiểm tra khoảng cách tới điểm giao: tài xế tự bấm "Đã giao".
 
         // Khoá + đọc lại bản mới nhất TRONG transaction — nếu không, 2 request
         // bấm "Đã giao" liên tiếp nhanh cho 2 điểm khác nhau sẽ cùng đọc bản

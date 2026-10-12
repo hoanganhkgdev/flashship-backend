@@ -588,6 +588,9 @@ class OrderService
             return ['success' => true, 'message' => 'Đơn này đã hoàn thành trước đó.', 'data' => $order, 'status' => 200];
         }
 
+        // Đơn gộp không kiểm tra khoảng cách khi hoàn thành.
+        $proximityAlreadyVerified = $proximityAlreadyVerified || (bool) $order->is_batch;
+
         $target = $this->completionTarget($order);
         $hasTarget = is_numeric($target['lat'] ?? null) && is_numeric($target['lng'] ?? null);
 
