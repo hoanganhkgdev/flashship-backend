@@ -4,6 +4,7 @@ namespace Modules\Shop\Services;
 
 use Modules\Core\Services\GoogleMapService;
 use Modules\Core\Services\OperationalSettings;
+use Modules\Shop\Models\ShopDestinationPrice;
 use Modules\Shop\Models\ShopPricingConfig;
 
 class ShopPricingService
@@ -49,7 +50,9 @@ class ShopPricingService
         ?int $cityId = null
     ): array {
         $km = GoogleMapService::roadDistanceKm($pickupLat, $pickupLng, $deliveryLat, $deliveryLng);
-        return self::calculate($cargoType, $km, $cargoWeightKg, $cityId);
+        $zone = ShopDestinationPrice::resolve($cityId, $pickupLat, $pickupLng, $deliveryLat, $deliveryLng);
+
+        return self::calculate($cargoType, $km, $cargoWeightKg, $cityId, $zone);
     }
 
     public static function estimateFromAddresses(
@@ -83,7 +86,8 @@ class ShopPricingService
         string $cargoType,
         float $km,
         ?float $weightKg,
-        ?int $cityId
+        ?int $cityId,
+        ?ShopDestinationPrice $zone = null
     ): array {
         // Lấy config từ DB
         $cfg = ShopPricingConfig::forCargo($cargoType, $cityId);
@@ -101,7 +105,8 @@ class ShopPricingService
             $weightPerKg  = $cargoType === 'parcel' ? 1000 : 0;
         }
 
-        $baseFee = self::slabFee($km, $slabs, $overMaxPerKm);
+        // Giá cố định theo điểm đến thay cho giá theo km; phụ phí vẫn cộng như thường.
+        $baseFee = $zone ? $zone->fee : self::slabFee($km, $slabs, $overMaxPerKm);
 
         $weightSurcharge = 0;
         if ($weightPerKg > 0 && $weightKg !== null && $weightKg > 0) {
@@ -113,6 +118,8 @@ class ShopPricingService
         return [
             'cargo_type'       => $cargoType,
             'distance_km'      => round($km, 2),
+            'pricing_mode'     => $zone ? 'destination' : 'distance',
+            'destination_name' => $zone?->name,
             'base_fee'         => $baseFee,
             'weight_surcharge' => $weightSurcharge,
             'night_surcharge'  => $nightSurcharge,
