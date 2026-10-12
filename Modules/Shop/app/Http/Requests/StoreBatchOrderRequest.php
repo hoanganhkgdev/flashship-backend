@@ -27,7 +27,7 @@ class StoreBatchOrderRequest extends FormRequest
             'stops.*.address' => 'required|string',
             'stops.*.lat' => 'nullable|numeric',
             'stops.*.lng' => 'nullable|numeric',
-            'stops.*.phone' => 'required|string',
+            'stops.*.phone' => 'nullable|string',
             'stops.*.name' => 'nullable|string',
             'stops.*.cod_amount' => 'nullable|integer|min:0',
             'stops.*.note' => 'nullable|string',

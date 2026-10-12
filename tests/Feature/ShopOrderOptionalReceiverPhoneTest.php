@@ -65,4 +65,22 @@ class ShopOrderOptionalReceiverPhoneTest extends TestCase
 
         $this->assertSame('0909123456', Order::latest('id')->first()->delivery_phone);
     }
+
+    public function test_batch_order_stops_do_not_require_a_phone(): void
+    {
+        Sanctum::actingAs($this->shop());
+
+        $response = $this->postJson('/api/shop/orders/batch', [
+            'pickup_address' => 'Cửa hàng', 'pickup_lat' => 10.0, 'pickup_lng' => 105.0, 'cargo_type' => 'food',
+            'stops' => [
+                ['address' => 'Điểm 1', 'lat' => 10.01, 'lng' => 105.01],
+                ['address' => 'Điểm 2', 'lat' => 10.02, 'lng' => 105.02, 'phone' => '0909123456'],
+            ],
+        ]);
+
+        $response->assertStatus(201);
+        $order = Order::latest('id')->first();
+        $this->assertNull($order->delivery_phone);
+        $this->assertSame(['', '0909123456'], collect($order->stops)->pluck('phone')->all());
+    }
 }

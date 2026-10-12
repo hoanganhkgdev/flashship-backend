@@ -281,7 +281,7 @@ class OrderController extends Controller
                     'address' => $stop['address'],
                     'lat' => $stop['lat'] ?? null,
                     'lng' => $stop['lng'] ?? null,
-                    'phone' => $stop['phone'],
+                    'phone' => $stop['phone'] ?? '',
                     'name' => $stop['name'] ?? '',
                     'cod_amount' => $stop['cod_amount'] ?? null,
                     'note' => $stop['note'] ?? '',
@@ -313,7 +313,7 @@ class OrderController extends Controller
                     'pickup_lng' => $pickupLng,
                     // Điểm giao chính = stop đầu tiên
                     'receiver_name' => $firstStop['name'],
-                    'delivery_phone' => $firstStop['phone'],
+                    'delivery_phone' => $firstStop['phone'] !== '' ? $firstStop['phone'] : null,
                     'delivery_address' => $firstStop['address'],
                     'delivery_lat' => $firstStop['lat'],
                     'delivery_lng' => $firstStop['lng'],
