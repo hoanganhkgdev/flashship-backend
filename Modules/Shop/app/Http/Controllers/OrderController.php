@@ -268,11 +268,12 @@ class OrderController extends Controller
                         (float) $pickupLat, (float) $pickupLng,
                         (float) $stop['lat'], (float) $stop['lng'],
                         $weightKg,
-                        $user->city_id
+                        $user->city_id,
+                        $stop['destination_id'] ?? null
                     );
                 } else {
                     $pricing = ShopPricingService::estimateFromAddresses(
-                        $cargoType, $data['pickup_address'], $stop['address'], $weightKg, $user->city_id
+                        $cargoType, $data['pickup_address'], $stop['address'], $weightKg, $user->city_id, $stop['destination_id'] ?? null
                     );
                 }
 

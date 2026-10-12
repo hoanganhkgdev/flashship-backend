@@ -91,6 +91,7 @@ class PricingController extends Controller
             'stops.*.lat'        => 'nullable|numeric',
             'stops.*.lng'        => 'nullable|numeric',
             'stops.*.cargo_weight' => 'nullable|numeric|min:0',
+            'stops.*.destination_id' => 'nullable|integer',
         ]);
 
         $cargoType   = $data['cargo_type'] ?? 'food';
@@ -112,7 +113,8 @@ class PricingController extends Controller
                     (float) $pickupLat, (float) $pickupLng,
                     (float) $stop['lat'], (float) $stop['lng'],
                     $weightKg,
-                    $cityId
+                    $cityId,
+                    $stop['destination_id'] ?? null
                 );
             } elseif ($pickupAddr && !empty($stop['address'])) {
                 $result = ShopPricingService::estimateFromAddresses(
@@ -120,7 +122,8 @@ class PricingController extends Controller
                     $pickupAddr,
                     $stop['address'],
                     $weightKg,
-                    $cityId
+                    $cityId,
+                    $stop['destination_id'] ?? null
                 );
             } else {
                 return response()->json([

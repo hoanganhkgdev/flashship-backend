@@ -31,6 +31,7 @@ class StoreBatchOrderRequest extends FormRequest
             'stops.*.name' => 'nullable|string',
             'stops.*.cod_amount' => 'nullable|integer|min:0',
             'stops.*.note' => 'nullable|string',
+            'stops.*.destination_id' => 'nullable|integer',
         ];
     }
 }

@@ -164,4 +164,35 @@ class ShopDestinationPricingTest extends TestCase
         $this->assertSame(['Sân bay'], collect($response->json('data'))->pluck('name')->all());
         $this->assertSame(['id', 'name', 'fee', 'fee_max'], array_keys($response->json('data.0')));
     }
+
+    public function test_batch_stops_can_each_choose_a_destination(): void
+    {
+        $airport = $this->zone('Sân bay', self::AIRPORT, 55000);
+        $shop = User::create([
+            'name' => 'Shop', 'email' => uniqid().'@test.local', 'phone' => '09'.random_int(10000000, 99999999),
+            'password' => 'test-password', 'user_type' => 'shop', 'status' => 1, 'city_id' => $this->city->id,
+        ]);
+        Sanctum::actingAs($shop);
+        $payload = [
+            'pickup_address' => 'Cửa hàng', 'pickup_lat' => self::DUONG_DONG[0], 'pickup_lng' => self::DUONG_DONG[1],
+            'cargo_type' => 'food',
+            'stops' => [
+                ['address' => 'Điểm 1', 'lat' => 10.30, 'lng' => 103.90, 'destination_id' => $airport->id],
+                ['address' => 'Điểm 2', 'lat' => 10.31, 'lng' => 103.91],
+            ],
+        ];
+
+        $estimate = $this->postJson('/api/shop/pricing/estimate-batch', $payload)->assertOk();
+
+        $this->assertSame(55000, $estimate->json('data.stops.0.fee'));
+        $this->assertNotSame(55000, $estimate->json('data.stops.1.fee'));
+
+        \Illuminate\Support\Facades\Queue::fake();
+        \Illuminate\Support\Facades\Event::fake();
+        $this->postJson('/api/shop/orders/batch', $payload)->assertStatus(201);
+
+        $order = \Modules\Order\Models\Order::latest('id')->first();
+        $this->assertSame(55000, collect($order->stops)->firstWhere('seq', 1)['fee']);
+        $this->assertSame($estimate->json('data.total_fee'), (int) $order->shipping_fee);
+    }
 }
