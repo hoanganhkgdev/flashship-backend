@@ -27,11 +27,19 @@ class StoreBatchOrderRequest extends FormRequest
             'stops.*.address' => 'required_without:stops.*.destination_id|nullable|string',
             'stops.*.lat' => 'nullable|numeric',
             'stops.*.lng' => 'nullable|numeric',
-            'stops.*.phone' => 'nullable|string',
+            'stops.*.phone' => 'required|string',
             'stops.*.name' => 'nullable|string',
             'stops.*.cod_amount' => 'nullable|integer|min:0',
             'stops.*.note' => 'nullable|string',
             'stops.*.destination_id' => 'nullable|integer',
+        ];
+    }
+
+    public function messages(): array
+    {
+        return [
+            'stops.*.phone.required' => 'Điểm giao :position cần nhập SĐT người nhận.',
+            'stops.*.address.required_without' => 'Điểm giao :position cần nhập địa chỉ hoặc chọn khu vực giao.',
         ];
     }
 }

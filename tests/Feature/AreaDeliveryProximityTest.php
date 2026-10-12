@@ -88,7 +88,8 @@ class AreaDeliveryProximityTest extends TestCase
         $this->postJson('/api/shop/orders', [
             'pickup_address' => 'Cửa hàng', 'pickup_lat' => 10.0, 'pickup_lng' => 105.0,
             'delivery_address' => 'Số 1 đường A', 'delivery_lat' => 10.011, 'delivery_lng' => 105.011,
-            'cargo_type' => 'food', 'destination_id' => ShopDestinationPrice::where('city_id', $city->id)->value('id'),
+            'cargo_type' => 'food', 'delivery_phone' => '0909000006',
+            'destination_id' => ShopDestinationPrice::where('city_id', $city->id)->value('id'),
         ])->assertStatus(201);
 
         $this->assertNull(Order::latest('id')->first()->delivery_area_radius_km);

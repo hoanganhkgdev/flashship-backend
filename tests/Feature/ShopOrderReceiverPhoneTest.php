@@ -13,7 +13,7 @@ use Modules\Core\Models\User;
 use Modules\Order\Models\Order;
 use Tests\TestCase;
 
-class ShopOrderOptionalReceiverPhoneTest extends TestCase
+class ShopOrderReceiverPhoneTest extends TestCase
 {
     use DatabaseTransactions;
 
@@ -45,19 +45,17 @@ class ShopOrderOptionalReceiverPhoneTest extends TestCase
         Http::fake(['*' => Http::response([], 500)]);
     }
 
-    public function test_delivery_order_can_be_created_without_receiver_phone(): void
+    public function test_delivery_order_requires_the_receiver_phone(): void
     {
         Sanctum::actingAs($this->shop());
 
-        $response = $this->postJson('/api/shop/orders', $this->payload());
-
-        $response->assertStatus(201);
-        $order = Order::latest('id')->first();
-        $this->assertNull($order->delivery_phone);
-        $this->assertSame('Điểm giao', $order->delivery_address);
+        $this->postJson('/api/shop/orders', $this->payload())
+            ->assertStatus(422)
+            ->assertJsonValidationErrors(['delivery_phone'])
+            ->assertJsonPath('errors.delivery_phone.0', 'Vui lòng nhập SĐT người nhận.');
     }
 
-    public function test_receiver_phone_is_still_saved_when_provided(): void
+    public function test_receiver_phone_is_saved_when_provided(): void
     {
         Sanctum::actingAs($this->shop());
 
@@ -66,21 +64,33 @@ class ShopOrderOptionalReceiverPhoneTest extends TestCase
         $this->assertSame('0909123456', Order::latest('id')->first()->delivery_phone);
     }
 
-    public function test_batch_order_stops_do_not_require_a_phone(): void
+    public function test_batch_order_requires_a_phone_on_every_stop(): void
+    {
+        Sanctum::actingAs($this->shop());
+        $base = ['pickup_address' => 'Cửa hàng', 'pickup_lat' => 10.0, 'pickup_lng' => 105.0, 'cargo_type' => 'food'];
+
+        $response = $this->postJson('/api/shop/orders/batch', $base + ['stops' => [
+            ['address' => 'Điểm 1', 'lat' => 10.01, 'lng' => 105.01, 'phone' => '0909123456'],
+            ['address' => 'Điểm 2', 'lat' => 10.02, 'lng' => 105.02],
+        ]])->assertStatus(422)->assertJsonValidationErrors(['stops.1.phone']);
+
+        $this->assertSame('Điểm giao 2 cần nhập SĐT người nhận.', $response->json('errors')['stops.1.phone'][0]);
+    }
+
+    public function test_batch_order_is_created_when_every_stop_has_a_phone(): void
     {
         Sanctum::actingAs($this->shop());
 
-        $response = $this->postJson('/api/shop/orders/batch', [
+        $this->postJson('/api/shop/orders/batch', [
             'pickup_address' => 'Cửa hàng', 'pickup_lat' => 10.0, 'pickup_lng' => 105.0, 'cargo_type' => 'food',
             'stops' => [
-                ['address' => 'Điểm 1', 'lat' => 10.01, 'lng' => 105.01],
-                ['address' => 'Điểm 2', 'lat' => 10.02, 'lng' => 105.02, 'phone' => '0909123456'],
+                ['address' => 'Điểm 1', 'lat' => 10.01, 'lng' => 105.01, 'phone' => '0909123456'],
+                ['address' => 'Điểm 2', 'lat' => 10.02, 'lng' => 105.02, 'phone' => '0909654321'],
             ],
-        ]);
+        ])->assertStatus(201);
 
-        $response->assertStatus(201);
         $order = Order::latest('id')->first();
-        $this->assertNull($order->delivery_phone);
-        $this->assertSame(['', '0909123456'], collect($order->stops)->pluck('phone')->all());
+        $this->assertSame('0909123456', $order->delivery_phone);
+        $this->assertSame(['0909123456', '0909654321'], collect($order->stops)->pluck('phone')->all());
     }
 }

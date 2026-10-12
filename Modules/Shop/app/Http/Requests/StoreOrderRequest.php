@@ -24,7 +24,7 @@ class StoreOrderRequest extends FormRequest
             'delivery_address' => 'required_without:destination_id|nullable|string',
             'delivery_lat' => 'nullable|numeric',
             'delivery_lng' => 'nullable|numeric',
-            'delivery_phone' => 'nullable|string',
+            'delivery_phone' => 'required|string',
             'delivery_name' => 'nullable|string',
             'delivery_place_name' => 'nullable|string|max:100',
             'order_note' => 'nullable|string',
@@ -34,6 +34,14 @@ class StoreOrderRequest extends FormRequest
             'cod_amount' => 'nullable|integer|min:0',
             'voucher_code' => 'nullable|string',
             'destination_id' => 'nullable|integer',
+        ];
+    }
+
+    public function messages(): array
+    {
+        return [
+            'delivery_phone.required' => 'Vui lòng nhập SĐT người nhận.',
+            'delivery_address.required_without' => 'Vui lòng nhập địa chỉ giao hàng hoặc chọn khu vực giao.',
         ];
     }
 }

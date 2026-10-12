@@ -177,8 +177,8 @@ class ShopDestinationPricingTest extends TestCase
             'pickup_address' => 'Cửa hàng', 'pickup_lat' => self::DUONG_DONG[0], 'pickup_lng' => self::DUONG_DONG[1],
             'cargo_type' => 'food',
             'stops' => [
-                ['address' => 'Điểm 1', 'lat' => 10.30, 'lng' => 103.90, 'destination_id' => $airport->id],
-                ['address' => 'Điểm 2', 'lat' => 10.31, 'lng' => 103.91],
+                ['address' => 'Điểm 1', 'phone' => '0909000001', 'lat' => 10.30, 'lng' => 103.90, 'destination_id' => $airport->id],
+                ['address' => 'Điểm 2', 'phone' => '0909000002', 'lat' => 10.31, 'lng' => 103.91],
             ],
         ];
 
@@ -227,7 +227,7 @@ class ShopDestinationPricingTest extends TestCase
 
         $this->postJson('/api/shop/orders', [
             'pickup_address' => 'Cửa hàng', 'pickup_lat' => self::DUONG_DONG[0], 'pickup_lng' => self::DUONG_DONG[1],
-            'cargo_type' => 'food', 'destination_id' => $airport->id,
+            'cargo_type' => 'food', 'destination_id' => $airport->id, 'delivery_phone' => '0909000004',
         ])->assertStatus(201);
 
         $order = \Modules\Order\Models\Order::latest('id')->first();
@@ -244,7 +244,7 @@ class ShopDestinationPricingTest extends TestCase
         $foreign = ShopDestinationPrice::create(['city_id' => $other->id, 'name' => 'Khác', 'lat' => 1, 'lng' => 1, 'radius_km' => 1, 'fee' => 1000]);
         Sanctum::actingAs($this->shopUser());
 
-        $base = ['pickup_address' => 'Cửa hàng', 'pickup_lat' => 10.0, 'pickup_lng' => 105.0, 'cargo_type' => 'food'];
+        $base = ['pickup_address' => 'Cửa hàng', 'pickup_lat' => 10.0, 'pickup_lng' => 105.0, 'cargo_type' => 'food', 'delivery_phone' => '0909000005'];
 
         $this->postJson('/api/shop/orders', $base)->assertStatus(422);
         $this->postJson('/api/shop/orders', $base + ['destination_id' => $foreign->id])->assertStatus(422);
@@ -259,7 +259,7 @@ class ShopDestinationPricingTest extends TestCase
 
         $this->postJson('/api/shop/orders/batch', [
             'pickup_address' => 'Cửa hàng', 'pickup_lat' => self::DUONG_DONG[0], 'pickup_lng' => self::DUONG_DONG[1],
-            'stops' => [['destination_id' => $airport->id]],
+            'stops' => [['destination_id' => $airport->id, 'phone' => '0909000003']],
         ])->assertStatus(201);
 
         $order = \Modules\Order\Models\Order::latest('id')->first();
