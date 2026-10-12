@@ -379,6 +379,7 @@ class OrderController extends Controller
             $requestedStop['lat'] ?? null,
             $requestedStop['lng'] ?? null,
             $order->city_id,
+            $requestedStop['area_radius_km'] ?? null,
         );
         if ($proximityError) {
             $status = $proximityError['status'];

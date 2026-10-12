@@ -54,20 +54,24 @@ class ShopDestinationPrice extends Model
      * Điểm giao chưa có địa chỉ/toạ độ mà shop đã chọn khu vực: lấy tên và tâm
      * khu vực làm điểm giao. Có sẵn địa chỉ/toạ độ thì giữ nguyên.
      *
-     * @return array{0: ?string, 1: ?float, 2: ?float, 3: ?self} [địa chỉ, lat, lng, khu vực]
+     * @return array{0: ?string, 1: ?float, 2: ?float, 3: ?self, 4: bool} [địa chỉ, lat, lng, khu vực,
+     *                                                                      true nếu toạ độ là tâm khu vực]
      */
     public static function fillDeliveryPoint(?int $cityId, ?int $destinationId, ?string $address, $lat, $lng): array
     {
         $zone = static::findActive($cityId, $destinationId);
         if (! $zone) {
-            return [$address, $lat, $lng, null];
+            return [$address, $lat, $lng, null, false];
         }
+
+        $hasPoint = $lat !== null && $lng !== null;
 
         return [
             filled($address) ? $address : $zone->name,
-            ($lat !== null && $lng !== null) ? (float) $lat : $zone->lat,
-            ($lat !== null && $lng !== null) ? (float) $lng : $zone->lng,
+            $hasPoint ? (float) $lat : $zone->lat,
+            $hasPoint ? (float) $lng : $zone->lng,
             $zone,
+            ! $hasPoint,
         ];
     }
 

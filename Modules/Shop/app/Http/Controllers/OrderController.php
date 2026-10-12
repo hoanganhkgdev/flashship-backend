@@ -139,7 +139,8 @@ class OrderController extends Controller
 
         // Chọn khu vực mà chưa nhập địa chỉ giao: dùng tên/tâm khu vực làm điểm giao.
         $zoneForDelivery = null;
-        [$data['delivery_address'], $data['delivery_lat'], $data['delivery_lng'], $zoneForDelivery] = ShopDestinationPrice::fillDeliveryPoint(
+        $deliveryIsAreaCentre = false;
+        [$data['delivery_address'], $data['delivery_lat'], $data['delivery_lng'], $zoneForDelivery, $deliveryIsAreaCentre] = ShopDestinationPrice::fillDeliveryPoint(
             $user->city_id, $data['destination_id'] ?? null,
             $data['delivery_address'] ?? null, $data['delivery_lat'] ?? null, $data['delivery_lng'] ?? null
         );
@@ -179,7 +180,7 @@ class OrderController extends Controller
             // Voucher, order và usage phải commit/rollback cùng nhau. Nếu
             // Order::create() hoặc VoucherUsage::create() lỗi thì used_count
             // cũng được rollback, không làm mất lượt voucher của shop.
-            $order = \DB::transaction(function () use ($data, $user, $pricing, $nightSurcharge, $zoneForDelivery) {
+            $order = \DB::transaction(function () use ($data, $user, $pricing, $nightSurcharge, $zoneForDelivery, $deliveryIsAreaCentre) {
                 \DB::table('users')->where('id', $user->id)->lockForUpdate()->first();
                 $applied = $this->tryApplyVoucher($data['voucher_code'] ?? null, $user, $pricing['fee'], (float) $pricing['distance_km']);
                 $voucherCode = $applied['code'] ?? null;
@@ -200,6 +201,7 @@ class OrderController extends Controller
                     'delivery_phone' => ! empty($data['delivery_phone']) ? $data['delivery_phone'] : null,
                     'delivery_address' => $data['delivery_address'],
                     'delivery_place_name' => $data['delivery_place_name'] ?? $zoneForDelivery?->name,
+                    'delivery_area_radius_km' => $deliveryIsAreaCentre ? $zoneForDelivery?->radius_km : null,
                     'delivery_lat' => $data['delivery_lat'] ?? null,
                     'delivery_lng' => $data['delivery_lng'] ?? null,
                     'service_type' => 'delivery',
@@ -276,11 +278,9 @@ class OrderController extends Controller
             $totalFee = 0;
 
             foreach ($data['stops'] as $i => $stop) {
-                [$stop['address'], $stop['lat'], $stop['lng']] = array_slice(
-                    ShopDestinationPrice::fillDeliveryPoint(
-                        $user->city_id, $stop['destination_id'] ?? null,
-                        $stop['address'] ?? null, $stop['lat'] ?? null, $stop['lng'] ?? null
-                    ), 0, 3
+                [$stop['address'], $stop['lat'], $stop['lng'], $stopZone, $stopIsAreaCentre] = ShopDestinationPrice::fillDeliveryPoint(
+                    $user->city_id, $stop['destination_id'] ?? null,
+                    $stop['address'] ?? null, $stop['lat'] ?? null, $stop['lng'] ?? null
                 );
                 if (! filled($stop['address'])) {
                     return response()->json([
@@ -316,6 +316,8 @@ class OrderController extends Controller
                     'fee' => $pricing['fee'],
                     'distance_km' => $pricing['distance_km'],
                     'delivered_at' => null,
+                    // Điểm giao chỉ là tâm khu vực: tài xế được hoàn thành trong bán kính khu vực.
+                    'area_radius_km' => $stopIsAreaCentre ? $stopZone?->radius_km : null,
                 ];
                 $totalFee += $pricing['fee'];
             }

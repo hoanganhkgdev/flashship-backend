@@ -233,6 +233,7 @@ class ShopDestinationPricingTest extends TestCase
         $order = \Modules\Order\Models\Order::latest('id')->first();
         $this->assertSame('Sân bay', $order->delivery_address);
         $this->assertSame('Sân bay', $order->delivery_place_name);
+        $this->assertEqualsWithDelta(1.5, (float) $order->delivery_area_radius_km, 0.01);
         $this->assertEqualsWithDelta(self::AIRPORT[0], (float) $order->delivery_lat, 0.0001);
         $this->assertSame(55000, (int) $order->shipping_fee);
     }
@@ -265,5 +266,6 @@ class ShopDestinationPricingTest extends TestCase
         $stop = collect($order->stops)->first();
         $this->assertSame('Sân bay', $stop['address']);
         $this->assertSame(55000, $stop['fee']);
+        $this->assertEqualsWithDelta(1.5, (float) $stop['area_radius_km'], 0.01);
     }
 }

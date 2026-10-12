@@ -604,7 +604,7 @@ class OrderService
         }
 
         if (! $proximityAlreadyVerified && $hasTarget) {
-            $proximityError = $this->checkDriverProximity($user, $target['lat'], $target['lng'], $order->city_id);
+            $proximityError = $this->checkDriverProximity($user, $target['lat'], $target['lng'], $order->city_id, $target['area_radius_km'] ?? null);
             if ($proximityError) {
                 Log::warning('[OrderComplete] proximity rejected', [
                     'order_id' => $order->id,
@@ -741,7 +741,7 @@ class OrderService
     }
 
     /** $cityId: khu vực của đơn — bán kính hoàn thành theo cấu hình khu vực đó. */
-    public function checkDriverProximity(User $driver, mixed $targetLat, mixed $targetLng, ?int $cityId): ?array
+    public function checkDriverProximity(User $driver, mixed $targetLat, mixed $targetLng, ?int $cityId, mixed $areaRadiusKm = null): ?array
     {
         if (! is_numeric($targetLat) || ! is_numeric($targetLng)) {
             return [
@@ -769,12 +769,18 @@ class OrderService
             (float) $targetLat,
             (float) $targetLng,
         );
-        if ($distanceKm > OperationalSettings::completionRadiusKm($cityId)) {
+        // Điểm giao chỉ là tâm khu vực (shop không nhập địa chỉ thật): được hoàn
+        // thành trong bán kính khu vực, nếu lớn hơn ngưỡng mặc định.
+        $allowedKm = max(
+            OperationalSettings::completionRadiusKm($cityId),
+            is_numeric($areaRadiusKm) ? (float) $areaRadiusKm : 0.0,
+        );
+        if ($distanceKm > $allowedKm) {
             $distanceM = (int) round($distanceKm * 1000);
             return [
                 'success' => false,
                 'reason_code' => 'TOO_FAR_FROM_DELIVERY',
-                'message' => "Hệ thống ghi nhận bạn đang cách điểm giao {$distanceM} m. Cần ở trong phạm vi ".OperationalSettings::completionRadiusMeters($cityId).' m để hoàn thành.',
+                'message' => "Hệ thống ghi nhận bạn đang cách điểm giao {$distanceM} m. Cần ở trong phạm vi ".(int) round($allowedKm * 1000).' m để hoàn thành.',
                 'distance_m' => $distanceM,
                 'status' => 422,
             ];
@@ -783,17 +789,17 @@ class OrderService
         return null;
     }
 
-    /** @return array{lat: mixed, lng: mixed} */
+    /** @return array{lat: mixed, lng: mixed, area_radius_km: mixed} */
     private function completionTarget(Order $order): array
     {
         if ($order->is_batch) {
             $lastStop = collect($order->stops ?? [])->sortByDesc('seq')->first();
             if ($lastStop) {
-                return ['lat' => $lastStop['lat'] ?? null, 'lng' => $lastStop['lng'] ?? null];
+                return ['lat' => $lastStop['lat'] ?? null, 'lng' => $lastStop['lng'] ?? null, 'area_radius_km' => $lastStop['area_radius_km'] ?? null];
             }
         }
 
-        return ['lat' => $order->delivery_lat, 'lng' => $order->delivery_lng];
+        return ['lat' => $order->delivery_lat, 'lng' => $order->delivery_lng, 'area_radius_km' => $order->delivery_area_radius_km];
     }
 
     public function createOrder(array $data, User $user): Order

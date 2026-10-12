@@ -34,7 +34,7 @@ class Order extends Model
         'extra_claimed_count', 'bundle_window_expires_at', 'dispatching_to_driver_id',
         'dispatch_attempts', 'sender_platform_id', 'platform', 'created_by', 'status', 'cancel_reason',
         'pickup_address', 'pickup_place_name', 'pickup_lat', 'pickup_lng', 'pickup_phone', 'sender_name', 'store_name',
-        'delivery_address', 'delivery_place_name', 'delivery_lat', 'delivery_lng', 'delivery_phone', 'receiver_name',
+        'delivery_address', 'delivery_place_name', 'delivery_lat', 'delivery_lng', 'delivery_area_radius_km', 'delivery_phone', 'receiver_name',
         'shipping_fee', 'bonus_fee', 'night_surcharge', 'is_freeship', 'rain_bonus_eligible', 'rain_bonus_amount', 'distance', 'payment_method', 'cod_amount',
         'order_note', 'cargo_type', 'cargo_note', 'cargo_weight',
         'is_batch', 'stops', 'shop_service_type',
