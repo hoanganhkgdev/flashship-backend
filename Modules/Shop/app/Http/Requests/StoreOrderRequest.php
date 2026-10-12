@@ -21,7 +21,7 @@ class StoreOrderRequest extends FormRequest
             'pickup_phone' => 'nullable|string',
             'pickup_name' => 'nullable|string',
             'pickup_place_name' => 'nullable|string|max:100',
-            'delivery_address' => 'required|string',
+            'delivery_address' => 'required_without:destination_id|nullable|string',
             'delivery_lat' => 'nullable|numeric',
             'delivery_lng' => 'nullable|numeric',
             'delivery_phone' => 'nullable|string',

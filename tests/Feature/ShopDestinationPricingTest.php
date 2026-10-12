@@ -195,4 +195,75 @@ class ShopDestinationPricingTest extends TestCase
         $this->assertSame(55000, collect($order->stops)->firstWhere('seq', 1)['fee']);
         $this->assertSame($estimate->json('data.total_fee'), (int) $order->shipping_fee);
     }
+
+    private function shopUser(): User
+    {
+        return User::create([
+            'name' => 'Shop', 'email' => uniqid().'@test.local', 'phone' => '09'.random_int(10000000, 99999999),
+            'password' => 'test-password', 'user_type' => 'shop', 'status' => 1, 'city_id' => $this->city->id,
+        ]);
+    }
+
+    public function test_estimate_works_with_only_a_chosen_destination(): void
+    {
+        $airport = $this->zone('Sân bay', self::AIRPORT, 55000);
+        Sanctum::actingAs($this->shopUser());
+
+        $response = $this->getJson('/api/shop/pricing/estimate?'.http_build_query([
+            'cargo_type' => 'food', 'pickup_lat' => self::DUONG_DONG[0], 'pickup_lng' => self::DUONG_DONG[1],
+            'destination_id' => $airport->id,
+        ]))->assertOk();
+
+        $this->assertSame(55000, $response->json('data.fee'));
+        $this->assertSame('Sân bay', $response->json('data.destination_name'));
+    }
+
+    public function test_order_can_be_created_with_a_destination_and_no_delivery_address(): void
+    {
+        $airport = $this->zone('Sân bay', self::AIRPORT, 55000);
+        Sanctum::actingAs($this->shopUser());
+        \Illuminate\Support\Facades\Queue::fake();
+        \Illuminate\Support\Facades\Event::fake();
+
+        $this->postJson('/api/shop/orders', [
+            'pickup_address' => 'Cửa hàng', 'pickup_lat' => self::DUONG_DONG[0], 'pickup_lng' => self::DUONG_DONG[1],
+            'cargo_type' => 'food', 'destination_id' => $airport->id,
+        ])->assertStatus(201);
+
+        $order = \Modules\Order\Models\Order::latest('id')->first();
+        $this->assertSame('Sân bay', $order->delivery_address);
+        $this->assertSame('Sân bay', $order->delivery_place_name);
+        $this->assertEqualsWithDelta(self::AIRPORT[0], (float) $order->delivery_lat, 0.0001);
+        $this->assertSame(55000, (int) $order->shipping_fee);
+    }
+
+    public function test_order_without_address_or_valid_destination_is_rejected(): void
+    {
+        $other = City::create(['name' => 'Other', 'slug' => 'other-'.uniqid(), 'is_active' => true]);
+        $foreign = ShopDestinationPrice::create(['city_id' => $other->id, 'name' => 'Khác', 'lat' => 1, 'lng' => 1, 'radius_km' => 1, 'fee' => 1000]);
+        Sanctum::actingAs($this->shopUser());
+
+        $base = ['pickup_address' => 'Cửa hàng', 'pickup_lat' => 10.0, 'pickup_lng' => 105.0, 'cargo_type' => 'food'];
+
+        $this->postJson('/api/shop/orders', $base)->assertStatus(422);
+        $this->postJson('/api/shop/orders', $base + ['destination_id' => $foreign->id])->assertStatus(422);
+    }
+
+    public function test_batch_stop_can_use_only_a_destination(): void
+    {
+        $airport = $this->zone('Sân bay', self::AIRPORT, 55000);
+        Sanctum::actingAs($this->shopUser());
+        \Illuminate\Support\Facades\Queue::fake();
+        \Illuminate\Support\Facades\Event::fake();
+
+        $this->postJson('/api/shop/orders/batch', [
+            'pickup_address' => 'Cửa hàng', 'pickup_lat' => self::DUONG_DONG[0], 'pickup_lng' => self::DUONG_DONG[1],
+            'stops' => [['destination_id' => $airport->id]],
+        ])->assertStatus(201);
+
+        $order = \Modules\Order\Models\Order::latest('id')->first();
+        $stop = collect($order->stops)->first();
+        $this->assertSame('Sân bay', $stop['address']);
+        $this->assertSame(55000, $stop['fee']);
+    }
 }

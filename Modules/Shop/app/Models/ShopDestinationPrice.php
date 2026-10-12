@@ -41,6 +41,36 @@ class ShopDestinationPrice extends Model
         return GoogleMapService::haversineKm($this->lat, $this->lng, $lat, $lng);
     }
 
+    public static function findActive(?int $cityId, ?int $destinationId): ?self
+    {
+        if (! $cityId || ! $destinationId) {
+            return null;
+        }
+
+        return static::where('city_id', $cityId)->where('is_active', true)->find($destinationId);
+    }
+
+    /**
+     * Điểm giao chưa có địa chỉ/toạ độ mà shop đã chọn khu vực: lấy tên và tâm
+     * khu vực làm điểm giao. Có sẵn địa chỉ/toạ độ thì giữ nguyên.
+     *
+     * @return array{0: ?string, 1: ?float, 2: ?float, 3: ?self} [địa chỉ, lat, lng, khu vực]
+     */
+    public static function fillDeliveryPoint(?int $cityId, ?int $destinationId, ?string $address, $lat, $lng): array
+    {
+        $zone = static::findActive($cityId, $destinationId);
+        if (! $zone) {
+            return [$address, $lat, $lng, null];
+        }
+
+        return [
+            filled($address) ? $address : $zone->name,
+            ($lat !== null && $lng !== null) ? (float) $lat : $zone->lat,
+            ($lat !== null && $lng !== null) ? (float) $lng : $zone->lng,
+            $zone,
+        ];
+    }
+
     /**
      * Điểm đến do shop chọn tay. Vẫn phải thuộc thành phố, đang bật, và điểm lấy
      * (nếu biết) nằm trong vùng xuất phát — ngoài vùng thì tính theo km như thường.

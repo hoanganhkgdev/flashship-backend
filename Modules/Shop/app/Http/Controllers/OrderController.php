@@ -16,6 +16,7 @@ use Modules\Order\Models\Order;
 use Modules\Order\Services\OrderService;
 use Modules\Shop\Http\Requests\StoreBatchOrderRequest;
 use Modules\Shop\Http\Requests\StoreOrderRequest;
+use Modules\Shop\Models\ShopDestinationPrice;
 use Modules\Shop\Services\ShopPricingService;
 
 class OrderController extends Controller
@@ -136,6 +137,19 @@ class OrderController extends Controller
             ], 422);
         }
 
+        // Chọn khu vực mà chưa nhập địa chỉ giao: dùng tên/tâm khu vực làm điểm giao.
+        $zoneForDelivery = null;
+        [$data['delivery_address'], $data['delivery_lat'], $data['delivery_lng'], $zoneForDelivery] = ShopDestinationPrice::fillDeliveryPoint(
+            $user->city_id, $data['destination_id'] ?? null,
+            $data['delivery_address'] ?? null, $data['delivery_lat'] ?? null, $data['delivery_lng'] ?? null
+        );
+        if (! filled($data['delivery_address'])) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Khu vực giao không hợp lệ. Vui lòng chọn lại hoặc nhập địa chỉ giao hàng.',
+            ], 422);
+        }
+
         try {
             $cargoType = $data['cargo_type'] ?? 'food';
             $weightKg = isset($data['cargo_weight']) ? (float) $data['cargo_weight'] : null;
@@ -165,7 +179,7 @@ class OrderController extends Controller
             // Voucher, order và usage phải commit/rollback cùng nhau. Nếu
             // Order::create() hoặc VoucherUsage::create() lỗi thì used_count
             // cũng được rollback, không làm mất lượt voucher của shop.
-            $order = \DB::transaction(function () use ($data, $user, $pricing, $nightSurcharge) {
+            $order = \DB::transaction(function () use ($data, $user, $pricing, $nightSurcharge, $zoneForDelivery) {
                 \DB::table('users')->where('id', $user->id)->lockForUpdate()->first();
                 $applied = $this->tryApplyVoucher($data['voucher_code'] ?? null, $user, $pricing['fee'], (float) $pricing['distance_km']);
                 $voucherCode = $applied['code'] ?? null;
@@ -185,7 +199,7 @@ class OrderController extends Controller
                     'receiver_name' => $data['delivery_name'] ?? '',
                     'delivery_phone' => ! empty($data['delivery_phone']) ? $data['delivery_phone'] : null,
                     'delivery_address' => $data['delivery_address'],
-                    'delivery_place_name' => $data['delivery_place_name'] ?? null,
+                    'delivery_place_name' => $data['delivery_place_name'] ?? $zoneForDelivery?->name,
                     'delivery_lat' => $data['delivery_lat'] ?? null,
                     'delivery_lng' => $data['delivery_lng'] ?? null,
                     'service_type' => 'delivery',
@@ -262,6 +276,19 @@ class OrderController extends Controller
             $totalFee = 0;
 
             foreach ($data['stops'] as $i => $stop) {
+                [$stop['address'], $stop['lat'], $stop['lng']] = array_slice(
+                    ShopDestinationPrice::fillDeliveryPoint(
+                        $user->city_id, $stop['destination_id'] ?? null,
+                        $stop['address'] ?? null, $stop['lat'] ?? null, $stop['lng'] ?? null
+                    ), 0, 3
+                );
+                if (! filled($stop['address'])) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Điểm '.($i + 1).': khu vực giao không hợp lệ, vui lòng chọn lại hoặc nhập địa chỉ.',
+                    ], 422);
+                }
+
                 if ($pickupLat && isset($stop['lat'], $stop['lng'])) {
                     $pricing = ShopPricingService::estimateFromCoords(
                         $cargoType,

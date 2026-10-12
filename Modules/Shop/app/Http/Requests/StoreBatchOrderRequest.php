@@ -24,7 +24,7 @@ class StoreBatchOrderRequest extends FormRequest
             'order_note' => 'nullable|string',
             'voucher_code' => 'nullable|string',
             'stops' => 'required|array|min:1|max:10',
-            'stops.*.address' => 'required|string',
+            'stops.*.address' => 'required_without:stops.*.destination_id|nullable|string',
             'stops.*.lat' => 'nullable|numeric',
             'stops.*.lng' => 'nullable|numeric',
             'stops.*.phone' => 'nullable|string',

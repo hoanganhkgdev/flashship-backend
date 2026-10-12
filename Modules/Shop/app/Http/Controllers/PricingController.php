@@ -28,6 +28,14 @@ class PricingController extends Controller
         $weightKg  = isset($data['cargo_weight']) ? (float) $data['cargo_weight'] : null;
         $cityId    = $request->user()?->city_id;
 
+        // Chọn khu vực mà chưa nhập địa chỉ giao: dùng tên/tâm khu vực làm điểm giao.
+        [$data['delivery_address'], $data['delivery_lat'], $data['delivery_lng']] = array_slice(
+            ShopDestinationPrice::fillDeliveryPoint(
+                $cityId, $data['destination_id'] ?? null,
+                $data['delivery_address'] ?? null, $data['delivery_lat'] ?? null, $data['delivery_lng'] ?? null
+            ), 0, 3
+        );
+
         if (isset($data['pickup_lat'], $data['pickup_lng'],
                    $data['delivery_lat'], $data['delivery_lng'])) {
             $result = ShopPricingService::estimateFromCoords(
@@ -104,6 +112,12 @@ class PricingController extends Controller
         $totalFee = 0;
 
         foreach ($data['stops'] as $i => $stop) {
+            [$stop['address'], $stop['lat'], $stop['lng']] = array_slice(
+                ShopDestinationPrice::fillDeliveryPoint(
+                    $cityId, $stop['destination_id'] ?? null,
+                    $stop['address'] ?? null, $stop['lat'] ?? null, $stop['lng'] ?? null
+                ), 0, 3
+            );
             $weightKg = isset($stop['cargo_weight'])
                 ? (float) $stop['cargo_weight'] : null;
 
