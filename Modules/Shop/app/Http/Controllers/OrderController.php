@@ -183,7 +183,7 @@ class OrderController extends Controller
                     'pickup_lat' => $data['pickup_lat'] ?? null,
                     'pickup_lng' => $data['pickup_lng'] ?? null,
                     'receiver_name' => $data['delivery_name'] ?? '',
-                    'delivery_phone' => $data['delivery_phone'],
+                    'delivery_phone' => ! empty($data['delivery_phone']) ? $data['delivery_phone'] : null,
                     'delivery_address' => $data['delivery_address'],
                     'delivery_place_name' => $data['delivery_place_name'] ?? null,
                     'delivery_lat' => $data['delivery_lat'] ?? null,

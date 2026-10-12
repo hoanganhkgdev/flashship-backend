@@ -24,7 +24,7 @@ class StoreOrderRequest extends FormRequest
             'delivery_address' => 'required|string',
             'delivery_lat' => 'nullable|numeric',
             'delivery_lng' => 'nullable|numeric',
-            'delivery_phone' => 'required|string',
+            'delivery_phone' => 'nullable|string',
             'delivery_name' => 'nullable|string',
             'delivery_place_name' => 'nullable|string|max:100',
             'order_note' => 'nullable|string',
