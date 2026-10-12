@@ -48,14 +48,20 @@ class ShopPricingService
         float $deliveryLat, float $deliveryLng,
         ?float $cargoWeightKg = null,
         ?int $cityId = null,
-        ?int $destinationId = null
+        ?int $destinationId = null,
+        bool $includeNightSurcharge = true
     ): array {
         $km = GoogleMapService::roadDistanceKm($pickupLat, $pickupLng, $deliveryLat, $deliveryLng);
         // Shop chọn điểm đến thì ưu tiên điểm đó, còn lại tự nhận theo toạ độ giao.
-        $zone = ShopDestinationPrice::forSelection($cityId, $destinationId, $pickupLat, $pickupLng)
+        $zone = ShopDestinationPrice::forSelection(
+            $cityId, $destinationId, $pickupLat, $pickupLng, $deliveryLat, $deliveryLng
+        )
             ?? ShopDestinationPrice::resolve($cityId, $pickupLat, $pickupLng, $deliveryLat, $deliveryLng);
 
-        return self::calculate($cargoType, $km, $cargoWeightKg, $cityId, $zone);
+        return self::calculate(
+            $cargoType, $km, $cargoWeightKg, $cityId, $zone,
+            $deliveryLat, $deliveryLng, $includeNightSurcharge
+        );
     }
 
     public static function estimateFromAddresses(
@@ -64,24 +70,31 @@ class ShopPricingService
         string $deliveryAddress,
         ?float $cargoWeightKg = null,
         ?int $cityId = null,
-        ?int $destinationId = null
+        ?int $destinationId = null,
+        bool $includeNightSurcharge = true
     ): array {
-        $pickup   = GoogleMapService::geocode($pickupAddress);
+        $pickup = GoogleMapService::geocode($pickupAddress);
         $delivery = GoogleMapService::geocode($deliveryAddress);
 
         if ($pickup && $delivery) {
             return self::estimateFromCoords(
                 $cargoType,
-                $pickup['lat'],   $pickup['lng'],
+                $pickup['lat'], $pickup['lng'],
                 $delivery['lat'], $delivery['lng'],
                 $cargoWeightKg,
                 $cityId,
-                $destinationId
+                $destinationId,
+                $includeNightSurcharge
             );
         }
 
-        $result = self::calculate($cargoType, 3.0, $cargoWeightKg, $cityId, ShopDestinationPrice::forSelection($cityId, $destinationId));
+        $result = self::calculate(
+            $cargoType, 3.0, $cargoWeightKg, $cityId,
+            ShopDestinationPrice::forSelection($cityId, $destinationId),
+            includeNightSurcharge: $includeNightSurcharge
+        );
         $result['geocode_failed'] = true;
+
         return $result;
     }
 
@@ -92,43 +105,47 @@ class ShopPricingService
         float $km,
         ?float $weightKg,
         ?int $cityId,
-        ?ShopDestinationPrice $zone = null
+        ?ShopDestinationPrice $zone = null,
+        ?float $deliveryLat = null,
+        ?float $deliveryLng = null,
+        bool $includeNightSurcharge = true
     ): array {
         // Lấy config từ DB
         $cfg = ShopPricingConfig::forCargo($cargoType, $cityId);
 
         if ($cfg) {
-            $slabs          = $cfg->slabs;
-            $overMaxPerKm   = $cfg->over_max_per_km;
-            $weightPerKg    = $cfg->weight_per_kg;
+            $slabs = $cfg->slabs;
+            $overMaxPerKm = $cfg->over_max_per_km;
+            $weightPerKg = $cfg->weight_per_kg;
         } else {
             // Fallback hardcode
-            $slabs        = $cargoType === 'flowers'
+            $slabs = $cargoType === 'flowers'
                 ? self::$fallbackFlowers
                 : self::$fallbackFood;
             $overMaxPerKm = 3000;
-            $weightPerKg  = $cargoType === 'parcel' ? 1000 : 0;
+            $weightPerKg = $cargoType === 'parcel' ? 1000 : 0;
         }
 
         // Giá cố định theo điểm đến thay cho giá theo km; phụ phí vẫn cộng như thường.
-        $baseFee = $zone ? $zone->fee : self::slabFee($km, $slabs, $overMaxPerKm);
+        $baseFee = $zone ? $zone->feeAt($deliveryLat, $deliveryLng) : self::slabFee($km, $slabs, $overMaxPerKm);
 
         $weightSurcharge = 0;
         if ($weightPerKg > 0 && $weightKg !== null && $weightKg > 0) {
             $weightSurcharge = (int) (ceil($weightKg) * $weightPerKg);
         }
 
-        $nightSurcharge = self::nightSurcharge($cityId);
+        $nightSurcharge = $includeNightSurcharge ? self::nightSurchargeForCity($cityId) : 0;
 
         return [
-            'cargo_type'       => $cargoType,
-            'distance_km'      => round($km, 2),
-            'pricing_mode'     => $zone ? 'destination' : 'distance',
+            'cargo_type' => $cargoType,
+            'distance_km' => round($km, 2),
+            'pricing_mode' => $zone ? 'destination' : 'distance',
+            'destination_id' => $zone?->id,
             'destination_name' => $zone?->name,
-            'base_fee'         => $baseFee,
+            'base_fee' => $baseFee,
             'weight_surcharge' => $weightSurcharge,
-            'night_surcharge'  => $nightSurcharge,
-            'fee'              => $baseFee + $weightSurcharge + $nightSurcharge,
+            'night_surcharge' => $nightSurcharge,
+            'fee' => $baseFee + $weightSurcharge + $nightSurcharge,
         ];
     }
 
@@ -139,12 +156,13 @@ class ShopPricingService
                 return (int) $slab['fee'];
             }
         }
-        $last   = end($slabs);
+        $last = end($slabs);
         $overKm = $km - (float) $last['max_km'];
+
         return (int) $last['fee'] + (int) (ceil($overKm) * $overMaxPerKm);
     }
 
-    private static function nightSurcharge(?int $cityId): int
+    public static function nightSurchargeForCity(?int $cityId): int
     {
         return OperationalSettings::nightSurcharge($cityId);
     }

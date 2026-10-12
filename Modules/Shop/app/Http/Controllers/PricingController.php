@@ -13,20 +13,20 @@ class PricingController extends Controller
     public function estimate(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'cargo_type'       => 'nullable|in:food,flowers,parcel',
-            'cargo_weight'     => 'nullable|numeric|min:0',
-            'pickup_lat'       => 'nullable|numeric',
-            'pickup_lng'       => 'nullable|numeric',
-            'delivery_lat'     => 'nullable|numeric',
-            'delivery_lng'     => 'nullable|numeric',
-            'pickup_address'   => 'nullable|string',
+            'cargo_type' => 'nullable|in:food,flowers,parcel',
+            'cargo_weight' => 'nullable|numeric|min:0',
+            'pickup_lat' => 'nullable|numeric',
+            'pickup_lng' => 'nullable|numeric',
+            'delivery_lat' => 'nullable|numeric',
+            'delivery_lng' => 'nullable|numeric',
+            'pickup_address' => 'nullable|string',
             'delivery_address' => 'nullable|string',
-            'destination_id'   => 'nullable|integer',
+            'destination_id' => 'nullable|integer',
         ]);
 
-        $cargoType = $data['cargo_type']   ?? 'food';
-        $weightKg  = isset($data['cargo_weight']) ? (float) $data['cargo_weight'] : null;
-        $cityId    = $request->user()?->city_id;
+        $cargoType = $data['cargo_type'] ?? 'food';
+        $weightKg = isset($data['cargo_weight']) ? (float) $data['cargo_weight'] : null;
+        $cityId = $request->user()?->city_id;
 
         // Chọn khu vực mà chưa nhập địa chỉ giao: dùng tên/tâm khu vực làm điểm giao.
         [$data['delivery_address'], $data['delivery_lat'], $data['delivery_lng']] = array_slice(
@@ -37,11 +37,11 @@ class PricingController extends Controller
         );
 
         if (isset($data['pickup_lat'], $data['pickup_lng'],
-                   $data['delivery_lat'], $data['delivery_lng'])) {
+            $data['delivery_lat'], $data['delivery_lng'])) {
             $result = ShopPricingService::estimateFromCoords(
                 $cargoType,
-                (float) $data['pickup_lat'],   (float) $data['pickup_lng'],
-                (float) $data['delivery_lat'],  (float) $data['delivery_lng'],
+                (float) $data['pickup_lat'], (float) $data['pickup_lng'],
+                (float) $data['delivery_lat'], (float) $data['delivery_lng'],
                 $weightKg,
                 $cityId,
                 $data['destination_id'] ?? null
@@ -90,25 +90,25 @@ class PricingController extends Controller
     public function estimateBatch(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'cargo_type'         => 'nullable|in:food,flowers,parcel',
-            'pickup_lat'         => 'nullable|numeric',
-            'pickup_lng'         => 'nullable|numeric',
-            'pickup_address'     => 'nullable|string',
-            'stops'              => 'required|array|min:1|max:10',
-            'stops.*.address'    => 'required|string',
-            'stops.*.lat'        => 'nullable|numeric',
-            'stops.*.lng'        => 'nullable|numeric',
+            'cargo_type' => 'nullable|in:food,flowers,parcel',
+            'pickup_lat' => 'nullable|numeric',
+            'pickup_lng' => 'nullable|numeric',
+            'pickup_address' => 'nullable|string',
+            'stops' => 'required|array|min:1|max:10',
+            'stops.*.address' => 'required|string',
+            'stops.*.lat' => 'nullable|numeric',
+            'stops.*.lng' => 'nullable|numeric',
             'stops.*.cargo_weight' => 'nullable|numeric|min:0',
             'stops.*.destination_id' => 'nullable|integer',
         ]);
 
-        $cargoType   = $data['cargo_type'] ?? 'food';
-        $pickupLat   = $data['pickup_lat']  ?? null;
-        $pickupLng   = $data['pickup_lng']  ?? null;
-        $pickupAddr  = $data['pickup_address'] ?? null;
-        $cityId      = $request->user()?->city_id;
+        $cargoType = $data['cargo_type'] ?? 'food';
+        $pickupLat = $data['pickup_lat'] ?? null;
+        $pickupLng = $data['pickup_lng'] ?? null;
+        $pickupAddr = $data['pickup_address'] ?? null;
+        $cityId = $request->user()?->city_id;
 
-        $stops    = [];
+        $stops = [];
         $totalFee = 0;
 
         foreach ($data['stops'] as $i => $stop) {
@@ -128,16 +128,18 @@ class PricingController extends Controller
                     (float) $stop['lat'], (float) $stop['lng'],
                     $weightKg,
                     $cityId,
-                    $stop['destination_id'] ?? null
+                    $stop['destination_id'] ?? null,
+                    false
                 );
-            } elseif ($pickupAddr && !empty($stop['address'])) {
+            } elseif ($pickupAddr && ! empty($stop['address'])) {
                 $result = ShopPricingService::estimateFromAddresses(
                     $cargoType,
                     $pickupAddr,
                     $stop['address'],
                     $weightKg,
                     $cityId,
-                    $stop['destination_id'] ?? null
+                    $stop['destination_id'] ?? null,
+                    false
                 );
             } else {
                 return response()->json([
@@ -147,18 +149,26 @@ class PricingController extends Controller
             }
 
             $stops[] = [
-                'seq'         => $i + 1,
-                'address'     => $stop['address'],
+                'seq' => $i + 1,
+                'address' => $stop['address'],
                 'distance_km' => $result['distance_km'],
-                'fee'         => $result['fee'],
+                'fee' => $result['fee'],
+                'pricing_mode' => $result['pricing_mode'],
+                'destination_id' => $result['destination_id'],
+                'destination_name' => $result['destination_name'],
             ];
             $totalFee += $result['fee'];
         }
 
+        // Phụ phí đêm là phụ phí của chuyến, không nhân theo số điểm giao.
+        $nightSurcharge = ShopPricingService::nightSurchargeForCity($cityId);
+        $totalFee += $nightSurcharge;
+
         return response()->json([
             'success' => true,
-            'data'    => [
-                'stops'     => $stops,
+            'data' => [
+                'stops' => $stops,
+                'night_surcharge' => $nightSurcharge,
                 'total_fee' => $totalFee,
             ],
         ]);

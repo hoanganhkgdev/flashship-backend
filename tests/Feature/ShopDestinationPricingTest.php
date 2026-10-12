@@ -3,12 +3,17 @@
 namespace Tests\Feature;
 
 use Illuminate\Foundation\Testing\DatabaseTransactions;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Queue;
 use Laravel\Sanctum\Sanctum;
 use Modules\Core\Models\City;
 use Modules\Core\Models\User;
+use Modules\Core\Services\OperationalSettings;
+use Modules\Order\Models\Order;
 use Modules\Shop\Models\ShopDestinationPrice;
 use Modules\Shop\Services\ShopPricingService;
 use Tests\TestCase;
@@ -33,6 +38,13 @@ class ShopDestinationPricingTest extends TestCase
         $this->city = City::create(['name' => 'Dest pricing', 'slug' => 'dest-pricing-'.uniqid(), 'is_active' => true]);
     }
 
+    protected function tearDown(): void
+    {
+        Carbon::setTestNow();
+        OperationalSettings::flush();
+        parent::tearDown();
+    }
+
     private function zone(string $name, array $at, int $fee, array $extra = []): ShopDestinationPrice
     {
         return ShopDestinationPrice::create($extra + [
@@ -46,6 +58,19 @@ class ShopDestinationPricingTest extends TestCase
         return ShopPricingService::estimateFromCoords('food', $from[0], $from[1], $to[0], $to[1], $kg, $cityId ?? $this->city->id);
     }
 
+    public function test_phu_quoc_price_table_contains_every_entry_from_the_published_image(): void
+    {
+        $phuQuoc = City::where('name', 'Phú Quốc')->firstOrFail();
+        $zones = ShopDestinationPrice::where('city_id', $phuQuoc->id)
+            ->where('is_active', true)
+            ->pluck('name');
+
+        $this->assertCount(31, $zones);
+        $this->assertTrue($zones->contains('Bến Tràm'));
+        $this->assertTrue($zones->contains('Vòng xoay mới'));
+        $this->assertTrue($zones->contains('Bãi Trường'));
+    }
+
     public function test_destination_inside_a_zone_uses_the_fixed_price(): void
     {
         $this->zone('Nội ô', self::DUONG_DONG, 10000, ['is_origin' => true, 'radius_km' => 2.5]);
@@ -55,6 +80,7 @@ class ShopDestinationPricingTest extends TestCase
 
         $this->assertSame('destination', $result['pricing_mode']);
         $this->assertSame('Sân bay', $result['destination_name']);
+        $this->assertNotNull($result['destination_id']);
         $this->assertSame(55000, $result['base_fee']);
     }
 
@@ -115,7 +141,7 @@ class ShopDestinationPricingTest extends TestCase
         $this->assertSame(55000 + $result['weight_surcharge'] + $result['night_surcharge'], $result['fee']);
     }
 
-    public function test_selected_destination_overrides_the_coordinates_match(): void
+    public function test_selected_destination_cannot_override_mismatched_coordinates(): void
     {
         $this->zone('Nội ô', self::DUONG_DONG, 10000, ['is_origin' => true, 'radius_km' => 2.5]);
         $airport = $this->zone('Sân bay', self::AIRPORT, 55000);
@@ -125,8 +151,24 @@ class ShopDestinationPricingTest extends TestCase
             'food', self::DUONG_DONG[0], self::DUONG_DONG[1], 10.30, 103.90, null, $this->city->id, $airport->id
         );
 
-        $this->assertSame('destination', $result['pricing_mode']);
-        $this->assertSame(55000, $result['base_fee']);
+        $this->assertSame('distance', $result['pricing_mode']);
+        $this->assertNull($result['destination_id']);
+        $this->assertNotSame(55000, $result['base_fee']);
+    }
+
+    public function test_price_range_is_interpolated_from_zone_center_to_edge(): void
+    {
+        $zone = $this->zone('Khoảng giá', self::AIRPORT, 40000, [
+            'fee_max' => 60000,
+            'radius_km' => 2.0,
+        ]);
+
+        $halfRadiusNorth = [self::AIRPORT[0] + (1.0 / 111.0), self::AIRPORT[1]];
+        $edgeNorth = [self::AIRPORT[0] + (2.0 / 111.0), self::AIRPORT[1]];
+
+        $this->assertSame(40000, $zone->feeAt(self::AIRPORT[0], self::AIRPORT[1]));
+        $this->assertSame(50000, $zone->feeAt($halfRadiusNorth[0], $halfRadiusNorth[1]));
+        $this->assertSame(60000, $zone->feeAt($edgeNorth[0], $edgeNorth[1]));
     }
 
     public function test_selected_destination_is_ignored_when_pickup_is_outside_the_origin_or_city_differs(): void
@@ -168,6 +210,10 @@ class ShopDestinationPricingTest extends TestCase
     public function test_batch_stops_can_each_choose_a_destination(): void
     {
         $airport = $this->zone('Sân bay', self::AIRPORT, 55000);
+        Carbon::setTestNow(Carbon::parse('2026-10-12 23:30:00', config('app.timezone')));
+        OperationalSettings::put([
+            'pricing.night_windows' => '[{"from":"23:00","to":"01:00","amount":7000}]',
+        ], $this->city->id);
         $shop = User::create([
             'name' => 'Shop', 'email' => uniqid().'@test.local', 'phone' => '09'.random_int(10000000, 99999999),
             'password' => 'test-password', 'user_type' => 'shop', 'status' => 1, 'city_id' => $this->city->id,
@@ -177,7 +223,7 @@ class ShopDestinationPricingTest extends TestCase
             'pickup_address' => 'Cửa hàng', 'pickup_lat' => self::DUONG_DONG[0], 'pickup_lng' => self::DUONG_DONG[1],
             'cargo_type' => 'food',
             'stops' => [
-                ['address' => 'Điểm 1', 'phone' => '0909000001', 'lat' => 10.30, 'lng' => 103.90, 'destination_id' => $airport->id],
+                ['address' => 'Điểm 1', 'phone' => '0909000001', 'lat' => self::AIRPORT[0], 'lng' => self::AIRPORT[1], 'destination_id' => $airport->id],
                 ['address' => 'Điểm 2', 'phone' => '0909000002', 'lat' => 10.31, 'lng' => 103.91],
             ],
         ];
@@ -185,15 +231,23 @@ class ShopDestinationPricingTest extends TestCase
         $estimate = $this->postJson('/api/shop/pricing/estimate-batch', $payload)->assertOk();
 
         $this->assertSame(55000, $estimate->json('data.stops.0.fee'));
+        $this->assertSame($airport->id, $estimate->json('data.stops.0.destination_id'));
         $this->assertNotSame(55000, $estimate->json('data.stops.1.fee'));
+        $this->assertNull($estimate->json('data.stops.1.destination_id'));
+        $this->assertSame(7000, $estimate->json('data.night_surcharge'));
+        $this->assertSame(
+            array_sum($estimate->json('data.stops.*.fee')) + 7000,
+            $estimate->json('data.total_fee')
+        );
 
-        \Illuminate\Support\Facades\Queue::fake();
-        \Illuminate\Support\Facades\Event::fake();
+        Queue::fake();
+        Event::fake();
         $this->postJson('/api/shop/orders/batch', $payload)->assertStatus(201);
 
-        $order = \Modules\Order\Models\Order::latest('id')->first();
+        $order = Order::latest('id')->first();
         $this->assertSame(55000, collect($order->stops)->firstWhere('seq', 1)['fee']);
         $this->assertSame($estimate->json('data.total_fee'), (int) $order->shipping_fee);
+        $this->assertSame(7000, (int) $order->night_surcharge);
     }
 
     private function shopUser(): User
@@ -222,15 +276,15 @@ class ShopDestinationPricingTest extends TestCase
     {
         $airport = $this->zone('Sân bay', self::AIRPORT, 55000);
         Sanctum::actingAs($this->shopUser());
-        \Illuminate\Support\Facades\Queue::fake();
-        \Illuminate\Support\Facades\Event::fake();
+        Queue::fake();
+        Event::fake();
 
         $this->postJson('/api/shop/orders', [
             'pickup_address' => 'Cửa hàng', 'pickup_lat' => self::DUONG_DONG[0], 'pickup_lng' => self::DUONG_DONG[1],
             'cargo_type' => 'food', 'destination_id' => $airport->id, 'delivery_phone' => '0909000004',
         ])->assertStatus(201);
 
-        $order = \Modules\Order\Models\Order::latest('id')->first();
+        $order = Order::latest('id')->first();
         $this->assertSame('Sân bay', $order->delivery_address);
         $this->assertSame('Sân bay', $order->delivery_place_name);
         $this->assertEqualsWithDelta(1.5, (float) $order->delivery_area_radius_km, 0.01);
@@ -254,15 +308,15 @@ class ShopDestinationPricingTest extends TestCase
     {
         $airport = $this->zone('Sân bay', self::AIRPORT, 55000);
         Sanctum::actingAs($this->shopUser());
-        \Illuminate\Support\Facades\Queue::fake();
-        \Illuminate\Support\Facades\Event::fake();
+        Queue::fake();
+        Event::fake();
 
         $this->postJson('/api/shop/orders/batch', [
             'pickup_address' => 'Cửa hàng', 'pickup_lat' => self::DUONG_DONG[0], 'pickup_lng' => self::DUONG_DONG[1],
             'stops' => [['destination_id' => $airport->id, 'phone' => '0909000003']],
         ])->assertStatus(201);
 
-        $order = \Modules\Order\Models\Order::latest('id')->first();
+        $order = Order::latest('id')->first();
         $stop = collect($order->stops)->first();
         $this->assertSame('Sân bay', $stop['address']);
         $this->assertSame(55000, $stop['fee']);

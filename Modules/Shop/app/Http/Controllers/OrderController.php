@@ -176,6 +176,11 @@ class OrderController extends Controller
             }
 
             $nightSurcharge = (int) ($pricing['night_surcharge'] ?? 0);
+            // Đồng bộ nhãn khu vực với vùng backend thực sự dùng để tính phí;
+            // destination_id do client gửi có thể đã bị loại vì lệch tọa độ.
+            $zoneForDelivery = ShopDestinationPrice::findActive(
+                $user->city_id, $pricing['destination_id'] ?? null
+            );
 
             // Voucher, order và usage phải commit/rollback cùng nhau. Nếu
             // Order::create() hoặc VoucherUsage::create() lỗi thì used_count
@@ -296,11 +301,13 @@ class OrderController extends Controller
                         (float) $stop['lat'], (float) $stop['lng'],
                         $weightKg,
                         $user->city_id,
-                        $stop['destination_id'] ?? null
+                        $stop['destination_id'] ?? null,
+                        false
                     );
                 } else {
                     $pricing = ShopPricingService::estimateFromAddresses(
-                        $cargoType, $data['pickup_address'], $stop['address'], $weightKg, $user->city_id, $stop['destination_id'] ?? null
+                        $cargoType, $data['pickup_address'], $stop['address'], $weightKg,
+                        $user->city_id, $stop['destination_id'] ?? null, false
                     );
                 }
 
@@ -322,9 +329,13 @@ class OrderController extends Controller
                 $totalFee += $pricing['fee'];
             }
 
+            // Một chuyến đơn gộp chỉ chịu một phụ phí đêm, không nhân theo stop.
+            $nightSurcharge = ShopPricingService::nightSurchargeForCity($user->city_id);
+            $totalFee += $nightSurcharge;
+
             $firstStop = $stops[0];
 
-            $order = \DB::transaction(function () use ($data, $user, $totalFee, $firstStop, $stops, $pickupLat, $pickupLng, $cargoType, $weightKg) {
+            $order = \DB::transaction(function () use ($data, $user, $totalFee, $nightSurcharge, $firstStop, $stops, $pickupLat, $pickupLng, $cargoType, $weightKg) {
                 \DB::table('users')->where('id', $user->id)->lockForUpdate()->first();
                 $maxDistanceKm = max(array_column($stops, 'distance_km'));
                 $applied = $this->tryApplyVoucher($data['voucher_code'] ?? null, $user, $totalFee, (float) $maxDistanceKm);
@@ -359,7 +370,7 @@ class OrderController extends Controller
                     'cod_amount' => array_sum(array_column($stops, 'cod_amount')),
                     'city_id' => $user->city_id,
                     'shipping_fee' => $shippingFee,
-                    'night_surcharge' => 0,
+                    'night_surcharge' => $nightSurcharge,
                     'distance' => $stops[0]['distance_km'],
                     'voucher_code' => $voucherCode,
                     'discount_amount' => $discountAmount,

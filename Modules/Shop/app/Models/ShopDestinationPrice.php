@@ -3,6 +3,7 @@
 namespace Modules\Shop\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Modules\Core\Models\City;
 use Modules\Core\Services\GoogleMapService;
 
 class ShopDestinationPrice extends Model
@@ -33,12 +34,28 @@ class ShopDestinationPrice extends Model
 
     public function city()
     {
-        return $this->belongsTo(\Modules\Core\Models\City::class);
+        return $this->belongsTo(City::class);
     }
 
     public function distanceKmTo(float $lat, float $lng): float
     {
         return GoogleMapService::haversineKm($this->lat, $this->lng, $lat, $lng);
+    }
+
+    /**
+     * Giá tại một điểm cụ thể trong khu vực. Với bảng giá dạng khoảng, giá
+     * tăng tuyến tính từ tâm tới rìa khu vực, làm tròn theo 1.000đ.
+     */
+    public function feeAt(?float $lat = null, ?float $lng = null): int
+    {
+        if ($this->fee_max === null || $this->fee_max <= $this->fee || $lat === null || $lng === null) {
+            return $this->fee;
+        }
+
+        $ratio = min(1.0, $this->distanceKmTo($lat, $lng) / max($this->radius_km, 0.1));
+        $rawFee = $this->fee + (($this->fee_max - $this->fee) * $ratio);
+
+        return max($this->fee, min($this->fee_max, (int) (round($rawFee / 1000) * 1000)));
     }
 
     public static function findActive(?int $cityId, ?int $destinationId): ?self
@@ -55,7 +72,7 @@ class ShopDestinationPrice extends Model
      * khu vực làm điểm giao. Có sẵn địa chỉ/toạ độ thì giữ nguyên.
      *
      * @return array{0: ?string, 1: ?float, 2: ?float, 3: ?self, 4: bool} [địa chỉ, lat, lng, khu vực,
-     *                                                                      true nếu toạ độ là tâm khu vực]
+     *                                                                    true nếu toạ độ là tâm khu vực]
      */
     public static function fillDeliveryPoint(?int $cityId, ?int $destinationId, ?string $address, $lat, $lng): array
     {
@@ -79,8 +96,14 @@ class ShopDestinationPrice extends Model
      * Điểm đến do shop chọn tay. Vẫn phải thuộc thành phố, đang bật, và điểm lấy
      * (nếu biết) nằm trong vùng xuất phát — ngoài vùng thì tính theo km như thường.
      */
-    public static function forSelection(?int $cityId, ?int $destinationId, ?float $pickupLat = null, ?float $pickupLng = null): ?self
-    {
+    public static function forSelection(
+        ?int $cityId,
+        ?int $destinationId,
+        ?float $pickupLat = null,
+        ?float $pickupLng = null,
+        ?float $deliveryLat = null,
+        ?float $deliveryLng = null
+    ): ?self {
         if (! $cityId || ! $destinationId) {
             return null;
         }
@@ -96,6 +119,13 @@ class ShopDestinationPrice extends Model
                 && ! $origins->contains(fn (self $o) => $o->distanceKmTo($pickupLat, $pickupLng) <= $o->radius_km)) {
                 return null;
             }
+        }
+
+        // Khi đã có điểm giao thật, không cho destination_id ghi đè một vị trí
+        // nằm ngoài khu vực. Caller sẽ tự nhận diện lại theo toạ độ thực tế.
+        if ($deliveryLat !== null && $deliveryLng !== null
+            && $zone->distanceKmTo($deliveryLat, $deliveryLng) > $zone->radius_km) {
+            return null;
         }
 
         return $zone;

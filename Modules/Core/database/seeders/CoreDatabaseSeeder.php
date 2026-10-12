@@ -11,15 +11,18 @@ class CoreDatabaseSeeder extends Seeder
 {
     public function run(): void
     {
-        $cantho  = City::firstOrCreate(['slug' => 'can-tho'],  ['name' => 'Cần Thơ',  'lat' => 10.0452, 'lng' => 105.7469, 'is_active' => true]);
+        $cantho = City::firstOrCreate(['slug' => 'can-tho'], ['name' => 'Cần Thơ',  'lat' => 10.0452, 'lng' => 105.7469, 'is_active' => true]);
         $rachgia = City::firstOrCreate(['slug' => 'rach-gia'], ['name' => 'Rạch Giá', 'lat' => 10.0125, 'lng' => 105.0809, 'is_active' => true]);
+        City::firstOrCreate(['slug' => 'phu-quoc'], [
+            'name' => 'Phú Quốc', 'lat' => 10.2185, 'lng' => 103.9640, 'is_active' => true,
+        ]);
 
         User::firstOrCreate(['email' => 'admin@flashship.vn'], [
-            'name'      => 'Admin FlashShip',
-            'password'  => bcrypt('Admin@123'),
+            'name' => 'Admin FlashShip',
+            'password' => bcrypt('Admin@123'),
             'user_type' => 'admin',
-            'city_id'   => $cantho->id,
-            'status'    => 1,
+            'city_id' => $cantho->id,
+            'status' => 1,
         ]);
 
         $pricings = [
@@ -35,6 +38,6 @@ class CoreDatabaseSeeder extends Seeder
             PricingConfig::firstOrCreate(['service_type' => $p['service_type']], array_merge($p, ['is_active' => true]));
         }
 
-        $this->command->info('✅ Core seeded: 2 cities, 1 admin, 6 pricing configs');
+        $this->command->info('✅ Core seeded: 3 cities, 1 admin, 6 pricing configs');
     }
 }

@@ -37,8 +37,8 @@ return new class extends Migration
     /**
      * Bảng giá shop Phú Quốc (xuất phát từ nội ô Dương Đông). Toạ độ tra bằng
      * Google Geocoding nên là xấp xỉ; giá dạng khoảng lấy cận dưới, cận trên
-     * lưu ở fee_max. Bãi Trường, Bến Tràm, Vòng xoay mới chưa có toạ độ đáng tin
-     * nên chưa nhập — thêm trong trang quản trị.
+     * lưu ở fee_max. Migration đồng bộ kế tiếp bổ sung và upsert toàn bộ bảng
+     * để cả hệ thống mới lẫn hệ thống đã chạy migration này đều có cùng dữ liệu.
      */
     private function seedPhuQuoc(): void
     {
