@@ -36,7 +36,8 @@ class SupportConfigResource extends Resource
 
     protected static ?string $navigationIcon = 'heroicon-o-lifebuoy';
 
-    protected static ?string $navigationGroup = 'Khách hàng';
+    // Dùng chung cho cả 3 app (khách hàng, cửa hàng, tài xế) nên thuộc nhóm hệ thống.
+    protected static ?string $navigationGroup = 'Hệ thống';
 
     protected static ?string $navigationLabel = 'Cấu hình hỗ trợ';
 
@@ -44,7 +45,7 @@ class SupportConfigResource extends Resource
 
     protected static ?string $pluralModelLabel = 'Cấu hình hỗ trợ';
 
-    protected static ?int $navigationSort = 5;
+    protected static ?int $navigationSort = 6;
 
     public static function form(Form $form): Form
     {
