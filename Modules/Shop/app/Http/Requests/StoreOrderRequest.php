@@ -33,6 +33,7 @@ class StoreOrderRequest extends FormRequest
             'cargo_weight' => 'nullable|numeric|min:0.1|max:999',
             'cod_amount' => 'nullable|integer|min:0',
             'voucher_code' => 'nullable|string',
+            'destination_id' => 'nullable|integer',
         ];
     }
 }

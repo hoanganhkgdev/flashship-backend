@@ -42,6 +42,32 @@ class ShopDestinationPrice extends Model
     }
 
     /**
+     * Điểm đến do shop chọn tay. Vẫn phải thuộc thành phố, đang bật, và điểm lấy
+     * (nếu biết) nằm trong vùng xuất phát — ngoài vùng thì tính theo km như thường.
+     */
+    public static function forSelection(?int $cityId, ?int $destinationId, ?float $pickupLat = null, ?float $pickupLng = null): ?self
+    {
+        if (! $cityId || ! $destinationId) {
+            return null;
+        }
+
+        $zone = static::where('city_id', $cityId)->where('is_active', true)->find($destinationId);
+        if (! $zone) {
+            return null;
+        }
+
+        if ($pickupLat !== null && $pickupLng !== null) {
+            $origins = static::where('city_id', $cityId)->where('is_active', true)->where('is_origin', true)->get();
+            if ($origins->isNotEmpty()
+                && ! $origins->contains(fn (self $o) => $o->distanceKmTo($pickupLat, $pickupLng) <= $o->radius_km)) {
+                return null;
+            }
+        }
+
+        return $zone;
+    }
+
+    /**
      * Giá cố định theo điểm giao. Khu vực có điểm xuất phát thì chỉ áp khi điểm
      * lấy hàng nằm trong đó; điểm giao thuộc nhiều vùng thì lấy vùng có tâm gần
      * nhất. Không khớp trả null để rơi về giá theo km.

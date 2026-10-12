@@ -5,6 +5,7 @@ namespace Modules\Shop\Http\Controllers;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
+use Modules\Shop\Models\ShopDestinationPrice;
 use Modules\Shop\Services\ShopPricingService;
 
 class PricingController extends Controller
@@ -20,6 +21,7 @@ class PricingController extends Controller
             'delivery_lng'     => 'nullable|numeric',
             'pickup_address'   => 'nullable|string',
             'delivery_address' => 'nullable|string',
+            'destination_id'   => 'nullable|integer',
         ]);
 
         $cargoType = $data['cargo_type']   ?? 'food';
@@ -33,7 +35,8 @@ class PricingController extends Controller
                 (float) $data['pickup_lat'],   (float) $data['pickup_lng'],
                 (float) $data['delivery_lat'],  (float) $data['delivery_lng'],
                 $weightKg,
-                $cityId
+                $cityId,
+                $data['destination_id'] ?? null
             );
         } elseif (isset($data['pickup_address'], $data['delivery_address'])) {
             $result = ShopPricingService::estimateFromAddresses(
@@ -41,7 +44,8 @@ class PricingController extends Controller
                 $data['pickup_address'],
                 $data['delivery_address'],
                 $weightKg,
-                $cityId
+                $cityId,
+                $data['destination_id'] ?? null
             );
         } else {
             return response()->json([
@@ -51,6 +55,24 @@ class PricingController extends Controller
         }
 
         return response()->json(['success' => true, 'data' => $result]);
+    }
+
+    /** Điểm đến giá cố định của thành phố shop để chọn khi đặt đơn. */
+    public function destinations(Request $request): JsonResponse
+    {
+        $cityId = $request->user()?->city_id;
+
+        $items = $cityId
+            ? ShopDestinationPrice::where('city_id', $cityId)->where('is_active', true)->orderBy('fee')->orderBy('name')->get()
+                ->map(fn (ShopDestinationPrice $z) => [
+                    'id' => $z->id,
+                    'name' => $z->name,
+                    'fee' => $z->fee,
+                    'fee_max' => $z->fee_max,
+                ])->values()
+            : [];
+
+        return response()->json(['success' => true, 'data' => $items]);
     }
 
     /**

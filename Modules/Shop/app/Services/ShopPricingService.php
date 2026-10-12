@@ -47,10 +47,13 @@ class ShopPricingService
         float $pickupLat, float $pickupLng,
         float $deliveryLat, float $deliveryLng,
         ?float $cargoWeightKg = null,
-        ?int $cityId = null
+        ?int $cityId = null,
+        ?int $destinationId = null
     ): array {
         $km = GoogleMapService::roadDistanceKm($pickupLat, $pickupLng, $deliveryLat, $deliveryLng);
-        $zone = ShopDestinationPrice::resolve($cityId, $pickupLat, $pickupLng, $deliveryLat, $deliveryLng);
+        // Shop chọn điểm đến thì ưu tiên điểm đó, còn lại tự nhận theo toạ độ giao.
+        $zone = ShopDestinationPrice::forSelection($cityId, $destinationId, $pickupLat, $pickupLng)
+            ?? ShopDestinationPrice::resolve($cityId, $pickupLat, $pickupLng, $deliveryLat, $deliveryLng);
 
         return self::calculate($cargoType, $km, $cargoWeightKg, $cityId, $zone);
     }
@@ -60,7 +63,8 @@ class ShopPricingService
         string $pickupAddress,
         string $deliveryAddress,
         ?float $cargoWeightKg = null,
-        ?int $cityId = null
+        ?int $cityId = null,
+        ?int $destinationId = null
     ): array {
         $pickup   = GoogleMapService::geocode($pickupAddress);
         $delivery = GoogleMapService::geocode($deliveryAddress);
@@ -71,11 +75,12 @@ class ShopPricingService
                 $pickup['lat'],   $pickup['lng'],
                 $delivery['lat'], $delivery['lng'],
                 $cargoWeightKg,
-                $cityId
+                $cityId,
+                $destinationId
             );
         }
 
-        $result = self::calculate($cargoType, 3.0, $cargoWeightKg, $cityId);
+        $result = self::calculate($cargoType, 3.0, $cargoWeightKg, $cityId, ShopDestinationPrice::forSelection($cityId, $destinationId));
         $result['geocode_failed'] = true;
         return $result;
     }

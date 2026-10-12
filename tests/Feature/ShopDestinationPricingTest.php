@@ -6,7 +6,9 @@ use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
+use Laravel\Sanctum\Sanctum;
 use Modules\Core\Models\City;
+use Modules\Core\Models\User;
 use Modules\Shop\Models\ShopDestinationPrice;
 use Modules\Shop\Services\ShopPricingService;
 use Tests\TestCase;
@@ -111,5 +113,55 @@ class ShopDestinationPricingTest extends TestCase
 
         $this->assertSame(55000, $result['base_fee']);
         $this->assertSame(55000 + $result['weight_surcharge'] + $result['night_surcharge'], $result['fee']);
+    }
+
+    public function test_selected_destination_overrides_the_coordinates_match(): void
+    {
+        $this->zone('Nội ô', self::DUONG_DONG, 10000, ['is_origin' => true, 'radius_km' => 2.5]);
+        $airport = $this->zone('Sân bay', self::AIRPORT, 55000);
+
+        // Địa chỉ giao nằm ngoài mọi vòng tròn nhưng shop đã chọn Sân bay.
+        $result = ShopPricingService::estimateFromCoords(
+            'food', self::DUONG_DONG[0], self::DUONG_DONG[1], 10.30, 103.90, null, $this->city->id, $airport->id
+        );
+
+        $this->assertSame('destination', $result['pricing_mode']);
+        $this->assertSame(55000, $result['base_fee']);
+    }
+
+    public function test_selected_destination_is_ignored_when_pickup_is_outside_the_origin_or_city_differs(): void
+    {
+        $this->zone('Nội ô', self::DUONG_DONG, 10000, ['is_origin' => true, 'radius_km' => 2.5]);
+        $airport = $this->zone('Sân bay', self::AIRPORT, 55000);
+        $other = City::create(['name' => 'Other', 'slug' => 'other-'.uniqid(), 'is_active' => true]);
+
+        $outside = ShopPricingService::estimateFromCoords(
+            'food', 10.0150, 104.0146, 10.30, 103.90, null, $this->city->id, $airport->id
+        );
+        $wrongCity = ShopPricingService::estimateFromCoords(
+            'food', self::DUONG_DONG[0], self::DUONG_DONG[1], 10.30, 103.90, null, $other->id, $airport->id
+        );
+
+        $this->assertSame('distance', $outside['pricing_mode']);
+        $this->assertSame('distance', $wrongCity['pricing_mode']);
+    }
+
+    public function test_shop_lists_only_active_destinations_of_its_own_city(): void
+    {
+        $this->zone('Sân bay', self::AIRPORT, 55000, ['fee_max' => 60000]);
+        $this->zone('Tạm tắt', self::DUONG_DONG, 10000, ['is_active' => false]);
+        $other = City::create(['name' => 'Other', 'slug' => 'other-'.uniqid(), 'is_active' => true]);
+        ShopDestinationPrice::create(['city_id' => $other->id, 'name' => 'Khác', 'lat' => 1, 'lng' => 1, 'radius_km' => 1, 'fee' => 1000]);
+        $shop = User::create([
+            'name' => 'Shop', 'email' => uniqid().'@test.local', 'phone' => '09'.random_int(10000000, 99999999),
+            'password' => 'test-password', 'user_type' => 'shop', 'status' => 1, 'city_id' => $this->city->id,
+        ]);
+        Sanctum::actingAs($shop);
+
+        $response = $this->getJson('/api/shop/pricing/destinations');
+
+        $response->assertOk()->assertJsonPath('success', true);
+        $this->assertSame(['Sân bay'], collect($response->json('data'))->pluck('name')->all());
+        $this->assertSame(['id', 'name', 'fee', 'fee_max'], array_keys($response->json('data.0')));
     }
 }

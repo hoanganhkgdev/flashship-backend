@@ -45,6 +45,7 @@ Route::prefix('shop')->middleware(TrackShopEvent::class)->group(function () {
     Route::middleware(['auth:sanctum', 'user_type:shop'])->group(function () {
         Route::get('/support',                [SupportController::class, 'index']);
         Route::get('/pricing/estimate',       [PricingController::class, 'estimate']);
+        Route::get('/pricing/destinations',   [PricingController::class, 'destinations']);
         Route::post('/pricing/estimate-batch', [PricingController::class, 'estimateBatch']);
 
         Route::prefix('addresses')->group(function () {
