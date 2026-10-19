@@ -202,7 +202,7 @@ class VoucherHardeningTest extends TestCase
         $this->assertTrue($result['valid']);
     }
 
-    public function test_order_cannot_complete_far_from_delivery_point(): void
+    public function test_order_can_complete_far_from_delivery_point(): void
     {
         $orderId = $this->makeOrder('processing');
         DB::table('orders')->where('id', $orderId)->update([
@@ -210,19 +210,14 @@ class VoucherHardeningTest extends TestCase
             'delivery_lat' => 10.0000000,
             'delivery_lng' => 105.0000000,
         ]);
-        $locations = $this->mock(DriverLocationService::class);
-        $locations->shouldReceive('freshLocationsFor')
-            ->once()
-            ->with([$this->customer->id])
-            ->andReturn([$this->customer->id => ['lat' => 10.01, 'lng' => 105.01, 'bearing' => null]]);
+        $this->mock(DriverLocationService::class)
+            ->shouldNotReceive('freshLocationsFor');
 
         $result = app(OrderService::class)
             ->completeOrder(Order::findOrFail($orderId), $this->customer);
 
-        $this->assertFalse($result['success']);
-        $this->assertSame('TOO_FAR_FROM_DELIVERY', $result['reason_code']);
-        $this->assertSame(422, $result['status']);
-        $this->assertSame('processing', Order::findOrFail($orderId)->status);
+        $this->assertTrue($result['success']);
+        $this->assertSame('completed', Order::findOrFail($orderId)->status);
     }
 
     public function test_order_without_delivery_point_completes_without_location_check(): void
@@ -242,39 +237,6 @@ class VoucherHardeningTest extends TestCase
 
         $this->assertTrue($result['success']);
         $this->assertSame('completed', Order::findOrFail($orderId)->status);
-    }
-
-    public function test_completion_rejects_missing_fresh_driver_location(): void
-    {
-        $locations = $this->mock(DriverLocationService::class);
-        $locations->shouldReceive('freshLocationsFor')->once()->andReturn([]);
-
-        $result = app(OrderService::class)->checkDriverProximity(
-            $this->customer,
-            10.0000000,
-            105.0000000,
-            null,
-        );
-
-        $this->assertSame('DRIVER_LOCATION_UNAVAILABLE', $result['reason_code']);
-        $this->assertSame(422, $result['status']);
-    }
-
-    public function test_completion_allows_fresh_location_inside_300_metres(): void
-    {
-        $locations = $this->mock(DriverLocationService::class);
-        $locations->shouldReceive('freshLocationsFor')->once()->andReturn([
-            $this->customer->id => ['lat' => 10.002, 'lng' => 105.0, 'bearing' => null],
-        ]);
-
-        $result = app(OrderService::class)->checkDriverProximity(
-            $this->customer,
-            10.0000000,
-            105.0000000,
-            null,
-        );
-
-        $this->assertNull($result);
     }
 
     public function test_arrived_order_is_auto_completed_after_three_minute_grace(): void

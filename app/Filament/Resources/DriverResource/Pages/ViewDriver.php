@@ -125,8 +125,6 @@ class ViewDriver extends ViewRecord
             'cancelled' => (int) $orders->cancelled,
             'earnings' => $fees + $credits,
             'lifetime' => (int) $this->record->completed_orders_count,
-            'score' => (int) ($this->record->driver_score ?? 80),
-            'low_score' => ($this->record->driver_score ?? 80) < DriverResource::LOW_SCORE,
         ];
     }
 

@@ -549,7 +549,6 @@
             <div class="cc-recent__head">
                 <div class="cc-recent__tabs">
                     <button type="button" class="cc-recent__tab active" data-cc-board="recent" onclick="_ccSelectBoard('recent')">Đơn hôm nay <b id="cc-recent-count">0</b></button>
-                    <button type="button" class="cc-recent__tab" data-cc-board="market" onclick="_ccSelectBoard('market')">Chợ đơn <b id="cc-market-count">0</b></button>
                 </div>
                 <em id="cc-recent-time"></em>
             </div>
@@ -912,7 +911,7 @@ document.addEventListener('livewire:initialized', () => {
     Livewire.hook('commit', ({ commit, succeed }) => {
         // Lần làm mới danh sách "Đơn vừa đặt" (15s/lần) không được kéo lại bản đồ về điểm lấy
         const calls = (commit && commit.calls) || [];
-        if (calls.length && calls.every((c) => ['recentOrders', 'marketOrders'].includes(c.method))) return;
+        if (calls.length && calls.every((c) => ['recentOrders'].includes(c.method))) return;
         succeed(() => {
             setTimeout(_ccFit, 120); // banner kết quả hiện/ẩn làm đổi vị trí khung → tính lại chiều cao
             setTimeout(() => {
@@ -982,29 +981,21 @@ function _syncTypedNow(kind) {
 
 // ── Đơn vừa đặt: tự làm mới 15s, không vẽ lại form ───────────────────────────
 function _ccEsc(v) { const d = document.createElement('div'); d.textContent = v == null ? '' : String(v); return d.innerHTML; }
-let _ccBoardMode = 'recent';
 let _ccRecentOrders = [];
-let _ccMarketOrders = [];
-function _ccSelectBoard(mode) {
-    _ccBoardMode = mode === 'market' ? 'market' : 'recent';
-    document.querySelectorAll('[data-cc-board]').forEach((el) => el.classList.toggle('active', el.dataset.ccBoard === _ccBoardMode));
-    _ccRenderRecent(_ccBoardMode === 'market' ? _ccMarketOrders : _ccRecentOrders);
-}
 function _ccRenderRecent(list) {
     const box = document.getElementById('cc-recent-list');
     if (!box) return;
     const t = document.getElementById('cc-recent-time');
     if (t) t.textContent = new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-    if (!list || !list.length) { box.innerHTML = '<div class="cc-recent__empty">' + (_ccBoardMode === 'market' ? 'Hiện chưa có đơn nào trong Chợ đơn.' : 'Chưa có đơn nào hôm nay.') + '</div>'; return; }
+    if (!list || !list.length) { box.innerHTML = '<div class="cc-recent__empty">' + 'Chưa có đơn nào hôm nay.' + '</div>'; return; }
     box.innerHTML = list.map((o) => {
         const canAssign = o.status === 'pending';
         const canCancel = ['pending', 'assigned', 'processing'].includes(o.status);
-        const inMarket = _ccBoardMode === 'market';
-        const label = o.stopped ? 'Đã dừng tìm' : o.status_label;
-        const color = inMarket ? '#c2410c' : (o.stopped ? '#dc2626' : (o.status === 'pending' ? '#b45309' : (o.status === 'completed' ? '#15803d' : '#64748b')));
-        const when = inMarket ? o.minutes + 'p · còn ' + o.remaining_minutes + 'p · ' + o.offer_attempts + ' lượt' : (o.status === 'pending' ? o.minutes + ' phút' : (o.driver ? _ccEsc(o.driver) : o.minutes + 'p trước'));
+        const label = o.status_label;
+        const color = o.status === 'pending' ? '#b45309' : (o.status === 'completed' ? '#15803d' : '#64748b');
+        const when = (o.status === 'pending' ? o.minutes + ' phút' : (o.driver ? _ccEsc(o.driver) : o.minutes + 'p trước'));
         const route = '↑ ' + _ccEsc(o.pickup) + ' → ' + (o.no_delivery ? '<i>chưa có điểm giao</i>' : _ccEsc(o.delivery));
-        return '<div class="cc-ro s-' + o.status + (o.stopped ? ' stopped' : '') + '">' +
+        return '<div class="cc-ro s-' + o.status + '' + '">' +
             '<a class="code" href="' + _ccEsc(o.url) + '">#' + _ccEsc(o.code) + '</a>' +
             '<span class="who" title="' + _ccEsc(o.service) + '">' + _ccEsc(o.name ? o.name + ' · ' : '') + _ccEsc(o.phone || 'chưa có SĐT') + '</span>' +
             '<span class="route" title="' + _ccEsc(o.pickup) + '">' + route + '</span>' +
@@ -1018,14 +1009,11 @@ function _ccRenderRecent(list) {
 }
 function _ccLoadRecent(force) {
     if (document.hidden && force !== true) return; // tab đang ẩn thì thôi làm mới định kỳ; lần tải đầu luôn chạy
-    Promise.all([@this.call('recentOrders'), @this.call('marketOrders')]).then(([recent, market]) => {
+    @this.call('recentOrders').then((recent) => {
         _ccRecentOrders = recent || [];
-        _ccMarketOrders = market || [];
         const recentCount = document.getElementById('cc-recent-count');
-        const marketCount = document.getElementById('cc-market-count');
         if (recentCount) recentCount.textContent = _ccRecentOrders.length;
-        if (marketCount) marketCount.textContent = _ccMarketOrders.length;
-        _ccRenderRecent(_ccBoardMode === 'market' ? _ccMarketOrders : _ccRecentOrders);
+        _ccRenderRecent(_ccRecentOrders);
     }).catch(() => {});
 }
 function _ccAssign(id) { @this.call('mountAction', 'assign', { order: id }); }

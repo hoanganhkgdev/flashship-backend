@@ -8,8 +8,6 @@ use App\Services\CatalogService;
 use App\Support\AdminAccess;
 use Filament\Actions\Action;
 use Filament\Facades\Filament;
-use Filament\Forms\Components\Grid;
-use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Section;
 use Filament\Forms\Components\Select;
@@ -28,8 +26,6 @@ use Illuminate\Support\Carbon;
 use Illuminate\Validation\ValidationException;
 use Modules\Core\Models\City;
 use Modules\Core\Services\OperationalSettings;
-use Modules\Core\Services\RTDBService;
-use Modules\Driver\Services\DriverScoreService;
 
 class OperationalSettingsPage extends Page implements HasForms
 {
@@ -52,49 +48,16 @@ class OperationalSettingsPage extends Page implements HasForms
 
     protected static string $view = 'filament.pages.operational-settings';
 
-    /** Ô form => key trong bảng settings (trừ streak_milestones và night_windows, xử lý riêng). */
+    /** Ô form => key trong bảng settings (trừ night_windows, xử lý riêng). */
     private const FIELDS = [
-        'dispatch_mode' => 'dispatch.mode',
-        'dispatch_max_road_distance_km' => 'dispatch.max_road_distance_km',
-        'daily_bonus_cap' => 'driver_score.daily_bonus_cap',
-        'max_score' => 'driver_score.max_score',
-        'weekly_bonus_score' => 'driver_score.weekly_bonus_score',
-        'weekly_penalty_score' => 'driver_score.weekly_penalty_score',
-        'weekly_bonus_amount' => 'driver_score.weekly_bonus_amount',
-        'weekly_penalty_amount' => 'driver_score.weekly_penalty_amount',
-        'decline_penalty' => 'driver_score.decline_penalty',
-        'viewed_timeout_penalty' => 'driver_score.viewed_timeout_penalty',
-        'unviewed_penalty' => 'driver_score.unviewed_penalty',
-        'unviewed_window_size' => 'driver_score.unviewed_window_size',
-        'unviewed_limit' => 'driver_score.unviewed_limit',
-        'shift_normal_min_percent' => 'driver_score.shift_normal_min_percent',
-        'shift_reduced_min_percent' => 'driver_score.shift_reduced_min_percent',
-        'shift_mid_min_percent' => 'driver_score.shift_mid_min_percent',
-        'shift_low_min_percent' => 'driver_score.shift_low_min_percent',
-        'shift_reduced_penalty' => 'driver_score.shift_reduced_penalty',
-        'shift_mid_penalty' => 'driver_score.shift_mid_penalty',
-        'shift_low_penalty' => 'driver_score.shift_low_penalty',
-        'shift_critical_penalty' => 'driver_score.shift_critical_penalty',
+        'shift_offline_limit_minutes' => 'shift.offline_limit_minutes',
+        'shift_offline_penalty_amount' => 'shift.offline_penalty_amount',
         'rain_bonus_amount' => 'order.rain_bonus_amount',
         'completion_radius_meters' => 'order.completion_radius_meters',
         'auto_complete_grace_minutes' => 'order.auto_complete_grace_minutes',
         'max_order_distance_km' => 'order.max_distance_km',
         'rating_window_hours' => 'order.rating_window_hours',
         'delayed_reminder_minutes' => 'order.delayed_reminder_minutes',
-        'max_active_orders_per_driver' => 'order.max_active_per_driver',
-        'offer_open_seconds' => 'dispatch.offer_open_seconds',
-        'dispatch_wave_size' => 'dispatch.wave_size',
-        'offer_receipt_seconds' => 'dispatch.offer_receipt_seconds',
-        'offer_decision_seconds' => 'dispatch.offer_decision_seconds',
-        'dispatch_timeout_minutes' => 'dispatch.total_timeout_minutes',
-        'dispatch_retry_seconds' => 'dispatch.retry_seconds',
-        'market_max_pickup_distance_km' => 'market.max_pickup_distance_km',
-        'market_expire_minutes' => 'market.expire_minutes',
-        'dispatch_score_weight' => 'dispatch.score_weight',
-        'dispatch_wait_weight' => 'dispatch.wait_weight',
-        'dispatch_distance_weight' => 'dispatch.distance_weight',
-        'dispatch_fair_score_band' => 'dispatch.fair_score_band',
-        'dispatch_wait_cap_minutes' => 'dispatch.wait_cap_minutes',
         'rain_mode_auto_off_hours' => 'rain_mode.auto_off_hours',
         'penalty_debt_overdue_hours' => 'debt.penalty_overdue_hours',
         'low_wallet_balance_threshold' => 'wallet.low_balance_threshold',
@@ -149,7 +112,7 @@ class OperationalSettingsPage extends Page implements HasForms
             }
         }
 
-        return $labels + ['driver_score.streak_milestones' => 'Mốc thưởng chuỗi đơn', 'pricing.night_windows' => 'Khung giờ phụ phí đêm'];
+        return $labels + ['pricing.night_windows' => 'Khung giờ phụ phí đêm'];
     }
 
     protected function getHeaderActions(): array
@@ -164,7 +127,6 @@ class OperationalSettingsPage extends Page implements HasForms
                 ->action(function (): void {
                     $this->fillFrom(
                         fn (string $key) => OperationalSettings::DEFAULTS[$key],
-                        [3 => 1, 6 => 2, 10 => 4],
                         OperationalSettings::parseNightWindows(OperationalSettings::DEFAULTS['pricing.night_windows']),
                     );
                     Notification::make()->title('Đã điền giá trị mặc định — kiểm tra rồi bấm Lưu')->info()->send();
@@ -208,179 +170,25 @@ class OperationalSettingsPage extends Page implements HasForms
             Tabs::make('settings')
                 ->persistTabInQueryString()
                 ->tabs([
-                    $this->dispatchTab(),
-                    $this->driverScoreTab(),
-                    $this->weeklyTab(),
                     $this->orderTab(),
+                    $this->shiftTab(),
                     $this->walletTab(),
                 ]),
         ])->statePath('data');
     }
 
-    private function dispatchTab(): Tab
+    private function shiftTab(): Tab
     {
-        return Tab::make('Phát đơn')
-            ->icon('heroicon-o-signal')
+        return Tab::make('Ca làm việc')
+            ->icon('heroicon-o-clock')
             ->schema([
-                Section::make('Hình thức phát đơn')
-                    ->icon('heroicon-o-arrows-right-left')
-                    ->description('Mỗi khu vực dùng đúng một luồng. Thay đổi chỉ áp dụng cho đơn tạo sau khi lưu; đơn đang chạy giữ nguyên luồng cũ.')
+                Section::make('Offline trong ca')
+                    ->icon('heroicon-o-power')
+                    ->description('Mỗi ca tài xế được Offline tối đa số phút dưới đây (cộng dồn các lần off). Vượt quá thì tự động ghi công nợ phạt, một lần cho mỗi ca mỗi ngày. Đặt số phút = 0 để phạt ngay khi Offline.')
+                    ->columns(['sm' => 2, 'lg' => 3])
                     ->schema([
-                        Select::make('dispatch_mode')
-                            ->label('Luồng mặc định của khu vực')
-                            ->options(fn (): array => OperationalSettings::selfPickReleaseEnabled()
-                                ? [
-                                    'self_pick' => 'Đơn tự chọn — đưa thẳng vào Chợ đơn',
-                                    'system_assigned' => 'Hệ thống gán — phát offer cho tài xế phù hợp',
-                                ]
-                                : [
-                                    'system_assigned' => 'Hệ thống gán — phát offer cho tài xế phù hợp',
-                                ])
-                            ->helperText(fn (): string => OperationalSettings::selfPickReleaseEnabled()
-                                ? 'Có thể chọn luồng riêng cho khu vực này.'
-                                : 'Đợt triển khai hiện tại đang khóa Đơn tự chọn; mọi khu vực dùng Hệ thống gán.')
-                            ->required()
-                            ->native(false),
-                    ]),
-
-                Section::make('Phạm vi & số đơn')
-                    ->icon('heroicon-o-map-pin')
-                    ->description('Chỉ phát cho tài xế trong khoảng cách đường thực tế và chưa đủ trần đơn active.')
-                    ->columns(['sm' => 2, 'lg' => 4])
-                    ->schema([
-                        $this->number('dispatch_max_road_distance_km', 'Khoảng cách phát tối đa', 'km', 0.5, 50, step: 0.1),
-                        $this->integer('max_active_orders_per_driver', 'Đơn active tối đa', 'đơn', 1, 3),
-                    ]),
-
-                Section::make('Thời gian')
-                    ->icon('heroicon-o-clock')
-                    ->description('Mặc định: thiết bị ACK trong 8 giây, tài xế có 15 giây mở offer và thêm 20 giây xem để quyết định.')
-                    ->columns(['sm' => 2, 'lg' => 4])
-                    ->schema([
-                        $this->integer('offer_receipt_seconds', 'Chờ thiết bị nhận offer', 'giây', 3, 30),
-                        $this->integer('offer_open_seconds', 'Chuông & chờ mở offer', 'giây', 5, 120),
-                        $this->integer('dispatch_wave_size', 'Tài xế mỗi lượt phát', 'tài xế', 1, 10),
-                        $this->integer('offer_decision_seconds', 'Xem & quyết định sau khi mở', 'giây', 5, 180),
-                        $this->integer('dispatch_retry_seconds', 'Quét lại khi chưa có ai', 'giây', 5, 300),
-                        $this->integer('dispatch_timeout_minutes', 'Dừng tìm tài xế sau', 'phút', 1, 120),
-                    ]),
-
-                Section::make('Chợ đơn')
-                    ->icon('heroicon-o-building-storefront')
-                    ->description('Áp dụng khi chọn Đơn tự chọn: đơn mới hiện ngay cho các tài xế đủ điều kiện trong khu vực.')
-                    ->columns(['sm' => 2, 'lg' => 2])
-                    ->schema([
-                        $this->number('market_max_pickup_distance_km', 'Bán kính thấy đơn', 'km', 0.5, 50, step: 0.1),
-                        $this->integer('market_expire_minutes', 'Hết hạn sau', 'phút', 1, 120),
-                    ]),
-
-                Section::make('Trọng số xếp hạng tài xế')
-                    ->icon('heroicon-o-scale')
-                    ->description('Hiệu suất gồm phản hồi offer 14 ngày, đánh giá 90 ngày và điểm vận hành. Tài xế mới dùng điểm nền trung tính. Các trọng số là tỷ lệ tương đối, không bắt buộc tổng bằng 100.')
-                    ->collapsible()
-                    ->collapsed()
-                    ->columns(['sm' => 2, 'lg' => 4])
-                    ->schema([
-                        $this->weight('dispatch_score_weight', 'Hiệu suất dịch vụ'),
-                        $this->weight('dispatch_wait_weight', 'Thời gian chờ'),
-                        $this->weight('dispatch_distance_weight', 'Khoảng cách'),
-                        $this->number('dispatch_fair_score_band', 'Biên điểm công bằng', 'điểm', 0, 50, step: 0.5),
-                        $this->integer('dispatch_wait_cap_minutes', 'Chờ đạt điểm tối đa', 'phút', 1, 2880),
-                    ]),
-            ]);
-    }
-
-    private function driverScoreTab(): Tab
-    {
-        return Tab::make('Điểm tài xế')
-            ->icon('heroicon-o-star')
-            ->schema([
-                Section::make('Thưởng chuỗi đơn liên tiếp')
-                    ->icon('heroicon-o-fire')
-                    ->description('Đạt mốc cuối cùng thì chuỗi bắt đầu lại. Tổng điểm thưởng mỗi ngày không vượt trần.')
-                    ->schema([
-                        Repeater::make('streak_milestones')
-                            ->hiddenLabel()
-                            ->schema([
-                                TextInput::make('orders')->label('Liên tiếp')->numeric()->integer()->required()->minValue(1)->suffix('đơn'),
-                                TextInput::make('points')->label('Thưởng')->numeric()->integer()->required()->minValue(1)->suffix('điểm'),
-                            ])
-                            ->itemLabel(fn (array $state): string => filled($state['orders'] ?? null) ? "Mốc {$state['orders']} đơn" : 'Mốc mới')
-                            ->columns(2)
-                            ->grid(['md' => 2, 'xl' => 3])
-                            ->minItems(1)
-                            ->maxItems(10)
-                            ->reorderable(false)
-                            ->addActionLabel('Thêm mốc'),
-                        Grid::make(['sm' => 2, 'lg' => 4])->schema([
-                            $this->integer('daily_bonus_cap', 'Trần điểm thưởng mỗi ngày', 'điểm', 1, 100),
-                        ]),
-                    ]),
-
-                Section::make('Trừ điểm theo hành vi')
-                    ->icon('heroicon-o-hand-thumb-down')
-                    ->description('Nhập số âm hoặc 0. Bỏ lỡ đủ giới hạn thì tài xế bị trừ điểm và chuyển Offline.')
-                    ->columns(['sm' => 2, 'lg' => 5])
-                    ->schema([
-                        $this->penalty('decline_penalty', 'Từ chối đơn'),
-                        $this->penalty('viewed_timeout_penalty', 'Xem nhưng không nhận'),
-                        $this->penalty('unviewed_penalty', 'Bỏ lỡ đủ giới hạn'),
-                        $this->integer('unviewed_limit', 'Giới hạn bỏ lỡ', 'offer', 1, 20),
-                        $this->integer('unviewed_window_size', 'Trong số offer gần nhất', 'offer', 2, 20),
-                    ]),
-
-                Section::make('Tỷ lệ online trong ca')
-                    ->icon('heroicon-o-signal')
-                    ->description('Chấm cuối mỗi ca theo % thời gian online. Ngưỡng phải giảm dần từ trên xuống.')
-                    ->schema([
-                        $this->shiftTier('Bình thường', 'shift_normal_min_percent', null, 100),
-                        $this->shiftTier('Giảm nhẹ', 'shift_reduced_min_percent', 'shift_reduced_penalty', 99),
-                        $this->shiftTier('Mức giữa', 'shift_mid_min_percent', 'shift_mid_penalty', 99),
-                        $this->shiftTier('Mức thấp', 'shift_low_min_percent', 'shift_low_penalty', 99),
-                        Grid::make(['default' => 1, 'sm' => 3])->schema([
-                            Placeholder::make('critical_label')
-                                ->label('Dưới mức thấp')
-                                ->content(fn (Get $get) => 'Online dưới '.((int) $get('shift_low_min_percent')).'% ca'),
-                            $this->penalty('shift_critical_penalty', 'Điểm trừ')->columnStart(['sm' => 3]),
-                        ]),
-                    ]),
-            ]);
-    }
-
-    private function weeklyTab(): Tab
-    {
-        return Tab::make('Chốt tuần')
-            ->icon('heroicon-o-trophy')
-            ->schema([
-                Section::make('Thang điểm')
-                    ->icon('heroicon-o-chart-bar')
-                    ->description('Điểm tài xế không vượt quá trần. Đầu tuần mọi tài xế về '.DriverScoreService::DEFAULT_SCORE.' điểm.')
-                    ->columns(['sm' => 2, 'lg' => 4])
-                    ->schema([
-                        $this->integer('max_score', 'Trần điểm tài xế', 'điểm', 111, 1000)
-                            ->live(onBlur: true),
-                    ]),
-
-                Section::make('Thưởng/phạt cuối tuần')
-                    ->icon('heroicon-o-trophy')
-                    ->description('Lệnh chốt tuần đọc cấu hình một lần lúc bắt đầu (Thứ Hai 00:02), cả kỳ dùng chung một chính sách.')
-                    ->columns(2)
-                    ->schema([
-                        Section::make('Thưởng')
-                            ->compact()
-                            ->columnSpan(1)
-                            ->schema([
-                                $this->integer('weekly_bonus_score', 'Khi đạt từ', 'điểm', 111, 1000)
-                                    ->helperText(fn (Get $get) => 'Tối đa bằng trần điểm ('.((int) $get('max_score')).')'),
-                                $this->money('weekly_bonus_amount', 'Số tiền cộng vào ví', 1000),
-                            ]),
-                        Section::make('Phạt')
-                            ->compact()
-                            ->columnSpan(1)
-                            ->schema([
-                                $this->integer('weekly_penalty_score', 'Khi bằng hoặc dưới', 'điểm', 0, 89),
-                                $this->money('weekly_penalty_amount', 'Số tiền ghi công nợ', 1000),
-                            ]),
+                        $this->integer('shift_offline_limit_minutes', 'Được Offline tối đa', 'phút', 0, 600),
+                        $this->money('shift_offline_penalty_amount', 'Tiền phạt khi vượt', 0, 10_000_000),
                     ]),
             ]);
     }
@@ -489,11 +297,6 @@ class OperationalSettingsPage extends Page implements HasForms
             ->minValue($min)->maxValue($max)->step($step)->suffix($suffix);
     }
 
-    private function penalty(string $name, string $label): TextInput
-    {
-        return $this->integer($name, $label, 'điểm', -50, 0);
-    }
-
     private function money(string $name, string $label, int $min, ?int $max = null): TextInput
     {
         return TextInput::make($name)->label($label)->required()
@@ -507,58 +310,26 @@ class OperationalSettingsPage extends Page implements HasForms
             ->suffix('đ');
     }
 
-    private function weight(string $name, string $label): TextInput
-    {
-        return TextInput::make($name)->label($label)->numeric()->required()->minValue(0)->maxValue(100)
-            ->live(onBlur: true)
-            ->helperText(function (Get $get) use ($name): string {
-                $total = (float) $get('dispatch_score_weight') + (float) $get('dispatch_wait_weight') + (float) $get('dispatch_distance_weight');
-
-                return $total > 0 ? 'Chiếm '.round((float) $get($name) / $total * 100).'%' : '—';
-            });
-    }
-
-    private function shiftTier(string $label, string $threshold, ?string $penalty, int $max): Grid
-    {
-        return Grid::make(['default' => 1, 'sm' => 3])->schema([
-            Placeholder::make("{$threshold}_label")->label($label)->content(fn (Get $get) => match ($threshold) {
-                'shift_normal_min_percent' => 'Online '.((int) $get($threshold)).'–100% ca',
-                'shift_reduced_min_percent' => 'Online '.((int) $get($threshold)).'–'.((int) $get('shift_normal_min_percent') - 1).'% ca',
-                'shift_mid_min_percent' => 'Online '.((int) $get($threshold)).'–'.((int) $get('shift_reduced_min_percent') - 1).'% ca',
-                default => 'Online '.((int) $get($threshold)).'–'.((int) $get('shift_mid_min_percent') - 1).'% ca',
-            }),
-            $this->integer($threshold, 'Từ', '%', 1, $max)->live(onBlur: true),
-            $penalty
-                ? $this->penalty($penalty, 'Điểm trừ')
-                : Placeholder::make("{$threshold}_penalty")->label('Điểm trừ')->content('0 — không trừ'),
-        ]);
-    }
-
     private function fillFromCity(int $cityId): void
     {
         $this->fillFrom(
             fn (string $key) => OperationalSettings::value($key, $cityId),
-            OperationalSettings::streakMilestones($cityId),
             OperationalSettings::nightWindows($cityId),
         );
     }
 
     /**
      * @param  callable(string): string  $value
-     * @param  array<int, int>  $milestones
      * @param  list<array{from: string, to: string, amount: int}>  $nightWindows
      */
-    private function fillFrom(callable $value, array $milestones, array $nightWindows): void
+    private function fillFrom(callable $value, array $nightWindows): void
     {
         $state = [];
         foreach (self::FIELDS as $field => $key) {
             // "+ 0" giữ đúng kiểu int/float của chuỗi đã lưu, tránh 55 → 55.00000000000001.
-            $state[$field] = $key === 'dispatch.mode' ? $value($key) : $value($key) + 0;
+            $state[$field] = $value($key) + 0;
         }
 
-        $state['streak_milestones'] = collect($milestones)
-            ->map(fn (int $points, int $orders) => ['orders' => $orders, 'points' => $points])
-            ->values()->all();
         $state['night_windows'] = $nightWindows;
 
         $this->form->fill($state);
@@ -609,61 +380,9 @@ class OperationalSettingsPage extends Page implements HasForms
     public function save(): void
     {
         $values = $this->form->getState();
-        $milestones = collect($values['streak_milestones'])
-            ->mapWithKeys(fn (array $row) => [(int) $row['orders'] => (int) $row['points']])
-            ->sortKeys();
-
-        if ($milestones->count() !== count($values['streak_milestones'])) {
-            throw ValidationException::withMessages([
-                'data.streak_milestones' => 'Số đơn của mỗi mốc thưởng không được trùng nhau.',
-            ]);
-        }
-
-        if ((int) $values['weekly_bonus_score'] > (int) $values['max_score']) {
-            throw ValidationException::withMessages([
-                'data.weekly_bonus_score' => 'Mốc thưởng không được cao hơn trần điểm ('.((int) $values['max_score']).') — tài xế sẽ không bao giờ đạt được.',
-            ]);
-        }
-
-        if ((int) $values['weekly_penalty_score'] >= (int) $values['weekly_bonus_score']) {
-            throw ValidationException::withMessages([
-                'data.weekly_penalty_score' => 'Mốc phạt phải thấp hơn mốc thưởng.',
-            ]);
-        }
-
-        if ((int) $values['unviewed_limit'] > (int) $values['unviewed_window_size']) {
-            throw ValidationException::withMessages([
-                'data.unviewed_limit' => 'Số offer bỏ lỡ không được lớn hơn kích thước cửa sổ.',
-            ]);
-        }
-
-        $shiftThresholds = [
-            (int) $values['shift_normal_min_percent'],
-            (int) $values['shift_reduced_min_percent'],
-            (int) $values['shift_mid_min_percent'],
-            (int) $values['shift_low_min_percent'],
-        ];
-        if (! ($shiftThresholds[0] > $shiftThresholds[1]
-            && $shiftThresholds[1] > $shiftThresholds[2]
-            && $shiftThresholds[2] > $shiftThresholds[3])) {
-            throw ValidationException::withMessages([
-                'data.shift_normal_min_percent' => 'Các ngưỡng online phải giảm dần và không được trùng nhau.',
-            ]);
-        }
-
-        $weightTotal = (float) $values['dispatch_score_weight']
-            + (float) $values['dispatch_wait_weight']
-            + (float) $values['dispatch_distance_weight'];
-        if ($weightTotal <= 0) {
-            throw ValidationException::withMessages([
-                'data.dispatch_score_weight' => 'Phải có ít nhất một trọng số lớn hơn 0.',
-            ]);
-        }
-
         $nightWindows = $this->validatedNightWindows($values['night_windows'] ?? []);
 
         $settings = [
-            'driver_score.streak_milestones' => $milestones->map(fn ($points, $orders) => "{$orders}:{$points}")->implode(','),
             'pricing.night_windows' => json_encode($nightWindows),
         ];
         foreach (self::FIELDS as $field => $key) {
@@ -672,12 +391,6 @@ class OperationalSettingsPage extends Page implements HasForms
         $before = collect($settings)->mapWithKeys(fn ($v, $k) => [$k => OperationalSettings::value($k, $this->cityId())])->all();
         OperationalSettings::put($settings, $this->cityId());
         $this->logChanges($before, $settings);
-
-        // App tài xế đang mở sẽ tải lại cấu hình và ẩn/hiện tab Chợ đơn ngay
-        // khi khu vực đổi hình thức phát đơn.
-        if ((string) ($before['dispatch.mode'] ?? 'system_assigned') !== (string) $settings['dispatch.mode']) {
-            RTDBService::pingOrderMarket($this->cityId());
-        }
 
         Notification::make()->title('Đã lưu cấu hình vận hành')->success()->send();
 

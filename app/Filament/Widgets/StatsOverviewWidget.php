@@ -74,7 +74,7 @@ class StatsOverviewWidget extends Widget
         $supply = app(DriverSupplyService::class)->snapshot($cityId);
         $driversReady = $supply['ready'];
         $driversOnline = $supply['online'];
-        $driversBusy = $supply['busy1'] + $supply['busy2'] + $supply['holding'];
+        $driversBusy = $supply['busy1'] + $supply['busy2'];
         $driversDead = $supply['dead'];
 
         $cityName = Filament::getTenant()?->name ?? 'Tất cả khu vực';

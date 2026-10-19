@@ -8,7 +8,6 @@ Route::redirect('/', '/admin');
 // Đường dẫn cũ của trang Theo dõi phát đơn (trước khi đổi slug sang tiếng Việt)
 Route::get('/admin/{tenant}/call-center-page', fn (string $tenant) => redirect(url('/admin/'.$tenant.'/tong-dai-dat-don').(request()->getQueryString() ? '?'.request()->getQueryString() : '')))->where('tenant', '[0-9]+');
 Route::get('/admin/{tenant}/driver-map-page', fn (string $tenant) => redirect('/admin/'.$tenant.'/ban-do-tai-xe'))->where('tenant', '[0-9]+');
-Route::get('/admin/{tenant}/dispatch-monitor-page', fn (string $tenant) => redirect('/admin/'.$tenant.'/theo-doi-phat-don'))->where('tenant', '[0-9]+');
 
 // Trang pháp lý công khai (link trên cửa hàng ứng dụng): đọc từ nội dung quản trị đang dùng trong app
 // để hai nơi luôn khớp nhau; nếu chưa có nội dung thì dùng bản tĩnh dự phòng.

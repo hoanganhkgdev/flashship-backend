@@ -16,8 +16,6 @@ use Filament\Tables;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Redis;
 use Illuminate\Support\HtmlString;
 use Illuminate\Support\Str;
 use Modules\Core\Models\User;
@@ -48,7 +46,6 @@ class DriverResource extends Resource
     protected static ?int $navigationSort = 1;
 
     /** Tài xế dưới ngưỡng điểm này (đang hoạt động) bị gắn nhãn "điểm thấp". */
-    public const LOW_SCORE = 60;
 
     /**
      * Tài xế tự đăng ký trên app (OTP + CCCD + bằng lái) rồi chờ duyệt. Admin không tạo hộ: form cũ không có mật khẩu,
@@ -101,17 +98,13 @@ class DriverResource extends Resource
             ->modalHeading('Xóa tài xế')
             ->modalDescription('Xóa vĩnh viễn tài khoản tài xế cùng ví, công nợ, lịch sử điểm và ca làm việc. Các đơn cũ sẽ không còn thông tin tài xế. Không thể khôi phục.')
             ->before(function (User $record, $action) {
-                $busy = Order::where(fn ($q) => $q->where('delivery_man_id', $record->id)->whereIn('status', ['assigned', 'processing'])
-                    ->orWhere(fn ($q) => $q->where('status', 'pending')->whereExists(fn ($logs) => $logs
-                        ->selectRaw('1')->from('order_dispatch_logs')
-                        ->whereColumn('order_dispatch_logs.order_id', 'orders.id')
-                        ->where('order_dispatch_logs.driver_id', $record->id)
-                        ->where('order_dispatch_logs.result', 'pending'))))
+                $busy = Order::where('delivery_man_id', $record->id)
+                    ->whereIn('status', ['assigned', 'processing'])
                     ->first(['id', 'code']);
 
                 if ($busy) {
                     Notification::make()
-                        ->title("Không thể xóa: tài xế đang giữ/được đề nghị đơn #{$busy->code}")
+                        ->title("Không thể xóa: tài xế đang giữ đơn #{$busy->code}")
                         ->body('Hãy hoàn tất hoặc điều phối lại đơn trước khi xóa tài xế.')
                         ->danger()->send();
                     $action->cancel();
@@ -121,11 +114,6 @@ class DriverResource extends Resource
                 $record->tokens()->delete();
                 RTDBService::removeDriverLocation($record->id);
                 RTDBService::setAccountLocked($record->id, true);
-                try {
-                    Redis::del("dispatch:lock:driver:{$record->id}");
-                } catch (\Throwable $e) {
-                    Log::warning('[DriverDelete] Redis cleanup failed: '.$e->getMessage());
-                }
             })
             ->successNotificationTitle('Đã xóa tài xế');
     }
@@ -285,12 +273,9 @@ class DriverResource extends Resource
                     ->sortable()
                     ->description(fn (User $record): string => number_format((int) $record->orders_30d).' trong 30 ngày'),
 
-                Tables\Columns\TextColumn::make('driver_score')
-                    ->label('Điểm')
-                    ->formatStateUsing(fn ($state): string => (string) ($state ?? 80))
-                    ->color(fn ($state): ?string => ($state ?? 80) < self::LOW_SCORE ? 'danger' : null)
-                    ->description(fn (User $record): string => Str::limit($record->registeredShifts->pluck('name')->implode(', ') ?: 'Chưa đăng ký ca', 20))
-                    ->sortable(),
+                Tables\Columns\TextColumn::make('registered_shifts')
+                    ->label('Ca đăng ký')
+                    ->state(fn (User $record): string => Str::limit($record->registeredShifts->pluck('name')->implode(', ') ?: 'Chưa đăng ký ca', 30)),
 
                 Tables\Columns\TextColumn::make('created_at')
                     ->label('Ngày đăng ký')

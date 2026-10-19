@@ -3,7 +3,6 @@
 namespace Tests\Feature\Driver;
 
 use Illuminate\Support\Facades\DB;
-use Modules\Driver\Services\DriverScoreService;
 use Modules\Driver\Services\DriverWalletService;
 use Tests\TestCase;
 
@@ -50,13 +49,13 @@ use Tests\TestCase;
  * thật → 2 test race fail đúng với giá trị sai dự đoán được (90 thay vì 50,
  * 250000 thay vì 200000); khôi phục code thật → cả 2 pass.
  */
-class ScoreAndWalletRaceConditionTest extends TestCase
+class WalletRaceConditionTest extends TestCase
 {
     protected function setUp(): void
     {
         parent::setUp();
 
-        // Trỏ connection mặc định ("mysql", nơi DriverScoreService/
+        // Trỏ connection mặc định ("mysql", nơi
         // DriverWalletService thật sự chạy) vào DB test riêng — không đụng
         // DB dev/production.
         config(['database.connections.mysql' => self::mysqlTestConnection()]);
@@ -64,7 +63,6 @@ class ScoreAndWalletRaceConditionTest extends TestCase
         DB::purge('mysql');
 
         DB::statement('SET FOREIGN_KEY_CHECKS=0');
-        DB::table('driver_score_logs')->truncate();
         DB::table('driver_wallet_transactions')->truncate();
         DB::table('driver_wallets')->truncate();
         DB::table('users')->where('email', 'like', 'race-test-%')->delete();
@@ -79,14 +77,13 @@ class ScoreAndWalletRaceConditionTest extends TestCase
         parent::tearDown();
     }
 
-    private function makeDriver(int $score = 100): int
+    private function makeDriver(): int
     {
         return DB::table('users')->insertGetId([
             'name'         => 'Race Test Driver',
             'email'        => 'race-test-' . uniqid('', true) . '@test.local',
             'password'     => 'x',
             'user_type'    => 'driver',
-            'driver_score' => $score,
             'created_at'   => now(),
             'updated_at'   => now(),
         ]);
@@ -144,29 +141,6 @@ class ScoreAndWalletRaceConditionTest extends TestCase
 
     // ─── Không mất update khi có giao dịch khác chen vào (chống bug 2026-08-19) ──
 
-    public function test_on_shift_online_rate_does_not_lose_a_concurrent_score_change(): void
-    {
-        $driverId = $this->makeDriver(100);
-
-        // Mô phỏng 1 sự kiện chấm điểm KHÁC đang xử lý cùng dòng driver này
-        // (vd onComplete() vừa cộng streak) — đổi điểm 100 → 60, CHƯA commit.
-        DB::beginTransaction();
-        DB::table('users')->where('id', $driverId)->lockForUpdate()->first();
-        DB::table('users')->where('id', $driverId)->update(['driver_score' => 60]);
-
-        $this->runInSeparateProcess($this->connectionOverrideCode() .
-            "\\Modules\\Driver\\Services\\DriverScoreService::onShiftOnlineRate({$driverId}, 0.55);"); // shift_online_low, -10
-
-        $finalScore = (int) DB::table('users')->where('id', $driverId)->value('driver_score');
-
-        $this->assertSame(50, $finalScore,
-            'onShiftOnlineRate() phải thấy giá trị 60 vừa commit (không phải ' .
-            '100 cũ) rồi mới trừ tiếp 10 → đúng phải ra 50. Ra ' . $finalScore .
-            ' nghĩa là hàm đọc giá trị CŨ trước khi giao dịch khác commit rồi ' .
-            'ghi đè mất thay đổi đó — tái hiện đúng bug 2026-08-19 (mất 1 lần ' .
-            'cộng/trừ điểm khi trùng lúc với 1 sự kiện chấm điểm khác).');
-    }
-
     public function test_wallet_adjust_does_not_lose_a_concurrent_balance_change(): void
     {
         $driverId = $this->makeDriver();
@@ -192,50 +166,6 @@ class ScoreAndWalletRaceConditionTest extends TestCase
     }
 
     // ─── Đúng kết quả (không cần race, chạy tuần tự) ──────────────────────────
-
-    public function test_on_shift_online_rate_score_brackets(): void
-    {
-        $cases = [
-            0.90 => [0,   'shift_online_normal'],
-            0.75 => [-3,  'shift_online_reduced'],
-            0.65 => [-5,  'shift_online_mid'],
-            0.55 => [-10, 'shift_online_low'],
-            0.30 => [-15, 'shift_online_critical'],
-        ];
-
-        foreach ($cases as $percent => [$expectedDelta, $expectedReason]) {
-            $driverId = $this->makeDriver(100);
-            DriverScoreService::onShiftOnlineRate($driverId, $percent);
-
-            $log = DB::table('driver_score_logs')->where('driver_id', $driverId)->latest('id')->first();
-
-            $this->assertNotNull($log, "Không có log điểm nào được ghi cho percent={$percent}");
-            $this->assertSame($expectedReason, $log->reason, "Sai reason cho percent={$percent}");
-            $this->assertSame($expectedDelta, (int) $log->delta, "Sai delta cho percent={$percent}");
-            $this->assertSame(100 + $expectedDelta, (int) $log->score_after, "Sai score_after cho percent={$percent}");
-        }
-    }
-
-    public function test_on_shift_online_rate_clamps_to_min_score(): void
-    {
-        $driverId = $this->makeDriver(5); // gần MIN_SCORE (0)
-        DriverScoreService::onShiftOnlineRate($driverId, 0.0); // shift_online_critical, -15
-
-        $score = DB::table('users')->where('id', $driverId)->value('driver_score');
-        $this->assertSame(0, (int) $score, 'Điểm không được xuống dưới MIN_SCORE (0)');
-    }
-
-    public function test_offer_penalties_match_business_rules(): void
-    {
-        $viewedDriver = $this->makeDriver(100);
-        DriverScoreService::onViewedTimeout($viewedDriver);
-        $this->assertSame(98, (int) DB::table('users')->where('id', $viewedDriver)->value('driver_score'));
-
-        $unviewedDriver = $this->makeDriver(100);
-        DriverScoreService::onUnviewedOfferWindowLimit($unviewedDriver);
-        $this->assertSame(98, (int) DB::table('users')->where('id', $unviewedDriver)->value('driver_score'));
-        $this->assertSame('offer_unviewed_x3', DB::table('driver_score_logs')->where('driver_id', $unviewedDriver)->latest('id')->value('reason'));
-    }
 
     public function test_wallet_balance_correct_after_sequential_credit_and_debit(): void
     {

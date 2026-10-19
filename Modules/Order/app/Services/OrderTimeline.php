@@ -69,7 +69,7 @@ class OrderTimeline
         $events->push(['at' => $order->created_at, 'type' => 'created', 'text' => 'Tạo đơn'.($order->platform ? ' ('.self::platform($order->platform).')' : ''), 'who' => $users[$order->created_by] ?? ($order->sender_name ?: null)]);
 
         if ($order->dispatch_started_at) {
-            $events->push(['at' => $order->dispatch_started_at, 'type' => 'dispatch', 'text' => 'Bắt đầu tìm tài xế', 'who' => null]);
+            $events->push(['at' => $order->dispatch_started_at, 'type' => 'dispatch', 'text' => 'Đơn lên danh sách đơn mới', 'who' => null]);
         }
 
         foreach ($logs as $l) {

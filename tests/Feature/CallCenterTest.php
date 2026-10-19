@@ -15,7 +15,6 @@ use Modules\Core\Models\User;
 use Modules\Driver\Models\DriverDebt;
 use Modules\Driver\Services\DriverLocationService;
 use Modules\Order\Models\Order;
-use Modules\Order\Models\OrderMarketListing;
 use Modules\Order\Services\OrderService;
 use Modules\Order\Services\OrderTimeline;
 use Tests\TestCase;
@@ -118,7 +117,7 @@ class CallCenterTest extends TestCase
     public function test_an_ineligible_driver_is_rejected_before_any_order_is_created(): void
     {
         $suspended = $this->user('driver', ['is_online' => true]);
-        DB::table('users')->where('id', $suspended->id)->update(['score_suspended_until' => now()->addDay()]);
+        DB::table('driver_leave_requests')->insert(['driver_id' => $suspended->id, 'leave_date' => today(), 'note' => 'x', 'created_by' => $this->admin->id, 'created_at' => now(), 'updated_at' => now()]);
 
         $page = $this->page('delivery')->set('assignedDriverId', $suspended->id)->set('data', $this->data())->call('placeOrder');
 
@@ -130,7 +129,7 @@ class CallCenterTest extends TestCase
     {
         $ok = $this->user('driver', ['is_online' => true]);
         $suspended = $this->user('driver', ['is_online' => true]);
-        DB::table('users')->where('id', $suspended->id)->update(['score_suspended_until' => now()->addDay()]);
+        DB::table('driver_leave_requests')->insert(['driver_id' => $suspended->id, 'leave_date' => today(), 'note' => 'x', 'created_by' => $this->admin->id, 'created_at' => now(), 'updated_at' => now()]);
         $this->user('driver', ['is_online' => false]);
 
         $page = $this->page('delivery')->call('setPickupLocation', 'Quán', 10.0, 105.0);
@@ -151,27 +150,6 @@ class CallCenterTest extends TestCase
         $this->assertTrue($recent[0]['no_delivery']);
         $this->assertSame('Chưa có điểm giao', $recent[0]['delivery']);
         $this->assertSame('0911 222 333', $recent[0]['phone']);
-    }
-
-    public function test_market_orders_only_show_live_listings_in_the_current_city(): void
-    {
-        $visible = Order::create(['code' => 'MARKET1', 'status' => 'pending', 'city_id' => $this->city->id, 'service_type' => 'delivery', 'platform' => 'customer_app',
-            'pickup_address' => 'Điểm lấy', 'delivery_address' => 'Điểm giao', 'shipping_fee' => 15000, 'created_by' => $this->admin->id]);
-        OrderMarketListing::create(['order_id' => $visible->id, 'city_id' => $this->city->id, 'status' => 'open', 'open_reason' => 'attempts',
-            'offer_attempts' => 3, 'opened_at' => now()->subMinutes(2), 'expires_at' => now()->addMinutes(8)]);
-
-        $expired = Order::create(['code' => 'MARKET2', 'status' => 'pending', 'city_id' => $this->city->id, 'service_type' => 'delivery', 'platform' => 'customer_app',
-            'pickup_address' => 'a', 'delivery_address' => 'b', 'created_by' => $this->admin->id]);
-        OrderMarketListing::create(['order_id' => $expired->id, 'city_id' => $this->city->id, 'status' => 'open', 'open_reason' => 'timeout',
-            'offer_attempts' => 1, 'opened_at' => now()->subMinutes(20), 'expires_at' => now()->subMinute()]);
-
-        $market = Livewire::test(CallCenterPage::class)->instance()->marketOrders();
-
-        $this->assertCount(1, $market);
-        $this->assertSame($visible->fresh()->code, $market[0]['code']);
-        $this->assertSame(3, $market[0]['offer_attempts']);
-        $this->assertSame('Đủ lượt phát', $market[0]['open_reason']);
-        $this->assertGreaterThanOrEqual(7, $market[0]['remaining_minutes']);
     }
 
     public function test_risky_customer_is_flagged_and_old_url_redirects_with_query(): void
@@ -245,7 +223,7 @@ class CallCenterTest extends TestCase
         $far = $this->user('driver', ['is_online' => true, 'name' => 'Xa 6km']);
         $blocked = $this->user('driver', ['is_online' => true, 'name' => 'Bị khóa gần']);
         $offline = $this->user('driver', ['is_online' => false, 'name' => 'Offline gần']);
-        DB::table('users')->where('id', $blocked->id)->update(['score_suspended_until' => now()->addDay()]);
+        DB::table('driver_leave_requests')->insert(['driver_id' => $blocked->id, 'leave_date' => today(), 'note' => 'x', 'created_by' => $this->admin->id, 'created_at' => now(), 'updated_at' => now()]);
         Order::create(['code' => 'BUSY'.uniqid(), 'status' => 'assigned', 'delivery_man_id' => $busy->id, 'city_id' => $this->city->id, 'service_type' => 'delivery',
             'pickup_address' => 'a', 'delivery_address' => 'b', 'created_by' => $this->admin->id]);
 

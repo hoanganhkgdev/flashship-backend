@@ -59,15 +59,8 @@ class DriverSupplyService
             ->selectRaw('delivery_man_id, COUNT(*) as cnt')
             ->pluck('cnt', 'delivery_man_id');
 
-        $holdingOffer = DB::table('order_dispatch_logs as logs')
-            ->join('orders', 'orders.id', '=', 'logs.order_id')
-            ->where('orders.status', 'pending')->where('logs.result', 'pending')
-            ->whereIn('logs.driver_id', $ids)
-            ->pluck('logs.driver_id')
-            ->flip();
-
         $online = $drivers->count();
-        $counts = ['ready' => 0, 'busy1' => 0, 'busy2' => 0, 'holding' => 0, 'dead' => 0];
+        $counts = ['ready' => 0, 'busy1' => 0, 'busy2' => 0, 'dead' => 0];
         $groups = array_fill_keys(array_keys($counts), []);
 
         foreach ($drivers as $d) {
@@ -77,7 +70,6 @@ class DriverSupplyService
             $group = match (true) {
                 $seen === null || $now - $seen > DriverLocationService::POS_MAX_AGE_SECS => 'dead',
                 $active >= OperationalSettings::maxActiveOrdersPerDriver($cityId) => 'busy2',
-                isset($holdingOffer[$d->id]) => 'holding',
                 $active > 0 => 'busy1',
                 default => 'ready',
             };

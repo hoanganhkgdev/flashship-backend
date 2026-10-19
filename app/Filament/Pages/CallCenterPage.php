@@ -21,8 +21,7 @@ use Modules\Core\Services\GoogleMapService;
 use Modules\Core\Services\RTDBService;
 use Modules\Driver\Services\DriverLocationService;
 use Modules\Order\Models\Order;
-use Modules\Order\Models\OrderMarketListing;
-use Modules\Order\Services\DispatchService;
+use Modules\Order\Services\ManualOrderAssignment;
 use Modules\Order\Services\OrderService;
 use Modules\Order\Services\OrderTimeline;
 use Modules\Pricing\Services\PricingService;
@@ -714,7 +713,7 @@ class CallCenterPage extends Page implements HasForms
                 // Gán tay — gán CỨNG luôn cho đúng người tổng đài chọn, đơn vào thẳng mục "Đã nhận" của tài xế.
                 // Điều kiện đã kiểm tra ở trên; nếu vẫn thất bại (vừa bận do đua nhau) thì HUỶ đơn, KHÔNG tự chuyển
                 // sang phát cho cả thành phố vì tổng đài đã chủ động chọn đúng người này.
-                $assignResult = app(DispatchService::class)->assignDriverDirectly($order, $this->assignedDriverId);
+                $assignResult = app(ManualOrderAssignment::class)->assign($order, $this->assignedDriverId);
                 if ($assignResult['success']) {
                     Notification::make()
                         ->title($assignResult['message'])
@@ -832,7 +831,6 @@ class CallCenterPage extends Page implements HasForms
                 'service' => $labels[$o->service_type] ?? $o->service_type,
                 'status' => $o->status,
                 'status_label' => self::STATUS_LABELS[$o->status] ?? $o->status,
-                'stopped' => $o->status === 'pending' && $o->cancel_reason === 'no_driver',
                 'minutes' => (int) $o->created_at->diffInMinutes(now()),
                 'pickup' => trim((string) $o->pickup_address) ?: '—',
                 'delivery' => trim((string) $o->delivery_address) ?: 'Chưa có điểm giao',
@@ -843,51 +841,6 @@ class CallCenterPage extends Page implements HasForms
                 'fee' => (int) $o->shipping_fee,
                 'url' => OrderResource::getUrl('view', ['record' => $o->id]),
             ])->all();
-    }
-
-    /**
-     * Các đơn đang thật sự mở trong Chợ đơn của khu vực Tổng đài đang trực.
-     *
-     * @return array<int, array>
-     */
-    #[Renderless]
-    public function marketOrders(): array
-    {
-        $labels = ServiceType::pluck('label', 'key');
-        $now = now();
-
-        return OrderMarketListing::query()
-            ->where('city_id', $this->userCityId())
-            ->where('status', 'open')
-            ->where('expires_at', '>', $now)
-            ->whereHas('order', fn ($query) => $query->where('status', 'pending'))
-            ->with(['order.driver:id,name,phone', 'order.sender:id,name,phone'])
-            ->latest('opened_at')
-            ->get()
-            ->map(function (OrderMarketListing $listing) use ($labels, $now) {
-                $o = $listing->order;
-
-                return [
-                    'id' => $o->id,
-                    'code' => $o->code,
-                    'service' => $labels[$o->service_type] ?? $o->service_type,
-                    'status' => $o->status,
-                    'status_label' => 'Trong Chợ đơn',
-                    'stopped' => false,
-                    'minutes' => (int) $listing->opened_at->diffInMinutes($now),
-                    'remaining_minutes' => max(1, (int) ceil(($listing->expires_at->timestamp - $now->timestamp) / 60)),
-                    'offer_attempts' => (int) $listing->offer_attempts,
-                    'open_reason' => $listing->open_reason === 'attempts' ? 'Đủ lượt phát' : 'Chờ quá lâu',
-                    'pickup' => trim((string) $o->pickup_address) ?: '—',
-                    'delivery' => trim((string) $o->delivery_address) ?: 'Chưa có điểm giao',
-                    'no_delivery' => trim((string) $o->delivery_address) === '',
-                    'phone' => OrderListPresenter::phone(OrderListPresenter::contactPhone($o)),
-                    'name' => $o->sender_name ?: '',
-                    'driver' => null,
-                    'fee' => (int) $o->shipping_fee,
-                    'url' => OrderResource::getUrl('view', ['record' => $o->id]),
-                ];
-            })->all();
     }
 
     private function recentOrder(array $arguments): ?Order
@@ -902,7 +855,7 @@ class CallCenterPage extends Page implements HasForms
             ->icon('heroicon-o-user-plus')
             ->color('info')
             ->modalHeading(fn (array $arguments) => ($o = $this->recentOrder($arguments)) ? 'Gán tài xế cho đơn #'.$o->code : 'Gán tài xế')
-            ->modalDescription('Đơn sẽ ngừng tìm tự động và chuyển thẳng vào danh sách đã nhận của tài xế.')
+            ->modalDescription('Đơn sẽ rời danh sách đơn mới và chuyển thẳng vào danh sách đã nhận của tài xế.')
             ->form(fn (array $arguments) => ($o = $this->recentOrder($arguments)) ? OrderResource::manualAssignmentForm($o) : [])
             ->action(function (array $arguments, array $data): void {
                 OrderResource::assignDriverManually($this->recentOrder($arguments) ?? new Order, $data);

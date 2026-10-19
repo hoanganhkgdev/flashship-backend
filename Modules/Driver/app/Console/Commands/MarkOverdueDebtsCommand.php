@@ -21,8 +21,9 @@ class MarkOverdueDebtsCommand extends Command
             ->where(function ($q) use ($today) {
                 // Công nợ tuần: quá hạn khi week_end đã qua
                 $q->whereNull('ref_id')->where('week_end', '<=', $today);
-                // Công nợ phạt điểm: lọc hạn theo khu vực của tài xế bên dưới.
-                $q->orWhere('ref_id', 'like', 'score_penalty_%');
+                // Công nợ phạt (điểm cũ, Offline quá giờ): lọc hạn theo khu vực của tài xế bên dưới.
+                $q->orWhere('ref_id', 'like', 'score_penalty_%')
+                    ->orWhere('ref_id', 'like', 'shift_offline_%');
             })
             ->get()
             ->filter(fn (DriverDebt $debt) => $debt->ref_id === null

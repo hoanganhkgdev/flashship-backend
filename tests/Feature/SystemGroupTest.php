@@ -272,12 +272,12 @@ class SystemGroupTest extends TestCase
     {
         $page = Livewire::test(OperationalSettingsPage::class);
         $data = $page->get('data');
-        $data['dispatch_max_road_distance_km'] = 6;
+        $data['delayed_reminder_minutes'] = 20;
         $page->set('data', $data)->call('save')->assertHasNoErrors();
 
         $log = ConfigLog::where('entity', 'operational')->where('entity_id', $this->city->id)->latest('id')->first();
         $this->assertNotNull($log);
-        $this->assertStringContainsString('Khoảng cách phát tối đa: 4 → 6', $log->detail);
+        $this->assertStringContainsString('Nhắc đơn giao chậm sau: 15 → 20', $log->detail);
         $this->assertSame($this->admin->id, (int) $log->performed_by);
     }
 

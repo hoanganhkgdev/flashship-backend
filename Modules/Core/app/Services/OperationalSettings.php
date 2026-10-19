@@ -20,57 +20,16 @@ class OperationalSettings
     public const CITY_TABLE = 'city_operational_settings';
 
     public const DEFAULTS = [
-        // Mỗi khu vực chỉ chọn đúng một luồng phát đơn tự động. Gán thủ công
-        // luôn khả dụng và không phụ thuộc cấu hình này.
-        'dispatch.mode' => 'system_assigned',
-        'dispatch.max_road_distance_km' => '4',
-        'driver_score.streak_milestones' => '3:1,6:2,10:4',
-        'driver_score.daily_bonus_cap' => '10',
-        'driver_score.max_score' => '140',
-        'driver_score.weekly_bonus_score' => '140',
-        'driver_score.weekly_penalty_score' => '70',
-        'driver_score.weekly_bonus_amount' => '200000',
-        'driver_score.weekly_penalty_amount' => '100000',
-        'driver_score.decline_penalty' => '-2',
-        'driver_score.viewed_timeout_penalty' => '-2',
-        'driver_score.unviewed_penalty' => '-2',
-        'driver_score.unviewed_window_size' => '5',
-        'driver_score.unviewed_limit' => '3',
-        'driver_score.shift_normal_min_percent' => '85',
-        'driver_score.shift_reduced_min_percent' => '70',
-        'driver_score.shift_mid_min_percent' => '60',
-        'driver_score.shift_low_min_percent' => '50',
-        'driver_score.shift_reduced_penalty' => '-3',
-        'driver_score.shift_mid_penalty' => '-5',
-        'driver_score.shift_low_penalty' => '-10',
-        'driver_score.shift_critical_penalty' => '-15',
         'order.rain_bonus_amount' => '5000',
+        'shift.offline_limit_minutes' => '30',
+        'shift.offline_penalty_amount' => '50000',
         'order.completion_radius_meters' => '300',
         'order.auto_complete_grace_minutes' => '3',
         'order.max_distance_km' => '15',
         'order.rating_window_hours' => '24',
         'order.delayed_reminder_minutes' => '15',
-        'order.max_active_per_driver' => '3',
-        'order.stack_max_pickup_km' => '1',
-        'order.stack_max_delivery_km' => '1.5',
         // Danh sách khung giờ phụ phí đêm; "to" không tính, khung được vắt qua nửa đêm.
         'pricing.night_windows' => '[{"from":"23:00","to":"01:00","amount":5000},{"from":"01:00","to":"04:00","amount":10000}]',
-        'dispatch.offer_receipt_seconds' => '8',
-        'dispatch.offer_open_seconds' => '15',
-        'dispatch.wave_size' => '4',
-        'dispatch.offer_decision_seconds' => '20',
-        'dispatch.total_timeout_minutes' => '15',
-        'dispatch.retry_seconds' => '15',
-        'market.enabled' => '0',
-        'market.wait_seconds_before_open' => '180',
-        'market.max_pickup_distance_km' => '8',
-        'market.expire_minutes' => '13',
-        'market.bundle_window_minutes' => '10',
-        'dispatch.score_weight' => '25',
-        'dispatch.wait_weight' => '30',
-        'dispatch.distance_weight' => '45',
-        'dispatch.fair_score_band' => '8',
-        'dispatch.wait_cap_minutes' => '240',
         'rain_mode.auto_off_hours' => '6',
         'debt.penalty_overdue_hours' => '24',
         'wallet.low_balance_threshold' => '100000',
@@ -84,110 +43,6 @@ class OperationalSettings
         'shop_referral.welcome_amount' => '20000',
         'shop_referral.welcome_days' => '30',
     ];
-
-    public static function dispatchMaxRoadDistanceKm(?int $cityId): float
-    {
-        return (float) self::value('dispatch.max_road_distance_km', $cityId);
-    }
-
-    /** @return array<int, int> Số đơn liên tiếp => điểm cộng. */
-    public static function streakMilestones(?int $cityId): array
-    {
-        $milestones = [];
-
-        foreach (explode(',', (string) self::value('driver_score.streak_milestones', $cityId)) as $item) {
-            [$orders, $points] = array_pad(explode(':', trim($item), 2), 2, null);
-            if (is_numeric($orders) && is_numeric($points) && (int) $orders > 0 && (int) $points > 0) {
-                $milestones[(int) $orders] = (int) $points;
-            }
-        }
-
-        if ($milestones === []) {
-            return [3 => 1, 6 => 2, 10 => 4];
-        }
-
-        ksort($milestones);
-
-        return $milestones;
-    }
-
-    public static function dailyBonusCap(?int $cityId): int
-    {
-        return (int) self::value('driver_score.daily_bonus_cap', $cityId);
-    }
-
-    /** Trần điểm tài xế — điểm không vượt quá mức này. */
-    public static function maxDriverScore(?int $cityId): int
-    {
-        return (int) self::value('driver_score.max_score', $cityId);
-    }
-
-    public static function weeklyBonusScore(?int $cityId): int
-    {
-        return (int) self::value('driver_score.weekly_bonus_score', $cityId);
-    }
-
-    public static function weeklyPenaltyScore(?int $cityId): int
-    {
-        return (int) self::value('driver_score.weekly_penalty_score', $cityId);
-    }
-
-    public static function weeklyBonusAmount(?int $cityId): int
-    {
-        return (int) self::value('driver_score.weekly_bonus_amount', $cityId);
-    }
-
-    public static function weeklyPenaltyAmount(?int $cityId): int
-    {
-        return (int) self::value('driver_score.weekly_penalty_amount', $cityId);
-    }
-
-    public static function scoreDeclinePenalty(?int $cityId): int
-    {
-        return (int) self::value('driver_score.decline_penalty', $cityId);
-    }
-
-    public static function scoreViewedTimeoutPenalty(?int $cityId): int
-    {
-        return (int) self::value('driver_score.viewed_timeout_penalty', $cityId);
-    }
-
-    public static function scoreUnviewedPenalty(?int $cityId): int
-    {
-        return (int) self::value('driver_score.unviewed_penalty', $cityId);
-    }
-
-    public static function unviewedWindowSize(?int $cityId): int
-    {
-        return (int) self::value('driver_score.unviewed_window_size', $cityId);
-    }
-
-    public static function unviewedLimit(?int $cityId): int
-    {
-        return (int) self::value('driver_score.unviewed_limit', $cityId);
-    }
-
-    /** @return array{normal: float, reduced: float, mid: float, low: float} */
-    public static function shiftOnlineThresholds(?int $cityId): array
-    {
-        return [
-            'normal' => (int) self::value('driver_score.shift_normal_min_percent', $cityId) / 100,
-            'reduced' => (int) self::value('driver_score.shift_reduced_min_percent', $cityId) / 100,
-            'mid' => (int) self::value('driver_score.shift_mid_min_percent', $cityId) / 100,
-            'low' => (int) self::value('driver_score.shift_low_min_percent', $cityId) / 100,
-        ];
-    }
-
-    /** @return array{reduced: int, mid: int, low: int, critical: int} */
-    public static function shiftOnlinePenalties(?int $cityId): array
-    {
-        return [
-            'reduced' => (int) self::value('driver_score.shift_reduced_penalty', $cityId),
-            'mid' => (int) self::value('driver_score.shift_mid_penalty', $cityId),
-            'low' => (int) self::value('driver_score.shift_low_penalty', $cityId),
-            'critical' => (int) self::value('driver_score.shift_critical_penalty', $cityId),
-        ];
-    }
 
     public static function referralRewardAmount(?int $cityId): int
     {
@@ -254,19 +109,24 @@ class OperationalSettings
         return (int) self::value('order.delayed_reminder_minutes', $cityId);
     }
 
-    public static function maxActiveOrdersPerDriver(?int $cityId): int
+    /** Số phút tối đa tài xế được Offline trong một ca. */
+    public static function shiftOfflineLimitMinutes(?int $cityId): int
     {
-        return (int) self::value('order.max_active_per_driver', $cityId);
+        return max(0, (int) self::value('shift.offline_limit_minutes', $cityId));
     }
 
-    public static function stackMaxPickupKm(?int $cityId): float
+    /** Tiền phạt (đ) khi Offline quá giới hạn trong một ca. */
+    public static function shiftOfflinePenaltyAmount(?int $cityId): int
     {
-        return (float) self::value('order.stack_max_pickup_km', $cityId);
+        return max(0, (int) self::value('shift.offline_penalty_amount', $cityId));
     }
 
-    public static function stackMaxDeliveryKm(?int $cityId): float
+    /** Số đơn tối đa một tài xế được giữ cùng lúc — cố định cho mọi khu vực. */
+    public const MAX_ACTIVE_ORDERS_PER_DRIVER = 3;
+
+    public static function maxActiveOrdersPerDriver(?int $cityId = null): int
     {
-        return (float) self::value('order.stack_max_delivery_km', $cityId);
+        return self::MAX_ACTIVE_ORDERS_PER_DRIVER;
     }
 
     public static function nightSurcharge(?int $cityId, ?\DateTimeInterface $at = null): int
@@ -330,115 +190,6 @@ class OperationalSettings
             : $minute >= $from || $minute < $to;
     }
 
-    public static function offerOpenSeconds(?int $cityId): int
-    {
-        return (int) self::value('dispatch.offer_open_seconds', $cityId);
-    }
-
-    public static function dispatchMode(?int $cityId): string
-    {
-        // Kill switch của từng đợt phát hành: dữ liệu cũ/staging có lỡ lưu
-        // self_pick cũng không làm đơn mới rẽ sang luồng chưa được mở.
-        if (! self::selfPickReleaseEnabled()) {
-            return 'system_assigned';
-        }
-
-        $mode = self::value('dispatch.mode', $cityId);
-
-        return in_array($mode, ['self_pick', 'system_assigned'], true)
-            ? $mode
-            : 'system_assigned';
-    }
-
-    public static function selfPickReleaseEnabled(): bool
-    {
-        return (bool) config('dispatch.self_pick_enabled', false);
-    }
-
-    public static function usesSelfPickDispatch(?int $cityId): bool
-    {
-        return self::dispatchMode($cityId) === 'self_pick';
-    }
-
-    public static function usesSystemAssignedDispatch(?int $cityId): bool
-    {
-        return self::dispatchMode($cityId) === 'system_assigned';
-    }
-
-    public static function dispatchWaveSize(?int $cityId): int
-    {
-        return max(1, min(10, (int) self::value('dispatch.wave_size', $cityId)));
-    }
-
-    public static function offerReceiptSeconds(?int $cityId): int
-    {
-        return (int) self::value('dispatch.offer_receipt_seconds', $cityId);
-    }
-
-    public static function offerDecisionSeconds(?int $cityId): int
-    {
-        return (int) self::value('dispatch.offer_decision_seconds', $cityId);
-    }
-
-    public static function dispatchTimeoutMinutes(?int $cityId): int
-    {
-        return (int) self::value('dispatch.total_timeout_minutes', $cityId);
-    }
-
-    public static function dispatchRetrySeconds(?int $cityId): int
-    {
-        return (int) self::value('dispatch.retry_seconds', $cityId);
-    }
-
-    public static function orderMarketEnabled(?int $cityId): bool
-    {
-        return self::usesSelfPickDispatch($cityId);
-    }
-
-    public static function marketWaitSecondsBeforeOpen(?int $cityId): int
-    {
-        return min(180, max(15, (int) self::value('market.wait_seconds_before_open', $cityId)));
-    }
-
-    public static function marketMaxPickupDistanceKm(?int $cityId): float
-    {
-        return (float) self::value('market.max_pickup_distance_km', $cityId);
-    }
-
-    public static function marketExpireMinutes(?int $cityId): int
-    {
-        return (int) self::value('market.expire_minutes', $cityId);
-    }
-
-    public static function marketBundleWindowMinutes(?int $cityId): int
-    {
-        return (int) self::value('market.bundle_window_minutes', $cityId);
-    }
-
-    /** @return array{score: float, wait: float, distance: float} */
-    public static function dispatchWeights(?int $cityId): array
-    {
-        return [
-            'score' => (float) self::value('dispatch.score_weight', $cityId),
-            'wait' => (float) self::value('dispatch.wait_weight', $cityId),
-            'distance' => (float) self::value('dispatch.distance_weight', $cityId),
-        ];
-    }
-
-    public static function dispatchWaitCapMinutes(?int $cityId): int
-    {
-        return (int) self::value('dispatch.wait_cap_minutes', $cityId);
-    }
-
-    /**
-     * Các tài xế có điểm composite chênh lệch không quá ngưỡng này được xem là
-     * tương đương về hiệu quả; trong nhóm sẽ xoay vòng theo cơ hội đã nhận.
-     */
-    public static function dispatchFairScoreBand(?int $cityId): float
-    {
-        return max(0, (float) self::value('dispatch.fair_score_band', $cityId));
-    }
-
     public static function rainModeAutoOffHours(?int $cityId): int
     {
         return (int) self::value('rain_mode.auto_off_hours', $cityId);
@@ -460,7 +211,7 @@ class OperationalSettings
         return (int) self::value('wallet.low_balance_threshold', $cityId);
     }
 
-    /** Giữ bản cấu hình trong bộ nhớ process để vòng chấm điểm tài xế không đọc cache liên tục. */
+    /** Giữ bản cấu hình trong bộ nhớ process để các tác vụ chạy nền không đọc cache liên tục. */
     private const MEMO_SECONDS = 15;
 
     /** @var array<string, array{values: array<string, string>, expires: int}> */

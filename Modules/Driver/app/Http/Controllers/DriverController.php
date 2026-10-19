@@ -1,6 +1,7 @@
 <?php
 namespace Modules\Driver\Http\Controllers;
 
+use App\Services\DriverLeaveService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -17,11 +18,9 @@ use Modules\Driver\Models\Bank;
 use Modules\Driver\Models\DriverCccdImage;
 use Modules\Driver\Models\DriverLicense;
 use Modules\Driver\Models\DriverLocationLog;
+use Modules\Driver\Models\DriverLeaveRequest;
 use Modules\Driver\Models\DriverShiftSession;
-use Modules\Driver\Services\ShiftOnlineTimeCalculator;
 use Modules\Order\Models\Order;
-use Modules\Driver\Services\DriverScoreService;
-use Modules\Order\Models\OrderDispatchLog;
 
 class DriverController extends Controller
 {
@@ -121,15 +120,8 @@ class DriverController extends Controller
 
             $locked->is_online    = $targetOnline;
             $locked->online_since = $locked->is_online ? now() : null;
-            $locked->gps_stale_notified_at = null;
-            $locked->gps_stale_evidence_at = null;
 
-            // Ghi log phiên online/offline — dùng để tính % online trong ca ở
-            // lệnh drivers:score-shift-sessions cuối mỗi ca (thay cho luật
-            // "8h/ngày" cũ, và thay cho phạt -15 real-time khi tắt giữa ca —
-            // giờ chỉ phạt nếu tắt hẳn không bật lại tới hết ca, đánh giá ở
-            // cuối ca).
-            $offers = collect();
+            // Ghi log phiên online/offline của tài xế.
             if ($locked->is_online) {
                 \Modules\Driver\Models\DriverShiftSession::create([
                     'driver_id'  => $locked->id,
@@ -141,23 +133,6 @@ class DriverController extends Controller
                 // Firebase qua DriverLocationService.
                 $locked->last_heartbeat_at = now();
             } else {
-                $offerOrderIds = OrderDispatchLog::where('driver_id', $locked->id)
-                    ->where('result', 'pending')->pluck('order_id');
-                $offers = Order::where('status', 'pending')->whereIn('id', $offerOrderIds)
-                    ->lockForUpdate()
-                    ->get();
-                foreach ($offers as $offer) {
-                    OrderDispatchLog::where('order_id', $offer->id)
-                        ->where('driver_id', $locked->id)
-                        ->where('result', 'pending')
-                        ->update([
-                            'result' => 'expired',
-                            'responded_at' => now(),
-                            'close_reason' => OrderDispatchLog::CLOSE_DRIVER_OFFLINE,
-                        ]);
-                    $offer->update(['dispatching_to_driver_id' => OrderDispatchLog::where('order_id', $offer->id)
-                        ->where('result', 'pending')->value('driver_id')]);
-                }
                 // Đóng TẤT CẢ phiên đang mở, không chỉ phiên gần nhất — nếu
                 // có sót lại phiên chồng lấp nào (bug cũ, hoặc lỗi khác trong
                 // tương lai) mà chỉ đóng đúng 1 phiên (->first()) thì phiên
@@ -172,7 +147,7 @@ class DriverController extends Controller
 
             \Log::info("[Toggle] #{$locked->id} → online={$locked->is_online} online_since={$locked->online_since}");
 
-            return ['user' => $locked, 'offers' => $offers];
+            return ['user' => $locked];
         });
 
         if (isset($result['error'])) {
@@ -188,24 +163,6 @@ class DriverController extends Controller
         $user = $result['user'];
 
         RTDBService::setDriverOnlineStatus($user->id, (bool) $user->is_online);
-        foreach ($result['offers'] ?? [] as $offer) {
-            RTDBService::clearDriverOffer($user->id, $offer->id);
-            try {
-                \Illuminate\Support\Facades\Redis::eval(
-                    "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
-                    1,
-                    "dispatch:lock:driver:{$user->id}",
-                    (string) $offer->id,
-                );
-            } catch (\Throwable $e) {
-                \Illuminate\Support\Facades\Log::warning('[Toggle] Không xóa được dispatch lock khi offline', [
-                    'driver_id' => $user->id, 'order_id' => $offer->id, 'message' => $e->getMessage(),
-                ]);
-            }
-            dispatch(function () use ($offer) {
-                app(\Modules\Order\Services\DispatchService::class)->sendToNextDriver($offer->fresh());
-            })->afterResponse();
-        }
 
         return response()->json([
             'success'      => true,
@@ -417,18 +374,6 @@ class DriverController extends Controller
             ->selectRaw("COUNT(*) as total, SUM(status='completed') as completed, SUM(status='cancelled') as cancelled")
             ->first();
 
-        $dispatch = OrderDispatchLog::where('driver_id', $user->id)
-            ->where('created_at', '>=', $since)
-            // Chỉ tính offer mà tài xế đã thực sự tương tác: accept, decline,
-            // hoặc đã mở nhưng để hết giờ. Offer chưa từng mở có thể do FCM,
-            // mạng/GPS chết và không được dùng làm mẫu số tỷ lệ nhận.
-            ->where(fn ($q) => $q->whereIn('result', ['accepted', 'declined'])
-                ->orWhereNotNull('viewed_at'))
-            ->selectRaw("COUNT(*) as offered, SUM(result='accepted') as accepted")
-            ->first();
-
-        $offered   = (int) ($dispatch->offered ?? 0);
-        $accepted  = (int) ($dispatch->accepted ?? 0);
         $completed = (int) ($orders->completed ?? 0);
         $total     = (int) ($orders->total ?? 0);
 
@@ -436,45 +381,9 @@ class DriverController extends Controller
             'total'           => $total,
             'completed'       => $completed,
             'cancelled'       => (int) ($orders->cancelled ?? 0),
-            'acceptance_rate' => $offered > 0 ? round($accepted / $offered * 100) : null,
+            'acceptance_rate' => null, // không còn offer hệ thống; giữ key cho app cũ
             'completion_rate' => $total > 0 ? round($completed / $total * 100) : null,
         ]]);
-    }
-
-    public function score(Request $request): JsonResponse
-    {
-        $user  = $request->user();
-        $score = (int) ($user->driver_score ?? DriverScoreService::DEFAULT_SCORE);
-
-        return response()->json(['success' => true, 'data' => [
-            'score'     => $score,
-            'max_score' => DriverScoreService::maxScore($user->city_id),
-            'label'     => DriverScoreService::label($score, $user->city_id),
-            'tips'      => DriverScoreService::tips($score, $user->city_id),
-        ]]);
-    }
-
-    public function scoreHistory(Request $request): JsonResponse
-    {
-        $perPage = 10;
-        $page    = max(1, (int) $request->query('page', 1));
-
-        $total = \DB::table('driver_score_logs')
-            ->where('driver_id', $request->user()->id)
-            ->count();
-
-        $logs = \DB::table('driver_score_logs')
-            ->where('driver_id', $request->user()->id)
-            ->orderByDesc('created_at')
-            ->offset(($page - 1) * $perPage)
-            ->limit($perPage)
-            ->get(['delta', 'score_before', 'score_after', 'reason', 'created_at']);
-
-        return response()->json([
-            'success'  => true,
-            'data'     => $logs,
-            'has_more' => ($page * $perPage) < $total,
-        ]);
     }
 
     public function updateBank(Request $request): JsonResponse
@@ -617,49 +526,11 @@ class DriverController extends Controller
             ->orderBy('start_time')
             ->get(['id', 'code', 'name', 'start_time', 'end_time']);
 
-        $registered = $user->registeredShifts()
-            ->get(['shifts.id', 'shifts.name', 'shifts.start_time', 'shifts.end_time']);
-        $now = now();
-        $currentOnline = null;
-
-        foreach ($registered as $shift) {
-            foreach ([0, -1] as $dayOffset) {
-                $day = $now->copy()->startOfDay()->addDays($dayOffset);
-                $start = $day->copy()->setTimeFromTimeString((string) $shift->start_time);
-                $end = $day->copy()->setTimeFromTimeString((string) $shift->end_time);
-                if ($end->lessThanOrEqualTo($start)) {
-                    $end->addDay();
-                }
-                if ($now->lt($start) || $now->gte($end)) {
-                    continue;
-                }
-
-                $sessions = DriverShiftSession::where('driver_id', $user->id)
-                    ->where('started_at', '<', $now)
-                    ->where(fn ($query) => $query
-                        ->whereNull('ended_at')
-                        ->orWhere('ended_at', '>', $start))
-                    ->orderBy('started_at')
-                    ->get();
-                $seconds = app(ShiftOnlineTimeCalculator::class)
-                    ->seconds($sessions, $start, $now);
-
-                $currentOnline = [
-                    'shift_id'       => $shift->id,
-                    'online_seconds' => $seconds,
-                    'measured_at'    => $now->toIso8601String(),
-                    'shift_start_at' => $start->toIso8601String(),
-                    'shift_end_at'   => $end->toIso8601String(),
-                ];
-                break 2;
-            }
-        }
-
         return response()->json([
             'success'           => true,
             'data'              => $shifts,
             'current_shift_ids' => $user->registeredShifts()->pluck('shifts.id'),
-            'current_shift_online' => $currentOnline,
+            'current_shift_offline' => app(\Modules\Driver\Services\ShiftOfflineService::class)->status($user),
         ]);
     }
 
@@ -796,6 +667,70 @@ class DriverController extends Controller
         ]);
     }
 
+    /** Các ngày nghỉ từ hôm nay trở đi của tài xế đang đăng nhập. */
+    public function leaveRequests(Request $request): JsonResponse
+    {
+        $leaves = DriverLeaveRequest::where('driver_id', $request->user()->id)
+            ->whereDate('leave_date', '>=', today())
+            ->orderBy('leave_date')
+            ->get()
+            ->map(fn (DriverLeaveRequest $leave) => [
+                'id'         => $leave->id,
+                'leave_date' => $leave->leave_date->toDateString(),
+                'note'       => $leave->note,
+                'created_at' => $leave->created_at?->toIso8601String(),
+            ]);
+
+        return response()->json(['success' => true, 'data' => $leaves]);
+    }
+
+    /** Tài xế tự ghi nhận một hoặc nhiều ngày nghỉ trên ứng dụng. */
+    public function submitLeaveRequest(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'from_date' => 'required|date|after_or_equal:today',
+            'to_date'   => 'nullable|date|after_or_equal:from_date',
+            'note'      => 'required|string|min:3|max:250',
+        ]);
+
+        $user = $request->user();
+        $result = DriverLeaveService::create(
+            $user->id,
+            $data['from_date'],
+            $data['to_date'] ?? null,
+            $data['note'],
+            $user->id,
+        );
+
+        return response()->json([
+            'success' => $result['ok'],
+            'message' => $result['message'],
+            'data'    => [
+                'created' => $result['created'],
+                'skipped' => $result['skipped'],
+            ],
+        ], $result['ok'] ? 201 : 422);
+    }
+
+    /** Tài xế chỉ được tự hủy ngày nghỉ của chính mình và chưa diễn ra. */
+    public function cancelLeaveRequest(Request $request, DriverLeaveRequest $leave): JsonResponse
+    {
+        if ((int) $leave->driver_id !== (int) $request->user()->id) {
+            abort(404);
+        }
+
+        $result = DriverLeaveService::cancel(
+            $leave,
+            'Tài xế tự hủy trên ứng dụng',
+            $request->user()->id,
+        );
+
+        return response()->json([
+            'success' => $result['ok'],
+            'message' => $result['message'],
+        ], $result['ok'] ? 200 : 422);
+    }
+
     public function bankLists(Request $request): JsonResponse
     {
         $banks = \DB::table('bank_lists')
@@ -841,22 +776,6 @@ class DriverController extends Controller
                 return ['error' => 'Bạn đang có yêu cầu rút tiền chờ xử lý'];
             }
 
-            $offerOrderIds = OrderDispatchLog::where('driver_id', $driver->id)
-                ->where('result', 'pending')->pluck('order_id');
-            $offers = Order::whereIn('id', $offerOrderIds)
-                ->where('status', 'pending')->lockForUpdate()->get();
-            foreach ($offers as $offer) {
-                OrderDispatchLog::where('order_id', $offer->id)
-                    ->where('driver_id', $driver->id)->where('result', 'pending')
-                    ->update([
-                        'result' => 'expired',
-                        'responded_at' => now(),
-                        'close_reason' => OrderDispatchLog::CLOSE_DRIVER_OFFLINE,
-                    ]);
-                $offer->update(['dispatching_to_driver_id' => OrderDispatchLog::where('order_id', $offer->id)
-                    ->where('result', 'pending')->value('driver_id')]);
-            }
-
             \Modules\Driver\Models\DriverShiftSession::where('driver_id', $driver->id)
                 ->whereNull('ended_at')->lockForUpdate()->update(['ended_at' => now()]);
             $driver->update([
@@ -865,7 +784,7 @@ class DriverController extends Controller
                 'online_since' => null,
                 'fcm_token' => null,
             ]);
-            return ['offers' => $offers];
+            return [];
         });
 
         if (isset($result['error'])) {
@@ -873,17 +792,6 @@ class DriverController extends Controller
         }
 
         RTDBService::removeDriverLocation($user->id);
-        try {
-            \Illuminate\Support\Facades\Redis::del("dispatch:lock:driver:{$user->id}");
-        } catch (\Throwable $e) {
-            \Illuminate\Support\Facades\Log::warning('[DeleteAccount] Không xóa được Redis lock', [
-                'driver_id' => $user->id, 'message' => $e->getMessage(),
-            ]);
-        }
-        foreach ($result['offers'] as $offer) {
-            RTDBService::clearDriverOffer($user->id, $offer->id);
-            app(\Modules\Order\Services\DispatchService::class)->sendToNextDriver($offer->fresh());
-        }
 
         return response()->json(['success' => true, 'message' => 'Đã gửi yêu cầu xóa tài khoản. Bạn có thể hủy yêu cầu trong thời gian chờ xử lý.']);
     }

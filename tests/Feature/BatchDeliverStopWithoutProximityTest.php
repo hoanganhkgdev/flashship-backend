@@ -82,14 +82,14 @@ class BatchDeliverStopWithoutProximityTest extends TestCase
         $this->assertSame('completed', $order->fresh()->status);
     }
 
-    public function test_delivery_order_that_is_not_batch_still_checks_distance(): void
+    public function test_delivery_order_that_is_not_batch_can_complete_from_anywhere(): void
     {
         $driver = $this->driverFarFromEverything();
         $order = $this->order($driver, false)->fresh();
         Sanctum::actingAs($driver);
 
-        $this->postJson("/api/orders/{$order->id}/complete")
-            ->assertStatus(422)
-            ->assertJsonPath('reason_code', 'TOO_FAR_FROM_DELIVERY');
+        $this->postJson("/api/orders/{$order->id}/complete")->assertOk();
+
+        $this->assertSame('completed', $order->fresh()->status);
     }
 }

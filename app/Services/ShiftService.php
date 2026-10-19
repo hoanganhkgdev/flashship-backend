@@ -42,20 +42,6 @@ class ShiftService
         return false;
     }
 
-    /** Ca đang kích hoạt cùng khu vực mà giờ này đang trùng, null nếu không trùng. */
-    public static function conflictingShift(int $cityId, string $start, string $end, ?int $ignoreId = null): ?Shift
-    {
-        return Shift::where('city_id', $cityId)->where('is_active', true)
-            ->when($ignoreId, fn ($q) => $q->whereKeyNot($ignoreId))->get()
-            ->first(fn (Shift $s) => self::overlaps($start, $end, $s->start_time, $s->end_time));
-    }
-
-    /** Ca đang diễn ra thì không được đổi giờ (hệ thống chấm điểm dùng giờ ca hiện tại). */
-    public static function inProgress(Shift $shift): bool
-    {
-        return $shift->is_active && $shift->isNowInShift();
-    }
-
     public static function log(int $shiftId, string $action, ?int $by, ?string $detail = null): void
     {
         ShiftLog::create(['shift_id' => $shiftId, 'action' => $action, 'performed_by' => $by, 'detail' => $detail]);
@@ -72,9 +58,6 @@ class ShiftService
 
     public static function activate(Shift $shift, ?int $by): ?string
     {
-        if ($c = self::conflictingShift($shift->city_id, $shift->start_time, $shift->end_time, $shift->id)) {
-            return 'Không bật được: trùng giờ với "'.$c->name.'" ('.substr($c->start_time, 0, 5).'–'.substr($c->end_time, 0, 5).').';
-        }
         $shift->update(['is_active' => true]);
         self::log($shift->id, 'activated', $by);
 
@@ -105,17 +88,8 @@ class ShiftService
             ->selectRaw('su.shift_id, SUM(u.status = 1) active, SUM(u.status = 2) locked, SUM(u.status = 1 AND u.is_online = 1) online')
             ->get()->keyBy('shift_id');
 
-        // Kết quả chấm điểm cuối ca của tài xế đang hoạt động: lượt chấm có nhật ký điểm ngay sau đó.
-        $scored = DB::table('driver_shift_score_runs as r')->join('users as u', fn ($j) => $j->on('u.id', '=', 'r.driver_id')->where('u.status', 1))
-            ->join('driver_score_logs as l', fn ($j) => $j->on('l.driver_id', '=', 'r.driver_id')->where('l.reason', 'like', 'shift\_online%')
-                ->whereRaw('l.created_at BETWEEN r.created_at AND DATE_ADD(r.created_at, INTERVAL 3 SECOND)'))
-            ->where('r.created_at', '>=', $from)->whereIn('r.shift_id', $shifts->pluck('id'))
-            ->groupBy('r.shift_id')
-            ->selectRaw("r.shift_id, COUNT(*) n, SUM(l.reason = 'shift_online_critical') crit")->get()->keyBy('shift_id');
-
-        $rows = $shifts->map(function (Shift $s) use ($reg, $scored, $orders, $days) {
+        $rows = $shifts->map(function (Shift $s) use ($reg, $orders, $days) {
             $r = $reg[$s->id] ?? null;
-            $sc = $scored[$s->id] ?? null;
             $perDay = self::timeWhere($orders(), $s)->count() / $days;
             $active = (int) ($r->active ?? 0);
 
@@ -127,8 +101,6 @@ class ShiftService
                 'perDay' => round($perDay, 1),
                 'perDriver' => $active ? round($perDay / $active, 1) : null,
                 'overloaded' => $s->is_active && ($active === 0 ? $perDay >= 1 : $perDay / $active >= self::OVERLOAD_PER_DRIVER),
-                'critical' => $sc && $sc->n ? (int) round($sc->crit / $sc->n * 100) : null,
-                'scored' => (int) ($sc->n ?? 0),
                 'now' => $s->is_active && $s->isNowInShift(),
             ];
         });

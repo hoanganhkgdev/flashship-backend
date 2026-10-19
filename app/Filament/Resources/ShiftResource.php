@@ -75,24 +75,19 @@ class ShiftResource extends Resource
                         ->label('Bắt đầu')
                         ->seconds(false)
                         ->required()
-                        ->helperText('⚠️ Đổi giờ ca sau khi ca hôm nay đã/đang chạy có thể làm sai lệch % online tính điểm cuối ca — hệ thống chấm điểm luôn dùng giờ ca hiện tại, không lưu lại giờ lúc tài xế vào ca.'),
+                        ->helperText('Giờ:phút, ví dụ 07:00. Các ca trong cùng khu vực được phép chồng giờ nhau (VD: ca sáng 07:00–16:00 và ca trưa 10:00–18:00).'),
 
                     Forms\Components\TimePicker::make('end_time')
                         ->label('Kết thúc')
                         ->seconds(false)
                         ->required()
-                        ->rule(fn (Forms\Get $get, ?Shift $record) => function (string $attribute, $value, \Closure $fail) use ($get, $record) {
+                        ->rule(fn (Forms\Get $get) => function (string $attribute, $value, \Closure $fail) use ($get) {
                             $start = (string) $get('start_time');
-                            if ($start === '' || substr($start, 0, 5) === substr((string) $value, 0, 5)) {
-                                $start !== '' && $fail('Giờ kết thúc phải khác giờ bắt đầu.');
-
-                                return;
-                            }
-                            if ($get('is_active') && ($c = ShiftService::conflictingShift((int) Filament::getTenant()?->id, $start, (string) $value, $record?->id))) {
-                                $fail('Trùng giờ với "'.$c->name.'" ('.substr($c->start_time, 0, 5).'–'.substr($c->end_time, 0, 5).') đang kích hoạt.');
+                            if ($start !== '' && substr($start, 0, 5) === substr((string) $value, 0, 5)) {
+                                $fail('Giờ kết thúc phải khác giờ bắt đầu.');
                             }
                         })
-                        ->helperText('Chọn 00:00 nếu ca kết thúc lúc nửa đêm. Cùng lưu ý như giờ bắt đầu — tránh đổi giữa/ngay sau khi ca hôm nay đang chạy.'),
+                        ->helperText('Ca qua đêm: chọn giờ kết thúc nhỏ hơn giờ bắt đầu, VD 18:00 → 01:30 nghĩa là kết thúc 01:30 sáng hôm sau.'),
 
                     Forms\Components\Toggle::make('is_active')
                         ->label('Kích hoạt')
@@ -150,13 +145,10 @@ class ShiftResource extends Resource
             ->paginated(false);
     }
 
-    /** Sửa ca: bị chặn khi ca đang diễn ra vì điểm cuối ca tính theo giờ hiện tại. */
     public static function editAction($action)
     {
         return $action->label('Sửa ca')->icon('heroicon-o-pencil-square')
-            ->url(fn (Shift $r) => static::getUrl('edit', ['record' => $r]))
-            ->disabled(fn (Shift $r) => ShiftService::inProgress($r))
-            ->tooltip(fn (Shift $r) => ShiftService::inProgress($r) ? 'Ca đang diễn ra, không sửa được' : null);
+            ->url(fn (Shift $r) => static::getUrl('edit', ['record' => $r]));
     }
 
     public static function toggleAction($action)
@@ -169,11 +161,11 @@ class ShiftResource extends Resource
             ->modalHeading(fn (Shift $r) => ($r->is_active ? 'Tắt ' : 'Bật ').$r->name)
             ->modalDescription(function (Shift $r) {
                 if (! $r->is_active) {
-                    return 'Ca sẽ được chấm điểm và cho tài xế đăng ký lại.';
+                    return 'Ca sẽ được mở lại cho tài xế đăng ký.';
                 }
                 $n = $r->users()->where('users.status', 1)->count();
 
-                return 'Tắt ca sẽ DỪNG chấm điểm cuối ca và ngừng cho tài xế đăng ký mới. Hiện có '.$n.' tài xế hoạt động đang đăng ký ca này.';
+                return 'Tắt ca sẽ ngừng cho tài xế đăng ký mới. Hiện có '.$n.' tài xế hoạt động đang đăng ký ca này.';
             })
             ->action(function (Shift $record): void {
                 if ($record->is_active) {

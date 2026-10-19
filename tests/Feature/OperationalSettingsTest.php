@@ -8,9 +8,6 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Modules\Core\Models\City;
 use Modules\Core\Services\OperationalSettings;
-use Modules\Driver\Services\DriverScoreService;
-use Modules\Order\Services\DispatchRadiusPolicy;
-use Modules\Order\Services\UnviewedOfferWindowPolicy;
 use Tests\TestCase;
 
 class OperationalSettingsTest extends TestCase
@@ -26,7 +23,6 @@ class OperationalSettingsTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        config()->set('dispatch.self_pick_enabled', true);
 
         // Chỉ tạo bảng cho SQLite in-memory; DDL trên MySQL tự commit, phá transaction.
         if (! Schema::hasTable('settings')) {
@@ -73,15 +69,6 @@ class OperationalSettingsTest extends TestCase
         $this->cityB = City::create(['name' => 'Ops B', 'slug' => 'ops-b-'.uniqid()])->id;
     }
 
-    public function test_release_gate_keeps_new_orders_on_system_assigned_even_if_database_says_self_pick(): void
-    {
-        OperationalSettings::put(['dispatch.mode' => 'self_pick'], $this->cityA);
-        config()->set('dispatch.self_pick_enabled', false);
-
-        $this->assertSame('system_assigned', OperationalSettings::dispatchMode($this->cityA));
-        $this->assertFalse(OperationalSettings::usesSelfPickDispatch($this->cityA));
-    }
-
     protected function tearDown(): void
     {
         // Bộ nhớ đệm static sống qua các test trong cùng process.
@@ -95,10 +82,6 @@ class OperationalSettingsTest extends TestCase
             count(OperationalSettings::DEFAULTS),
             DB::table(OperationalSettings::CITY_TABLE)->where('city_id', $this->cityA)->count(),
         );
-        $this->assertSame(4.0, DispatchRadiusPolicy::radiusForElapsedSeconds(0, $this->cityA));
-        $this->assertSame([3 => 1, 6 => 2, 10 => 4], DriverScoreService::streakMilestones($this->cityA));
-        $this->assertSame(140, DriverScoreService::weeklyBonusScore($this->cityA));
-        $this->assertSame(-2, DriverScoreService::declinePenalty($this->cityA));
         $this->assertSame(5_000, OperationalSettings::rainBonusAmount($this->cityA));
         $this->assertSame(300, OperationalSettings::completionRadiusMeters($this->cityA));
         $this->assertSame(5_000, OperationalSettings::nightSurcharge($this->cityA, $this->at('23:00')));
@@ -109,50 +92,20 @@ class OperationalSettingsTest extends TestCase
     public function test_changing_one_city_does_not_affect_another(): void
     {
         OperationalSettings::put([
-            'dispatch.mode' => 'self_pick',
-            'dispatch.max_road_distance_km' => 6.5,
-            'driver_score.streak_milestones' => '2:1,5:3',
-            'driver_score.weekly_bonus_amount' => 250_000,
-            'driver_score.unviewed_window_size' => 4,
-            'driver_score.unviewed_limit' => 2,
-            'driver_score.shift_low_min_percent' => 55,
             'order.rain_bonus_amount' => 8_000,
             'order.completion_radius_meters' => 450,
             'pricing.night_windows' => '[{"from":"23:00","to":"01:00","amount":7000}]',
-            'dispatch.score_weight' => 20,
         ], $this->cityA);
 
-        $this->assertSame('self_pick', OperationalSettings::dispatchMode($this->cityA));
-        $this->assertTrue(OperationalSettings::usesSelfPickDispatch($this->cityA));
-        $this->assertFalse(OperationalSettings::usesSystemAssignedDispatch($this->cityA));
-        $this->assertSame(6.5, DispatchRadiusPolicy::radiusForElapsedSeconds(300, $this->cityA));
-        $this->assertSame([2 => 1, 5 => 3], DriverScoreService::streakMilestones($this->cityA));
-        $this->assertSame(250_000, DriverScoreService::weeklyBonusAmount($this->cityA));
-        $this->assertSame(0.55, OperationalSettings::shiftOnlineThresholds($this->cityA)['low']);
         $this->assertSame(8_000, OperationalSettings::rainBonusAmount($this->cityA));
         $this->assertSame(0.45, OperationalSettings::completionRadiusKm($this->cityA));
         $this->assertSame(7_000, OperationalSettings::nightSurcharge($this->cityA, $this->at('23:00')));
-        $this->assertSame(20.0, OperationalSettings::dispatchWeights($this->cityA)['score']);
-        $this->assertTrue(UnviewedOfferWindowPolicy::evaluate([
-            ['result' => 'expired', 'viewed_at' => null, 'expires_at' => now()->subSecond(), 'responded_at' => now()],
-            ['result' => 'expired', 'viewed_at' => null, 'expires_at' => now()->subSecond(), 'responded_at' => now()],
-        ], $this->cityA)['should_offline']);
 
         // Khu vực B vẫn giữ nguyên chính sách cũ.
-        $this->assertSame('system_assigned', OperationalSettings::dispatchMode($this->cityB));
-        $this->assertTrue(OperationalSettings::usesSystemAssignedDispatch($this->cityB));
-        $this->assertSame(4.0, DispatchRadiusPolicy::radiusForElapsedSeconds(300, $this->cityB));
-        $this->assertSame([3 => 1, 6 => 2, 10 => 4], DriverScoreService::streakMilestones($this->cityB));
-        $this->assertSame(200_000, DriverScoreService::weeklyBonusAmount($this->cityB));
         $this->assertSame(5_000, OperationalSettings::rainBonusAmount($this->cityB));
         $this->assertSame(5_000, OperationalSettings::nightSurcharge($this->cityB, $this->at('23:00')));
-        $this->assertFalse(UnviewedOfferWindowPolicy::evaluate([
-            ['result' => 'expired', 'viewed_at' => null],
-            ['result' => 'expired', 'viewed_at' => null],
-        ], $this->cityB)['should_offline']);
 
         // Không có khu vực → dùng giá trị chung, không bị khu vực nào kéo theo.
-        $this->assertSame(4.0, DispatchRadiusPolicy::radiusForElapsedSeconds(0, null));
     }
 
     public function test_initialize_city_does_not_overwrite_existing_values(): void

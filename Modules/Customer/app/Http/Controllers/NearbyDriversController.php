@@ -31,10 +31,6 @@ class NearbyDriversController extends Controller
             ->where('is_online', true)
             ->when($cityId, fn($q) => $q->where('city_id', $cityId))
             ->whereNotIn('id', $busyIds)
-            ->where(function ($q) {
-                $q->whereNull('score_suspended_until')
-                  ->orWhere('score_suspended_until', '<=', now());
-            })
             ->pluck('id')
             ->all();
 

@@ -257,7 +257,6 @@
                 '<span style="display:inline-block;margin-top:5px;background:' + color + ';color:#fff;padding:2px 11px;border-radius:999px;font-size:12px;font-weight:600">' + LABELS[state] + '</span></div>' +
                 '<div style="display:flex;flex-direction:column;gap:7px">' +
                 (phone ? row('📞', '<a href="tel:' + phone + '" style="' + link + '">' + escapeHtml(meta.phone) + '</a><a href="https://zalo.me/' + phone + '" target="_blank" rel="noopener" style="' + link + ';margin-left:auto">Zalo</a>') : row('📞', '<span style="color:#9ca3af">—</span>')) +
-                row('⭐', 'Điểm: ' + (meta.driver_score != null ? meta.driver_score : '—')) +
                 row('🗓', '<span>' + escapeHtml(meta.shift_names || 'Chưa đăng ký ca') + '</span>') +
                 (meta.active_order_code ? row('📦', '<a href="' + escapeHtml(meta.order_url || '#') + '" style="' + link + '">Đơn #' + escapeHtml(meta.active_order_code) + '</a>') : '') +
                 row('🕐', '<span style="color:#6b7280">' + formatAgo(gps && gps.updated_at) + '</span>') +
@@ -296,7 +295,7 @@
         // ── Đơn chờ ──────────────────────────────────────────────────────────
         function orderInfo(o) {
             return '<div style="font-family:inherit;min-width:200px"><b>#' + escapeHtml(o.code) + '</b><br><span style="font-size:12px">' + escapeHtml(o.address || '—') + '</span><br>' +
-                '<span style="font-size:12px;color:#dc2626">Chờ ' + o.minutes + ' phút' + (o.stopped ? ' · hệ thống đã dừng tìm' : (o.offered ? ' · đang hỏi tài xế' : ' · chưa ai nhận')) + '</span><br>' +
+                '<span style="font-size:12px;color:#dc2626">Chờ ' + o.minutes + ' phút' + ' · chưa ai nhận' + '</span><br>' +
                 '<button type="button" onclick="_dmSelectOrder(' + o.id + ',true)" style="margin-top:6px;padding:4px 10px;border-radius:8px;background:#0ea5e9;color:#fff;font-size:12px;border:0;cursor:pointer">Xem tài xế gần nhất</button></div>';
         }
         function renderOrderMarkers() {
@@ -345,7 +344,7 @@
                         '<div class="dm-near__note">Khoảng cách là đường chim bay, chỉ để ước lượng.</div></div>';
                 }
                 return '<div class="dm-order' + (active ? ' active' : '') + '" data-order-id="' + o.id + '" role="button" tabindex="0">' +
-                    '<div class="dm-order__top"><b>#' + escapeHtml(o.code) + '</b>' + (o.stopped ? '<span class="dm-tag">Hệ thống đã dừng tìm</span>' : (o.offered ? '<span class="dm-tag soft">Đang hỏi tài xế</span>' : '')) + '<em>Chờ ' + o.minutes + ' phút</em></div>' +
+                    '<div class="dm-order__top"><b>#' + escapeHtml(o.code) + '</b>' + '<em>Chờ ' + o.minutes + ' phút</em></div>' +
                     '<div class="dm-order__addr">↑ ' + escapeHtml(o.address || '—') + '<br>↓ ' + escapeHtml(o.delivery || '—') + '</div>' +
                     (o.note ? '<div class="dm-order__note" title="' + escapeHtml(o.note) + '">Ghi chú: ' + escapeHtml(o.note) + '</div>' : '') +
                     '<div class="dm-order__acts"><button type="button" class="dm-btn primary" onclick="event.stopPropagation();_dmAssign(' + o.id + ')">Gán tài xế</button><a class="dm-btn" href="' + escapeHtml(o.url) + '" onclick="event.stopPropagation()">Mở đơn</a><span class="dm-near__note" style="align-self:center">' + Number(o.fee).toLocaleString('vi-VN') + 'đ</span></div>' +

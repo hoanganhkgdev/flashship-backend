@@ -48,7 +48,6 @@
             <h2>
                 {{ $driver->name }}
                 <span class="fs-order-pill fs-order-pill--{{ $statusColor }}">{{ $statusLabel }}</span>
-                @if ($summary['low_score'] && (int) $driver->status === 1)<span class="fs-order-pill fs-order-pill--danger">Điểm thấp</span>@endif
             </h2>
             <dl>
                 <div><dt>Số điện thoại</dt><dd>{{ $driver->phone ?: '—' }}</dd></div>
@@ -66,7 +65,6 @@
         <article class="fs-rr-kpi"><span class="fs-rr-kpi__label">Đơn 30 ngày</span><strong>{{ $num($summary['completed']) }}</strong><small>hoàn thành · tổng cộng {{ $num($summary['lifetime']) }} đơn</small></article>
         <article class="fs-rr-kpi"><span class="fs-rr-kpi__label">Thu nhập 30 ngày</span><strong>{{ $money($summary['earnings']) }}</strong><small>phí giao, phụ phí, thưởng mưa, bù giảm giá</small></article>
         <article class="fs-rr-kpi"><span class="fs-rr-kpi__label">Tỷ lệ hủy 30 ngày</span><strong>{{ $summary['cancel_rate'] }}%</strong><small>{{ $num($summary['cancelled']) }} trên {{ $num($summary['total']) }} đơn nhận</small></article>
-        <article class="fs-rr-kpi"><span class="fs-rr-kpi__label">Điểm hoạt động</span><strong @class(['fs-dr-low' => $summary['low_score']])>{{ $summary['score'] }}</strong><small>{{ $summary['low_score'] ? 'dưới ngưỡng '.\App\Filament\Resources\DriverResource::LOW_SCORE.' điểm' : 'đạt yêu cầu' }}</small></article>
     </div>
 
     <div class="fs-cp-grid">

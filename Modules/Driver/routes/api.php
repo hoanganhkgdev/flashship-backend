@@ -6,22 +6,11 @@ use Modules\Driver\Http\Controllers\EarningController;
 use Modules\Driver\Http\Controllers\WalletController;
 use Modules\Driver\Http\Controllers\DebtController;
 use Modules\Driver\Http\Controllers\OrderController;
-use Modules\Driver\Http\Controllers\ScoreController;
 use Modules\Driver\Http\Controllers\PaymentController;
 use Modules\Driver\Http\Controllers\ReferralController;
 use Modules\Driver\Http\Controllers\SupportController;
 // Webhook PayOS — public, không cần auth
 Route::post('/payment/webhook/payos', [PaymentController::class, 'webhook']);
-
-// ACK do iOS Notification Service Extension / Android background handler
-// gửi trước khi banner hiển. URL có chữ ký + hết hạn ngắn, không
-// dùng auth token của tài xế trong tiến trình extension.
-Route::post('/dispatch/offers/{dispatchLog}/received', [OrderController::class, 'receiveSignedOffer'])
-    ->middleware('signed')
-    ->name('dispatch.offer.received');
-Route::post('/dispatch/offers/{dispatchLog}/viewed', [OrderController::class, 'viewSignedOffer'])
-    ->middleware('signed')
-    ->name('dispatch.offer.viewed');
 
 // auth:sanctum + driver.active KHÔNG kiểm tra user_type — 1 tài khoản
 // customer/shop đã đăng nhập vẫn gọi được nguyên vẹn API driver (ví, đơn,
@@ -46,6 +35,9 @@ Route::middleware(['auth:sanctum', 'user_type:driver', 'driver.active'])->group(
         Route::post('/shifts/select',                 [DriverController::class, 'selectShift']);
         Route::post('/shifts/change-request',          [DriverController::class, 'submitShiftChangeRequest']);
         Route::get('/shifts/change-request/status',   [DriverController::class, 'shiftChangeRequestStatus']);
+        Route::get('/shifts/leaves',                  [DriverController::class, 'leaveRequests']);
+        Route::post('/shifts/leaves',                 [DriverController::class, 'submitLeaveRequest']);
+        Route::post('/shifts/leaves/{leave}/cancel',  [DriverController::class, 'cancelLeaveRequest']);
         Route::get('/cities',                        [DriverController::class, 'cities']);
         Route::post('/delete-account/request',       [DriverController::class, 'requestDeleteAccount']);
         Route::post('/delete-account/cancel',        [DriverController::class, 'cancelDeleteAccount']);
@@ -61,10 +53,6 @@ Route::middleware(['auth:sanctum', 'user_type:driver', 'driver.active'])->group(
         Route::get('/market',                 [OrderController::class, 'market']);
         Route::post('/{order}/market/claim',  [OrderController::class, 'claimMarket']);
         Route::get('/recent',                 [EarningController::class, 'recentOrders']);
-        Route::post('/{order}/view-offer',    [OrderController::class, 'viewOffer']);
-        Route::post('/{order}/receive-offer', [OrderController::class, 'receiveOffer']);
-        Route::post('/{order}/accept',        [OrderController::class, 'accept']);
-        Route::post('/{order}/decline',       [OrderController::class, 'decline']);
         Route::post('/{order}/update-status',        [OrderController::class, 'updateStatus']);
         Route::post('/{order}/complete',             [OrderController::class, 'complete']);
         Route::post('/{order}/stops/{seq}/deliver',  [OrderController::class, 'deliverStop']);
@@ -93,8 +81,4 @@ Route::middleware(['auth:sanctum', 'user_type:driver', 'driver.active'])->group(
         Route::get('/{orderCode}/status', [PaymentController::class, 'status']);
     });
 
-    Route::prefix('driver/score')->group(function () {
-        Route::get('',         [ScoreController::class, 'index']);
-        Route::get('/history', [ScoreController::class, 'history']);
-    });
 });

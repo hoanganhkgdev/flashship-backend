@@ -40,7 +40,7 @@ class OnlineDriversWidget extends Widget
             ->with('city')
             ->orderBy('online_since')
             ->limit(self::DISPLAY_LIMIT)
-            ->get(['id', 'name', 'phone', 'city_id', 'is_online', 'online_since', 'driver_score', 'profile_photo_path']);
+            ->get(['id', 'name', 'phone', 'city_id', 'is_online', 'online_since', 'profile_photo_path']);
     }
 
     public function getTotalOnline(): int

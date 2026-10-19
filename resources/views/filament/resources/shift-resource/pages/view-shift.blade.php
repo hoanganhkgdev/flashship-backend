@@ -12,16 +12,13 @@
     @endphp
 
     @if (! $record->is_active)
-        <div class="fs-rr-notice" role="status"><x-heroicon-o-information-circle class="h-5 w-5" /><span>Ca đang <b>tắt</b>: không chấm điểm cuối ca và không cho đăng ký mới.</span></div>
-    @elseif (\App\Services\ShiftService::inProgress($record))
-        <div class="fs-rr-notice" role="status"><x-heroicon-o-clock class="h-5 w-5" /><span>Ca <b>đang diễn ra</b> nên chưa đổi giờ được.</span></div>
+        <div class="fs-rr-notice" role="status"><x-heroicon-o-information-circle class="h-5 w-5" /><span>Ca đang <b>tắt</b>: không cho tài xế đăng ký mới.</span></div>
     @endif
 
     <div class="fs-cp-kpis">
         <article class="fs-rr-kpi"><span class="fs-rr-kpi__label">Tài xế hoạt động</span><strong>{{ $num($r['active']) }}</strong><small>{{ $num($r['online']) }} online{{ $r['locked'] ? ' · '.$num($r['locked']).' đã khóa' : '' }}</small></article>
         <article class="fs-rr-kpi"><span class="fs-rr-kpi__label">Đơn/ngày</span><strong>{{ $dec($r['perDay']) }}</strong><small>trung bình 14 ngày qua</small></article>
         <article class="fs-rr-kpi"><span class="fs-rr-kpi__label">Đơn/tài xế/ngày</span><strong @class(['fs-dr-low' => $r['overloaded']])>{{ $r['perDriver'] !== null ? $dec($r['perDriver']) : '—' }}</strong><small>{{ $r['overloaded'] ? 'quá tải (từ '.$o['overload'].')' : 'trong ngưỡng' }}</small></article>
-        <article class="fs-rr-kpi"><span class="fs-rr-kpi__label">Dưới 50% online</span><strong @class(['fs-dr-low' => ($r['critical'] ?? 0) >= 40])>{{ $r['critical'] !== null ? $r['critical'].'%' : '—' }}</strong><small>{{ $num($r['scored']) }} lượt chấm điểm (tài xế hoạt động)</small></article>
     </div>
 
     <div class="fs-cp-grid">

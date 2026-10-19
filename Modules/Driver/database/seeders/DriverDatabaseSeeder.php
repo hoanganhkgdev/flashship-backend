@@ -41,7 +41,6 @@ class DriverDatabaseSeeder extends Seeder
                     'is_online'    => true,
                     'latitude'     => $d['lat'],
                     'longitude'    => $d['lng'],
-                    'driver_score' => 80,
                 ]
             );
         }

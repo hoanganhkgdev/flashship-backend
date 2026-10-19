@@ -28,18 +28,16 @@
             <div class="fs-driver-grid">
                 @foreach ($drivers as $driver)
                     @php
-                        $score = $driver->driver_score ?? 80;
-                        $scoreColor = $score >= 80 ? '#22c55e' : ($score >= 60 ? '#3b82f6' : ($score >= 40 ? '#f59e0b' : '#ef4444'));
                         $initial = mb_strtoupper(mb_substr($driver->name, 0, 1));
                         $photoUrl = $driver->profile_photo_path ? \Illuminate\Support\Facades\Storage::url($driver->profile_photo_path) : null;
-                        $scoreUrl = \App\Filament\Resources\DriverScoreResource::getUrl('view', ['record' => $driver->id]);
+                        $driverUrl = \App\Filament\Resources\DriverResource::getUrl('view', ['record' => $driver->id]);
                     @endphp
 
                     <a
-                        href="{{ $scoreUrl }}"
+                        href="{{ $driverUrl }}"
                         wire:navigate
                         class="fs-driver-card"
-                        style="--driver-color: {{ $scoreColor }}"
+                        style="--driver-color: #22c55e"
                     >
                         <div class="fs-driver-main">
                             @if ($photoUrl)
@@ -60,7 +58,6 @@
                             @else
                                 <span class="text-xs text-gray-300">—</span>
                             @endif
-                            <span class="fs-score">{{ $score }} <span class="font-normal text-gray-400">điểm</span></span>
                         </div>
                     </a>
                 @endforeach

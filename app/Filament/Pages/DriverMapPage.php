@@ -70,7 +70,7 @@ class DriverMapPage extends Page
         $query = DB::table('users')
             ->where('user_type', 'driver')
             ->where('status', 1)
-            ->select('id', 'name', 'phone', 'city_id', 'driver_score', 'profile_photo_path', 'is_online');
+            ->select('id', 'name', 'phone', 'city_id', 'profile_photo_path', 'is_online');
 
         // city_manager chỉ thấy tài xế khu vực mình
         if ($this->fixedCityId) {
@@ -78,7 +78,7 @@ class DriverMapPage extends Page
         }
 
         // Đang đi đơn = có ít nhất 1 đơn ở trạng thái đang xử lý — cùng danh
-        // sách trạng thái "active" dùng chung trong OrderService/DispatchService.
+        // sách trạng thái "active" dùng chung trong OrderService.
         $activeOrders = DB::table('orders')
             ->whereIn('status', ['assigned', 'processing'])
             ->whereIn('delivery_man_id', (clone $query)->pluck('id'))
@@ -112,7 +112,6 @@ class DriverMapPage extends Page
                 'active_order_code' => $activeOrder?->code,
                 'active_order_status' => $activeOrder?->status,
                 'shift_names' => $shiftNames->get($d->id, ''),
-                'driver_score' => (int) ($d->driver_score ?? 100),
                 'avatar' => $d->profile_photo_path
                     ? Storage::url($d->profile_photo_path)
                     : null,
@@ -138,14 +137,12 @@ class DriverMapPage extends Page
             ->whereNotNull('pickup_lat')->whereNotNull('pickup_lng')
             ->when($this->fixedCityId, fn ($q) => $q->where('city_id', $this->fixedCityId))
             ->orderBy('created_at')->limit(50)
-            ->get(['id', 'code', 'pickup_address', 'delivery_address', 'order_note', 'shipping_fee', 'pickup_lat', 'pickup_lng', 'created_at', 'dispatching_to_driver_id', 'cancel_reason'])
+            ->get(['id', 'code', 'pickup_address', 'delivery_address', 'order_note', 'shipping_fee', 'pickup_lat', 'pickup_lng', 'created_at'])
             ->map(fn (Order $o) => [
                 'id' => $o->id, 'code' => $o->code, 'address' => $o->pickup_address, 'delivery' => $o->delivery_address,
                 'note' => trim((string) $o->order_note), 'fee' => (int) $o->shipping_fee,
                 'lat' => (float) $o->pickup_lat, 'lng' => (float) $o->pickup_lng,
                 'minutes' => (int) $o->created_at->diffInMinutes(now()),
-                'offered' => (bool) $o->dispatching_to_driver_id,
-                'stopped' => $o->cancel_reason === 'no_driver',
                 'url' => OrderResource::getUrl('view', ['record' => $o->id]),
             ])->all();
     }

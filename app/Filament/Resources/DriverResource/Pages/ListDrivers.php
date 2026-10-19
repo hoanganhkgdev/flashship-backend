@@ -36,10 +36,9 @@ class ListDrivers extends ListRecords
     public function getTabs(): array
     {
         // Khu vực chọn ở bộ chuyển trên topbar, nên không cần tab theo thành phố.
-        $count = fn (?int $status, bool $low = false) => User::where('user_type', 'driver')
+        $count = fn (?int $status) => User::where('user_type', 'driver')
             ->where('city_id', Filament::getTenant()?->id)
             ->when($status !== null, fn ($q) => $q->where('status', $status))
-            ->when($low, fn ($q) => $q->where('driver_score', '<', DriverResource::LOW_SCORE))
             ->count();
 
         return [
@@ -58,11 +57,6 @@ class ListDrivers extends ListRecords
                 ->icon('heroicon-m-lock-closed')
                 ->modifyQueryUsing(fn ($query) => $query->where('status', 2))
                 ->badge($count(2) ?: null)
-                ->badgeColor('danger'),
-            'low' => Tab::make('Điểm thấp')
-                ->icon('heroicon-m-arrow-trending-down')
-                ->modifyQueryUsing(fn ($query) => $query->where('status', 1)->where('users.driver_score', '<', DriverResource::LOW_SCORE))
-                ->badge(User::where('user_type', 'driver')->where('city_id', Filament::getTenant()?->id)->where('status', 1)->where('driver_score', '<', DriverResource::LOW_SCORE)->count() ?: null)
                 ->badgeColor('danger'),
         ];
     }

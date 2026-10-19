@@ -15,7 +15,7 @@ class OrderMarketNotificationTest extends TestCase
 {
     use DatabaseTransactions;
 
-    public function test_market_notification_only_targets_nearby_drivers_below_active_order_limit(): void
+    public function test_market_notification_targets_every_driver_in_the_city_below_active_order_limit(): void
     {
         $this->assertStringEndsWith('_test', DB::connection()->getDatabaseName());
         $city = City::create(['name' => 'Market notify', 'slug' => 'market-notify-'.uniqid(), 'is_active' => true]);
@@ -36,16 +36,11 @@ class OrderMarketNotificationTest extends TestCase
         ]);
 
         $locations = $this->mock(DriverLocationService::class);
-        $locations->shouldReceive('freshLocationsFor')->once()->andReturn([
-            $eligible->id => ['lat' => 10.005, 'lng' => 105.0, 'bearing' => null],
-            $far->id => ['lat' => 10.2, 'lng' => 105.0, 'bearing' => null],
-            $noSession->id => ['lat' => 10.004, 'lng' => 105.0, 'bearing' => null],
-            $full->id => ['lat' => 10.003, 'lng' => 105.0, 'bearing' => null],
-        ]);
+        $locations->shouldNotReceive('freshLocationsFor');
 
         $tokens = (new OrderMarketService($locations))->eligibleNotificationTokens($marketOrder);
 
-        $this->assertSame(['eligible-token', 'no-session-token'], $tokens);
+        $this->assertSame(['eligible-token', 'far-token', 'no-session-token'], $tokens);
     }
 
     private function driver(City $city, string $token): User

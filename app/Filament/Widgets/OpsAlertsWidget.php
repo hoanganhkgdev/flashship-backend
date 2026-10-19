@@ -59,22 +59,6 @@ class OpsAlertsWidget extends Widget
             'icon' => 'heroicon-o-clock',
         ];
 
-        // Đơn hệ thống đã hủy vì không tìm được tài xế hôm nay.
-        $noDriver = Order::query()
-            ->when($cityId, fn ($q) => $q->where('city_id', $cityId))
-            ->where('status', 'cancelled')
-            ->where('cancel_reason', 'no_driver')
-            ->whereBetween('updated_at', [now()->startOfDay(), now()->endOfDay()])
-            ->count();
-        $alerts[] = [
-            'label' => 'Không tìm được tài xế hôm nay',
-            'count' => $noDriver,
-            'detail' => $noDriver ? 'Đơn bị hủy do không có tài xế nhận' : 'Chưa có đơn nào bị bỏ lỡ',
-            'level' => $noDriver === 0 ? 'ok' : 'danger',
-            'url' => OrderResource::getUrl('index', ['activeTab' => 'cancelled']),
-            'icon' => 'heroicon-o-exclamation-triangle',
-        ];
-
         // Yêu cầu rút tiền chờ duyệt (chỉ hiện với người có quyền xem).
         if (WithdrawRequestResource::canViewAny()) {
             $withdraw = WithdrawRequestResource::scopeEloquentQueryToTenant(WithdrawRequest::query(), Filament::getTenant())

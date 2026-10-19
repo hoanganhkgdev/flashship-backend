@@ -75,7 +75,6 @@ class AdminController extends Controller
 
         $order->update([
             'delivery_man_id'          => $data['driver_id'],
-            'dispatching_to_driver_id' => null,
             'status'                   => 'assigned',
         ]);
 

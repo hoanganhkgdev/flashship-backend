@@ -85,7 +85,7 @@ class ListOrders extends ListRecords
     /** Chế độ trực: chỉ các tab đang chờ/đang chạy tự làm mới (15 giây); tab lịch sử thì không. */
     public function table(Table $table): Table
     {
-        return parent::table($table)->poll(in_array($this->activeTab, ['new', 'market', 'attention', 'processing'], true) ? '15s' : null);
+        return parent::table($table)->poll(in_array($this->activeTab, ['new', 'processing'], true) ? '15s' : null);
     }
 
     public function getDefaultActiveTab(): string|int|null
@@ -101,21 +101,11 @@ class ListOrders extends ListRecords
         if (isset($memo[$key])) {
             return $memo[$key];
         }
-        $cut = now()->subMinutes(self::attentionMinutes());
-        $now = now();
         $r = OrderResource::getEloquentQuery()->toBase()->reorder()->selectRaw(
             "COUNT(*) total,
-             SUM(status = 'pending' AND NOT EXISTS (
-                 SELECT 1 FROM order_market_listings market
-                 WHERE market.order_id = orders.id AND market.status = 'open' AND market.expires_at > ?
-             )) pending,
+             SUM(status = 'pending') pending,
              SUM(status IN ('assigned','processing')) active,
-             SUM(status = 'completed') completed, SUM(status = 'cancelled') cancelled,
-             SUM(status = 'pending' AND (cancel_reason = 'no_driver' OR created_at <= ?)) attention,
-             SUM(status = 'pending' AND EXISTS (
-                 SELECT 1 FROM order_market_listings market
-                 WHERE market.order_id = orders.id AND market.status = 'open' AND market.expires_at > ?
-             )) market", [$now, $cut, $now]
+             SUM(status = 'completed') completed, SUM(status = 'cancelled') cancelled"
         )->first();
 
         return $memo[$key] = collect((array) $r)->map(fn ($v) => (int) $v)->all();
@@ -124,22 +114,12 @@ class ListOrders extends ListRecords
     public function getTabs(): array
     {
         $c = fn (string $k) => fn () => $this->counts()[$k] ?: null;
-        $attention = fn (Builder $query) => $query->where('status', 'pending')
-            ->where(fn ($q) => $q->where('cancel_reason', 'no_driver')->orWhere('created_at', '<=', now()->subMinutes(self::attentionMinutes())));
 
         return [
             'all' => Tab::make('Tất cả')->icon('heroicon-m-queue-list')->badge($c('total')),
             // Chế độ trực: chờ lâu nhất lên đầu.
-            'new' => Tab::make('Đơn mới')->icon('heroicon-m-bell-alert')->badge($c('pending'))->badgeColor('warning')
-                ->modifyQueryUsing(fn (Builder $query) => $query->where('status', 'pending')
-                    ->whereDoesntHave('marketListing', fn (Builder $market) => $market->where('status', 'open')->where('expires_at', '>', now()))
-                    ->orderBy('created_at')),
-            'market' => Tab::make('Chợ đơn')->icon('heroicon-m-building-storefront')->badge($c('market'))->badgeColor('warning')
-                ->modifyQueryUsing(fn (Builder $query) => $query->where('status', 'pending')
-                    ->whereHas('marketListing', fn (Builder $market) => $market->where('status', 'open')->where('expires_at', '>', now()))
-                    ->orderBy('created_at')),
-            'attention' => Tab::make('Cần xử lý')->icon('heroicon-m-exclamation-triangle')->badge($c('attention'))->badgeColor('danger')
-                ->modifyQueryUsing(fn (Builder $query) => $attention($query)->orderBy('created_at')),
+            'new' => Tab::make('Chờ nhận')->icon('heroicon-m-bell-alert')->badge($c('pending'))->badgeColor('warning')
+                ->modifyQueryUsing(fn (Builder $query) => $query->where('status', 'pending')->orderBy('created_at')),
             'processing' => Tab::make('Đang xử lý')->icon('heroicon-m-clock')->badge($c('active'))->badgeColor('info')
                 ->modifyQueryUsing(fn (Builder $query) => $query->whereIn('status', ['assigned', 'processing'])->orderByDesc('created_at')),
             'completed' => Tab::make('Hoàn thành')->icon('heroicon-m-check-circle')->badge($c('completed'))->badgeColor('success')
@@ -147,12 +127,6 @@ class ListOrders extends ListRecords
             'cancelled' => Tab::make('Đã hủy')->icon('heroicon-m-x-circle')->badge($c('cancelled'))->badgeColor('danger')
                 ->modifyQueryUsing(fn (Builder $query) => $query->where('status', 'cancelled')),
         ];
-    }
-
-    /** Đơn chờ quá thời gian tìm tài xế (cấu hình khu vực) thì cần xử lý. */
-    public static function attentionMinutes(): int
-    {
-        return OperationalSettings::dispatchTimeoutMinutes(Filament::getTenant()?->id);
     }
 
     private const EXPORT_LIMIT = 20000;

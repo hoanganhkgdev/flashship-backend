@@ -10,7 +10,6 @@ use Illuminate\Validation\ValidationException;
 use Modules\Core\Models\User;
 use Modules\Core\Services\OtpService;
 use Modules\Core\Services\RTDBService;
-use Modules\Driver\Services\DriverScoreService;
 
 class AuthController extends Controller
 {
@@ -66,7 +65,6 @@ class AuthController extends Controller
                 'city_id'            => $data['city_id'],
                 'profile_photo_path' => $path,
                 'fcm_token'          => $data['fcm_token'] ?? null,
-                'driver_score'       => DriverScoreService::DEFAULT_SCORE,
             ]);
             $token = $user->createToken('api_token')->plainTextToken;
             return [$user, $token];
@@ -125,9 +123,8 @@ class AuthController extends Controller
 
         $user->update(['password' => bcrypt($data['password'])]);
         $user->tokens()->delete();
-        $offerIds = $this->forceDriverOffline($user);
+        $this->forceDriverOffline($user);
         RTDBService::removeDriverLocation($user->id);
-        $this->releaseOffersAfterOffline($user->id, $offerIds);
 
         return response()->json(['success' => true, 'message' => 'Đặt lại mật khẩu thành công']);
     }
@@ -169,9 +166,8 @@ class AuthController extends Controller
         // API báo offline được nữa (401) — xử lý luôn ở đây, lúc chắc chắn
         // biết phiên cũ đang bị thay thế, thay vì trông cậy máy cũ tự báo.
         $wasOnline = (bool) $user->is_online;
-        $offerIds = $this->forceDriverOffline($user);
+        $this->forceDriverOffline($user);
         RTDBService::removeDriverLocation($user->id);
-        $this->releaseOffersAfterOffline($user->id, $offerIds);
         if ($wasOnline) {
             \Illuminate\Support\Facades\Log::info("[Auth] Driver #{$user->id} tự động chuyển offline do đăng nhập thiết bị mới.");
         }
@@ -206,70 +202,26 @@ class AuthController extends Controller
     public function logout(Request $request): JsonResponse
     {
         $user = $request->user();
-        $offerIds = $this->forceDriverOffline($user);
+        $this->forceDriverOffline($user);
         $user->update(['fcm_token' => null]);
         $user->currentAccessToken()->delete();
         RTDBService::removeDriverLocation($user->id);
-        $this->releaseOffersAfterOffline($user->id, $offerIds);
         return response()->json(['success' => true, 'message' => 'Đăng xuất thành công']);
     }
 
-    private function forceDriverOffline(User $user): array
+    private function forceDriverOffline(User $user): void
     {
-        $offerIds = DB::transaction(function () use ($user) {
+        DB::transaction(function () use ($user) {
             User::whereKey($user->id)->lockForUpdate()->update([
                 'is_online' => false,
                 'online_since' => null,
             ]);
-            $offerOrderIds = \Modules\Order\Models\OrderDispatchLog::where('driver_id', $user->id)
-                ->where('result', 'pending')->pluck('order_id');
-            $offers = \Modules\Order\Models\Order::where('status', 'pending')
-                ->whereIn('id', $offerOrderIds)
-                ->lockForUpdate()
-                ->get();
-            foreach ($offers as $offer) {
-                \Modules\Order\Models\OrderDispatchLog::where('order_id', $offer->id)
-                    ->where('driver_id', $user->id)
-                    ->where('result', 'pending')
-                    ->update([
-                        'result' => 'expired',
-                        'responded_at' => now(),
-                        'close_reason' => \Modules\Order\Models\OrderDispatchLog::CLOSE_DRIVER_OFFLINE,
-                    ]);
-                $offer->update(['dispatching_to_driver_id' => \Modules\Order\Models\OrderDispatchLog::where('order_id', $offer->id)
-                    ->where('result', 'pending')->value('driver_id')]);
-            }
             \Modules\Driver\Models\DriverShiftSession::where('driver_id', $user->id)
                 ->whereNull('ended_at')
                 ->update(['ended_at' => now()]);
-            return $offers->pluck('id')->map(fn ($id) => (int) $id)->all();
         });
         $user->is_online = false;
         $user->online_since = null;
-        return $offerIds;
-    }
-
-    private function releaseOffersAfterOffline(int $driverId, array $offerIds): void
-    {
-        foreach ($offerIds as $orderId) {
-            RTDBService::clearDriverOffer($driverId, $orderId);
-            try {
-                \Illuminate\Support\Facades\Redis::eval(
-                    "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
-                    1,
-                    "dispatch:lock:driver:{$driverId}",
-                    (string) $orderId,
-                );
-            } catch (\Throwable $e) {
-                \Illuminate\Support\Facades\Log::warning('[Auth] Không xóa được dispatch lock khi offline', [
-                    'driver_id' => $driverId, 'order_id' => $orderId, 'message' => $e->getMessage(),
-                ]);
-            }
-            dispatch(function () use ($orderId) {
-                $order = \Modules\Order\Models\Order::find($orderId);
-                if ($order) app(\Modules\Order\Services\DispatchService::class)->sendToNextDriver($order);
-            })->afterResponse();
-        }
     }
 
     /**

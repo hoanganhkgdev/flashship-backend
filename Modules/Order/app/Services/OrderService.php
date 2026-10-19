@@ -2,36 +2,26 @@
 namespace Modules\Order\Services;
 
 use Modules\Order\Models\Order;
-use Modules\Order\Models\OrderDispatchLog;
-use Modules\Order\Services\DispatchService;
 use Modules\Order\Services\OrderTimeline;
 use Modules\Core\Models\User;
 use Modules\Core\Models\Voucher;
 use Modules\Core\Models\VoucherUsage;
 use Modules\Core\Services\FCMService;
-use Modules\Core\Services\GoogleMapService;
 use Modules\Core\Services\OperationalSettings;
 use Modules\Customer\Http\Controllers\CustomerNotificationController;
 use Modules\Core\Services\RTDBService;
-use Modules\Driver\Services\DriverScoreService;
-use Modules\Driver\Services\DriverLocationService;
 use Modules\Driver\Services\DriverWalletService;
 use Modules\Driver\Services\ReferralService;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Redis;
 
 class OrderService
 {
-    // Thưởng thêm khi tài xế nhận đơn lúc thành phố đang bật chế độ trời mưa
-    // (xem rain_bonus_eligible ở acceptOrder()) — 1 nguồn duy nhất cho cả số
-    // tiền cộng thật (completeOrder()) lẫn số tiền xem trước gửi kèm offer
-    // (DispatchOfferSender::commitOffer()), tránh lệch nếu sau này đổi giá trị.
     /**
      * Hủy một đơn còn pending theo một quy tắc duy nhất cho customer/shop.
-     * Trạng thái đơn, dispatch log và hoàn lượt voucher commit cùng nhau.
+     * Trạng thái đơn và hoàn lượt voucher commit cùng nhau.
      *
      * @return array{success: bool, message: string}
      */
@@ -44,12 +34,8 @@ class OrderService
                 return ['success' => false, 'driver_id' => null, 'order' => $fresh];
             }
 
-            $driverIds = OrderDispatchLog::where('order_id', $fresh->id)
-                ->where('result', 'pending')->pluck('driver_id')->map(fn ($id) => (int) $id)->all();
-
             $fresh->update([
                 'status' => 'cancelled',
-                'dispatching_to_driver_id' => null,
                 'cancel_reason' => $reason ?? $fresh->cancel_reason,
                 'cancel_note' => $note,
                 'cancelled_by' => $by,
@@ -58,19 +44,11 @@ class OrderService
             ]);
             OrderTimeline::record($fresh, 'cancelled', 'Hủy đơn — '.OrderTimeline::cancelReasonLabel($reason ?? $fresh->cancel_reason).($note ? ': '.$note : ''), $by);
 
-            OrderDispatchLog::where('order_id', $fresh->id)
-                ->where('result', 'pending')
-                ->update([
-                    'result' => 'expired',
-                    'responded_at' => now(),
-                    'close_reason' => OrderDispatchLog::CLOSE_ORDER_CANCELLED,
-                ]);
-
             // Hoàn đúng usage của đơn; chỉ giảm used_count nếu thật sự xóa
             // được usage, nên request hủy lặp không thể hoàn voucher hai lần.
             $this->releaseVoucherUsage($fresh->id);
 
-            return ['success' => true, 'driver_ids' => $driverIds, 'order' => $fresh];
+            return ['success' => true, 'order' => $fresh];
         });
 
         if (!$result['success']) {
@@ -82,17 +60,6 @@ class OrderService
         app(OrderMarketService::class)->close($cancelled);
         try {
             RTDBService::clearOrder($cancelled->code);
-
-            foreach ($result['driver_ids'] as $driverId) {
-                RTDBService::clearDriverOffer($driverId, $cancelled->id);
-                Redis::eval(
-                    "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
-                    1,
-                    "dispatch:lock:driver:{$driverId}",
-                    (string) $cancelled->id,
-                );
-            }
-            Redis::del("dispatch:retry_pending:{$cancelled->id}");
         } catch (\Throwable $e) {
             // DB đã commit là nguồn sự thật; lỗi cleanup realtime/cache không
             // được biến lần hủy thành HTTP 500 khiến client thử hủy lặp.
@@ -146,7 +113,6 @@ class OrderService
                 'cancel_note' => $note,
                 'cancelled_by' => $by,
                 'cancelled_at' => now(),
-                'dispatching_to_driver_id' => null,
                 'updated_at' => now(),
             ]);
             $stage = $previousStatus === 'processing' ? 'đã lấy hàng' : 'đã nhận';
@@ -277,264 +243,6 @@ class OrderService
         ];
     }
 
-    public function acceptOrder(Order $order, User $user): array
-    {
-        if ($order->status !== 'pending') {
-            return ['success' => false, 'message' => 'Đơn đã có người nhận hoặc không khả dụng', 'status' => 409];
-        }
-
-        $activeOffer = OrderDispatchLog::where('order_id', $order->id)
-            ->where('driver_id', $user->id)
-            ->where('result', 'pending')
-            ->first();
-        if (! $activeOffer) {
-            return ['success' => false, 'message' => 'Đơn này không được phát cho bạn.', 'status' => 403];
-        }
-        if ($activeOffer->expires_at && $activeOffer->expires_at->isPast()) {
-            $this->expireLateAcceptance($order->id, $user->id);
-
-            return ['success' => false, 'message' => 'Thời gian nhận đơn đã hết, hệ thống đang chuyển cho tài xế khác.', 'status' => 409];
-        }
-
-        $assignment = DB::transaction(function () use ($order, $user) {
-            // Thống nhất thứ tự lock tài xế → đơn với gán thủ công và các
-            // luồng nhận khác để giảm deadlock khi hai thao tác xảy ra cùng lúc.
-            $lockedUser = User::where('id', $user->id)->lockForUpdate()->firstOrFail();
-            $fresh = Order::whereKey($order->id)->lockForUpdate()->first();
-            if (! $fresh || $fresh->status !== 'pending') {
-                return ['status' => 'taken', 'loser_ids' => []];
-            }
-            $offer = OrderDispatchLog::where('order_id', $order->id)
-                ->where('driver_id', $user->id)
-                ->where('result', 'pending')
-                ->lockForUpdate()
-                ->first();
-            if (! $offer || ($offer->expires_at && $offer->expires_at->isPast())) {
-                return ['status' => 'expired', 'loser_ids' => []];
-            }
-
-            $unavailable = ! $fresh->usesSystemAssignedDispatch()
-                || (int) $lockedUser->status !== 1
-                || ! $lockedUser->is_online
-                || ($lockedUser->score_suspended_until && $lockedUser->score_suspended_until > now())
-                || $lockedUser->debts()->where('status', 'overdue')->exists()
-                || DB::table('driver_leave_requests')->where('driver_id', $lockedUser->id)->whereDate('leave_date', today())->exists()
-                || ($fresh->service_type === 'car' && ! $lockedUser->has_car_license);
-            if ($unavailable) {
-                $offer->update([
-                    'result' => 'expired',
-                    'responded_at' => now(),
-                    'close_reason' => OrderDispatchLog::CLOSE_DRIVER_INELIGIBLE,
-                ]);
-                $replacement = OrderDispatchLog::where('order_id', $order->id)
-                    ->where('result', 'pending')->value('driver_id');
-                $fresh->update(['dispatching_to_driver_id' => $replacement, 'updated_at' => now()]);
-
-                return ['status' => 'ineligible', 'loser_ids' => []];
-            }
-
-            $activeOrders = Order::where('delivery_man_id', $user->id)
-                ->whereIn('status', ['assigned', 'processing'])
-                ->lockForUpdate()
-                ->get();
-            if ($activeOrders->isNotEmpty()) {
-                OrderDispatchLog::where('order_id', $order->id)
-                    ->where('driver_id', $user->id)
-                    ->where('result', 'pending')
-                    // Enum DB chỉ có pending/accepted/declined/expired.
-                    // Đây là offer không còn hợp lệ do tài xế vừa đạt trần đơn,
-                    // không phải hành vi từ chối để bị trừ điểm.
-                    ->update([
-                        'result' => 'expired',
-                        'responded_at' => now(),
-                        'close_reason' => OrderDispatchLog::CLOSE_DRIVER_BUSY,
-                    ]);
-                $replacement = OrderDispatchLog::where('order_id', $order->id)
-                    ->where('result', 'pending')->value('driver_id');
-                $fresh->update(['dispatching_to_driver_id' => $replacement, 'updated_at' => now()]);
-
-                return ['status' => 'busy', 'loser_ids' => []];
-            }
-
-            $now = now();
-            $loserIds = OrderDispatchLog::where('order_id', $order->id)
-                ->where('result', 'pending')->where('driver_id', '!=', $user->id)
-                ->pluck('driver_id')->map(fn ($id) => (int) $id)->all();
-
-            $fresh->update([
-                'status'                   => 'assigned',
-                'delivery_man_id'          => $user->id,
-                'driver_order_role'        => 'main',
-                'main_order_id'            => $order->id,
-                'extra_claimed_count'      => 0,
-                'bundle_window_expires_at' => null,
-                'dispatching_to_driver_id' => null,
-                'updated_at'               => $now,
-            ]);
-            $offer->update([
-                'result' => 'accepted',
-                'responded_at' => $now,
-                'close_reason' => OrderDispatchLog::CLOSE_ACCEPTED,
-            ]);
-            OrderDispatchLog::where('order_id', $order->id)->where('result', 'pending')
-                ->update([
-                    'result' => 'expired',
-                    'responded_at' => $now,
-                    'close_reason' => OrderDispatchLog::CLOSE_ANOTHER_DRIVER_ACCEPTED,
-                ]);
-
-            return ['status' => 'won', 'loser_ids' => $loserIds];
-        });
-
-        if (in_array($assignment['status'], ['busy', 'ineligible'], true)) {
-            Redis::del("dispatch:lock:driver:{$user->id}");
-            RTDBService::clearDriverOffer($user->id, $order->id);
-            $orderId = $order->id;
-            dispatch(function () use ($orderId) {
-                $freshOrder = Order::find($orderId);
-                if ($freshOrder?->status === 'pending') {
-                    app(DispatchService::class)->sendToNextDriver($freshOrder);
-                }
-            })->afterResponse();
-
-            $message = $assignment['status'] === 'busy'
-                ? 'Bạn đã có đơn đang thực hiện. Vui lòng hoàn thành đơn hiện tại trước khi nhận đơn mới.'
-                : 'Bạn không còn đủ điều kiện nhận đơn này. Hệ thống đang chuyển cho tài xế khác.';
-
-            return ['success' => false, 'message' => $message, 'status' => $assignment['status'] === 'busy' ? 409 : 403];
-        }
-
-        if ($assignment['status'] === 'expired') {
-            $this->expireLateAcceptance($order->id, $user->id);
-
-            return ['success' => false, 'message' => 'Thời gian nhận đơn đã hết, hệ thống đang chuyển cho tài xế khác.', 'status' => 409];
-        }
-
-        if ($assignment['status'] === 'taken') {
-            return ['success' => false, 'message' => 'Đơn đã có người nhận trước bạn.', 'status' => 409];
-        }
-
-        // Chụp lại NGAY LÚC NHẬN xem thành phố có đang bật chế độ trời mưa
-        // không — khoá giá trị này cho đơn, không đổi theo trạng thái mưa
-        // hiện tại nữa dù sau đó tắt/bật lại giữa chừng (tài xế nhận lúc mưa
-        // thì được thưởng, dù giao xong trời đã tạnh).
-        if (\Modules\Core\Models\City::where('id', $order->city_id)->value('is_rain_mode')) {
-            DB::table('orders')->where('id', $order->id)->update([
-                'rain_bonus_eligible' => true,
-                'rain_bonus_amount' => OperationalSettings::rainBonusAmount($order->city_id),
-            ]);
-        }
-
-        foreach (array_merge([$user->id], $assignment['loser_ids']) as $offeredDriverId) {
-            RTDBService::clearDriverOffer((int) $offeredDriverId, $order->id);
-            Redis::eval(
-                "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
-                1,
-                "dispatch:lock:driver:{$offeredDriverId}",
-                (string) $order->id,
-            );
-        }
-        DB::table('users')->where('id', $user->id)->update([
-            'last_order_accepted_at' => now(),
-        ]);
-        app(OrderMarketService::class)->close($order);
-        RTDBService::pingOrderMarket((int) $order->city_id);
-
-        $orderId   = $order->id;
-        $userId    = $user->id;
-        $orderCode = $order->code;
-
-        // RTDB + FCM đồng bộ — customer app nhận realtime ngay lập tức
-        RTDBService::updateOrderStatus($orderCode, 'assigned');
-        $customer = User::find($order->sender_platform_id);
-        if ($customer?->fcm_token) {
-            FCMService::getInstance()->sendOrderStatusUpdate($customer->fcm_token, $orderCode, 'assigned');
-        }
-        if ($customer) {
-            CustomerNotificationController::create(
-                $customer->id,
-                "Đơn #{$orderCode}",
-                'Tài xế đã nhận đơn và đang trên đường đến',
-                'order_status',
-                $orderCode
-            );
-        }
-
-        dispatch(function () use ($orderId, $userId) {
-            $freshOrder = Order::find($orderId);
-            if (!$freshOrder) return;
-            app(DispatchService::class)->handleAccepted($freshOrder, User::find($userId));
-            Log::info("✅ Driver #{$userId} accepted order #{$orderId}");
-        })->afterResponse();
-
-        return ['success' => true, 'order' => $this->formatOrderForDriver($order->fresh()), 'status' => 200];
-    }
-
-    private function expireLateAcceptance(int $orderId, int $driverId): void
-    {
-        dispatch(function () use ($orderId, $driverId) {
-            $freshOrder = Order::find($orderId);
-            if ($freshOrder?->status === 'pending') {
-                app(DispatchService::class)->handleTimeout($freshOrder, $driverId);
-            }
-        })->afterResponse();
-    }
-
-    public function declineOrder(Order $order, User $user): array
-    {
-        if ($order->status !== 'pending') {
-            return ['success' => false, 'message' => 'Đơn không còn ở trạng thái chờ.', 'status' => 409];
-        }
-
-        $log = DB::transaction(function () use ($order, $user) {
-            $fresh = Order::whereKey($order->id)->lockForUpdate()->first();
-            if (!$fresh || $fresh->status !== 'pending') {
-                return null;
-            }
-
-            $log = OrderDispatchLog::where('order_id', $order->id)
-                ->where('driver_id', $user->id)
-                ->where('result', 'pending')
-                ->lockForUpdate()
-                ->first();
-
-            if (!$log) return null;
-
-            $log->update([
-                'result' => 'declined',
-                'responded_at' => now(),
-                'close_reason' => OrderDispatchLog::CLOSE_DRIVER_DECLINED,
-            ]);
-            $replacement = OrderDispatchLog::where('order_id', $order->id)
-                ->where('result', 'pending')->value('driver_id');
-            $fresh->update(['dispatching_to_driver_id' => $replacement, 'updated_at' => now()]);
-
-            return ['log' => $log];
-        });
-
-        if (!$log) {
-            return ['success' => false, 'message' => 'Đơn này không được phát cho bạn.', 'status' => 403];
-        }
-
-        \Illuminate\Support\Facades\Redis::del("dispatch:lock:driver:{$user->id}");
-
-        DriverScoreService::onDecline($user->id);
-
-        RTDBService::clearDriverOffer($user->id, $order->id);
-
-        // Bù ngay một chỗ trống trong wave; DispatchService vẫn giữ trần số
-        // offer đồng thời và order lock chống hai request bù trùng nhau.
-        $orderId = $order->id;
-        dispatch(function () use ($orderId) {
-            $freshOrder = Order::find($orderId);
-            if ($freshOrder?->status === 'pending') {
-                app(DispatchService::class)->sendToNextDriver($freshOrder);
-            }
-        })->afterResponse();
-
-        return ['success' => true, 'message' => 'Đã từ chối đơn hàng.', 'status' => 200];
-    }
-
     public function updateOrderStatus(Order $order, User $user, string $status): array
     {
         // Flow vận hành: assigned → processing → completed.
@@ -578,7 +286,7 @@ class OrderService
         return ['success' => true, 'message' => 'Cập nhật trạng thái thành công.', 'status' => 200];
     }
 
-    public function completeOrder(Order $order, User $user, bool $proximityAlreadyVerified = false): array
+    public function completeOrder(Order $order, User $user, bool $trustedCompletion = false): array
     {
         if ((int) $order->delivery_man_id !== (int) $user->id) {
             return ['success' => false, 'message' => 'Bạn không có quyền hoàn thành đơn này.', 'status' => 403];
@@ -588,39 +296,9 @@ class OrderService
             return ['success' => true, 'message' => 'Đơn này đã hoàn thành trước đó.', 'data' => $order, 'status' => 200];
         }
 
-        // Đơn gộp không kiểm tra khoảng cách khi hoàn thành.
-        $proximityAlreadyVerified = $proximityAlreadyVerified || (bool) $order->is_batch;
-
-        $target = $this->completionTarget($order);
-        $hasTarget = is_numeric($target['lat'] ?? null) && is_numeric($target['lng'] ?? null);
-
-        // Đơn không có toạ độ điểm giao (thường là đơn tổng đài chở người hoặc
-        // chưa biết điểm đến lúc đặt) thì không có gì để so vị trí — cho hoàn
-        // thành thay vì chặn tài xế vô thời hạn; ghi log để theo dõi.
-        if (! $proximityAlreadyVerified && ! $hasTarget) {
-            Log::info('[OrderComplete] no delivery point, proximity check skipped', [
-                'order_id' => $order->id,
-                'driver_id' => $user->id,
-                'platform' => $order->platform,
-                'service_type' => $order->service_type,
-            ]);
-        }
-
-        if (! $proximityAlreadyVerified && $hasTarget) {
-            $proximityError = $this->checkDriverProximity($user, $target['lat'], $target['lng'], $order->city_id, $target['area_radius_km'] ?? null);
-            if ($proximityError) {
-                Log::warning('[OrderComplete] proximity rejected', [
-                    'order_id' => $order->id,
-                    'driver_id' => $user->id,
-                    'reason' => $proximityError['reason_code'],
-                    'distance_m' => $proximityError['distance_m'] ?? null,
-                ]);
-
-                return $proximityError;
-            }
-        }
-
-        $completion = DB::transaction(function () use ($order, $user, $proximityAlreadyVerified) {
+        // Hoàn thành thủ công không phụ thuộc GPS/khoảng cách. Vẫn giữ toàn bộ
+        // kiểm tra quyền sở hữu, trạng thái processing và các điểm đơn gộp.
+        $completion = DB::transaction(function () use ($order, $user, $trustedCompletion) {
             $fresh = Order::where('id', $order->id)->lockForUpdate()->firstOrFail();
 
             if ((int) $fresh->delivery_man_id !== (int) $user->id) {
@@ -653,7 +331,7 @@ class OrderService
                 'delivered_at' => $completedAt,
                 'updated_at' => $completedAt,
             ]);
-            $staff = $proximityAlreadyVerified ? request()->user() : null;
+            $staff = $trustedCompletion ? request()->user() : null;
             OrderTimeline::record($fresh, 'completed', 'Hoàn thành đơn'.($staff && $staff->id !== $user->id ? ' (nhân viên xác nhận thay tài xế)' : ''), $staff?->id ?? $user->id);
 
             // Tất cả quyền lợi tài xế commit/rollback cùng trạng thái đơn.
@@ -698,7 +376,6 @@ class OrderService
                 Log::error('[ShopReferral] reward failed', ['order_id' => $fresh->id, 'error' => $e->getMessage()]);
             }
 
-            DriverScoreService::onComplete($user->id);
             DB::table('users')->where('id', $user->id)->update([
                 'last_order_completed_at' => $completedAt,
             ]);
@@ -743,68 +420,6 @@ class OrderService
         return ['success' => true, 'message' => 'Hoàn thành đơn thành công', 'data' => $order->fresh(), 'status' => 200];
     }
 
-    /** $cityId: khu vực của đơn — bán kính hoàn thành theo cấu hình khu vực đó. */
-    public function checkDriverProximity(User $driver, mixed $targetLat, mixed $targetLng, ?int $cityId, mixed $areaRadiusKm = null): ?array
-    {
-        if (! is_numeric($targetLat) || ! is_numeric($targetLng)) {
-            return [
-                'success' => false,
-                'reason_code' => 'DELIVERY_LOCATION_MISSING',
-                'message' => 'Đơn hàng thiếu tọa độ điểm giao. Vui lòng liên hệ tổng đài.',
-                'status' => 422,
-            ];
-        }
-
-        $locations = app(DriverLocationService::class)->freshLocationsFor([(int) $driver->id]);
-        $location = $locations[(int) $driver->id] ?? null;
-        if (! $location) {
-            return [
-                'success' => false,
-                'reason_code' => 'DRIVER_LOCATION_UNAVAILABLE',
-                'message' => 'Không xác minh được vị trí hiện tại. Vui lòng bật GPS và thử lại.',
-                'status' => 422,
-            ];
-        }
-
-        $distanceKm = GoogleMapService::haversineKm(
-            (float) $location['lat'],
-            (float) $location['lng'],
-            (float) $targetLat,
-            (float) $targetLng,
-        );
-        // Điểm giao chỉ là tâm khu vực (shop không nhập địa chỉ thật): được hoàn
-        // thành trong bán kính khu vực, nếu lớn hơn ngưỡng mặc định.
-        $allowedKm = max(
-            OperationalSettings::completionRadiusKm($cityId),
-            is_numeric($areaRadiusKm) ? (float) $areaRadiusKm : 0.0,
-        );
-        if ($distanceKm > $allowedKm) {
-            $distanceM = (int) round($distanceKm * 1000);
-            return [
-                'success' => false,
-                'reason_code' => 'TOO_FAR_FROM_DELIVERY',
-                'message' => "Hệ thống ghi nhận bạn đang cách điểm giao {$distanceM} m. Cần ở trong phạm vi ".(int) round($allowedKm * 1000).' m để hoàn thành.',
-                'distance_m' => $distanceM,
-                'status' => 422,
-            ];
-        }
-
-        return null;
-    }
-
-    /** @return array{lat: mixed, lng: mixed, area_radius_km: mixed} */
-    private function completionTarget(Order $order): array
-    {
-        if ($order->is_batch) {
-            $lastStop = collect($order->stops ?? [])->sortByDesc('seq')->first();
-            if ($lastStop) {
-                return ['lat' => $lastStop['lat'] ?? null, 'lng' => $lastStop['lng'] ?? null, 'area_radius_km' => $lastStop['area_radius_km'] ?? null];
-            }
-        }
-
-        return ['lat' => $order->delivery_lat, 'lng' => $order->delivery_lng, 'area_radius_km' => $order->delivery_area_radius_km];
-    }
-
     public function createOrder(array $data, User $user): Order
     {
         if (empty($data['pickup_lat']) || empty($data['pickup_lng'])) {
@@ -845,7 +460,7 @@ class OrderService
         if (!$order) return;
 
         if ($order->status === 'pending') {
-            app(DispatchService::class)->startDispatch($order);
+            app(OrderMarketService::class)->openForSelfPick($order);
         } elseif ($order->status === 'assigned' && $order->delivery_man_id) {
             // TODO: Firebase publishOrder($order)
         }

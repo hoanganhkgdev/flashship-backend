@@ -2,7 +2,7 @@
 
 namespace App\Filament\Widgets;
 
-use App\Filament\Resources\DriverScoreResource;
+use App\Filament\Resources\DriverResource;
 use Filament\Facades\Filament;
 use Filament\Widgets\Widget;
 use Illuminate\Support\Collection;
@@ -48,7 +48,7 @@ class TopDriversWidget extends Widget
             'name' => $names[$r->delivery_man_id] ?? 'Tài xế #'.$r->delivery_man_id,
             'orders' => (int) $r->c,
             'fee' => number_format((float) $r->fee, 0, ',', '.').'₫',
-            'url' => DriverScoreResource::getUrl('view', ['record' => $r->delivery_man_id]),
+            'url' => DriverResource::getUrl('view', ['record' => $r->delivery_man_id]),
         ]);
     }
 }

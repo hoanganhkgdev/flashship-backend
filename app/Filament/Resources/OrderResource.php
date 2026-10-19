@@ -26,7 +26,7 @@ use Modules\Core\Services\FCMService;
 use Modules\Core\Services\OperationalSettings;
 use Modules\Core\Services\RTDBService;
 use Modules\Order\Models\Order;
-use Modules\Order\Services\DispatchService;
+use Modules\Order\Services\ManualOrderAssignment;
 use Modules\Order\Services\OrderService;
 use Modules\Order\Services\OrderTimeline;
 
@@ -145,15 +145,10 @@ class OrderResource extends Resource
         $color = self::$statusColors[$record->status] ?? 'gray';
         $status = self::$statusLabels[$record->status] ?? $record->status;
         $warning = null;
-        $alert = false;
 
         if ($record->status === 'pending') {
             $waited = max(0, (int) $record->created_at?->diffInMinutes(now()));
-            // Chờ đủ thời gian cấu hình mà vẫn chưa ai nhận (hoặc hệ thống đã dừng
-            // tìm) thì đổi "Chờ N phút" thành cảnh báo đỏ cho tổng đài/admin.
-            $alert = $record->cancel_reason === 'no_driver'
-                || $waited >= OperationalSettings::dispatchTimeoutMinutes($record->city_id);
-            $warning = $alert ? 'Không có tài xế' : 'Chờ '.$waited.' phút';
+            $warning = 'Chờ '.$waited.' phút';
         }
 
         $driver = $record->driver
@@ -167,7 +162,7 @@ class OrderResource extends Resource
         return '<div class="fs-order-assignment">'
             .'<span class="fs-order-pill fs-order-pill--'.e($color).'">'.e($status).'</span>'
             .$driver
-            .($warning ? '<em class="fs-order-assignment__warning'.($alert ? ' is-alert' : '').'">'.e($warning).'</em>' : '')
+            .($warning ? '<em class="fs-order-assignment__warning">'.e($warning).'</em>' : '')
             .'</div>';
     }
 
@@ -239,7 +234,7 @@ class OrderResource extends Resource
             return false;
         }
 
-        $result = app(DispatchService::class)->assignDriverDirectly($fresh, (int) $data['driver_id']);
+        $result = app(ManualOrderAssignment::class)->assign($fresh, (int) $data['driver_id']);
         $notification = Notification::make()->title($result['message']);
         ($result['success'] ? $notification->success() : $notification->danger())->send();
 
@@ -258,10 +253,6 @@ class OrderResource extends Resource
             ->where('is_online', true)
             ->when($record->service_type === 'car', fn (Builder $query) => $query->where('has_car_license', true))
             ->whereDoesntHave('debts', fn (Builder $query) => $query->where('status', 'overdue'))
-            ->where(function (Builder $query) use ($now) {
-                $query->whereNull('score_suspended_until')
-                    ->orWhere('score_suspended_until', '<=', $now);
-            })
             ->whereNotExists(function ($query) {
                 $query->selectRaw('1')
                     ->from('driver_leave_requests')
@@ -298,7 +289,7 @@ class OrderResource extends Resource
             ->where('user_type', 'driver')
             ->where('city_id', $record->city_id)
             ->where('status', 1)
-            ->select(['id', 'name', 'phone', 'is_online', 'has_car_license', 'score_suspended_until'])
+            ->select(['id', 'name', 'phone', 'is_online', 'has_car_license'])
             ->withExists(['debts as has_overdue_debt' => fn (Builder $query) => $query->where('status', 'overdue')])
             ->withCount(['orders as active_orders_count' => fn (Builder $query) => $query->whereIn('status', ['assigned', 'processing'])])
             ->orderBy('name')
@@ -308,7 +299,6 @@ class OrderResource extends Resource
                     ! $d->is_online => 'đang offline',
                     $record->service_type === 'car' && ! $d->has_car_license => 'không có bằng lái ô tô',
                     (bool) $d->has_overdue_debt => 'nợ quá hạn',
-                    $d->score_suspended_until && $d->score_suspended_until > $now => 'bị khóa nhận đơn do điểm',
                     isset($onLeave[$d->id]) => 'nghỉ phép hôm nay',
                     $d->active_orders_count >= $max => "đủ đơn ({$d->active_orders_count}/{$max})",
                     default => null,
@@ -428,19 +418,6 @@ class OrderResource extends Resource
     public static function infolist(Infolist $infolist): Infolist
     {
         return $infolist->schema([
-            Infolists\Components\Section::make('Chưa có tài xế')
-                ->icon('heroicon-o-exclamation-triangle')
-                ->iconColor('danger')
-                ->visible(fn (Order $record): bool => $record->status === 'pending' && $record->cancel_reason === 'no_driver')
-                ->schema([
-                    Infolists\Components\TextEntry::make('no_driver_alert')
-                        ->hiddenLabel()
-                        ->state(fn (Order $record): string => 'Quá '.OperationalSettings::dispatchTimeoutMinutes($record->city_id)
-                            .' phút chưa có tài xế nhận. Hệ thống đã dừng tự động tìm — vui lòng gán tài xế thủ công hoặc liên hệ khách.')
-                        ->weight('bold')
-                        ->color('danger'),
-                ]),
-
             Infolists\Components\Section::make('Tổng quan đơn hàng')
                 ->description('Thông tin nhận diện và tiến trình xử lý hiện tại')
                 ->icon('heroicon-o-clipboard-document-list')
@@ -514,10 +491,6 @@ class OrderResource extends Resource
                         Infolists\Components\TextEntry::make('driver.phone')
                             ->label('SĐT tài xế')
                             ->default('—'),
-
-                        Infolists\Components\TextEntry::make('dispatch_attempts')
-                            ->label('Lần thử dispatch')
-                            ->default(0),
 
                         Infolists\Components\TextEntry::make('driver_rating')
                             ->label('Đánh giá')
@@ -729,19 +702,11 @@ class OrderResource extends Resource
     {
         $service = self::serviceLabels()[$o->service_type] ?? $o->service_type;
         $age = $o->status === 'pending'
-            ? ' · <span class="fs-ol-wait'.(self::isStaleWait($o) ? ' is-alert' : '').'">chờ '.self::minutesLabel((int) $o->created_at->diffInMinutes(now())).'</span>'
+            ? ' · <span class="fs-ol-wait">chờ '.self::minutesLabel((int) $o->created_at->diffInMinutes(now())).'</span>'
             : ($o->status === 'completed' && $o->completed_at ? ' · giao '.self::minutesLabel((int) $o->created_at->diffInMinutes($o->completed_at)) : '');
 
         return '<div class="fs-ol-order"><span class="fs-ol-l1"><b>#'.e($o->code).'</b><span class="fs-ol-svc" title="'.e($service).'">'.e(Str::limit((string) ($service ?: '—'), 14)).'</span></span>'
             .'<span class="fs-ol-dim" title="'.e($o->created_at?->format('d/m/Y H:i:s')).'">'.e($o->created_at?->format('H:i · d/m')).$age.'</span></div>';
-    }
-
-    private static function isStaleWait(Order $o): bool
-    {
-        static $cache = [];
-        $min = $cache[$o->city_id] ??= OperationalSettings::dispatchTimeoutMinutes($o->city_id);
-
-        return $o->cancel_reason === 'no_driver' || $o->created_at->diffInMinutes(now()) >= $min;
     }
 
     private static function colJourney(Order $o): string

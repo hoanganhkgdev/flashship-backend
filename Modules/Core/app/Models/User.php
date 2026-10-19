@@ -18,8 +18,6 @@ use Modules\Driver\Models\Bank;
 use Modules\Driver\Models\DriverCccdImage;
 use Modules\Driver\Models\DriverDebt;
 use Modules\Driver\Models\DriverLicense;
-use Modules\Driver\Models\DriverScoreLog;
-use Modules\Driver\Models\DriverScoreSettlement;
 use Modules\Driver\Models\DriverWallet;
 use Modules\Driver\Services\ReferralService;
 use Modules\Order\Models\Order;
@@ -81,13 +79,10 @@ class User extends Authenticatable implements FilamentUser, HasDefaultTenant, Ha
         'is_online',
         'online_since',
         'has_car_license',
-        'driver_score',
         'consecutive_completed',
         'name_updated_at',
         'delete_requested_at',
         'last_location_at',
-        'gps_stale_notified_at',
-        'gps_stale_evidence_at',
     ];
 
     protected $hidden = [
@@ -115,10 +110,7 @@ class User extends Authenticatable implements FilamentUser, HasDefaultTenant, Ha
             'avatar_updated_at' => 'datetime',
             'is_online' => 'boolean',
             'online_since' => 'datetime',
-            'score_suspended_until' => 'datetime',
             'last_location_at' => 'datetime',
-            'gps_stale_notified_at' => 'datetime',
-            'gps_stale_evidence_at' => 'datetime',
             'last_login_at' => 'datetime',
         ];
     }
@@ -232,21 +224,6 @@ class User extends Authenticatable implements FilamentUser, HasDefaultTenant, Ha
     public function latestDriverCccdImage()
     {
         return $this->hasOne(DriverCccdImage::class, 'user_id')->latestOfMany();
-    }
-
-    public function scoreLogs()
-    {
-        return $this->hasMany(DriverScoreLog::class, 'driver_id')->latest('created_at');
-    }
-
-    public function latestScoreLog()
-    {
-        return $this->hasOne(DriverScoreLog::class, 'driver_id')->latestOfMany();
-    }
-
-    public function scoreSettlements()
-    {
-        return $this->hasMany(DriverScoreSettlement::class, 'driver_id')->latest('week_start');
     }
 
     // =========================================================================

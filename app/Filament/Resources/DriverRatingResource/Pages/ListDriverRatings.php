@@ -19,7 +19,7 @@ class ListDriverRatings extends ListRecords
 
     public function getSubheading(): ?string
     {
-        return 'Phản hồi của khách và shop sau đơn. Đánh giá hiện không ảnh hưởng điểm tài xế.';
+        return 'Phản hồi của khách và shop sau đơn.';
     }
 
     protected function getHeaderActions(): array

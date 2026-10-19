@@ -17,11 +17,6 @@
             <strong>{{ $num($pending) }}</strong>
             <small>{{ $pending ? 'lâu nhất '.$num($oldestPending).' ngày' : 'không có hồ sơ chờ' }}</small>
         </article>
-        <article class="fs-rr-kpi">
-            <span class="fs-rr-kpi__label">Điểm thấp</span>
-            <strong>{{ $num($lowScore) }}</strong>
-            <small>đang hoạt động, dưới {{ $lowThreshold }} điểm</small>
-        </article>
     </div>
 
     @if ($stale > 0 || $cccdPending > 0 || $licensePending > 0)

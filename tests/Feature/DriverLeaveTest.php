@@ -9,6 +9,7 @@ use App\Services\DriverLeaveService;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Facades\DB;
+use Laravel\Sanctum\Sanctum;
 use Livewire\Livewire;
 use Modules\Core\Models\City;
 use Modules\Core\Models\Shift;
@@ -103,6 +104,45 @@ class DriverLeaveTest extends TestCase
         $log = DB::table('driver_leave_logs')->where('action', 'cancelled')->first();
         $this->assertSame('Tài xế đổi ý', $log->note);
         $this->assertSame($this->admin->id, (int) $log->performed_by);
+    }
+
+    public function test_driver_can_create_list_and_cancel_own_leave_from_api(): void
+    {
+        Sanctum::actingAs($this->driver);
+
+        $this->postJson('/api/driver/shifts/leaves', [
+            'from_date' => today()->addDay()->toDateString(),
+            'to_date' => today()->addDays(2)->toDateString(),
+            'note' => 'Có việc gia đình',
+        ])->assertCreated()->assertJsonPath('data.created', 2);
+
+        $this->assertSame(2, DriverLeaveRequest::where('driver_id', $this->driver->id)->count());
+        $this->assertSame($this->driver->id, (int) DriverLeaveRequest::where('driver_id', $this->driver->id)->first()->created_by);
+
+        $response = $this->getJson('/api/driver/shifts/leaves')
+            ->assertOk()
+            ->assertJsonCount(2, 'data');
+
+        $leaveId = $response->json('data.0.id');
+        $this->postJson("/api/driver/shifts/leaves/{$leaveId}/cancel")
+            ->assertOk();
+        $this->assertNull(DriverLeaveRequest::find($leaveId));
+    }
+
+    public function test_driver_cannot_cancel_another_drivers_leave(): void
+    {
+        $other = $this->user('driver');
+        $leave = DriverLeaveRequest::create([
+            'driver_id' => $other->id,
+            'leave_date' => today()->addDay(),
+            'note' => 'Có việc riêng',
+            'created_by' => $other->id,
+        ]);
+        Sanctum::actingAs($this->driver);
+
+        $this->postJson("/api/driver/shifts/leaves/{$leave->id}/cancel")
+            ->assertNotFound();
+        $this->assertNotNull($leave->fresh());
     }
 
     public function test_impact_subtracts_drivers_on_leave_per_shift(): void

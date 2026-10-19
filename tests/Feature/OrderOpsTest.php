@@ -3,7 +3,6 @@
 namespace Tests\Feature;
 
 use App\Filament\Pages\CallCenterPage;
-use App\Filament\Pages\DispatchMonitorPage;
 use App\Filament\Pages\DriverMapPage;
 use App\Filament\Resources\OrderResource;
 use App\Filament\Resources\OrderResource\Pages\EditOrder;
@@ -19,7 +18,6 @@ use Modules\Core\Models\City;
 use Modules\Core\Models\ServiceType;
 use Modules\Core\Models\User;
 use Modules\Order\Models\Order;
-use Modules\Order\Models\OrderMarketListing;
 use Modules\Order\Services\OrderTimeline;
 use Tests\TestCase;
 
@@ -132,7 +130,7 @@ class OrderOpsTest extends TestCase
 
         $texts = OrderTimeline::for($o->fresh())->pluck('text')->all();
         $this->assertStringContainsString('Tạo đơn', $texts[0]);
-        $this->assertContains('Bắt đầu tìm tài xế', $texts);
+        $this->assertContains('Đơn lên danh sách đơn mới', $texts);
         $this->assertContains("Gửi đơn cho {$driver->name}", $texts);
         $this->assertContains("{$driver->name} từ chối đơn", $texts);
         $this->assertStringContainsString('Khách hủy', end($texts));
@@ -143,21 +141,8 @@ class OrderOpsTest extends TestCase
         $o = $this->order();
         Livewire::test(ListOrders::class)->assertSuccessful()->assertSee('Đơn hôm nay')->assertCanSeeTableRecords([$o]);
         Livewire::test(ViewOrder::class, ['record' => $o->id])->assertSuccessful();
-        Livewire::test(DispatchMonitorPage::class)->assertSuccessful();
         $map = Livewire::test(DriverMapPage::class)->assertSuccessful();
         $this->assertSame([$o->code], collect($map->get('ordersMeta'))->pluck('code')->all(), 'đơn chờ có toạ độ hiện lên bản đồ');
-    }
-
-    public function test_dispatch_monitor_cancel_action_requires_a_reason(): void
-    {
-        $o = $this->order();
-        DB::table('orders')->where('id', $o->id)->update(['dispatch_started_at' => now()]);
-
-        Livewire::test(DispatchMonitorPage::class)
-            ->callAction('cancel', ['reason' => null], ['order' => $o->id])->assertHasActionErrors(['reason']);
-        Livewire::test(DispatchMonitorPage::class)
-            ->callAction('cancel', ['reason' => 'driver_no_show'], ['order' => $o->id]);
-        $this->assertSame('driver_no_show', $o->fresh()->cancel_reason);
     }
 
     // ── Tổng đài ──────────────────────────────────────────────────────────────
@@ -284,26 +269,6 @@ class OrderOpsTest extends TestCase
         $this->assertSame(1, $badge('new'));
     }
 
-    public function test_market_tab_only_lists_orders_currently_open_in_the_market(): void
-    {
-        $open = $this->order();
-        OrderMarketListing::create(['order_id' => $open->id, 'city_id' => $this->city->id, 'status' => 'open', 'open_reason' => 'attempts',
-            'offer_attempts' => 3, 'opened_at' => now()->subMinute(), 'expires_at' => now()->addMinutes(9)]);
-
-        $expired = $this->order();
-        OrderMarketListing::create(['order_id' => $expired->id, 'city_id' => $this->city->id, 'status' => 'open', 'open_reason' => 'timeout',
-            'offer_attempts' => 1, 'opened_at' => now()->subMinutes(20), 'expires_at' => now()->subMinute()]);
-
-        $page = Livewire::test(ListOrders::class)->set('activeTab', 'market');
-
-        $page->assertCanSeeTableRecords([$open])->assertCanNotSeeTableRecords([$expired]);
-        $this->assertSame(1, $page->instance()->getTabs()['market']->getBadge());
-
-        $newOrders = Livewire::test(ListOrders::class)->set('activeTab', 'new');
-        $newOrders->assertCanNotSeeTableRecords([$open])->assertCanSeeTableRecords([$expired]);
-        $this->assertSame(1, $newOrders->instance()->getTabs()['new']->getBadge());
-    }
-
     public function test_export_is_admin_only_and_follows_the_current_filters(): void
     {
         $this->order(['status' => 'completed', 'completed_at' => now(), 'delivery_address' => 'Địa chỉ xuất 1']);
@@ -321,7 +286,6 @@ class OrderOpsTest extends TestCase
         $poll = fn (string $tab) => str_contains($this->get(OrderResource::getUrl('index').'?activeTab='.$tab)->assertOk()->getContent(), 'wire:poll.15s');
 
         $this->assertTrue($poll('new'));
-        $this->assertTrue($poll('market'));
         $this->assertTrue($poll('processing'));
         $this->assertFalse($poll('completed'));
         $this->assertFalse($poll('cancelled'));

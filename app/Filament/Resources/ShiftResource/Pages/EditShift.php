@@ -5,7 +5,6 @@ namespace App\Filament\Resources\ShiftResource\Pages;
 use App\Filament\Resources\ShiftResource;
 use App\Services\ShiftService;
 use Filament\Actions;
-use Filament\Notifications\Notification;
 use Filament\Resources\Pages\EditRecord;
 
 class EditShift extends EditRecord
@@ -39,13 +38,6 @@ class EditShift extends EditRecord
     {
         $r = $this->record;
         $this->before = ['start' => substr($r->start_time, 0, 5), 'end' => substr($r->end_time, 0, 5), 'active' => (bool) $r->is_active];
-
-        $timeChanged = substr((string) $data['start_time'], 0, 5) !== $this->before['start'] || substr((string) $data['end_time'], 0, 5) !== $this->before['end'];
-        if ($timeChanged && ShiftService::inProgress($r)) {
-            Notification::make()->danger()->title('Ca đang diễn ra, không đổi được giờ')
-                ->body('Điểm cuối ca được tính theo giờ hiện tại của ca. Hãy sửa sau khi ca kết thúc.')->send();
-            $this->halt();
-        }
 
         return $data;
     }

@@ -17,10 +17,6 @@
                 <x-heroicon-o-shopping-bag class="h-4 w-4" />
                 Xem đơn hàng
             </a>
-            <a class="fs-action" href="{{ \App\Filament\Pages\DispatchMonitorPage::getUrl() }}" wire:navigate>
-                <x-heroicon-o-signal class="h-4 w-4" />
-                Theo dõi phát đơn
-            </a>
             <a class="fs-action" href="{{ \App\Filament\Pages\DriverMapPage::getUrl() }}" wire:navigate>
                 <x-heroicon-o-map-pin class="h-4 w-4" />
                 Bản đồ tài xế

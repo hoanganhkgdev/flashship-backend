@@ -58,50 +58,67 @@ class ShiftTest extends TestCase
         $this->assertFalse(ShiftService::overlaps('22:00', '06:00', '06:00', '22:00'));
     }
 
-    public function test_cannot_create_overlapping_or_zero_length_shift(): void
+    public function test_overlapping_shifts_are_allowed_but_zero_length_is_not(): void
     {
         $this->shift('07:00', '13:00');
 
         Livewire::test(CreateShift::class)
-            ->fillForm(['name' => 'Ca trùng', 'code' => 'dup', 'start_time' => '12:00', 'end_time' => '18:00', 'is_active' => true])
-            ->call('create')->assertHasFormErrors(['end_time']);
+            ->fillForm(['name' => 'Ca chồng giờ', 'code' => 'dup', 'start_time' => '12:00', 'end_time' => '18:00', 'is_active' => true])
+            ->call('create')->assertHasNoFormErrors();
 
         Livewire::test(CreateShift::class)
             ->fillForm(['name' => 'Ca rỗng', 'code' => 'zero', 'start_time' => '09:00', 'end_time' => '09:00', 'is_active' => true])
             ->call('create')->assertHasFormErrors(['end_time']);
-
-        Livewire::test(CreateShift::class)
-            ->fillForm(['name' => 'Ca chiều', 'code' => 'afternoon-x', 'start_time' => '13:00', 'end_time' => '18:00', 'is_active' => true])
-            ->call('create')->assertHasNoFormErrors();
-        $this->assertSame('created', Shift::where('code', 'afternoon-x')->first()->logs()->first()->action);
     }
 
-    public function test_toggle_logs_and_reactivation_is_blocked_when_it_would_overlap(): void
+    public function test_the_morning_noon_evening_schedule_can_be_configured(): void
+    {
+        foreach ([
+            ['Ca sáng', 'morning', '07:00', '16:00'],
+            ['Ca trưa', 'noon', '10:00', '18:00'],
+            ['Ca tối', 'evening', '18:00', '01:30'],
+        ] as [$name, $code, $start, $end]) {
+            Livewire::test(CreateShift::class)
+                ->fillForm(['name' => $name, 'code' => $code, 'start_time' => $start, 'end_time' => $end, 'is_active' => true])
+                ->call('create')->assertHasNoFormErrors();
+        }
+        $this->assertSame(3, Shift::where('city_id', $this->city->id)->where('is_active', true)->count());
+
+        $evening = Shift::where('code', 'evening')->first();
+        Carbon::setTestNow(Carbon::today()->setTime(0, 45));
+        $this->assertTrue($evening->isNowInShift(), '00:45 vẫn thuộc ca tối kết thúc 01:30');
+        Carbon::setTestNow(Carbon::today()->setTime(2, 0));
+        $this->assertFalse($evening->isNowInShift());
+        Carbon::setTestNow(Carbon::today()->setTime(12, 0));
+        $this->assertTrue(Shift::where('code', 'morning')->first()->isNowInShift());
+        $this->assertTrue(Shift::where('code', 'noon')->first()->isNowInShift(), 'ca sáng và ca trưa chồng giờ nhau');
+        Carbon::setTestNow();
+
+        // Ca không còn lỗ hổng 02:00–07:00 chỉ còn khoảng 01:30–07:00.
+        $gaps = ShiftService::coverage($this->city->id)['gaps'];
+        $this->assertSame([['from' => '01:30', 'to' => '07:00']], $gaps->map(fn ($g) => ['from' => $g['from'], 'to' => $g['to']])->all());
+    }
+
+    public function test_toggle_logs_and_reactivation_is_allowed_even_when_hours_overlap(): void
     {
         $a = $this->shift('07:00', '13:00');
         $b = $this->shift('12:00', '18:00', false);
 
-        $this->assertNotNull(ShiftService::activate($b, $this->admin->id), 'bật lại sẽ trùng ca A');
-        $this->assertFalse($b->fresh()->is_active);
+        $this->assertNull(ShiftService::activate($b, $this->admin->id));
+        $this->assertTrue($b->fresh()->is_active);
 
         $d = $this->user('driver');
         $a->users()->attach($d->id);
         $this->assertSame(1, ShiftService::deactivate($a, $this->admin->id));
         $this->assertFalse($a->fresh()->is_active);
         $this->assertSame('deactivated', $a->logs()->first()->action);
-        $this->assertNull(ShiftService::activate($b, $this->admin->id));
     }
 
-    public function test_time_cannot_be_changed_while_the_shift_is_in_progress(): void
+    public function test_time_can_be_changed_even_while_the_shift_is_running(): void
     {
         Carbon::setTestNow(Carbon::today()->setTime(10, 0));
         $s = $this->shift('07:00', '13:00');
 
-        Livewire::test(EditShift::class, ['record' => $s->id])
-            ->fillForm(['start_time' => '08:00', 'end_time' => '13:00'])->call('save');
-        $this->assertSame('07:00', substr($s->fresh()->start_time, 0, 5));
-
-        Carbon::setTestNow(Carbon::today()->setTime(15, 0));
         Livewire::test(EditShift::class, ['record' => $s->id])
             ->fillForm(['start_time' => '08:00', 'end_time' => '13:00'])->call('save')->assertHasNoFormErrors();
         $this->assertSame('08:00', substr($s->fresh()->start_time, 0, 5));
@@ -122,25 +139,6 @@ class ShiftTest extends TestCase
 
         $gaps = ShiftService::coverage($this->city->id)['gaps'];
         $this->assertSame([['from' => '00:00', 'to' => '07:00'], ['from' => '19:00', 'to' => '00:00']], $gaps->map(fn ($g) => ['from' => $g['from'], 'to' => $g['to']])->all());
-    }
-
-    public function test_shift_scoring_skips_locked_drivers(): void
-    {
-        Carbon::setTestNow(Carbon::today()->setTime(13, 1));
-        $s = $this->shift('07:00', '13:00');
-        $active = $this->user('driver');
-        $locked = $this->user('driver', 2);
-        $s->users()->attach([$active->id, $locked->id]);
-        DB::table('shift_user')->where('shift_id', $s->id)->update(['created_at' => now()->subDays(3)]); // đã đăng ký từ trước ca
-        DB::table('users')->whereIn('id', [$active->id, $locked->id])->update(['driver_score' => 100]);
-
-        $this->artisan('drivers:score-shift-sessions');
-
-        $runs = DB::table('driver_shift_score_runs')->where('shift_id', $s->id)->pluck('driver_id')->all();
-        $this->assertContains($active->id, $runs);
-        $this->assertNotContains($locked->id, $runs);
-        $this->assertSame(100, (int) DB::table('users')->where('id', $locked->id)->value('driver_score'));
-        Carbon::setTestNow();
     }
 
     public function test_pages_render(): void

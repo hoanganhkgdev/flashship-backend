@@ -66,9 +66,9 @@ class DriverMapTest extends TestCase
         $this->assertStringContainsString((string) $order->id, $meta[$mine->id]['order_url']);
     }
 
-    public function test_pending_orders_are_scoped_oldest_first_and_flag_stopped_ones(): void
+    public function test_pending_orders_are_scoped_and_oldest_first(): void
     {
-        $old = $this->order(['order_note' => 'Gọi trước', 'cancel_reason' => 'no_driver']);
+        $old = $this->order(['order_note' => 'Gọi trước']);
         DB::table('orders')->where('id', $old->id)->update(['created_at' => now()->subMinutes(30)]);
         $new = $this->order();
         $noCoords = $this->order(['pickup_lat' => null, 'pickup_lng' => null]);
@@ -78,8 +78,6 @@ class DriverMapTest extends TestCase
         $orders = Livewire::test(DriverMapPage::class)->get('ordersMeta');
 
         $this->assertSame([$old->id, $new->id], array_column($orders, 'id'));
-        $this->assertTrue($orders[0]['stopped']);
-        $this->assertFalse($orders[1]['stopped']);
         $this->assertSame('Gọi trước', $orders[0]['note']);
         $this->assertGreaterThanOrEqual(30, $orders[0]['minutes']);
         $ids = array_column($orders, 'id');
@@ -105,7 +103,7 @@ class DriverMapTest extends TestCase
     {
         $ok = $this->user('driver', ['is_online' => true]);
         $suspended = $this->user('driver', ['is_online' => true]);
-        DB::table('users')->where('id', $suspended->id)->update(['score_suspended_until' => now()->addDay()]);
+        DB::table('driver_leave_requests')->insert(['driver_id' => $suspended->id, 'leave_date' => today(), 'note' => 'x', 'created_by' => $this->admin->id, 'created_at' => now(), 'updated_at' => now()]);
         $offlineInDb = $this->user('driver', ['is_online' => false]);
         $order = $this->order();
 

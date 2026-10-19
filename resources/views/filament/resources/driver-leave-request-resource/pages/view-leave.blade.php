@@ -9,7 +9,7 @@
 
     <div class="fs-cp-kpis">
         <article class="fs-rr-kpi"><span class="fs-rr-kpi__label">Ngày nghỉ</span><strong style="font-size: var(--fs-lg)">{{ $l->leave_date->format('d/m/Y') }}</strong><small>{{ $R::dateDescription($l->leave_date) }}</small></article>
-        <article class="fs-rr-kpi" style="grid-column: span 2"><span class="fs-rr-kpi__label">Ca được miễn chấm</span><strong style="font-size: var(--fs-base)">{{ $o['shifts']->map(fn ($s) => $s->name.' '.substr($s->start_time, 0, 5).'–'.substr($s->end_time, 0, 5))->implode(', ') ?: 'Chưa đăng ký ca' }}</strong><small>miễn chấm điểm cuối ca của cả ngày</small></article>
+        <article class="fs-rr-kpi" style="grid-column: span 2"><span class="fs-rr-kpi__label">Ca đăng ký</span><strong style="font-size: var(--fs-base)">{{ $o['shifts']->map(fn ($s) => $s->name.' '.substr($s->start_time, 0, 5).'–'.substr($s->end_time, 0, 5))->implode(', ') ?: 'Chưa đăng ký ca' }}</strong><small>tài xế nghỉ cả ngày</small></article>
         <article class="fs-rr-kpi"><span class="fs-rr-kpi__label">Đơn trong ngày</span><strong>{{ $o['orders'] }}</strong><small>{{ $o['ordersBefore'] }} đơn xong trước khi ghi nhận</small></article>
     </div>
 

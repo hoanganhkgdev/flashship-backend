@@ -3,7 +3,6 @@ namespace Modules\Core\Services;
 
 use Kreait\Firebase\Factory;
 use Kreait\Firebase\Http\HttpClientOptions;
-use Kreait\Firebase\Database\Transaction;
 use Illuminate\Support\Facades\Log;
 
 class RTDBService
@@ -35,24 +34,6 @@ class RTDBService
             ->withConnectTimeout(3)
             ->withReadTimeout(8)
             ->withTimeout(10);
-    }
-
-    /**
-     * Ghi kèm điểm số thật (không chỉ ping) — app cập nhật ngay con số hiển
-     * thị từ chính sự kiện realtime này, không cần đợi gọi API mới thấy số
-     * mới (trước đây chỉ ping "có gì đó đổi", app phải gọi lại API mới biết
-     * giá trị, tốn thêm 1 vòng round-trip cho phần quan trọng nhất — con số).
-     */
-    public static function pingDriverScore(int $driverId, int $score): void
-    {
-        try {
-            self::db()->getReference("driver_score/{$driverId}")->set([
-                'score'      => $score,
-                'updated_at' => now()->timestamp,
-            ]);
-        } catch (\Throwable $e) {
-            Log::error('[RTDB] pingDriverScore failed: ' . $e->getMessage());
-        }
     }
 
     public static function pingCustomerNotification(int $userId): void
@@ -142,91 +123,45 @@ class RTDBService
         return false;
     }
 
-    /**
-     * Ghi offer đơn hàng vào RTDB để driver app nhận qua stream (thay FCM).
-     * Path: dispatch/driver_{id}/offer
-     */
-    /**
-     * Trả về true/false thay vì nuốt lỗi âm thầm — đây là kênh CHÍNH để tài
-     * xế nhận offer, gọi cần biết chính xác có ghi được không để quyết định
-     * có nên "cam kết" gán offer này cho tài xế hay chuyển ngay sang người kế.
-     */
-    public static function writeDriverOffer(int $driverId, array $data): bool
-    {
-        try {
-            self::db()->getReference("dispatch/driver_{$driverId}/offer")->set($data);
-            return true;
-        } catch (\Throwable $e) {
-            Log::error('[RTDB] writeDriverOffer failed: ' . $e->getMessage());
-            return false;
-        }
-    }
-
-    /**
-     * Cập nhật expires_at khi driver mở app — đồng hồ đếm ngược theo cấu hình.
-     */
-    public static function updateDriverOfferExpiry(int $driverId, int $orderId, int $expiresAt): bool
-    {
-        for ($attempt = 1; $attempt <= 3; $attempt++) {
-            try {
-                $ref = self::db()->getReference("dispatch/driver_{$driverId}/offer");
-                return self::db()->runTransaction(function (Transaction $transaction) use ($ref, $orderId, $expiresAt) {
-                    $offer = $transaction->snapshot($ref)->getValue();
-                    if (!is_array($offer) || (int) ($offer['order_id'] ?? 0) !== $orderId) {
-                        return false;
-                    }
-                    $offer['expires_at'] = $expiresAt;
-                    $transaction->set($ref, $offer);
-                    return true;
-                });
-            } catch (\Throwable $e) {
-                if ($attempt === 3) {
-                    Log::error('[RTDB] updateDriverOfferExpiry failed: ' . $e->getMessage());
-                    return false;
-                }
-                usleep($attempt * 100_000);
-            }
-        }
-        return false;
-    }
-
-    /**
-     * Xóa offer (timeout, accept, decline, customer cancel).
-     */
-    public static function clearDriverOffer(int $driverId, int $orderId): bool
-    {
-        for ($attempt = 1; $attempt <= 3; $attempt++) {
-            try {
-                $ref = self::db()->getReference("dispatch/driver_{$driverId}/offer");
-                return self::db()->runTransaction(function (Transaction $transaction) use ($ref, $orderId) {
-                    $offer = $transaction->snapshot($ref)->getValue();
-                    if (!is_array($offer) || (int) ($offer['order_id'] ?? 0) !== $orderId) {
-                        return false;
-                    }
-                    $transaction->remove($ref);
-                    return true;
-                });
-            } catch (\Throwable $e) {
-                if ($attempt === 3) {
-                    Log::error('[RTDB] clearDriverOffer failed: ' . $e->getMessage());
-                    return false;
-                }
-                usleep($attempt * 100_000);
-            }
-        }
-        return false;
-    }
-
-    /** Firebase chỉ báo revision; dữ liệu chợ thật luôn đọc từ API có auth. */
+    /** Báo revision cho các bản app cũ còn nghe nút thành phố; dùng update để không xoá nhánh `orders`. */
     public static function pingOrderMarket(int $cityId): void
     {
         try {
-            self::db()->getReference("order_market/city_{$cityId}")->set([
+            self::db()->getReference("order_market/city_{$cityId}")->update([
                 'revision' => now()->getTimestampMs(),
                 'updated_at' => now()->timestamp,
             ]);
         } catch (\Throwable $e) {
             Log::error('[RTDB] pingOrderMarket failed: '.$e->getMessage());
+        }
+    }
+
+    /**
+     * Đăng (hoặc gỡ nếu $payload = null) một đơn trên danh sách đơn mới của thành phố.
+     * App tài xế nghe trực tiếp nhánh này nên đơn hiện/biến mất ngay, không cần polling.
+     */
+    public static function setMarketOrder(int $cityId, int $orderId, ?array $payload): void
+    {
+        try {
+            $ref = self::db()->getReference("order_market/city_{$cityId}/orders/{$orderId}");
+            $payload === null ? $ref->remove() : $ref->set($payload);
+        } catch (\Throwable $e) {
+            Log::error('[RTDB] setMarketOrder failed: '.$e->getMessage(), ['city_id' => $cityId, 'order_id' => $orderId]);
+        }
+    }
+
+    /** Ghi đè toàn bộ nhánh `orders` của một thành phố (đồng bộ lại từ MySQL). */
+    public static function replaceMarketOrders(int $cityId, array $payloadsById): bool
+    {
+        try {
+            $ref = self::db()->getReference("order_market/city_{$cityId}/orders");
+            $payloadsById === [] ? $ref->remove() : $ref->set($payloadsById);
+
+            return true;
+        } catch (\Throwable $e) {
+            Log::error('[RTDB] replaceMarketOrders failed: '.$e->getMessage(), ['city_id' => $cityId]);
+
+            return false;
         }
     }
 

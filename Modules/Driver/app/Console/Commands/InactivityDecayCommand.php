@@ -15,11 +15,8 @@ class InactivityDecayCommand extends Command
 
     public function handle(): void
     {
-        // Luật chấm điểm theo giờ online/không hoạt động đã chuyển hẳn sang
-        // ScoreShiftSessionsCommand (theo từng ca đăng ký, không còn theo mốc
-        // 23:59 cố định này nữa — không đăng ký ca đã coi là nghỉ, không phạt).
-        // Việc còn lại của lệnh này: đảm bảo tài xế bị khoá không kẹt ở
-        // trạng thái online (VD bị khoá ngay lúc đang chạy đơn).
+        // Đảm bảo tài xế bị khoá không kẹt ở trạng thái online
+        // (VD bị khoá ngay lúc đang chạy đơn).
         $updated = DB::transaction(function () {
             $now = now();
             $driverIds = DB::table('users')

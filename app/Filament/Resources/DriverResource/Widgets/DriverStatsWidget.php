@@ -27,7 +27,7 @@ class DriverStatsWidget extends Widget
         $latest = fn (string $table) => "(SELECT d.status FROM {$table} d WHERE d.user_id = users.id ORDER BY d.id DESC LIMIT 1)";
 
         $drivers = DB::table('users')->where('user_type', 'driver')->where('city_id', $cityId)
-            ->selectRaw("users.id, users.status, users.driver_score, users.created_at, {$latest('driver_cccd_images')} as cccd, {$latest('driver_licenses')} as license")
+            ->selectRaw("users.id, users.status, users.created_at, {$latest('driver_cccd_images')} as cccd, {$latest('driver_licenses')} as license")
             ->get();
 
         $working = DB::table('orders')->where('status', 'completed')->where('completed_at', '>=', now()->subDays(30))
@@ -49,8 +49,6 @@ class DriverStatsWidget extends Widget
             'staleDays' => self::STALE_PENDING_DAYS,
             'cccdPending' => $drivers->where('cccd', 'pending')->count(),
             'licensePending' => $drivers->where('license', 'pending')->count(),
-            'lowScore' => $drivers->where('status', 1)->filter(fn ($d) => ($d->driver_score ?? 80) < DriverResource::LOW_SCORE)->count(),
-            'lowThreshold' => DriverResource::LOW_SCORE,
         ];
     }
 }

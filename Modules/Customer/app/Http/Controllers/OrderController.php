@@ -41,8 +41,8 @@ class OrderController extends Controller
         $data = $request->validate([
             'service_type' => 'required|in:delivery,shopping,topup,bike,motor,car',
             'pickup_address' => 'required|string',
-            // Luồng tự chọn lọc đơn theo khoảng cách GPS. Không cho tạo một
-            // đơn pending nhưng vĩnh viễn không thể hiện trong Chợ đơn.
+            // Danh sách đơn mới lọc đơn theo khoảng cách GPS. Không cho tạo một
+            // đơn pending nhưng không thể hiện cho tài xế nào.
             'pickup_lat' => 'required|numeric|between:-90,90',
             'pickup_lng' => 'required|numeric|between:-180,180',
             'pickup_phone' => 'nullable|string',

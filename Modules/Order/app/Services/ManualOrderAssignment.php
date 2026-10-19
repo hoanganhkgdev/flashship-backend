@@ -1,7 +1,6 @@
 <?php
 namespace Modules\Order\Services;
 
-use App\Events\DispatchStateChanged;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Redis;
@@ -11,9 +10,8 @@ use Modules\Core\Services\RTDBService;
 use Modules\Core\Services\OperationalSettings;
 use Modules\Customer\Http\Controllers\CustomerNotificationController;
 use Modules\Order\Models\Order;
-use Modules\Order\Models\OrderDispatchLog;
 
-class DispatchManualAssignment
+class ManualOrderAssignment
 {
     /**
      * Tổng đài gán CỨNG 1 tài xế cụ thể cho đơn — KHÔNG qua bước offer/chờ
@@ -43,9 +41,6 @@ class DispatchManualAssignment
         if ($driver->city_id !== $order->city_id) {
             return ['success' => false, 'message' => 'Tài xế không thuộc thành phố của đơn này.'];
         }
-        if ($driver->score_suspended_until?->isFuture()) {
-            return ['success' => false, 'message' => "Tài xế {$driver->name} đang tạm ngưng nhận đơn."];
-        }
         if (DB::table('driver_leave_requests')
             ->where('driver_id', $driver->id)
             ->whereDate('leave_date', today())
@@ -59,12 +54,11 @@ class DispatchManualAssignment
             return ['success' => false, 'message' => "Tài xế {$driver->name} chưa có bằng lái ô tô."];
         }
 
-        // Khoá theo driver (chung key với luồng offer bình thường,
-        // DispatchOfferSender::send()) trong lúc đếm + gán — nếu không, 2
+        // Khoá theo driver trong lúc đếm + gán — nếu không, 2
         // tổng đài (hoặc bấm 2 lần rất nhanh) gán liên tiếp nhiều đơn khác nhau
         // cho cùng 1 tài xế có thể cùng đọc thấy activeCount cũ (chưa thấy
         // đơn kia) và cùng pass, vượt quá giới hạn đơn active.
-        $lockKey = "dispatch:lock:driver:{$driver->id}";
+        $lockKey = "assign:lock:driver:{$driver->id}";
         if (!Redis::set($lockKey, $order->id, 'EX', 10, 'NX')) {
             return ['success' => false, 'message' => "Tài xế {$driver->name} đang được xử lý gán đơn khác, thử lại sau."];
         }
@@ -78,7 +72,7 @@ class DispatchManualAssignment
                     ->lockForUpdate()
                     ->firstOrFail();
                 if ($freshOrder->status !== 'pending') {
-                    return ['busy' => null, 'affected' => 0, 'previous_driver_id' => null, 'reused_log' => false];
+                    return ['busy' => null, 'affected' => 0];
                 }
 
                 $activeOrders = Order::where('delivery_man_id', $driver->id)
@@ -87,11 +81,8 @@ class DispatchManualAssignment
                     ->get();
                 $activeCount = $activeOrders->count();
                 if ($activeCount >= OperationalSettings::maxActiveOrdersPerDriver($order->city_id)) {
-                    return ['busy' => $activeCount, 'affected' => 0, 'previous_driver_id' => null, 'reused_log' => false];
+                    return ['busy' => $activeCount, 'affected' => 0];
                 }
-                $previousDriverId = $freshOrder->dispatching_to_driver_id;
-                $offeredDriverIds = OrderDispatchLog::where('order_id', $order->id)
-                    ->where('result', 'pending')->pluck('driver_id')->map(fn ($id) => (int) $id)->all();
                 $freshOrder->update([
                     'status'                   => 'assigned',
                     'delivery_man_id'          => $driver->id,
@@ -99,37 +90,10 @@ class DispatchManualAssignment
                     'main_order_id'            => null,
                     'extra_claimed_count'      => 0,
                     'bundle_window_expires_at' => null,
-                    'dispatching_to_driver_id' => null,
                     'updated_at'               => $now,
                 ]);
 
-                // Đóng mọi offer pending của đơn. Nếu tổng đài gán đúng người
-                // đang cầm offer thì tái dùng chính log đó thành accepted;
-                // các offer khác là offer bị thu hồi, đánh expired để không
-                // tính như tài xế chủ động từ chối.
-                $reusedLog = OrderDispatchLog::where('order_id', $order->id)
-                    ->where('driver_id', $driver->id)
-                    ->where('result', 'pending')
-                    ->update([
-                        'result' => 'accepted',
-                        'responded_at' => $now,
-                        'close_reason' => OrderDispatchLog::CLOSE_MANUAL_ASSIGNMENT,
-                    ]);
-                OrderDispatchLog::where('order_id', $order->id)
-                    ->where('result', 'pending')
-                    ->update([
-                        'result' => 'expired',
-                        'responded_at' => $now,
-                        'close_reason' => OrderDispatchLog::CLOSE_MANUAL_ASSIGNMENT,
-                    ]);
-
-                return [
-                    'busy' => null,
-                    'affected' => 1,
-                    'previous_driver_id' => $previousDriverId ? (int) $previousDriverId : null,
-                    'offered_driver_ids' => $offeredDriverIds,
-                    'reused_log' => $reusedLog > 0,
-                ];
+                return ['busy' => null, 'affected' => 1];
             });
 
             if ($assignment['busy'] !== null) {
@@ -148,19 +112,6 @@ class DispatchManualAssignment
             );
         }
 
-        // Nếu đơn đang hiện offer trên máy một tài xế, gán tay phải thu hồi
-        // đúng offer đó. Compare-by-orderId ngăn cleanup trễ xóa offer mới.
-        $previousDriverId = $assignment['previous_driver_id'];
-        foreach ($assignment['offered_driver_ids'] ?? array_filter([$previousDriverId]) as $offeredDriverId) {
-            RTDBService::clearDriverOffer($offeredDriverId, $order->id);
-            Redis::eval(
-                "if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end",
-                1,
-                "dispatch:lock:driver:{$offeredDriverId}",
-                (string) $order->id,
-            );
-        }
-
         // Chụp lại NGAY LÚC GÁN xem thành phố có đang bật chế độ trời mưa
         // không — khoá giá trị cho đơn, không đổi theo trạng thái mưa hiện
         // tại nữa dù sau đó tắt/bật lại giữa chừng.
@@ -171,28 +122,13 @@ class DispatchManualAssignment
             ]);
         }
 
-        // Ghi lại như 1 dòng "accepted" bình thường — để lên báo cáo/lịch sử
-        // dispatch không bị thiếu, dù đây là gán tay bỏ qua bước offer.
-        if (!$assignment['reused_log']) {
-            OrderDispatchLog::create([
-                'order_id'     => $order->id,
-                'driver_id'    => $driver->id,
-                'offered_at'   => $now,
-                'responded_at' => $now,
-                'result'       => 'accepted',
-                'close_reason' => OrderDispatchLog::CLOSE_MANUAL_ASSIGNMENT,
-                'created_at'   => $now,
-                'updated_at'   => $now,
-            ]);
-        }
-
         DB::table('users')->where('id', $driver->id)->update([
             'last_order_accepted_at' => $now,
         ]);
         app(OrderMarketService::class)->close($order);
         \Modules\Order\Services\OrderTimeline::record($order, 'assigned_manual', 'Nhân viên gán trực tiếp cho tài xế '.$driver->name, auth()->id());
 
-        // RTDB + FCM đồng bộ khách hàng — giống hệt luồng accept bình thường
+        // RTDB + FCM đồng bộ khách hàng
         // (đơn call-center thường không có tài khoản khách nên các bước này
         // tự no-op nếu sender_platform_id null).
         RTDBService::updateOrderStatus($order->code, 'assigned');
@@ -222,11 +158,9 @@ class DispatchManualAssignment
                     ['type' => 'order_assigned_direct', 'order_id' => (string) $order->id]
                 );
             } catch (\Throwable $e) {
-                Log::error("[Dispatch] FCM assign-notice failed for driver #{$driver->id}: " . $e->getMessage());
+                Log::error("[ManualAssign] FCM assign-notice failed for driver #{$driver->id}: " . $e->getMessage());
             }
         }
-
-        broadcast(new DispatchStateChanged());
 
         return ['success' => true, 'message' => "Đã gán đơn cho {$driver->name} — vào mục \"Đã nhận\" ngay, không cần chờ xác nhận."];
     }

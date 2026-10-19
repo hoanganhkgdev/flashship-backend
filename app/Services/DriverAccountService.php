@@ -4,13 +4,10 @@ namespace App\Services;
 
 use App\Models\DriverStatusLog;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Redis;
 use Modules\Core\Models\User;
 use Modules\Core\Services\RTDBService;
 use Modules\Driver\Models\DriverShiftSession;
 use Modules\Order\Models\Order;
-use Modules\Order\Models\OrderDispatchLog;
-use Modules\Order\Services\DispatchService;
 
 /**
  * Duyệt, khóa và mở khóa tài khoản tài xế — dùng chung cho bảng danh sách, trang hồ sơ và thao tác hàng loạt,
@@ -74,7 +71,7 @@ class DriverAccountService
     }
 
     /**
-     * Khóa tài xế. Không khóa khi đang giữ đơn; các đề nghị đơn đang chờ được trả lại để phát cho tài xế khác.
+     * Khóa tài xế. Không khóa khi đang giữ đơn.
      *
      * @return array{ok: bool, message: string}
      */
@@ -92,30 +89,11 @@ class DriverAccountService
                 return ['blocked' => false, 'active_order' => $activeOrder];
             }
 
-            $offerOrderIds = OrderDispatchLog::where('driver_id', $locked->id)
-                ->where('result', 'pending')->pluck('order_id');
-            $offers = Order::whereIn('id', $offerOrderIds)->where('status', 'pending')
-                ->lockForUpdate()
-                ->get();
-
-            foreach ($offers as $offer) {
-                OrderDispatchLog::where('order_id', $offer->id)
-                    ->where('driver_id', $locked->id)
-                    ->where('result', 'pending')
-                    ->update([
-                        'result' => 'expired',
-                        'responded_at' => now(),
-                        'close_reason' => OrderDispatchLog::CLOSE_ACCOUNT_LOCKED,
-                    ]);
-                $offer->update(['dispatching_to_driver_id' => OrderDispatchLog::where('order_id', $offer->id)
-                    ->where('result', 'pending')->value('driver_id')]);
-            }
-
             DriverShiftSession::where('driver_id', $locked->id)->whereNull('ended_at')->lockForUpdate()->update(['ended_at' => now()]);
 
             $locked->update(['status' => self::STATUS_LOCKED, 'is_online' => false, 'online_since' => null, 'fcm_token' => null]);
 
-            return ['blocked' => true, 'offers' => $offers];
+            return ['blocked' => true];
         });
 
         if (! $result['blocked']) {
@@ -123,7 +101,7 @@ class DriverAccountService
         }
 
         $this->log($driver->id, 'locked', $reason, $by);
-        $this->afterLock($driver, $result['offers']);
+        $this->afterLock($driver);
 
         return ['ok' => true, 'message' => 'Đã khóa tài xế '.$driver->name];
     }
@@ -155,18 +133,12 @@ class DriverAccountService
         DriverStatusLog::create(['driver_id' => $driverId, 'action' => $action, 'reason' => $reason ?: null, 'performed_by' => $by, 'created_at' => now()]);
     }
 
-    /** Dọn phiên đăng nhập, vị trí, khóa điều phối và phát lại các đơn đang đề nghị cho tài xế này. */
-    protected function afterLock(User $driver, $offers): void
+    /** Dọn phiên đăng nhập và vị trí của tài xế vừa bị khóa. */
+    protected function afterLock(User $driver): void
     {
         $driver->tokens()->delete();
         RTDBService::removeDriverLocation($driver->id);
         RTDBService::setAccountLocked($driver->id, true);
-        Redis::del("dispatch:lock:driver:{$driver->id}");
-
-        foreach ($offers as $offer) {
-            RTDBService::clearDriverOffer($driver->id, $offer->id);
-            app(DispatchService::class)->sendToNextDriver($offer->fresh());
-        }
     }
 
     protected function afterUnlock(User $driver): void

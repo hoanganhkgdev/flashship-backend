@@ -43,7 +43,6 @@ class OrderOpsWidget extends Widget
 
         $today = $q()->whereDate('created_at', today())->selectRaw("COUNT(*) total, SUM(status='cancelled') canc, SUM(status IN ('assigned','processing')) active")->first();
         $pending = $q()->where('status', 'pending')->selectRaw('COUNT(*) c, MIN(created_at) oldest')->first();
-        $timeout = OperationalSettings::dispatchTimeoutMinutes($cityId);
         $oldest = $pending->oldest ? (int) \Carbon\Carbon::parse($pending->oldest)->diffInMinutes(now()) : 0;
         $quick = $q()->whereDate('created_at', today())->where('status', 'cancelled')->whereRaw('TIMESTAMPDIFF(MINUTE, created_at, COALESCE(cancelled_at, updated_at)) < 3')->count();
 
@@ -52,7 +51,6 @@ class OrderOpsWidget extends Widget
             'active' => (int) $today->active,
             'pending' => (int) $pending->c,
             'oldest' => $oldest,
-            'timeout' => $timeout,
             'cancelRate' => $today->total ? round($today->canc / $today->total * 100) : 0,
             'cancelled' => (int) $today->canc,
             'quick' => $quick,

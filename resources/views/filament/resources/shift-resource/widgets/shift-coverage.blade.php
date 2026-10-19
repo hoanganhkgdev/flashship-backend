@@ -43,7 +43,6 @@
                     <b>{{ $num($r['active']) }} tài xế{{ $r['locked'] ? ' (+'.$num($r['locked']).' khóa)' : '' }}</b>
                     <b>{{ $dec($r['perDay']) }} đơn/ngày</b>
                     <b class="{{ $r['overloaded'] ? 'fs-sc-down' : '' }}">{{ $r['perDriver'] !== null ? $dec($r['perDriver']).' đơn/tài xế' : '—' }}</b>
-                    <b class="{{ ($r['critical'] ?? 0) >= 40 ? 'fs-sc-down' : '' }}">{{ $r['critical'] !== null ? $r['critical'].'% dưới 50% online' : 'chưa có điểm' }}</b>
                 </span>
             </a>
         @empty

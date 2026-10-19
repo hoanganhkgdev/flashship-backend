@@ -11,14 +11,14 @@ use Modules\Core\Models\User;
 use Modules\Order\Models\Order;
 use Tests\TestCase;
 
-/** Bỏ các tác động ra ngoài (Firebase, Redis, phát đơn) để chỉ kiểm thử luật nghiệp vụ. */
+/** Bỏ các tác động ra ngoài (Firebase, Redis) để chỉ kiểm thử luật nghiệp vụ. */
 class FakeDriverAccountService extends DriverAccountService
 {
     public int $locked = 0;
 
     public int $unlocked = 0;
 
-    protected function afterLock(User $driver, $offers): void
+    protected function afterLock(User $driver): void
     {
         $this->locked++;
     }
