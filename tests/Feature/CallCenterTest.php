@@ -198,7 +198,7 @@ class CallCenterTest extends TestCase
         $this->assertSame('', $page->get('data')['pickup_address'], 'form được làm sạch để khỏi đặt trùng');
     }
 
-    public function test_no_service_needs_a_phone_but_a_half_typed_number_is_rejected(): void
+    public function test_shopping_requires_customer_phone_while_other_services_allow_it_to_be_empty(): void
     {
         $page = $this->page('delivery')->set('data', $this->data(['contact_phone' => '']))->call('placeOrder');
         $this->assertSame([], $page->get('fieldErrors'));
@@ -209,12 +209,15 @@ class CallCenterTest extends TestCase
         $half = $this->page('delivery')->set('data', $this->data(['contact_phone' => '0911']))->call('placeOrder');
         $this->assertArrayHasKey('contact_phone', $half->get('fieldErrors'));
 
-        foreach (['shopping', 'topup'] as $service) {
-            $other = $this->page('delivery')->call('selectService', $service)
-                ->set('data', $this->data(['contact_phone' => '', 'delivery_address' => 'Nhà khách', 'shopping_note' => 'Trà sữa', 'cod_amount' => 50000]))->call('placeOrder');
-            $this->assertArrayNotHasKey('contact_phone', $other->get('fieldErrors'), "$service không cần SĐT");
-            $this->assertNotNull($other->get('resultOrderCode'), "$service đặt được khi không có SĐT");
-        }
+        $shopping = $this->page('shopping')
+            ->set('data', $this->data(['contact_phone' => '', 'delivery_address' => 'Nhà khách', 'shopping_note' => 'Trà sữa']))->call('placeOrder');
+        $this->assertSame('Vui lòng nhập SĐT khách cho đơn Mua hộ.', $shopping->get('fieldErrors')['contact_phone']);
+        $this->assertNull($shopping->get('resultOrderCode'));
+
+        $topup = $this->page('topup')
+            ->set('data', $this->data(['contact_phone' => '', 'delivery_address' => 'Nhà khách', 'cod_amount' => 50000]))->call('placeOrder');
+        $this->assertArrayNotHasKey('contact_phone', $topup->get('fieldErrors'), 'Nạp tiền không bắt buộc SĐT');
+        $this->assertNotNull($topup->get('resultOrderCode'), 'Nạp tiền vẫn đặt được khi không có SĐT');
     }
 
     public function test_driver_select_is_filled_on_open_and_explains_why_others_cannot_be_assigned(): void

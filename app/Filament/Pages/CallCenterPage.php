@@ -514,10 +514,12 @@ class CallCenterPage extends Page implements HasForms
 
         $errors = [];
 
-        // SĐT liên hệ (shop/khách) không bắt buộc ở mọi dịch vụ: nhiều khi khách không cho số.
-        // Đã nhập thì phải đủ số, tránh lưu số gõ dở.
+        // Mua hộ bắt buộc SĐT khách để tài xế xác nhận mặt hàng và điểm giao.
+        // Các dịch vụ khác có thể để trống; đã nhập thì phải đủ số, tránh lưu số gõ dở.
         $contact = $this->normalizePhone($values['contact_phone'] ?? '');
-        if ($contact !== '' && strlen($contact) < 9) {
+        if ($this->serviceType === 'shopping' && $contact === '') {
+            $errors['contact_phone'] = 'Vui lòng nhập SĐT khách cho đơn Mua hộ.';
+        } elseif ($contact !== '' && strlen($contact) < 9) {
             $errors['contact_phone'] = 'Số điện thoại chưa đủ (ít nhất 9 chữ số) — nhập đủ số hoặc để trống.';
         }
 

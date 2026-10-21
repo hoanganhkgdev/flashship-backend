@@ -19,17 +19,23 @@
     $deliveryOptional = $serviceType !== 'topup';
     $noDeliveryYet = $deliveryOptional && trim((string) ($data['delivery_address'] ?? '')) === '';
     $nightFee = (int) $previewNightSurcharge;
+    $phoneRequired = $serviceType === 'shopping';
+    $quotedFee = (int) ($data['shipping_fee'] ?? 0);
+    $feeDelta = $previewFee !== null ? $quotedFee - (int) $previewFee : null;
     $shortLabels = ['delivery' => 'Lấy hộ', 'shopping' => 'Mua hộ', 'topup' => 'Nạp/Rút', 'bike' => 'Xe ôm', 'motor' => 'Lái xe máy', 'car' => 'Lái ô tô'];
 @endphp
 
 {{-- Màn hình tổng đài thường nhỏ: tiêu đề một dòng, banner gọn, form cuộn trong khung và nút Đặt đơn luôn dính đáy --}}
 <div class="cc-top">
-    <h1>Tổng đài đặt đơn</h1>
-    <div class="cc-header-context">
-        <span>{{ $currentCityName ?: 'Chưa chọn khu vực' }}</span>
-        <strong>{{ $activeSvc['label'] }}</strong>
+    <div class="cc-top__title">
+        <span class="cc-top__eyebrow">Trung tâm vận hành</span>
+        <h1>Tạo đơn qua tổng đài</h1>
     </div>
-    <p>Hỏi SĐT trước (Enter/Tab để tra khách) · Ctrl + Enter để đặt nhanh</p>
+    <div class="cc-header-context">
+        <span><i class="cc-live-dot"></i>{{ $currentCityName ?: 'Chưa chọn khu vực' }}</span>
+        <strong style="--svc-color:{{ $activeSvc['color'] }}">{{ $activeSvc['label'] }}</strong>
+    </div>
+    <p><kbd>Ctrl</kbd> + <kbd>Enter</kbd> để tạo đơn nhanh</p>
 </div>
 
 @if ($resultOrderCode && ! $resultWarning)
@@ -321,6 +327,214 @@
         .cc-ro .acts button { padding:2px 10px; font-size:var(--fs-xs, .75rem); }
         .cc-ro .route, .cc-ro .st small { font-size:var(--fs-xs, .75rem); }
     }
+
+    /* ── Redesign tác nghiệp: phân cấp rõ theo đúng thứ tự cuộc gọi ─────── */
+    .cc-top { justify-content:flex-start; padding:4px 2px; }
+    .cc-top__title { display:grid; gap:1px; }
+    .cc-top__eyebrow { color:#f97316; font-size:10px; font-weight:800; letter-spacing:.11em; text-transform:uppercase; }
+    .cc-top__title h1 { margin:0; }
+    .cc-top > p { display:flex; align-items:center; gap:4px; }
+    .cc-top kbd { min-width:24px; padding:2px 6px; border:1px solid #dbe1e8; border-bottom-width:2px; border-radius:5px; background:#fff; color:#475569; font:600 11px/1.2 inherit; text-align:center; }
+    .cc-header-context { margin-left:8px; }
+    .cc-header-context span, .cc-header-context strong { display:inline-flex; align-items:center; gap:6px; border-radius:999px; }
+    .cc-header-context strong { border-color:color-mix(in srgb, var(--svc-color) 35%, white); background:color-mix(in srgb, var(--svc-color) 8%, white); }
+    .cc-live-dot { width:7px; height:7px; border-radius:50%; background:#22c55e; box-shadow:0 0 0 3px #22c55e1f; }
+
+    .cc-scroll { counter-reset:cc-step; }
+    .cc-section { display:grid; gap:6px; }
+    .cc-section__head { display:flex; align-items:center; gap:8px; padding:0 2px; color:#334155; }
+    .cc-section__head::before { counter-increment:cc-step; content:counter(cc-step); display:grid; place-items:center; width:20px; height:20px; border-radius:7px; background:#0f172a; color:#fff; font-size:10px; font-weight:800; }
+    .cc-section__head strong { font-size:11px; font-weight:800; letter-spacing:.055em; text-transform:uppercase; }
+    .cc-section__head span { margin-left:auto; color:#94a3b8; font-size:11px; }
+    .cc-customer-card { position:relative; overflow:hidden; border-color:#fed7aa; background:linear-gradient(135deg,#fff 0%,#fffaf5 100%); }
+    .cc-customer-card::after { content:''; position:absolute; top:-36px; right:-24px; width:92px; height:92px; border-radius:50%; background:#fb923c12; pointer-events:none; }
+    .cc-phone-row { display:flex; align-items:center; gap:10px; }
+    .cc-phone-icon { display:grid; flex:none; place-items:center; width:38px; height:38px; border-radius:11px; background:#fff7ed; color:#ea580c; }
+    .cc-phone-icon svg { width:19px; height:19px; }
+    .cc-phone-row .cc-fld { flex:1; min-width:0; }
+    .cc-customer-card .cc-input { border-color:#fed7aa; background:#fff; font-size:16px; font-weight:650; letter-spacing:.02em; }
+    .cc-customer-card .cc-hint { padding-left:48px; }
+
+    .cc-service-tabs { grid-template-columns:repeat(6,minmax(0,1fr)); }
+    .cc-service-tab { flex-direction:column; min-height:54px; }
+    .cc-service-tab span { font-size:11px; }
+
+    .cc-pricing-card { border-color:#dbeafe; background:linear-gradient(180deg,#fff 0%,#f8fbff 100%); }
+    .cc-fee-summary { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; margin-bottom:12px; }
+    .cc-fee-stat { padding:9px 10px; border:1px solid #e2e8f0; border-radius:10px; background:#fff; }
+    .cc-fee-stat span { display:block; color:#94a3b8; font-size:10px; font-weight:700; letter-spacing:.035em; text-transform:uppercase; }
+    .cc-fee-stat b { display:block; margin-top:2px; color:#0f172a; font-size:14px; }
+    .cc-fee-stat.is-delta b.positive { color:#15803d; }
+    .cc-fee-stat.is-delta b.negative { color:#dc2626; }
+
+    .cc-map-area::after { content:''; position:absolute; inset:0; pointer-events:none; box-shadow:inset 18px 0 28px -28px #0f172a66; }
+    .cc-map-title { position:absolute; top:12px; right:12px; z-index:10; display:flex; align-items:center; gap:7px; padding:7px 10px; border:1px solid #ffffffcc; border-radius:999px; background:#fffffff2; box-shadow:0 4px 16px #0f172a1a; color:#334155; font-size:11px; font-weight:750; pointer-events:none; }
+    .cc-map-title i { width:7px; height:7px; border-radius:50%; background:#22c55e; }
+    .cc-recent__head { min-height:44px; }
+    .cc-recent__tab { transition:.15s ease; }
+    .cc-recent__tab:not(.active):hover { background:#f8fafc; color:#334155; }
+    .cc-ro.s-pending { background:#fffbeb66; }
+
+    .cc-submit-btn { display:flex; align-items:center; justify-content:center; gap:7px; }
+    .cc-submit-btn svg { width:17px; height:17px; }
+
+    .dark .cc-top kbd { border-color:#334155; background:#171b25; color:#cbd5e1; }
+    .dark .cc-section__head { color:#e2e8f0; }
+    .dark .cc-section__head::before { background:#e2e8f0; color:#0f172a; }
+    .dark .cc-customer-card, .dark .cc-pricing-card { border-color:#3b465a; background:#171b25; }
+    .dark .cc-phone-icon { background:#431407; color:#fb923c; }
+    .dark .cc-customer-card .cc-input, .dark .cc-fee-stat { border-color:#334155; background:#0f1420; }
+    .dark .cc-fee-stat b { color:#f8fafc; }
+    .dark .cc-map-title { border-color:#334155; background:#171b25ee; color:#e2e8f0; }
+
+    @media (max-width: 1180px) {
+        .cc-service-tabs { grid-template-columns:repeat(3,1fr); }
+        .cc-service-tab { flex-direction:row; min-height:0; }
+        .cc-fee-summary { grid-template-columns:1fr 1fr; }
+        .cc-fee-stat.is-delta { grid-column:1 / -1; }
+    }
+    @media (max-width: 900px) {
+        .cc-top > p { display:none; }
+        .cc-header-context { margin-left:auto; }
+        .cc-section__head span { display:none; }
+    }
+
+    /* ── Bản compact cuối: tối ưu cho màn hình vận hành 1366×768 ───────── */
+    .cc-wrapper {
+        --cc-border:#e6e9ef;
+        height:calc(100vh - 150px) !important; /* _ccFit() tính lại theo vị trí thật để thanh Tạo đơn luôn nằm trong màn hình */
+        min-height:420px;
+        overflow:hidden !important;
+        border-color:var(--cc-border);
+        border-radius:14px;
+        background:#fff;
+        box-shadow:0 12px 36px rgba(15,23,42,.07);
+    }
+    .cc-form-panel {
+        width:clamp(500px,46%,560px) !important;
+        background:#f7f8fa;
+        border-right-color:var(--cc-border);
+        overflow:hidden;
+    }
+    .cc-form { height:100%; min-height:0; overflow:hidden; }
+    .cc-scroll {
+        gap:8px !important;
+        padding:10px 12px !important;
+        overflow-y:auto !important;
+        overscroll-behavior:contain;
+        scrollbar-color:#cbd5e1 transparent;
+    }
+    .cc-scroll::-webkit-scrollbar { width:5px; }
+    .cc-scroll::-webkit-scrollbar-thumb { border-radius:999px; background:#cbd5e1; }
+    .cc-section { gap:4px; }
+    .cc-section__head { min-height:20px; gap:6px; padding:0 1px; }
+    .cc-section__head::before { width:18px; height:18px; border-radius:6px; font-size:9px; }
+    .cc-section__head strong { font-size:10px; letter-spacing:.065em; }
+    .cc-section__head span { font-size:10px; }
+    .cc-card {
+        border-color:var(--cc-border);
+        border-radius:10px;
+        padding:11px 10px 8px;
+        box-shadow:0 1px 2px rgba(15,23,42,.025);
+    }
+
+    .cc-service-tabs { grid-template-columns:repeat(6,minmax(0,1fr)) !important; gap:5px !important; }
+    .cc-service-tab {
+        min-height:46px !important;
+        flex-direction:column !important;
+        gap:3px !important;
+        padding:6px 3px !important;
+        border:1px solid #e7eaf0;
+        border-radius:9px !important;
+        background:#fff;
+    }
+    .cc-service-tab:hover { border-color:#cbd5e1; background:#fff; transform:translateY(-1px); }
+    .cc-service-tab.active { border-color:transparent; transform:none; }
+    .cc-service-tab svg { width:16px !important; height:16px !important; }
+    .cc-service-tab span { max-width:100%; overflow:hidden; font-size:10.5px !important; text-overflow:ellipsis; }
+
+    .cc-address-row { min-height:39px; gap:8px !important; padding:2px 0 !important; }
+    .cc-address-col input { height:28px !important; font-size:13px !important; }
+    .cc-addr-tag { width:43px !important; font-size:9px !important; }
+    .cc-address-dot { width:8px !important; height:8px !important; }
+    .cc-pin-btn { width:28px !important; height:28px !important; border-radius:8px !important; }
+    .cc-addr-sub { font-size:10.5px; }
+
+    .cc-input { height:36px !important; padding:5px 10px !important; border-radius:9px !important; font-size:13px !important; }
+    .cc-textarea { min-height:58px; padding:7px 10px !important; border-radius:9px !important; font-size:13px !important; }
+    .cc-lbl { top:-7px !important; font-size:9px !important; }
+    .cc-row2 { gap:8px !important; }
+    .cc-phone-row { gap:8px; }
+    .cc-phone-icon { width:32px; height:32px; border-radius:9px; }
+    .cc-phone-icon svg { width:16px; height:16px; }
+    .cc-customer-card { padding-block:9px 7px; background:#fff; }
+    .cc-customer-card .cc-input { font-size:14px !important; }
+    .cc-customer-card .cc-hint, .cc-card > .cc-hint { margin-top:3px; padding-left:40px; font-size:10px; }
+
+    .cc-pricing-card { padding-top:9px; background:#fff; }
+    .cc-fee-summary { grid-template-columns:repeat(3,minmax(0,1fr)) !important; gap:6px; margin-bottom:9px; }
+    .cc-fee-stat { padding:6px 8px; border-radius:8px; background:#f8fafc; }
+    .cc-fee-stat span { font-size:8.5px; }
+    .cc-fee-stat b { margin-top:1px; font-size:12px; white-space:nowrap; }
+    .cc-fee-stat.is-delta { grid-column:auto !important; }
+    .cc-feeline { margin-top:6px !important; font-size:10.5px !important; }
+    .cc-check { font-size:11px !important; }
+    .cc-check input { width:15px; height:15px; }
+
+    .cc-bar {
+        position:sticky !important;
+        bottom:0 !important;
+        z-index:20;
+        flex:0 0 auto !important;
+        min-height:58px;
+        gap:10px !important;
+        padding:9px 12px !important;
+        border-top-color:var(--cc-border);
+        background:#fff;
+        box-shadow:0 -8px 20px rgba(15,23,42,.045) !important;
+    }
+    .cc-bar__info { font-size:10.5px !important; }
+    .cc-bar__info b { font-size:13px !important; }
+    .cc-submit-btn { display:flex !important; visibility:visible !important; min-width:168px !important; min-height:40px; padding:10px 15px !important; border-radius:10px !important; font-size:13px !important; }
+
+    .cc-map-wrap {
+        position:relative !important;
+        top:auto !important;
+        align-self:stretch !important;
+        height:auto !important;
+        min-height:0 !important;
+    }
+    .cc-map-area { min-height:280px; }
+    .cc-recent { height:220px !important; min-height:180px; }
+    .cc-recent__head { min-height:42px; padding:6px 10px !important; }
+    .cc-recent__tab { padding:4px 8px; font-size:10px; }
+    .cc-ro { grid-template-columns:62px minmax(0,1fr) auto auto !important; gap:2px 8px !important; padding:6px 10px !important; font-size:11.5px !important; }
+    .cc-ro .route, .cc-ro .st small { font-size:10px !important; }
+    .cc-ro .acts button { padding:2px 8px !important; font-size:10px !important; }
+    .cc-map-title { top:10px; right:10px; padding:6px 9px; font-size:10px; }
+    .cc-map-distance { top:12px !important; left:12px !important; font-size:12px !important; }
+
+    .dark .cc-wrapper { --cc-border:#283142; background:#171b25; }
+    .dark .cc-form-panel { background:#111620; }
+    .dark .cc-service-tab, .dark .cc-customer-card, .dark .cc-pricing-card { background:#171b25; border-color:#283142; }
+    .dark .cc-fee-stat { background:#111620; }
+
+    @media (max-width:1180px) and (min-width:901px) {
+        .cc-form-panel { width:500px !important; }
+        .cc-service-tabs { grid-template-columns:repeat(3,1fr) !important; }
+        .cc-service-tab { min-height:36px !important; flex-direction:row !important; }
+    }
+    @media (max-width:900px) {
+        .cc-wrapper { height:auto !important; min-height:0; overflow:visible !important; }
+        .cc-form-panel { width:100% !important; overflow:visible; }
+        .cc-form { height:auto; overflow:visible; }
+        .cc-scroll { overflow:visible !important; }
+        .cc-bar { position:sticky !important; bottom:0 !important; }
+        .cc-service-tabs { grid-template-columns:repeat(3,1fr) !important; }
+        .cc-service-tab { min-height:42px !important; flex-direction:row !important; }
+        .cc-map-area { height:360px; }
+        .cc-recent { height:auto !important; max-height:320px; }
+    }
 </style>
 
 <div class="cc-wrapper">
@@ -331,7 +545,9 @@
             onkeydown="if (event.key === 'Enter' && event.target.tagName !== 'TEXTAREA') { event.preventDefault(); if (event.target.type === 'tel') event.target.blur(); }">
         <div class="cc-scroll">
 
-            {{-- Dịch vụ --}}
+            {{-- 1. Dịch vụ --}}
+            <section class="cc-section cc-section--service">
+            <div class="cc-section__head"><strong>Chọn dịch vụ</strong><span>Chọn loại đơn trước khi nhập thông tin</span></div>
             <div class="cc-service-tabs">
                 @foreach ($this::services() as $key => $svc)
                 @php $active = $serviceType === $key; @endphp
@@ -343,8 +559,9 @@
                 </button>
                 @endforeach
             </div>
+            </section>
 
-            {{-- Hành trình --}}
+            {{-- 2. Hành trình --}}
             @php
                 $pickupLabel = match($serviceType) {
                     'shopping' => 'Điểm mua hàng',
@@ -360,13 +577,15 @@
                 $pickupShort = match($serviceType) { 'shopping' => 'Mua tại', 'topup' => 'Nạp tại', 'bike', 'motor', 'car' => 'Đón', default => 'Lấy' };
                 $deliveryShort = in_array($serviceType, ['bike', 'motor', 'car'], true) ? 'Đến' : 'Giao';
             @endphp
+            <section class="cc-section">
+            <div class="cc-section__head"><strong>Hành trình</strong><span>Chọn từ gợi ý để lấy đúng toạ độ</span></div>
             <div class="cc-card {{ $err('pickup_address') || $err('delivery_address') ? 'has-err' : '' }}" style="padding:2px 10px;">
                 <div class="cc-address-row">
                     <div class="cc-address-dot" style="background:#FF6B35; box-shadow:0 0 0 3px #FF6B3520;"></div>
                     <span class="cc-addr-tag" title="{{ $pickupLabel }}">{{ $pickupShort }}</span>
                     <div class="cc-address-col">
                         <input id="cc-pickup-input" type="text" placeholder="{{ $pickupLabel }}: nhập địa chỉ..." autocomplete="off"
-                            value="{{ ($data['pickup_place_name'] ?? '') !== '' ? $data['pickup_place_name'] : ($data['pickup_address'] ?? '') }}" onblur="_syncTyped('pickup')" />
+                            value="{{ ($data['pickup_place_name'] ?? '') !== '' ? $data['pickup_place_name'] : ($data['pickup_address'] ?? '') }}" onblur="_syncTyped('pickup')" autofocus />
                         @if (($data['pickup_place_name'] ?? '') !== '')<p class="cc-addr-sub" title="{{ $data['pickup_address'] ?? '' }}">{{ $data['pickup_address'] ?? '' }}</p>@endif
                         @if ($err('pickup_address'))<p class="cc-err">{{ $err('pickup_address') }}</p>@endif
                     </div>
@@ -389,26 +608,16 @@
                 </div>
                 @endif
             </div>
+            </section>
 
-            {{-- Khách: hỏi SĐT trước --}}
-            <div class="cc-card {{ $err('contact_phone') ? 'has-err' : '' }}">
-                <div class="cc-fld">
-                    <label class="cc-lbl">{{ $contactLabel }}<small>(tuỳ chọn)</small></label>
-                    <input type="tel" inputmode="tel" class="cc-input {{ $err('contact_phone') ? 'has-err' : '' }}" wire:model.blur="data.contact_phone" placeholder="09xx xxx xxx" autocomplete="off" />
-                </div>
-                @if ($err('contact_phone'))<p class="cc-err">{{ $err('contact_phone') }}</p>@endif
-            </div>
-
-            {{-- Chi tiết theo dịch vụ --}}
+            {{-- 3. Chi tiết theo dịch vụ --}}
+            <section class="cc-section">
+            <div class="cc-section__head"><strong>Chi tiết đơn</strong><span>Thông tin tài xế cần biết</span></div>
             <div class="cc-card">
                 @if ($serviceType === 'delivery')
                 <div class="cc-fld">
                     <label class="cc-lbl">Ghi chú cho tài xế</label>
-                    <textarea class="cc-textarea" wire:model="data.order_note" rows="5" placeholder="Nhập đầy đủ nội dung; có thể xuống dòng..."></textarea>
-                </div>
-                <div class="cc-fld" style="margin-top:14px;">
-                    <label class="cc-lbl">SĐT người nhận <small>(tuỳ chọn)</small></label>
-                    <input type="tel" inputmode="tel" class="cc-input" wire:model.blur="data.delivery_phone" placeholder="Shop chưa cho thì để trống" autocomplete="off" />
+                    <textarea class="cc-textarea" wire:model="data.order_note" rows="3" placeholder="Ví dụ: loại hàng, cách lấy, lưu ý khi giao..."></textarea>
                 </div>
                 @endif
 
@@ -437,9 +646,50 @@
                 <input type="text" class="cc-input" wire:model="data.order_note" placeholder="Ghi chú..." /></div>
                 @endif
             </div>
+            </section>
 
-            {{-- Phí + tài xế --}}
-            <div class="cc-card {{ $err('assignedDriverId') ? 'has-err' : '' }}">
+            {{-- 4. Khách đang gọi --}}
+            <section class="cc-section">
+                <div class="cc-section__head"><strong>SĐT khách</strong><span>Số liên hệ của người đang gọi</span></div>
+                <div class="cc-card cc-customer-card {{ $err('contact_phone') ? 'has-err' : '' }}">
+                    <div class="cc-phone-row">
+                        <span class="cc-phone-icon"><x-heroicon-o-phone /></span>
+                        <div class="cc-fld">
+                            <label class="cc-lbl">{{ $contactLabel }} @if (! $phoneRequired)<small>(tuỳ chọn)</small>@else<small>· bắt buộc</small>@endif</label>
+                            <input type="tel" inputmode="tel" class="cc-input {{ $err('contact_phone') ? 'has-err' : '' }}" wire:model.blur="data.contact_phone" placeholder="{{ $phoneRequired ? 'Bắt buộc nhập SĐT khách' : 'Nhập số điện thoại khách' }}" autocomplete="off" @if ($phoneRequired) required @endif />
+                        </div>
+                    </div>
+                    @if ($err('contact_phone'))<p class="cc-err" style="padding-left:48px">{{ $err('contact_phone') }}</p>
+                    @else<p class="cc-hint">{{ $phoneRequired ? 'Bắt buộc với đơn Mua hộ để tài xế liên hệ xác nhận.' : 'Có thể để trống nếu khách không cung cấp số.' }}</p>@endif
+                </div>
+            </section>
+
+            {{-- 5. Riêng Lấy hộ: tách SĐT người nhận thành một bước rõ ràng --}}
+            @if ($serviceType === 'delivery')
+            <section class="cc-section">
+                <div class="cc-section__head"><strong>SĐT người nhận</strong><span>Để tài xế liên hệ khi giao hàng</span></div>
+                <div class="cc-card">
+                    <div class="cc-phone-row">
+                        <span class="cc-phone-icon" style="background:#eff6ff;color:#2563eb"><x-heroicon-o-user /></span>
+                        <div class="cc-fld">
+                            <label class="cc-lbl">SĐT người nhận <small>(tuỳ chọn)</small></label>
+                            <input type="tel" inputmode="tel" class="cc-input" wire:model.blur="data.delivery_phone" placeholder="Shop chưa cho thì để trống" autocomplete="off" />
+                        </div>
+                    </div>
+                    <p class="cc-hint">Tài xế sẽ dùng số này để liên hệ tại điểm giao.</p>
+                </div>
+            </section>
+            @endif
+
+            {{-- 6. Phí + tài xế --}}
+            <section class="cc-section">
+            <div class="cc-section__head"><strong>Phí và điều phối</strong><span>Kiểm tra lần cuối trước khi tạo</span></div>
+            <div class="cc-card cc-pricing-card {{ $err('assignedDriverId') ? 'has-err' : '' }}">
+                <div class="cc-fee-summary">
+                    <div class="cc-fee-stat"><span>Giá hệ thống</span><b>{{ $previewFee !== null ? number_format($previewFee, 0, ',', '.').'đ' : 'Chưa tính' }}</b></div>
+                    <div class="cc-fee-stat"><span>Phí thu khách</span><b>{{ $quotedFee > 0 ? number_format($quotedFee, 0, ',', '.').'đ' : 'Chưa nhập' }}</b></div>
+                    <div class="cc-fee-stat is-delta"><span>Chênh lệch</span><b class="{{ $feeDelta > 0 ? 'positive' : ($feeDelta < 0 ? 'negative' : '') }}">{{ $feeDelta !== null && $quotedFee > 0 ? ($feeDelta > 0 ? '+' : '').number_format($feeDelta, 0, ',', '.').'đ' : '—' }}</b></div>
+                </div>
                 <div class="cc-row2 cc-fee-driver-row">
                     <div>
                         <label class="cc-lbl">Phí thu khách</label>
@@ -481,6 +731,7 @@
                 </p>
                 @endif
             </div>
+            </section>
         </div>
 
         {{-- Thanh đặt đơn dính đáy --}}
@@ -490,7 +741,8 @@
                 <span id="cc-bar-route" wire:ignore></span>
             </div>
             <button type="submit" wire:loading.attr="disabled" class="cc-submit-btn" style="background:{{ $activeSvc['color'] }}; box-shadow:0 3px 12px {{ $activeSvc['color'] }}4d;">
-                <span wire:loading.remove wire:target="placeOrder">Đặt đơn <small style="opacity:.75; font-weight:500;">(Ctrl+Enter)</small></span>
+                <x-heroicon-o-paper-airplane wire:loading.remove wire:target="placeOrder" />
+                <span wire:loading.remove wire:target="placeOrder">Tạo đơn</span>
                 <span wire:loading wire:target="placeOrder">Đang xử lý...</span>
             </button>
         </div>
@@ -502,6 +754,7 @@
     <div class="cc-map-wrap">
         <div class="cc-map-area" wire:ignore>
             <div id="cc-main-map" class="cc-map"></div>
+            <div class="cc-map-title"><i></i>Bản đồ điều phối trực tiếp</div>
             <div id="cc-map-info-route" class="cc-map-distance"></div>
             <div id="cc-map-info-drivers" class="cc-map-chip" style="display:none">
                 <span id="cc-driver-label"></span>
@@ -515,7 +768,8 @@
         <div class="cc-recent" wire:ignore>
             <div class="cc-recent__head">
                 <div class="cc-recent__tabs">
-                    <button type="button" class="cc-recent__tab active" data-cc-board="recent" onclick="_ccSelectBoard('recent')">Đơn hôm nay <b id="cc-recent-count">0</b></button>
+                    <button type="button" class="cc-recent__tab active" data-cc-board="attention" onclick="_ccSelectBoard('attention')">Cần xử lý <b id="cc-attention-count">0</b></button>
+                    <button type="button" class="cc-recent__tab" data-cc-board="recent" onclick="_ccSelectBoard('recent')">Tất cả hôm nay <b id="cc-recent-count">0</b></button>
                 </div>
                 <em id="cc-recent-time"></em>
             </div>
@@ -924,9 +1178,13 @@ document.addEventListener('livewire:initialized', () => {
 
 // ── Khung form + bản đồ cao đúng phần màn hình còn lại (màn tổng đài thường nhỏ) ─────────────
 function _ccFit() {
-    // Trang cuộn tự nhiên (thanh Đặt đơn và bản đồ dính màn hình): không ép chiều cao khung nữa
+    // Khung cao đúng phần màn hình còn lại dưới phần đầu trang, để thanh Tạo đơn ở đáy khung luôn thấy được
+    // (min-height cố định trước đây đẩy nút xuống dưới mép màn hình khi cửa sổ thấp). Màn nhỏ: để trang tự cuộn.
     const w = document.querySelector('.cc-wrapper');
-    if (w) w.style.height = '';
+    if (!w) return;
+    if (window.innerWidth <= 900) { w.style.removeProperty('height'); return; }
+    const top = w.getBoundingClientRect().top + window.scrollY;
+    w.style.setProperty('height', Math.max(420, window.innerHeight - top - 12) + 'px', 'important');
 }
 window.addEventListener('resize', _ccFit);
 document.addEventListener('livewire:initialized', () => { _ccFit(); setTimeout(_ccFit, 300); });
@@ -957,13 +1215,31 @@ function _syncTypedNow(kind) {
 // ── Đơn vừa đặt: tự làm mới 15s, không vẽ lại form ───────────────────────────
 function _ccEsc(v) { const d = document.createElement('div'); d.textContent = v == null ? '' : String(v); return d.innerHTML; }
 let _ccRecentOrders = [];
+let _ccActiveBoard = 'attention';
+function _ccSelectBoard(board) {
+    _ccActiveBoard = board === 'recent' ? 'recent' : 'attention';
+    document.querySelectorAll('[data-cc-board]').forEach((button) => {
+        button.classList.toggle('active', button.dataset.ccBoard === _ccActiveBoard);
+    });
+    _ccRenderRecent(_ccRecentOrders);
+}
 function _ccRenderRecent(list) {
     const box = document.getElementById('cc-recent-list');
     if (!box) return;
     const t = document.getElementById('cc-recent-time');
     if (t) t.textContent = new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-    if (!list || !list.length) { box.innerHTML = '<div class="cc-recent__empty">' + 'Chưa có đơn nào hôm nay.' + '</div>'; return; }
-    box.innerHTML = list.map((o) => {
+    const all = list || [];
+    const attention = all.filter((o) => o.status === 'pending');
+    const attentionCount = document.getElementById('cc-attention-count');
+    const recentCount = document.getElementById('cc-recent-count');
+    if (attentionCount) attentionCount.textContent = attention.length;
+    if (recentCount) recentCount.textContent = all.length;
+    const visible = _ccActiveBoard === 'attention' ? attention : all;
+    if (!visible.length) {
+        box.innerHTML = '<div class="cc-recent__empty">' + (_ccActiveBoard === 'attention' ? 'Không có đơn nào đang chờ xử lý.' : 'Chưa có đơn nào hôm nay.') + '</div>';
+        return;
+    }
+    box.innerHTML = visible.map((o) => {
         const canAssign = o.status === 'pending';
         const canCancel = ['pending', 'assigned', 'processing'].includes(o.status);
         const label = o.status_label;
@@ -986,8 +1262,6 @@ function _ccLoadRecent(force) {
     if (document.hidden && force !== true) return; // tab đang ẩn thì thôi làm mới định kỳ; lần tải đầu luôn chạy
     @this.call('recentOrders').then((recent) => {
         _ccRecentOrders = recent || [];
-        const recentCount = document.getElementById('cc-recent-count');
-        if (recentCount) recentCount.textContent = _ccRecentOrders.length;
         _ccRenderRecent(_ccRecentOrders);
     }).catch(() => {});
 }

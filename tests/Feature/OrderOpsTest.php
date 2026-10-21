@@ -165,17 +165,18 @@ class OrderOpsTest extends TestCase
 
         $base = ['pickup_address' => '1 Lê Lợi', 'delivery_address' => '2 Trần Phú', 'shipping_fee' => 20000, 'fee_note' => ''];
 
-        // Mua hộ cũng không bắt buộc SĐT (trang riêng để không đổi trạng thái của $page)
+        // Mua hộ bắt buộc SĐT khách (trang riêng để không đổi trạng thái của $page)
         $shopping = Livewire::test(CallCenterPage::class)->call('selectService', 'shopping')->set('pickupLat', 10.0)->set('pickupLng', 105.0)
             ->set('data', $base + ['contact_phone' => '', 'delivery_phone' => '', 'shopping_note' => 'Trà sữa'])->call('placeOrder');
-        $this->assertArrayNotHasKey('contact_phone', $shopping->get('fieldErrors'));
+        $this->assertArrayHasKey('contact_phone', $shopping->get('fieldErrors'));
+        $shopping->set('data.contact_phone', '0909 111 222')->call('placeOrder');
         $this->assertNotNull($shopping->get('resultOrderCode'));
 
         // Cùng SĐT + địa chỉ với đơn vừa tạo: không còn cảnh báo trùng, đặt bình thường
         $this->order(['pickup_phone' => '0911222333', 'pickup_address' => '1 Lê Lợi']);
         $page->set('data', $base + ['contact_phone' => '0911 222 333', 'delivery_phone' => ''])->call('placeOrder');
         $this->assertNotNull($page->get('resultOrderCode'));
-        $this->assertSame(3, Order::where('city_id', $this->city->id)->count(), 'đơn Mua hộ không SĐT + đơn mẫu + đơn vừa đặt');
+        $this->assertSame(3, Order::where('city_id', $this->city->id)->count(), 'đơn Mua hộ có SĐT + đơn mẫu + đơn vừa đặt');
 
         // Phí khác giá hệ thống hoặc 0₫ không còn bắt buộc lý do (sau mỗi lần đặt, form và toạ độ được làm sạch nên chọn lại điểm)
         $page->set('pickupLat', 10.0)->set('pickupLng', 105.0);
