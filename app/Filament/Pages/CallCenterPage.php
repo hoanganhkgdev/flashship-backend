@@ -97,12 +97,6 @@ class CallCenterPage extends Page implements HasForms
     // này, chỉ là trang tổng đài trước giờ luôn hardcode false).
     public bool $isFreeship = false;
 
-    // Lịch sử khách theo SĐT và cảnh báo đơn trùng
-    public array $history = [];
-
-    /** Tóm tắt khách theo SĐT: tên, tổng đơn, số đơn đã hủy. */
-    public array $customer = [];
-
     /** Lỗi theo từng ô (khóa = tên ô) để báo ngay dưới ô sai thay vì chỉ một dòng trên đầu trang. */
     public array $fieldErrors = [];
 
@@ -175,7 +169,6 @@ class CallCenterPage extends Page implements HasForms
             $this->form->fill([
                 'city_id' => $this->userCityId(),
                 'contact_phone' => $this->contactFromParts($service, (string) $request->get('pickup_phone', ''), (string) $request->get('delivery_phone', '')),
-                'contact_name' => '',
                 'pickup_address' => $request->get('pickup_address', ''),
                 'delivery_address' => $request->get('delivery_address', ''),
                 'delivery_phone' => $service === 'delivery' ? $request->get('delivery_phone', '') : '',
@@ -199,8 +192,8 @@ class CallCenterPage extends Page implements HasForms
         return [
             'city_id' => $cityId ?? $this->userCityId(),
             'contact_phone' => '', // SĐT liên hệ: shop/khách đang gọi — luôn hỏi đầu tiên
-            'contact_name' => '',
             'pickup_address' => '',
+            'pickup_place_name' => '', // Tên cửa hàng từ Google khi chọn gợi ý điểm lấy
             'delivery_address' => '',
             'delivery_phone' => '', // Lấy hộ: SĐT người nhận (tuỳ chọn — shop nhiều khi chưa cho)
             'shopping_note' => '', // Mua hộ: nội dung đơn / gọi khách
@@ -274,9 +267,11 @@ class CallCenterPage extends Page implements HasForms
         unset($this->fieldErrors['shipping_fee']);
     }
 
-    public function setPickupLocation(string $address, float $lat, float $lng): void
+    /** $placeName: tên cửa hàng/địa điểm Google trả về (null khi chọn một địa chỉ thường); ô nhập hiện tên, địa chỉ nằm dòng dưới. */
+    public function setPickupLocation(string $address, float $lat, float $lng, ?string $placeName = null): void
     {
         $this->data['pickup_address'] = $address;
+        $this->data['pickup_place_name'] = mb_substr(trim((string) $placeName), 0, 100);
         $this->pickupLat = $lat;
         $this->pickupLng = $lng;
         $this->previewFee = null;
@@ -464,84 +459,17 @@ class CallCenterPage extends Page implements HasForms
         return $address.', '.$cityName;
     }
 
-    // ─── Tra cứu khách theo SĐT ──────────────────────────────────────────────
+    // ─── SĐT ─────────────────────────────────────────────────────────────────
 
     private function normalizePhone(?string $phone): string
     {
         return preg_replace('/\D+/', '', (string) $phone);
     }
 
-    /** Livewire: gõ SĐT liên hệ thì tra khách; sửa ô nào thì xóa lỗi của ô đó. */
+    /** Livewire: sửa ô nào thì xóa lỗi của ô đó. */
     public function updatedData($value, $key): void
     {
         unset($this->fieldErrors[$key]);
-        if ($key === 'contact_phone') {
-            $this->loadHistory((string) $value);
-        }
-    }
-
-    /** Tra khách theo SĐT: tóm tắt (tên, tổng đơn, đơn hủy) + 5 hành trình gần nhất để điền nhanh. */
-    public function loadHistory(string $phone): void
-    {
-        $digits = $this->normalizePhone($phone);
-        $this->history = [];
-        $this->customer = [];
-        if (strlen($digits) < 9) {
-            return;
-        }
-
-        $like = '%'.substr($digits, -9);
-        $base = Order::query()
-            ->where('city_id', $this->userCityId())
-            ->where(fn ($q) => $q->where('pickup_phone', 'like', $like)->orWhere('delivery_phone', 'like', $like));
-
-        $agg = (clone $base)->selectRaw('COUNT(*) as total, SUM(status = "cancelled") as cancelled, MAX(created_at) as last_at')->first();
-        $total = (int) ($agg->total ?? 0);
-        if ($total === 0) {
-            return;
-        }
-
-        $name = (string) ((clone $base)->whereNotNull('sender_name')->where('sender_name', '!=', '')->latest('id')->value('sender_name') ?? '');
-        $cancelled = (int) $agg->cancelled;
-        $this->customer = [
-            'name' => $name,
-            'total' => $total,
-            'cancelled' => $cancelled,
-            // Hủy nhiều so với số đơn: nhắc tổng đài xác nhận kỹ trước khi phát đơn
-            'risky' => $total >= 3 && $cancelled / $total >= 0.4,
-            'last_at' => $agg->last_at ? Carbon::parse($agg->last_at)->format('d/m H:i') : null,
-        ];
-        if ($name !== '' && trim((string) ($this->data['contact_name'] ?? '')) === '') {
-            $this->data['contact_name'] = $name;
-        }
-
-        $labels = ServiceType::pluck('label', 'key');
-        $this->history = (clone $base)
-            ->orderByDesc('id')->limit(5)
-            ->get(['id', 'code', 'service_type', 'status', 'pickup_address', 'delivery_address', 'created_at'])
-            ->map(fn (Order $o) => [
-                'id' => $o->id, 'code' => $o->code, 'service' => $labels[$o->service_type] ?? $o->service_type,
-                'status' => $o->status, 'pickup' => $o->pickup_address, 'delivery' => $o->delivery_address, 'when' => $o->created_at?->format('d/m H:i'),
-            ])->all();
-    }
-
-    /** Điền lại hành trình từ một đơn cũ của khách (kèm toạ độ để khỏi phải chọn lại). */
-    public function useHistory(int $orderId): void
-    {
-        $o = Order::where('city_id', $this->userCityId())->find($orderId);
-        if (! $o) {
-            return;
-        }
-        $this->data['pickup_address'] = $o->pickup_address;
-        $this->data['delivery_address'] = $o->delivery_address;
-        $this->pickupLat = $o->pickup_lat ? (float) $o->pickup_lat : null;
-        $this->pickupLng = $o->pickup_lng ? (float) $o->pickup_lng : null;
-        $this->deliveryLat = $o->delivery_lat ? (float) $o->delivery_lat : null;
-        $this->deliveryLng = $o->delivery_lng ? (float) $o->delivery_lng : null;
-        $this->previewFee = null;
-        unset($this->fieldErrors['pickup_address'], $this->fieldErrors['delivery_address']);
-        $this->suggestShippingFee();
-        $this->refreshNearbyDrivers();
     }
 
     // ─── Đặt đơn ─────────────────────────────────────────────────────────────
@@ -673,8 +601,6 @@ class CallCenterPage extends Page implements HasForms
                 $note = trim($missingDeliveryNote.' '.$note);
             }
 
-            $contactName = mb_substr(trim((string) ($values['contact_name'] ?? '')), 0, 100);
-
             $order = Order::create([
                 'code' => '',
                 'service_type' => $this->serviceType,
@@ -688,8 +614,8 @@ class CallCenterPage extends Page implements HasForms
                 'status' => 'pending',
                 'payment_method' => 'cod',
                 'sender_platform_id' => null,
-                'sender_name' => $contactName !== '' ? $contactName : null,
-                'pickup_place_name' => null,
+                'sender_name' => null,
+                'pickup_place_name' => trim((string) ($values['pickup_place_name'] ?? '')) ?: null,
                 'pickup_address' => $values['pickup_address'],
                 'pickup_lat' => $pickupLat,
                 'pickup_lng' => $pickupLng,
@@ -764,8 +690,6 @@ class CallCenterPage extends Page implements HasForms
             $this->nearbyDrivers = [];
             $this->assignedDriverId = null;
             $this->isFreeship = false;
-            $this->history = [];
-            $this->customer = [];
 
             $this->form->fill($this->defaultFormData($cityId));
             $this->refreshNearbyDrivers();

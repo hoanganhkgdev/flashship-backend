@@ -132,6 +132,8 @@
     .cc-input.has-err, .cc-textarea.has-err, .cc-card.has-err { border-color:#ef4444 !important; background:#fef2f2; }
     .cc-err { margin-top:2px; color:#dc2626; font-size:11px; line-height:1.3; }
     .cc-hint { margin-top:3px; color:#94a3b8; font-size:11px; line-height:1.3; }
+    .cc-addr-sub { margin-top:1px; color:#64748b; font-size:11.5px; line-height:1.3; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .dark .cc-addr-sub { color:#94a3b8; }
     .cc-hint.warn { color:#b45309; }
     .cc-textarea { resize:none; line-height:1.35; }
     .cc-fee-wrap { position:relative; }
@@ -148,14 +150,6 @@
     .cc-feeline { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:3px 10px; margin-top:5px; font-size:11px; color:#94a3b8; }
     .cc-feeline button { color:var(--cc-accent); font-weight:700; cursor:pointer; }
 
-    .cc-customer { display:flex; align-items:center; gap:4px 8px; margin-top:6px; padding:4px 8px; border-radius:8px; background:#f0fdf4; color:#166534; font-size:var(--fs-xs); }
-    .cc-customer.risky { background:#fef2f2; color:#b91c1c; }
-    .cc-customer b { font-size:var(--fs-sm); }
-    .cc-customer > span { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-    .cc-customer > button { flex:none; padding:1px 8px; border:1px solid currentColor; border-radius:999px; font-size:11px; font-weight:700; cursor:pointer; }
-    .cc-history { margin-top:4px; max-height:132px; overflow-y:auto; }
-    .cc-history button { display:block; width:100%; padding:4px 2px; border-top:1px solid rgba(148,163,184,.25); text-align:left; font-size:11px; line-height:1.3; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-    .cc-history button:hover { background:rgba(148,163,184,.1); }
 
     /* Thanh đặt đơn dính đáy khung form: phí ở trái, nút đặt ở phải */
     .cc-bar { flex:none; display:flex; align-items:center; gap:10px; padding:8px 10px; border-top:1px solid #e5e7eb; background:#f8fafc; }
@@ -200,7 +194,6 @@
     .dark .cc-service-tab { background:#1c2331; color:#cbd5e1; } .dark .cc-service-tab.active { color:#fff; }
     .dark .cc-bar { border-color:#293142; background:#121620; }
     .dark .cc-bar__info b { color:#f8fafc; }
-    .dark .cc-customer { background:#0f2a1a; color:#86efac; } .dark .cc-customer.risky { background:#3a1414; color:#fca5a5; }
     .dark .cc-recent { border-color:#293142; background:#171b25; }
     .dark .cc-recent__head { border-color:#293142; color:#94a3b8; }
     .dark .cc-recent__tab.active { border-color:#9a3412; background:#431407; color:#fdba74; }
@@ -257,10 +250,6 @@
     .cc-feeline { margin-top:10px; font-size:13px; }
     .cc-check { font-size:14px; }
     .cc-check input { width:17px; height:17px; }
-    .cc-customer { margin-top:10px; padding:8px 12px; font-size:13.5px; border-radius:10px; }
-    .cc-customer b { font-size:var(--fs-base, 14px); }
-    .cc-customer > button { padding:3px 11px; font-size:12px; }
-    .cc-history button { padding:7px 4px; font-size:12.5px; }
 
     .cc-bar { padding:14px 16px; gap:16px; }
     .cc-bar__info { font-size:13px; gap:3px; }
@@ -321,7 +310,7 @@
         .cc-addr-tag { width:52px; font-size:10px; }
         .cc-address-col input { height:29px; font-size:var(--fs-sm, .875rem); }
         .cc-pin-btn { width:30px; height:30px; }
-        .cc-err, .cc-hint, .cc-feeline, .cc-customer, .cc-history button { font-size:var(--fs-xs, .75rem); }
+        .cc-err, .cc-hint, .cc-feeline { font-size:var(--fs-xs, .75rem); }
         .cc-bar { gap:10px; padding:10px 12px; }
         .cc-bar__info { gap:1px; font-size:var(--fs-xs, .75rem); }
         .cc-bar__info b { font-size:var(--fs-sm, .875rem); }
@@ -341,38 +330,6 @@
       <form id="cc-form" class="cc-form" wire:submit="placeOrder"
             onkeydown="if (event.key === 'Enter' && event.target.tagName !== 'TEXTAREA') { event.preventDefault(); if (event.target.type === 'tel') event.target.blur(); }">
         <div class="cc-scroll">
-
-            {{-- Khách: hỏi SĐT trước --}}
-            <div class="cc-card {{ $err('contact_phone') ? 'has-err' : '' }}" x-data="{ hist: false }">
-                <div class="cc-row2">
-                    <div>
-                        <label class="cc-lbl">{{ $contactLabel }}<small>(tuỳ chọn)</small></label>
-                        <input type="tel" inputmode="tel" class="cc-input {{ $err('contact_phone') ? 'has-err' : '' }}" wire:model.blur="data.contact_phone" placeholder="09xx xxx xxx" autocomplete="off" />
-                    </div>
-                    <div>
-                        <label class="cc-lbl">Tên <small>(tuỳ chọn)</small></label>
-                        <input type="text" class="cc-input" wire:model.blur="data.contact_name" placeholder="Tên shop / khách" autocomplete="off" />
-                    </div>
-                </div>
-                @if ($err('contact_phone'))<p class="cc-err">{{ $err('contact_phone') }}</p>@endif
-
-                @if (! empty($customer))
-                <div class="cc-customer {{ $customer['risky'] ? 'risky' : '' }}">
-                    <b>{{ $customer['name'] ?: 'Khách quen' }}</b>
-                    <span>{{ $customer['total'] }} đơn · {{ $customer['cancelled'] }} hủy @if ($customer['risky']) · HAY HỦY — xác nhận kỹ @endif</span>
-                    @if (! empty($history))<button type="button" x-on:click="hist = ! hist" x-text="hist ? 'Ẩn đơn cũ' : 'Đơn cũ ({{ count($history) }})'"></button>@endif
-                </div>
-                @endif
-                @if (! empty($history))
-                <div class="cc-history" x-show="hist" x-cloak>
-                    @foreach ($history as $h)
-                    <button type="button" wire:click="useHistory({{ $h['id'] }})" x-on:click="hist = false" wire:key="hist-{{ $h['id'] }}" title="Bấm để điền lại hành trình">
-                        <b>#{{ $h['code'] }}</b> {{ $h['when'] }}{{ $h['status'] === 'cancelled' ? ' · hủy' : '' }} · {{ \Illuminate\Support\Str::limit($h['pickup'], 30) }} → {{ $h['delivery'] ? \Illuminate\Support\Str::limit($h['delivery'], 30) : 'chưa có điểm giao' }}
-                    </button>
-                    @endforeach
-                </div>
-                @endif
-            </div>
 
             {{-- Dịch vụ --}}
             <div class="cc-service-tabs">
@@ -409,7 +366,8 @@
                     <span class="cc-addr-tag" title="{{ $pickupLabel }}">{{ $pickupShort }}</span>
                     <div class="cc-address-col">
                         <input id="cc-pickup-input" type="text" placeholder="{{ $pickupLabel }}: nhập địa chỉ..." autocomplete="off"
-                            value="{{ $data['pickup_address'] ?? '' }}" onblur="_syncTyped('pickup')" />
+                            value="{{ ($data['pickup_place_name'] ?? '') !== '' ? $data['pickup_place_name'] : ($data['pickup_address'] ?? '') }}" onblur="_syncTyped('pickup')" />
+                        @if (($data['pickup_place_name'] ?? '') !== '')<p class="cc-addr-sub" title="{{ $data['pickup_address'] ?? '' }}">{{ $data['pickup_address'] ?? '' }}</p>@endif
                         @if ($err('pickup_address'))<p class="cc-err">{{ $err('pickup_address') }}</p>@endif
                     </div>
                     <button type="button" id="cc-pin-btn-pickup" class="cc-pin-btn" onclick="_togglePinMode('pickup')" title="Chọn điểm lấy hàng trên bản đồ">
@@ -430,6 +388,15 @@
                     </button>
                 </div>
                 @endif
+            </div>
+
+            {{-- Khách: hỏi SĐT trước --}}
+            <div class="cc-card {{ $err('contact_phone') ? 'has-err' : '' }}">
+                <div class="cc-fld">
+                    <label class="cc-lbl">{{ $contactLabel }}<small>(tuỳ chọn)</small></label>
+                    <input type="tel" inputmode="tel" class="cc-input {{ $err('contact_phone') ? 'has-err' : '' }}" wire:model.blur="data.contact_phone" placeholder="09xx xxx xxx" autocomplete="off" />
+                </div>
+                @if ($err('contact_phone'))<p class="cc-err">{{ $err('contact_phone') }}</p>@endif
             </div>
 
             {{-- Chi tiết theo dịch vụ --}}
@@ -710,8 +677,13 @@ function _initSearchAutocomplete() {
             const p = _pickupAc.getPlace();
             if (!p.geometry?.location) return;
             const lat = p.geometry.location.lat(), lng = p.geometry.location.lng();
-            pickupInput._picked = (p.formatted_address || pickupInput.value).trim();
-            @this.call('setPickupLocation', p.formatted_address || pickupInput.value, lat, lng).then(() => {
+            const addr = (p.formatted_address || pickupInput.value).trim();
+            // Cửa hàng/địa điểm: ô hiện tên, địa chỉ nằm dòng dưới; địa chỉ thường: ô hiện địa chỉ như cũ
+            const isPlace = (p.types || []).some((t) => t === 'establishment' || t === 'point_of_interest');
+            const name = isPlace ? (p.name || '').trim() : '';
+            if (name) pickupInput.value = name;
+            pickupInput._picked = (name || addr).trim();
+            @this.call('setPickupLocation', addr, lat, lng, name || null).then(() => {
                 _updateFeeInfo();
                 _refreshDriverMarkers(true);
             });
@@ -918,11 +890,12 @@ document.addEventListener('livewire:initialized', () => {
                 const pLat = @this.pickupLat, pLng = @this.pickupLng;
                 const dLat = @this.deliveryLat, dLng = @this.deliveryLng;
                 const pAddr = (@this.data && @this.data.pickup_address) || '';
+                const pShow = (@this.data && @this.data.pickup_place_name) || pAddr;
                 const dAddr = (@this.data && @this.data.delivery_address) || '';
                 const pi = document.getElementById('cc-pickup-input');
                 const di = document.getElementById('cc-delivery-input');
                 // Địa chỉ do server điền (đơn cũ, đặt lại, chọn bản đồ) phải hiện lên ô; đang gõ dở ở ô nào thì không đè
-                if (pi && pAddr && document.activeElement !== pi && pi.value.trim() !== pAddr.trim()) pi.value = pAddr;
+                if (pi && pAddr && document.activeElement !== pi && pi.value.trim() !== pShow.trim()) pi.value = pShow;
                 if (di && dAddr && document.activeElement !== di && di.value.trim() !== dAddr.trim()) di.value = dAddr;
                 if (pLat && pLng) {
                     _setPickupPin(pLat, pLng, false);
@@ -932,7 +905,8 @@ document.addEventListener('livewire:initialized', () => {
                     _clearDriverMarkers();
                     if (_pickupMarker) { _pickupMarker.setMap(null); _pickupMarker = null; }
                     // Chưa có toạ độ nhưng còn chữ đã gõ thì giữ lại (chưa chọn gợi ý); chỉ xoá khi form đã được làm sạch
-                    if (pi && !pAddr) pi.value = '';
+                    // Ô đang gõ (chữ chưa đẩy lên server vì không gắn wire:model) thì không xoá, nếu không request nào vừa xong cũng làm mất chữ
+                    if (pi && !pAddr && document.activeElement !== pi) pi.value = '';
                 }
                 if (dLat && dLng) {
                     _setDeliveryPin(dLat, dLng);
@@ -940,7 +914,7 @@ document.addEventListener('livewire:initialized', () => {
                 } else {
                     if (_deliveryMarker) { _deliveryMarker.setMap(null); _deliveryMarker = null; }
                     _clearRoute();
-                    if (di && !dAddr) di.value = '';
+                    if (di && !dAddr && document.activeElement !== di) di.value = '';
                 }
                 if (_mapsReady) _initSearchAutocomplete();
             }, 150);
@@ -972,6 +946,7 @@ function _syncTypedNow(kind) {
     const cur = ((@this.data || {})[`${kind}_address`] || '').trim();
     if (v === cur || v === (el._picked || '')) return;
     @this.set(`data.${kind}_address`, v, false);
+    if (kind === 'pickup') @this.set('data.pickup_place_name', '', false);
     @this.set(`${kind}Lat`, null, false);
     @this.set(`${kind}Lng`, null, false);
     if (kind === 'pickup' && _pickupMarker) { _pickupMarker.setMap(null); _pickupMarker = null; }

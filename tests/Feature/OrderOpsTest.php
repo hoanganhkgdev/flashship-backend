@@ -184,25 +184,6 @@ class OrderOpsTest extends TestCase
         $this->assertNotNull($page->get('resultOrderCode'));
     }
 
-    public function test_call_center_customer_history_and_reuse(): void
-    {
-        $old = $this->order(['pickup_phone' => '0977123456', 'pickup_address' => 'Quán A', 'delivery_address' => 'Nhà B', 'pickup_lat' => 10.2, 'pickup_lng' => 105.2, 'sender_name' => 'Quán A']);
-        $this->order(['pickup_phone' => '0977123456', 'status' => 'cancelled']);
-
-        $page = Livewire::test(CallCenterPage::class)->set('data', ['contact_phone' => '0977 123 456', 'contact_name' => '', 'pickup_address' => '', 'delivery_address' => '', 'shipping_fee' => null, 'fee_note' => ''])
-            ->call('loadHistory', '0977 123 456');
-        $this->assertContains($old->code, collect($page->get('history'))->pluck('code')->all());
-        $customer = $page->get('customer');
-        $this->assertSame(2, $customer['total']);
-        $this->assertSame(1, $customer['cancelled']);
-        $this->assertSame('Quán A', $customer['name']);
-        $this->assertSame('Quán A', $page->get('data')['contact_name'], 'tự điền tên khách quen');
-
-        $page->call('useHistory', $old->id);
-        $this->assertSame('Quán A', $page->get('data')['pickup_address']);
-        $this->assertSame(10.2, $page->get('pickupLat'));
-    }
-
     // ── Danh sách đơn ─────────────────────────────────────────────────────────
 
     public function test_addresses_are_shortened_for_display_only(): void

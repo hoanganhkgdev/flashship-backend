@@ -60,14 +60,14 @@ class CallCenterTest extends TestCase
     private function data(array $o = []): array
     {
         return $o + [
-            'contact_phone' => '0911222333', 'contact_name' => '', 'pickup_address' => 'Quán Cơm Cô Ba', 'delivery_address' => '', 'delivery_phone' => '',
+            'contact_phone' => '0911222333', 'pickup_address' => 'Quán Cơm Cô Ba', 'delivery_address' => '', 'delivery_phone' => '',
             'shopping_note' => '', 'order_note' => '', 'cod_amount' => null, 'shipping_fee' => 15000, 'fee_note' => '',
         ];
     }
 
     public function test_shop_order_can_be_placed_without_the_delivery_point_or_customer_phone(): void
     {
-        $page = $this->page('delivery')->set('data', $this->data(['contact_name' => 'Cơm Cô Ba', 'order_note' => 'Mang 2 phần']))->call('placeOrder');
+        $page = $this->page('delivery')->set('data', $this->data(['order_note' => 'Mang 2 phần']))->call('placeOrder');
 
         $this->assertSame([], $page->get('fieldErrors'));
         $this->assertNotNull($page->get('resultOrderCode'), (string) $page->get('resultError'));
@@ -76,7 +76,7 @@ class CallCenterTest extends TestCase
         $this->assertNull($order->delivery_lat);
         $this->assertSame('0911222333', $order->pickup_phone, 'SĐT shop là SĐT liên hệ');
         $this->assertNull($order->delivery_phone);
-        $this->assertSame('Cơm Cô Ba', $order->sender_name);
+        $this->assertNull($order->sender_name, 'tổng đài không còn nhập tên shop');
         $this->assertStringStartsWith(CallCenterPage::NO_DELIVERY_NOTE, $order->order_note, 'tài xế được báo hỏi shop khi lấy hàng');
         $this->assertStringContainsString('Mang 2 phần', $order->order_note);
         $this->assertStringContainsString('chưa có điểm giao', OrderTimeline::for($order)->where('type', 'created')->pluck('text')->implode(' | '));
@@ -152,18 +152,36 @@ class CallCenterTest extends TestCase
         $this->assertSame('0911 222 333', $recent[0]['phone']);
     }
 
-    public function test_risky_customer_is_flagged_and_old_url_redirects_with_query(): void
+    public function test_picked_store_name_is_kept_and_cleared_with_the_form(): void
     {
-        foreach (['cancelled', 'cancelled', 'completed'] as $st) {
-            Order::create(['code' => 'R'.uniqid(), 'status' => $st, 'city_id' => $this->city->id, 'service_type' => 'delivery', 'platform' => 'call_center',
-                'pickup_address' => 'a', 'delivery_address' => 'b', 'pickup_phone' => '0933444555', 'created_by' => $this->admin->id]);
-        }
-        $page = Livewire::test(CallCenterPage::class)->call('loadHistory', '0933 444 555');
-        $this->assertTrue($page->get('customer')['risky']);
+        $page = $this->page('delivery')
+            ->call('setPickupLocation', '187 Nguyễn Trung Trực, Rạch Giá', 10.01, 105.08, 'Bánh Mì Vui Ơi');
+        $this->assertSame('Bánh Mì Vui Ơi', $page->get('data')['pickup_place_name']);
 
+        $page->set('data', $page->get('data') + ['order_note' => 'x'])->call('placeOrder');
+        $order = Order::where('code', $page->get('resultOrderCode'))->firstOrFail();
+        $this->assertSame('Bánh Mì Vui Ơi', $order->pickup_place_name);
+        $this->assertSame('', $page->get('data')['pickup_place_name'], 'form được làm sạch sau khi đặt');
+
+        $page->call('setPickupLocation', '5 Hai Bà Trưng', 10.02, 105.09);
+        $this->assertSame('', $page->get('data')['pickup_place_name'], 'địa chỉ thường không mang tên cửa hàng cũ');
+    }
+
+    public function test_old_url_redirects_with_query(): void
+    {
         $this->get('/admin/'.$this->city->id.'/call-center-page?reorder=1&service=delivery')
             ->assertRedirect('/admin/'.$this->city->id.'/tong-dai-dat-don?reorder=1&service=delivery');
         $this->assertStringEndsWith('/tong-dai-dat-don', CallCenterPage::getUrl());
+    }
+
+    public function test_typing_the_phone_does_not_look_up_the_customer(): void
+    {
+        Order::create(['code' => 'R'.uniqid(), 'status' => 'completed', 'city_id' => $this->city->id, 'service_type' => 'delivery', 'platform' => 'call_center',
+            'pickup_address' => 'a', 'delivery_address' => 'b', 'pickup_phone' => '0933444555', 'sender_name' => 'Quán cũ', 'created_by' => $this->admin->id]);
+
+        $page = Livewire::test(CallCenterPage::class)->set('data.contact_phone', '0933 444 555');
+
+        $this->assertArrayNotHasKey('history', $page->instance()->all());
     }
 
     public function test_a_dispatch_failure_after_creating_the_order_is_reported_as_created_not_failed(): void
