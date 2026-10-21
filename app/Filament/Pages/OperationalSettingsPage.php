@@ -15,6 +15,7 @@ use Filament\Forms\Components\Tabs;
 use Filament\Forms\Components\Tabs\Tab;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\TimePicker;
+use Filament\Forms\Components\Toggle;
 use Filament\Forms\Concerns\InteractsWithForms;
 use Filament\Forms\Contracts\HasForms;
 use Filament\Forms\Form;
@@ -59,6 +60,7 @@ class OperationalSettingsPage extends Page implements HasForms
         'rating_window_hours' => 'order.rating_window_hours',
         'delayed_reminder_minutes' => 'order.delayed_reminder_minutes',
         'rain_mode_auto_off_hours' => 'rain_mode.auto_off_hours',
+        'debt_enabled' => 'debt.enabled',
         'penalty_debt_overdue_hours' => 'debt.penalty_overdue_hours',
         'low_wallet_balance_threshold' => 'wallet.low_balance_threshold',
         'min_withdraw_amount' => 'wallet.min_withdraw',
@@ -251,6 +253,9 @@ class OperationalSettingsPage extends Page implements HasForms
                     ->icon('heroicon-o-wallet')
                     ->columns(2)
                     ->schema([
+                        Toggle::make('debt_enabled')->label('Bật công nợ tài xế')
+                            ->helperText('Tắt: khu vực này không tạo phí tuần / phạt Offline mới và không chặn tài xế vì công nợ quá hạn. Công nợ đã có được giữ nguyên.')
+                            ->columnSpanFull(),
                         $this->money('low_wallet_balance_threshold', 'Cảnh báo số dư ví thấp dưới', 0, 999_999)
                             ->helperText('Tô đỏ số dư trong trang Ví tài xế'),
                         $this->money('min_withdraw_amount', 'Số tiền rút tối thiểu', 1_000, 10_000_000)
@@ -386,7 +391,7 @@ class OperationalSettingsPage extends Page implements HasForms
             'pricing.night_windows' => json_encode($nightWindows),
         ];
         foreach (self::FIELDS as $field => $key) {
-            $settings[$key] = $values[$field];
+            $settings[$key] = is_bool($values[$field]) ? (int) $values[$field] : $values[$field];
         }
         $before = collect($settings)->mapWithKeys(fn ($v, $k) => [$k => OperationalSettings::value($k, $this->cityId())])->all();
         OperationalSettings::put($settings, $this->cityId());

@@ -90,7 +90,8 @@ class OrderMarketService
             ->where('status', 1)
             ->where('is_online', true)
             ->whereNotNull('fcm_token')->where('fcm_token', '!=', '')
-            ->whereDoesntHave('debts', fn ($query) => $query->where('status', 'overdue'))
+            ->when(OperationalSettings::debtEnabled($order->city_id), fn ($query) => $query
+                ->whereDoesntHave('debts', fn ($debts) => $debts->where('status', 'overdue')))
             ->has('orders', '<', OperationalSettings::maxActiveOrdersPerDriver($order->city_id), 'and',
                 fn ($orders) => $orders->whereIn('status', ['assigned', 'processing']))
             ->whereNotExists(fn ($query) => $query->selectRaw('1')->from('driver_leave_requests')
@@ -334,7 +335,7 @@ class OrderMarketService
         if ($driver->user_type !== 'driver' || ! $driver->is_online || (int) $driver->status !== 1) {
             return false;
         }
-        if ($driver->debts()->where('status', 'overdue')->exists()) {
+        if (OperationalSettings::debtEnabled($driver->city_id) && $driver->debts()->where('status', 'overdue')->exists()) {
             return false;
         }
 

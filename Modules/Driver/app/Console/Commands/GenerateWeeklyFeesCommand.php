@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Modules\Core\Models\City;
 use Modules\Core\Models\User;
+use Modules\Core\Services\OperationalSettings;
 use Modules\Driver\Models\DriverDebt;
 
 class GenerateWeeklyFeesCommand extends Command
@@ -24,7 +25,8 @@ class GenerateWeeklyFeesCommand extends Command
 
         $this->info("Tạo phí tuần: {$weekStart->toDateString()} — {$weekEnd->toDateString()}");
 
-        $cities = City::active()->where('weekly_fee', '>', 0)->get();
+        $cities = City::active()->where('weekly_fee', '>', 0)->get()
+            ->filter(fn (City $city) => OperationalSettings::debtEnabled($city->id));
 
         if ($cities->isEmpty()) {
             $this->warn('Không có khu vực nào cấu hình phí tuần.');

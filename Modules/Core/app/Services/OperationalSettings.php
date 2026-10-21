@@ -31,6 +31,8 @@ class OperationalSettings
         // Danh sách khung giờ phụ phí đêm; "to" không tính, khung được vắt qua nửa đêm.
         'pricing.night_windows' => '[{"from":"23:00","to":"01:00","amount":5000},{"from":"01:00","to":"04:00","amount":10000}]',
         'rain_mode.auto_off_hours' => '6',
+        // 1 = khu vực có dùng công nợ; 0 = tắt (không tạo công nợ mới, không chặn tài xế vì nợ quá hạn).
+        'debt.enabled' => '1',
         'debt.penalty_overdue_hours' => '24',
         'wallet.low_balance_threshold' => '100000',
         'wallet.min_withdraw' => '100000',
@@ -193,6 +195,11 @@ class OperationalSettings
     public static function rainModeAutoOffHours(?int $cityId): int
     {
         return (int) self::value('rain_mode.auto_off_hours', $cityId);
+    }
+
+    public static function debtEnabled(?int $cityId): bool
+    {
+        return self::value('debt.enabled', $cityId) !== '0';
     }
 
     public static function penaltyDebtOverdueHours(?int $cityId): int

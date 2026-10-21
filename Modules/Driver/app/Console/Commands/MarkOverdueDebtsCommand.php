@@ -26,6 +26,7 @@ class MarkOverdueDebtsCommand extends Command
                     ->orWhere('ref_id', 'like', 'shift_offline_%');
             })
             ->get()
+            ->filter(fn (DriverDebt $debt) => OperationalSettings::debtEnabled($debt->driver?->city_id))
             ->filter(fn (DriverDebt $debt) => $debt->ref_id === null
                 || $debt->created_at->lte(Carbon::now()->subHours(
                     OperationalSettings::penaltyDebtOverdueHours($debt->driver?->city_id)

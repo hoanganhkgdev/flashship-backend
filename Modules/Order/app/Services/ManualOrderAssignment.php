@@ -167,6 +167,7 @@ class ManualOrderAssignment
 
     private function hasBlockedDebt(User $driver): bool
     {
-        return $driver->debts->where('status', 'overdue')->isNotEmpty();
+        return \Modules\Core\Services\OperationalSettings::debtEnabled($driver->city_id)
+            && $driver->debts->where('status', 'overdue')->isNotEmpty();
     }
 }

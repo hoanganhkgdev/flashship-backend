@@ -107,7 +107,9 @@ class DriverController extends Controller
                     ]];
                 }
 
-                $overdueDebt = $locked->debts()->where('status', 'overdue')->first();
+                $overdueDebt = \Modules\Core\Services\OperationalSettings::debtEnabled($locked->city_id)
+                    ? $locked->debts()->where('status', 'overdue')->first()
+                    : null;
                 if ($overdueDebt) {
                     $remaining = $overdueDebt->amount_due - $overdueDebt->amount_paid;
                     return ['error' => [

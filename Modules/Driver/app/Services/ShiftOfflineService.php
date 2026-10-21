@@ -171,7 +171,7 @@ class ShiftOfflineService
     {
         $amount = OperationalSettings::shiftOfflinePenaltyAmount($cityId);
         $limitMinutes = OperationalSettings::shiftOfflineLimitMinutes($cityId);
-        if ($amount <= 0) {
+        if ($amount <= 0 || ! OperationalSettings::debtEnabled($cityId)) {
             return false;
         }
         try {
