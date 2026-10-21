@@ -61,6 +61,9 @@ class OperationalSettingsPage extends Page implements HasForms
         'delayed_reminder_minutes' => 'order.delayed_reminder_minutes',
         'rain_mode_auto_off_hours' => 'rain_mode.auto_off_hours',
         'debt_enabled' => 'debt.enabled',
+        'debt_collection_mode' => 'debt.collection_mode',
+        'debt_daily_percent' => 'debt.daily_percent',
+        'debt_daily_overdue_hours' => 'debt.daily_overdue_hours',
         'penalty_debt_overdue_hours' => 'debt.penalty_overdue_hours',
         'low_wallet_balance_threshold' => 'wallet.low_balance_threshold',
         'min_withdraw_amount' => 'wallet.min_withdraw',
@@ -256,6 +259,20 @@ class OperationalSettingsPage extends Page implements HasForms
                         Toggle::make('debt_enabled')->label('Bật công nợ tài xế')
                             ->helperText('Tắt: khu vực này không tạo phí tuần / phạt Offline mới và không chặn tài xế vì công nợ quá hạn. Công nợ đã có được giữ nguyên.')
                             ->columnSpanFull(),
+                        Select::make('debt_collection_mode')->label('Cách thu công nợ')
+                            ->options([
+                                'weekly' => 'Phí tuần (số tiền đặt ở mục Khu vực)',
+                                'daily_percent' => '% phí ship theo ngày',
+                                'none' => 'Không thu định kỳ',
+                            ])
+                            ->native(false)->required()->live()
+                            ->helperText('Mỗi khu vực chọn một cách. Công nợ đã tạo theo cách cũ được giữ nguyên.')
+                            ->columnSpanFull(),
+                        $this->number('debt_daily_percent', '% phí ship thu mỗi ngày', '%', 0.1, 100, 0.1)
+                            ->visible(fn (Get $get): bool => $get('debt_collection_mode') === 'daily_percent')
+                            ->helperText('Mỗi sáng 00:05, thu % tổng phí ship các đơn hoàn thành hôm trước của từng tài xế, ghi thành một khoản công nợ'),
+                        $this->integer('debt_daily_overdue_hours', 'Công nợ % phí ship quá hạn sau', 'giờ', 1, 720)
+                            ->visible(fn (Get $get): bool => $get('debt_collection_mode') === 'daily_percent'),
                         $this->money('low_wallet_balance_threshold', 'Cảnh báo số dư ví thấp dưới', 0, 999_999)
                             ->helperText('Tô đỏ số dư trong trang Ví tài xế'),
                         $this->money('min_withdraw_amount', 'Số tiền rút tối thiểu', 1_000, 10_000_000)
@@ -332,7 +349,8 @@ class OperationalSettingsPage extends Page implements HasForms
         $state = [];
         foreach (self::FIELDS as $field => $key) {
             // "+ 0" giữ đúng kiểu int/float của chuỗi đã lưu, tránh 55 → 55.00000000000001.
-            $state[$field] = $value($key) + 0;
+            $raw = $value($key);
+            $state[$field] = is_numeric($raw) ? $raw + 0 : $raw;
         }
 
         $state['night_windows'] = $nightWindows;
@@ -391,7 +409,9 @@ class OperationalSettingsPage extends Page implements HasForms
             'pricing.night_windows' => json_encode($nightWindows),
         ];
         foreach (self::FIELDS as $field => $key) {
-            $settings[$key] = is_bool($values[$field]) ? (int) $values[$field] : $values[$field];
+            // Ô đang ẩn (vd. % phí ship khi khu vực thu phí tuần) không nằm trong state: giữ giá trị đã lưu.
+            $value = $values[$field] ?? OperationalSettings::value($key, $this->cityId());
+            $settings[$key] = is_bool($value) ? (int) $value : $value;
         }
         $before = collect($settings)->mapWithKeys(fn ($v, $k) => [$k => OperationalSettings::value($k, $this->cityId())])->all();
         OperationalSettings::put($settings, $this->cityId());

@@ -33,6 +33,11 @@ class OperationalSettings
         'rain_mode.auto_off_hours' => '6',
         // 1 = khu vực có dùng công nợ; 0 = tắt (không tạo công nợ mới, không chặn tài xế vì nợ quá hạn).
         'debt.enabled' => '1',
+        // Cách thu công nợ định kỳ của khu vực: weekly (phí tuần theo City::weekly_fee),
+        // daily_percent (% phí ship các đơn hoàn thành trong ngày) hoặc none.
+        'debt.collection_mode' => 'weekly',
+        'debt.daily_percent' => '10',
+        'debt.daily_overdue_hours' => '24',
         'debt.penalty_overdue_hours' => '24',
         'wallet.low_balance_threshold' => '100000',
         'wallet.min_withdraw' => '100000',
@@ -200,6 +205,24 @@ class OperationalSettings
     public static function debtEnabled(?int $cityId): bool
     {
         return self::value('debt.enabled', $cityId) !== '0';
+    }
+
+    public static function debtCollectionMode(?int $cityId): string
+    {
+        $mode = self::value('debt.collection_mode', $cityId);
+
+        return in_array($mode, ['weekly', 'daily_percent', 'none'], true) ? $mode : 'weekly';
+    }
+
+    /** % phí ship mỗi ngày thu từ tài xế (0–100). */
+    public static function dailyCommissionPercent(?int $cityId): float
+    {
+        return max(0, min(100, (float) self::value('debt.daily_percent', $cityId)));
+    }
+
+    public static function dailyCommissionOverdueHours(?int $cityId): int
+    {
+        return max(1, (int) self::value('debt.daily_overdue_hours', $cityId));
     }
 
     public static function penaltyDebtOverdueHours(?int $cityId): int

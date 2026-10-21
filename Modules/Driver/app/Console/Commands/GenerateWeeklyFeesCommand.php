@@ -26,7 +26,8 @@ class GenerateWeeklyFeesCommand extends Command
         $this->info("Tạo phí tuần: {$weekStart->toDateString()} — {$weekEnd->toDateString()}");
 
         $cities = City::active()->where('weekly_fee', '>', 0)->get()
-            ->filter(fn (City $city) => OperationalSettings::debtEnabled($city->id));
+            ->filter(fn (City $city) => OperationalSettings::debtEnabled($city->id)
+                && OperationalSettings::debtCollectionMode($city->id) === 'weekly');
 
         if ($cities->isEmpty()) {
             $this->warn('Không có khu vực nào cấu hình phí tuần.');

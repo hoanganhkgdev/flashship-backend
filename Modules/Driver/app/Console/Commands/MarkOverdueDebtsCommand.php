@@ -23,13 +23,17 @@ class MarkOverdueDebtsCommand extends Command
                 $q->whereNull('ref_id')->where('week_end', '<=', $today);
                 // Công nợ phạt (điểm cũ, Offline quá giờ): lọc hạn theo khu vực của tài xế bên dưới.
                 $q->orWhere('ref_id', 'like', 'score_penalty_%')
-                    ->orWhere('ref_id', 'like', 'shift_offline_%');
+                    ->orWhere('ref_id', 'like', 'shift_offline_%')
+                    // Công nợ % phí ship theo ngày: hạn riêng theo khu vực.
+                    ->orWhere('ref_id', 'like', 'daily_commission_%');
             })
             ->get()
             ->filter(fn (DriverDebt $debt) => $debt->driver === null || $debt->driver->debtApplies())
             ->filter(fn (DriverDebt $debt) => $debt->ref_id === null
                 || $debt->created_at->lte(Carbon::now()->subHours(
-                    OperationalSettings::penaltyDebtOverdueHours($debt->driver?->city_id)
+                    str_starts_with($debt->ref_id, 'daily_commission_')
+                        ? OperationalSettings::dailyCommissionOverdueHours($debt->driver?->city_id)
+                        : OperationalSettings::penaltyDebtOverdueHours($debt->driver?->city_id)
                 )));
 
         $count = 0;
