@@ -2,46 +2,43 @@
     @php
         $orders = $this->getOrders();
         $total = $this->getTotal();
-        $statusLabels = ['assigned' => 'Đã phân công', 'processing' => 'Đã lấy hàng'];
+        $statusLabels = ['pending' => 'Chờ tài xế', 'assigned' => 'Đã nhận', 'processing' => 'Đang giao'];
     @endphp
 
     <section class="fs-widget">
         <header class="fs-widget-header">
             <div>
-                <h2 class="fs-widget-title">Đơn đang chạy</h2>
-                <p class="fs-widget-description">Các đơn đã có tài xế, chưa giao xong</p>
+                <h2 class="fs-widget-title">Đơn cần theo dõi</h2>
+                <p class="fs-widget-description">Ưu tiên đơn chờ lâu, sau đó đến các đơn đang thực hiện</p>
             </div>
-            <span class="fs-status-pill"><span class="fs-status-dot"></span>{{ $total }} đang chạy</span>
+            <span class="fs-count-chip">{{ $total }} đơn hoạt động</span>
         </header>
 
         @if ($orders->isEmpty())
-            <div class="fs-empty"><div>Hiện không có đơn nào đang chạy</div></div>
+            <div class="fs-empty"><div>Không có đơn nào cần theo dõi</div></div>
         @else
-            <ul class="fs-live-list">
+            <div class="fs-ops-orders">
                 @foreach ($orders as $order)
-                    <li>
-                        <a class="fs-live-row" href="{{ \App\Filament\Resources\OrderResource::getUrl('view', ['record' => $order->id]) }}" wire:navigate>
-                            <span class="fs-live-row__main">
-                                <span class="fs-live-row__code">{{ $order->code ?: '#'.$order->id }}</span>
-                                <span class="fs-live-row__service">{{ $this->serviceLabel($order->service_type) }}</span>
-                                <span class="fs-order-pill fs-order-pill--{{ $order->status === 'assigned' ? 'info' : 'primary' }}">{{ $statusLabels[$order->status] ?? $order->status }}</span>
-                            </span>
-                            <span class="fs-live-row__route">
-                                {{ \Illuminate\Support\Str::limit($order->pickup_address, 34) }}
-                                <i>→</i>
-                                {{ \Illuminate\Support\Str::limit($order->delivery_address, 34) }}
-                            </span>
-                            <span class="fs-live-row__meta">
-                                <b>{{ $order->driver?->name ?? '—' }}</b>
-                                <small>{{ $order->created_at?->diffForHumans(['short' => true, 'parts' => 1]) }} · {{ number_format((float) $order->shipping_fee, 0, ',', '.') }}₫</small>
-                            </span>
-                        </a>
-                    </li>
+                    @php
+                        $waiting = $order->status === 'pending' ? (int) $order->created_at->diffInMinutes(now()) : 0;
+                        $urgent = $order->status === 'pending' && $waiting >= 5;
+                    @endphp
+                    <a class="fs-ops-order {{ $urgent ? 'is-urgent' : '' }}" href="{{ \App\Filament\Resources\OrderResource::getUrl('view', ['record' => $order->id]) }}" wire:navigate>
+                        <span class="fs-ops-order__code">#{{ $order->code ?: $order->id }}</span>
+                        <span class="fs-ops-order__route">
+                            <b>{{ \Illuminate\Support\Str::limit($order->pickup_address, 30) }}</b>
+                            <i>→</i>
+                            <span>{{ \Illuminate\Support\Str::limit($order->delivery_address ?: 'Chưa có điểm giao', 30) }}</span>
+                        </span>
+                        <span class="fs-ops-order__driver">{{ $order->driver?->name ?? 'Chưa có tài xế' }}</span>
+                        <span class="fs-ops-order__status is-{{ $order->status }}">{{ $statusLabels[$order->status] ?? $order->status }}@if ($order->status === 'pending') · {{ $waiting }}p @endif</span>
+                        <x-heroicon-o-chevron-right class="fs-ops-order__arrow" />
+                    </a>
                 @endforeach
-            </ul>
+            </div>
             @if ($total > $this->getLimit())
-                <a href="{{ \App\Filament\Resources\OrderResource::getUrl('index', ['activeTab' => 'processing']) }}" wire:navigate class="fs-driver-more">
-                    +{{ $total - $this->getLimit() }} đơn khác · Xem tất cả
+                <a href="{{ \App\Filament\Resources\OrderResource::getUrl() }}" wire:navigate class="fs-widget-link">
+                    Xem thêm {{ $total - $this->getLimit() }} đơn <x-heroicon-o-arrow-right />
                 </a>
             @endif
         @endif

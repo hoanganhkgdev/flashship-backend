@@ -4,6 +4,8 @@ namespace App\Filament\Widgets;
 
 use App\Filament\Resources\OrderResource;
 use App\Filament\Resources\WithdrawRequestResource;
+use App\Filament\Pages\DriverMapPage;
+use App\Services\DriverSupplyService;
 use Filament\Facades\Filament;
 use Carbon\Carbon;
 use Filament\Widgets\Widget;
@@ -57,6 +59,17 @@ class OpsAlertsWidget extends Widget
             'level' => $pendingCount === 0 ? 'ok' : ($waitMinutes >= self::PENDING_WARN_MINUTES ? 'danger' : 'warn'),
             'url' => OrderResource::getUrl('index', ['activeTab' => 'new']),
             'icon' => 'heroicon-o-clock',
+        ];
+
+        $supply = app(DriverSupplyService::class)->snapshot($cityId);
+        $dead = (int) $supply['dead'];
+        $alerts[] = [
+            'label' => 'Tài xế mất kết nối',
+            'count' => $dead,
+            'detail' => $dead ? "{$dead} tài xế online nhưng GPS đã cũ" : 'Tất cả tài xế online đang có tín hiệu',
+            'level' => $dead === 0 ? 'ok' : ($dead >= 3 ? 'danger' : 'warn'),
+            'url' => DriverMapPage::getUrl(),
+            'icon' => 'heroicon-o-signal-slash',
         ];
 
         // Yêu cầu rút tiền chờ duyệt (chỉ hiện với người có quyền xem).

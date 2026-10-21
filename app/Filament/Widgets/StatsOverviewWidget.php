@@ -49,6 +49,9 @@ class StatsOverviewWidget extends Widget
                 COALESCE(SUM(status = 'completed' AND completed_at BETWEEN ? AND ?), 0) AS completed_today,
                 COALESCE(SUM(CASE WHEN status = 'completed' AND completed_at BETWEEN ? AND ? THEN shipping_fee END), 0) AS revenue,
                 COALESCE(SUM(status IN ('pending', 'assigned', 'processing')), 0) AS active_orders,
+                COALESCE(SUM(status = 'pending'), 0) AS pending_orders,
+                COALESCE(SUM(status = 'assigned'), 0) AS assigned_orders,
+                COALESCE(SUM(status = 'processing'), 0) AS processing_orders,
                 COALESCE(SUM(created_at BETWEEN ? AND ?), 0) AS created_yday,
                 COALESCE(SUM(status = 'completed' AND completed_at BETWEEN ? AND ?), 0) AS completed_yday,
                 COALESCE(SUM(CASE WHEN status = 'completed' AND completed_at BETWEEN ? AND ? THEN shipping_fee END), 0) AS revenue_yday
@@ -69,6 +72,9 @@ class StatsOverviewWidget extends Widget
         ];
         // Đang chờ/xử lý: tất cả đơn chưa xong, không phân biệt ngày tạo (khớp tab ở trang Đơn hàng).
         $pendingOrders = (int) $row->active_orders;
+        $waitingOrders = (int) $row->pending_orders;
+        $assignedOrders = (int) $row->assigned_orders;
+        $processingOrders = (int) $row->processing_orders;
 
         // Cùng nguồn với trang Theo dõi phát đơn.
         $supply = app(DriverSupplyService::class)->snapshot($cityId);
@@ -79,7 +85,7 @@ class StatsOverviewWidget extends Widget
 
         $cityName = Filament::getTenant()?->name ?? 'Tất cả khu vực';
 
-        return compact('totalOrders', 'completedOrders', 'pendingOrders', 'cancelledOrders', 'revenue', 'completionRate', 'cityName', 'driversReady', 'driversOnline', 'driversBusy', 'driversDead', 'trends');
+        return compact('totalOrders', 'completedOrders', 'pendingOrders', 'waitingOrders', 'assignedOrders', 'processingOrders', 'cancelledOrders', 'revenue', 'completionRate', 'cityName', 'driversReady', 'driversOnline', 'driversBusy', 'driversDead', 'trends');
     }
 
     /** @return array{dir: string, text: string} */

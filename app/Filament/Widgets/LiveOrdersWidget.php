@@ -8,12 +8,12 @@ use Illuminate\Support\Collection;
 use Modules\Core\Models\ServiceType;
 use Modules\Order\Models\Order;
 
-/** Các đơn đang chạy ngoài đường (đã có tài xế, chưa giao xong). */
+/** Các đơn đang cần vận hành theo dõi, ưu tiên đơn chờ tài xế trước. */
 class LiveOrdersWidget extends Widget
 {
-    private const LIMIT = 8;
+    private const LIMIT = 10;
 
-    private const LIVE_STATUSES = ['assigned', 'processing'];
+    private const LIVE_STATUSES = ['pending', 'assigned', 'processing'];
 
     public static function canView(): bool
     {
@@ -41,6 +41,8 @@ class LiveOrdersWidget extends Widget
     {
         return $this->query()
             ->with('driver:id,name,phone')
+            ->orderByRaw("FIELD(status, 'pending', 'assigned', 'processing')")
+            ->orderByRaw("CASE WHEN status = 'pending' THEN created_at END ASC")
             ->orderByDesc('updated_at')
             ->limit(self::LIMIT)
             ->get(['id', 'code', 'service_type', 'status', 'delivery_man_id', 'pickup_address', 'delivery_address', 'shipping_fee', 'created_at', 'updated_at']);

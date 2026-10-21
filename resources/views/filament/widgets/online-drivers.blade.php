@@ -1,73 +1,35 @@
 <x-filament-widgets::widget>
     @php
-        $drivers = $this->getDrivers();
-        $totalOnline = $this->getTotalOnline();
-        $hiddenCount = max(0, $totalOnline - \App\Filament\Widgets\OnlineDriversWidget::DISPLAY_LIMIT);
+        $ready = (int) $supply['ready'];
+        $demand = max(1, (int) $pending);
+        $ratio = round($ready / $demand, 1);
+        $pressure = $pending === 0 ? 'Ổn định' : ($ready >= $pending ? 'Đủ lực lượng' : 'Đang thiếu xe');
+        $pressureClass = $pending > $ready ? 'danger' : 'ok';
     @endphp
-
-    <section class="fs-widget">
+    <section class="fs-widget fs-supply">
         <header class="fs-widget-header">
             <div>
-                <h2 class="fs-widget-title">Tài xế đang online</h2>
-                <p class="fs-widget-description">Nhấn vào tài xế để xem chi tiết điểm hoạt động</p>
+                <h2 class="fs-widget-title">Cân bằng đơn – tài xế</h2>
+                <p class="fs-widget-description">Nguồn lực trực tuyến tại {{ \Filament\Facades\Filament::getTenant()?->name ?? 'tất cả khu vực' }}</p>
             </div>
-            <span class="fs-status-pill">
-                <span class="fs-status-dot"></span>
-                {{ $totalOnline }} / {{ $this->getTotalDrivers() }} đang online
-            </span>
+            <span class="fs-supply__state is-{{ $pressureClass }}">{{ $pressure }}</span>
         </header>
 
-        @if ($drivers->isEmpty())
-            <div class="fs-empty">
-                <div>
-                    <x-heroicon-o-truck class="mx-auto mb-2 h-7 w-7" />
-                    Chưa có tài xế online trong khu vực này
-                </div>
-            </div>
-        @else
-            <div class="fs-driver-grid">
-                @foreach ($drivers as $driver)
-                    @php
-                        $initial = mb_strtoupper(mb_substr($driver->name, 0, 1));
-                        $photoUrl = $driver->profile_photo_path ? \Illuminate\Support\Facades\Storage::url($driver->profile_photo_path) : null;
-                        $driverUrl = \App\Filament\Resources\DriverResource::getUrl('view', ['record' => $driver->id]);
-                    @endphp
+        <div class="fs-supply__hero">
+            <div><span>Tài xế sẵn sàng</span><strong>{{ $ready }}</strong><small>/ {{ $supply['online'] }} online</small></div>
+            <i></i>
+            <div><span>Đơn đang chờ</span><strong>{{ $pending }}</strong><small>Tỷ lệ cung/cầu {{ $pending ? $ratio : '—' }}</small></div>
+        </div>
 
-                    <a
-                        href="{{ $driverUrl }}"
-                        wire:navigate
-                        class="fs-driver-card"
-                        style="--driver-color: #22c55e"
-                    >
-                        <div class="fs-driver-main">
-                            @if ($photoUrl)
-                                <img class="fs-driver-avatar" src="{{ $photoUrl }}" alt="{{ $driver->name }}">
-                            @else
-                                <span class="fs-driver-avatar">{{ $initial ?: '?' }}</span>
-                            @endif
+        <div class="fs-supply__grid">
+            <div><i class="green"></i><span>Rảnh</span><b>{{ $ready }}</b></div>
+            <div><i class="blue"></i><span>Đang chạy</span><b>{{ $supply['busy1'] }}</b></div>
+            <div><i class="violet"></i><span>Đủ đơn</span><b>{{ $supply['busy2'] }}</b></div>
+            <div><i class="red"></i><span>Mất kết nối</span><b>{{ $supply['dead'] }}</b></div>
+        </div>
 
-                            <div class="min-w-0">
-                                <p class="fs-driver-name">{{ $driver->name }}</p>
-                                <p class="fs-driver-phone">{{ $driver->phone ?? '—' }}</p>
-                            </div>
-                        </div>
-
-                        <div class="fs-driver-meta">
-                            @if ($driver->city)
-                                <span class="fs-city-badge">{{ $driver->city->name }}</span>
-                            @else
-                                <span class="text-xs text-gray-300">—</span>
-                            @endif
-                        </div>
-                    </a>
-                @endforeach
-            </div>
-
-            @if ($hiddenCount > 0)
-                <a href="{{ \App\Filament\Resources\DriverResource::getUrl() }}" wire:navigate class="fs-driver-more">
-                    +{{ $hiddenCount }} tài xế online khác · Xem tất cả
-                </a>
-            @endif
-        @endif
+        <a href="{{ \App\Filament\Pages\DriverMapPage::getUrl() }}" wire:navigate class="fs-widget-link">
+            Mở bản đồ điều phối <x-heroicon-o-arrow-right />
+        </a>
     </section>
 </x-filament-widgets::widget>

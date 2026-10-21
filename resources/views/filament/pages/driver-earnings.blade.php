@@ -8,6 +8,8 @@
         $dateFmt = $sameYear ? 'd/m' : 'd/m/Y';
         $compareLabel = $report['previous_from']->format($dateFmt) . '–' . $report['previous_to']->format($dateFmt);
         $sortArrow = fn (string $col) => $this->sortBy === $col ? ($this->sortDir === 'asc' ? '↑' : '↓') : '';
+        $topDriver = collect($report['drivers'])->sortByDesc('total')->first();
+        $bestRow = collect($chart['bars'])->sortByDesc('revenue')->first();
     @endphp
 
     <header class="fs-page-header">
@@ -18,9 +20,15 @@
                 Khu vực {{ filament()->getTenant()?->name }} · Đối soát phí giao, phụ phí, thưởng mưa và bù giảm giá theo kỳ.
             </p>
         </div>
-        <x-filament::button wire:click="exportCsv" wire:loading.attr="disabled" icon="heroicon-o-arrow-down-tray" color="gray">
-            Xuất CSV
-        </x-filament::button>
+        <div class="fs-rr-head-actions">
+            <div class="fs-rr-period-badge">
+                <span>Kỳ đối soát</span>
+                <b>{{ $report['from']->format('d/m/Y') }} – {{ $report['to']->format('d/m/Y') }}</b>
+            </div>
+            <x-filament::button wire:click="exportCsv" wire:loading.attr="disabled" icon="heroicon-o-arrow-down-tray" color="gray">
+                Xuất CSV
+            </x-filament::button>
+        </div>
     </header>
 
     {{-- Thanh lọc --}}
@@ -65,60 +73,32 @@
     @endif
 
     <div wire:loading.class="opacity-50" class="fs-rr-body">
-        <div class="fs-rr-top">
-            <article class="fs-rr-hero">
-                <p class="fs-rr-hero__label">Tổng thu nhập tài xế</p>
-                <strong class="fs-rr-hero__value">{{ $money($totals['total']) }}</strong>
+        <div class="fs-rr-kpi-grid fs-de-kpi-grid">
+            <article class="fs-rr-kpi fs-rr-kpi--revenue">
+                <span class="fs-rr-kpi__icon"><x-heroicon-o-banknotes /></span>
+                <div><span class="fs-rr-kpi__label">Tổng thu nhập</span><strong>{{ $money($totals['total']) }}</strong></div>
                 @include('filament.pages.partials.delta', ['change' => $totals['earnings_change'], 'label' => $compareLabel])
-                <svg class="fs-rr-spark" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
-                    <defs><linearGradient id="deSpark" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#f97316" stop-opacity=".35"/><stop offset="1" stop-color="#f97316" stop-opacity="0"/></linearGradient></defs>
-                    @if ($chart['spark_points'])
-                        <polygon points="0,100 {{ $chart['spark_points'] }} 100,100" fill="url(#deSpark)"/>
-                        <polyline points="{{ $chart['spark_points'] }}" fill="none" stroke="#f97316" stroke-width="2" vector-effect="non-scaling-stroke" stroke-linejoin="round"/>
-                    @endif
-                </svg>
             </article>
-
-            <div class="fs-rr-kpis">
-                <article class="fs-rr-kpi">
-                    <span class="fs-rr-kpi__label">Tài xế có thu nhập</span>
-                    <strong>{{ number_format($totals['earning_drivers'], 0, ',', '.') }}</strong>
-                    <small>trên {{ number_format($totals['drivers'], 0, ',', '.') }} tài xế · {{ number_format($totals['online'], 0, ',', '.') }} đang online</small>
-                </article>
-                <article class="fs-rr-kpi">
-                    <span class="fs-rr-kpi__label">Đơn hoàn thành</span>
-                    <strong>{{ number_format($totals['orders'], 0, ',', '.') }}</strong>
-                    <small>TB {{ $money($totals['avg_per_order']) }} thu nhập / đơn</small>
-                </article>
-                <article class="fs-rr-kpi">
-                    <span class="fs-rr-kpi__label">Trung bình / tài xế</span>
-                    <strong>{{ $money($totals['avg_per_driver']) }}</strong>
-                    <small>Tính trên tài xế có thu nhập trong kỳ</small>
-                </article>
-            </div>
+            <article class="fs-rr-kpi fs-rr-kpi--orders">
+                <span class="fs-rr-kpi__icon"><x-heroicon-o-user-group /></span>
+                <div><span class="fs-rr-kpi__label">Tài xế có thu nhập</span><strong>{{ number_format($totals['earning_drivers'], 0, ',', '.') }}<small> / {{ number_format($totals['drivers'], 0, ',', '.') }}</small></strong></div>
+                <small>{{ number_format($totals['online'], 0, ',', '.') }} tài xế đang online</small>
+            </article>
+            <article class="fs-rr-kpi fs-rr-kpi--average">
+                <span class="fs-rr-kpi__icon"><x-heroicon-o-check-circle /></span>
+                <div><span class="fs-rr-kpi__label">Đơn hoàn thành</span><strong>{{ number_format($totals['orders'], 0, ',', '.') }}</strong></div>
+                <small>TB {{ $money($totals['avg_per_order']) }} / đơn</small>
+            </article>
+            <article class="fs-rr-kpi fs-rr-kpi--rate">
+                <span class="fs-rr-kpi__icon"><x-heroicon-o-calculator /></span>
+                <div><span class="fs-rr-kpi__label">Trung bình / tài xế</span><strong>{{ $money($totals['avg_per_driver']) }}</strong></div>
+                <small>Tính trên tài xế có thu nhập</small>
+            </article>
         </div>
 
-        {{-- Cấu thành thu nhập --}}
-        <section class="fs-rr-card">
-            <div class="fs-rr-bridge fs-rr-bridge--wide">
-                <div class="fs-rr-bridge__item"><span>Phí giao</span><strong>{{ $money($totals['shipping']) }}</strong></div>
-                <span class="fs-rr-bridge__op">+</span>
-                <div class="fs-rr-bridge__item"><span>Phụ phí</span><strong>{{ $money($totals['surcharge']) }}</strong></div>
-                <span class="fs-rr-bridge__op">+</span>
-                <div class="fs-rr-bridge__item"><span>Thưởng mưa</span><strong>{{ $money($totals['rain']) }}</strong></div>
-                <span class="fs-rr-bridge__op">+</span>
-                <div class="fs-rr-bridge__item"><span>Bù giảm giá</span><strong>{{ $money($totals['discount']) }}</strong></div>
-                <span class="fs-rr-bridge__op">=</span>
-                <div class="fs-rr-bridge__item fs-rr-bridge__item--total"><span>Tổng thu nhập</span><strong>{{ $money($totals['total']) }}</strong></div>
-            </div>
-            <div class="fs-rr-memo">
-                <span>Phí giao và phụ phí tính theo ngày đơn hoàn thành; thưởng mưa và bù giảm giá tính theo ngày ghi có vào ví.</span>
-                <span>Không gồm nạp/rút ví, điều chỉnh của admin và các khoản phạt.</span>
-            </div>
-        </section>
-
         {{-- Biểu đồ --}}
-        <section class="fs-rr-card">
+        <div class="fs-rr-main-grid">
+        <section class="fs-rr-card fs-rr-chart-card">
             <header class="fs-rr-card__head">
                 <div>
                     <h2>Xu hướng thu nhập</h2>
@@ -167,6 +147,30 @@
             </div>
         </section>
 
+        {{-- Cấu thành thu nhập --}}
+        <aside class="fs-rr-card fs-rr-composition fs-de-composition">
+            <header class="fs-rr-card__head"><div><h2>Cấu thành thu nhập</h2><p>Các khoản ghi nhận trong kỳ</p></div></header>
+            <div class="fs-rr-total-mini"><span>Tổng chi cho tài xế</span><strong>{{ $money($totals['total']) }}</strong></div>
+            <div class="fs-rr-composition__rows">
+                <div><span><i class="is-shipping"></i>Phí giao</span><b>{{ $money($totals['shipping']) }}</b></div>
+                <div><span><i class="is-extra"></i>Phụ phí</span><b>{{ $money($totals['surcharge']) }}</b></div>
+                <div><span><i class="is-rain"></i>Thưởng mưa</span><b>{{ $money($totals['rain']) }}</b></div>
+                <div><span><i class="is-discount"></i>Bù giảm giá</span><b>{{ $money($totals['discount']) }}</b></div>
+            </div>
+            @if ($topDriver && $topDriver['total'] > 0)
+                <div class="fs-de-leader">
+                    <span class="fs-de-leader__avatar">{{ mb_strtoupper(mb_substr(trim($topDriver['name']), 0, 1)) }}</span>
+                    <span><small>Thu nhập cao nhất</small><b>{{ $topDriver['name'] }}</b><strong>{{ $money($topDriver['total']) }}</strong></span>
+                </div>
+            @endif
+            @if ($bestRow && $bestRow['revenue'] > 0)
+                <div class="fs-rr-highlight"><x-heroicon-o-sparkles /><span>Cao nhất kỳ: <b>{{ $bestRow['label'] }}</b><strong>{{ $money($bestRow['revenue']) }}</strong></span></div>
+            @endif
+        </aside>
+        </div>
+
+        <p class="fs-de-accounting-note">Phí giao và phụ phí tính theo ngày hoàn thành; thưởng mưa và bù giảm giá theo ngày ghi có ví. Không gồm nạp/rút ví, điều chỉnh và khoản phạt.</p>
+
         {{-- Bảng tài xế --}}
         <section class="fs-rr-card">
             <header class="fs-rr-card__head">
@@ -191,7 +195,7 @@
                                 <td class="fs-de-rank">{{ $i + 1 }}</td>
                                 <td>
                                     <div class="fs-de-driver">
-                                        <span class="fs-de-dot {{ $d['is_online'] ? 'is-online' : '' }}" title="{{ $d['is_online'] ? 'Đang online' : 'Offline' }}"></span>
+                                        <span class="fs-de-avatar">{{ mb_strtoupper(mb_substr(trim($d['name']), 0, 1)) }}<i class="fs-de-dot {{ $d['is_online'] ? 'is-online' : '' }}" title="{{ $d['is_online'] ? 'Đang online' : 'Offline' }}"></i></span>
                                         <div>
                                             <b>{{ $d['name'] }}</b>
                                             <small>{{ $d['phone'] ?: 'Chưa có SĐT' }}@if ($d['locked']) · <em>Bị khóa</em>@endif</small>

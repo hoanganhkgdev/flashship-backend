@@ -2,10 +2,12 @@
 
 namespace App\Filament\Widgets;
 
+use App\Services\DriverSupplyService;
 use Filament\Facades\Filament;
 use Filament\Widgets\Widget;
 use Illuminate\Support\Collection;
 use Modules\Core\Models\User;
+use Modules\Order\Models\Order;
 
 class OnlineDriversWidget extends Widget
 {
@@ -30,6 +32,17 @@ class OnlineDriversWidget extends Widget
     private function cityId(): ?int
     {
         return Filament::getTenant()?->id;
+    }
+
+    protected function getViewData(): array
+    {
+        $cityId = $this->cityId();
+        $supply = app(DriverSupplyService::class)->snapshot($cityId);
+        $pending = Order::query()->when($cityId, fn ($q) => $q->where('city_id', $cityId))->where('status', 'pending')->count();
+        $totalDrivers = User::where('user_type', 'driver')->where('status', 1)
+            ->when($cityId, fn ($q) => $q->where('city_id', $cityId))->count();
+
+        return compact('supply', 'pending', 'totalDrivers');
     }
 
     public function getDrivers(): Collection

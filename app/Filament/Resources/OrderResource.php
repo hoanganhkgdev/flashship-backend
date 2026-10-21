@@ -13,8 +13,6 @@ use Filament\Infolists\Infolist;
 use Filament\Notifications\Notification;
 use Filament\Resources\Resource;
 use Filament\Tables;
-use Filament\Tables\Enums\FiltersLayout;
-use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
@@ -701,8 +699,9 @@ class OrderResource extends Resource
     private static function colOrder(Order $o): string
     {
         $service = self::serviceLabels()[$o->service_type] ?? $o->service_type;
+        $waitMinutes = $o->status === 'pending' ? (int) $o->created_at->diffInMinutes(now()) : 0;
         $age = $o->status === 'pending'
-            ? ' · <span class="fs-ol-wait">chờ '.self::minutesLabel((int) $o->created_at->diffInMinutes(now())).'</span>'
+            ? ' · <span class="fs-ol-wait'.($waitMinutes >= 5 ? ' is-alert' : '').'">chờ '.self::minutesLabel($waitMinutes).'</span>'
             : ($o->status === 'completed' && $o->completed_at ? ' · giao '.self::minutesLabel((int) $o->created_at->diffInMinutes($o->completed_at)) : '');
 
         return '<div class="fs-ol-order"><span class="fs-ol-l1"><b>#'.e($o->code).'</b><span class="fs-ol-svc" title="'.e($service).'">'.e(Str::limit((string) ($service ?: '—'), 14)).'</span></span>'
@@ -712,21 +711,25 @@ class OrderResource extends Resource
     private static function colJourney(Order $o): string
     {
         $note = trim((string) $o->order_note);
+        $pickup = trim((string) $o->pickup_address) ?: '—';
+        $delivery = trim((string) $o->delivery_address);
 
-        return '<div class="fs-ol-journey"><span class="fs-ol-from" title="'.e($o->pickup_address).'">'.e(trim((string) $o->pickup_address) ?: '—').'</span>'
-            .'<span class="fs-ol-to" title="'.e($o->delivery_address).'">'.(trim((string) $o->delivery_address) !== '' ? e(trim((string) $o->delivery_address)) : '<i class="fs-ol-nodel">Chưa có điểm giao</i>').'</span>'
+        return '<div class="fs-ol-journey"><span class="fs-ol-stop fs-ol-stop--pickup"><i>A</i><span><small>Điểm lấy</small><b title="'.e($pickup).'">'.e($pickup).'</b></span></span>'
+            .'<span class="fs-ol-stop fs-ol-stop--delivery"><i>B</i><span><small>Điểm giao</small><b title="'.e($delivery).'">'.($delivery !== '' ? e($delivery) : '<em>Chưa có điểm giao</em>').'</b></span></span>'
             .($note !== '' ? '<span class="fs-ol-note"><svg viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M3 4a2 2 0 012-2h10a2 2 0 012 2v8a2 2 0 01-2 2H9l-4 3v-3a2 2 0 01-2-2V4z"/></svg><b>Ghi chú</b><span class="fs-ol-note__txt">'.e($note).'</span><span class="fs-ol-note__pop">'.e($note).'</span></span>' : '').'</div>';
     }
 
     private static function colCustomer(Order $o): string
     {
         $phone = P::contactPhone($o);
+        $name = P::customerName($o);
+        $initial = mb_strtoupper(mb_substr(trim((string) $name), 0, 1)) ?: '?';
         $by = $o->platform === 'call_center'
             ? 'Tổng đài'.($o->creator && mb_strtolower(trim($o->creator->name)) !== 'tổng đài' ? ' · '.$o->creator->name : '')
             : self::sourceLabel($o);
 
-        return '<div class="fs-ol-customer"><b>'.e(P::customerName($o)).'</b>'
-            .'<span class="fs-ol-dim">'.($phone ? '<span class="fs-ol-phone" title="Bấm để sao chép" onclick="navigator.clipboard&&navigator.clipboard.writeText(\''.e(preg_replace('/\D+/', '', $phone)).'\');event.stopPropagation()">'.e(P::phone($phone)).'</span>' : 'Chưa có SĐT').' · '.e($by).'</span></div>';
+        return '<div class="fs-ol-customer"><span class="fs-ol-avatar">'.e($initial).'</span><span class="fs-ol-customer__body"><b>'.e($name).'</b>'
+            .'<span>'.($phone ? '<span class="fs-ol-phone" title="Bấm để sao chép" onclick="navigator.clipboard&&navigator.clipboard.writeText(\''.e(preg_replace('/\D+/', '', $phone)).'\');event.stopPropagation()">'.e(P::phone($phone)).'</span>' : '<em>Chưa có SĐT</em>').'</span><small>'.e($by).'</small></span></div>';
     }
 
     private static function colStatus(Order $o): string
@@ -736,8 +739,8 @@ class OrderResource extends Resource
         $second = $o->status === 'cancelled'
             ? '<span class="fs-ol-reason" title="'.e($o->cancel_note).'">'.e(OrderTimeline::cancelReasonLabel($o->cancel_reason)).'</span>'
             : ($o->driver
-                ? '<span class="fs-ol-driver"><b>'.e($o->driver->name).'</b> <small>'.e(P::phone($o->driver->phone)).'</small></span>'
-                : '<span class="fs-ol-dim">Chưa có tài xế</span>');
+                ? '<span class="fs-ol-driver"><i>'.e(mb_strtoupper(mb_substr(trim((string) $o->driver->name), 0, 1)) ?: '?').'</i><span><b>'.e($o->driver->name).'</b><small>'.e(P::phone($o->driver->phone)).'</small></span></span>'
+                : '<span class="fs-ol-no-driver">Chưa có tài xế</span>');
 
         return '<div class="fs-ol-status"><span class="fs-order-pill fs-order-pill--'.e($color).'">'.e($label).'</span>'.$second.'</div>';
     }
@@ -749,8 +752,9 @@ class OrderResource extends Resource
         $flags = ($o->is_freeship ? '<span class="fs-order-chip" title="Khách không trả phí ship">Freeship</span>' : '')
             .($o->fee_note ? '<span class="fs-order-chip" title="'.e($o->fee_note).'">Phí đã chỉnh</span>' : '');
 
-        return '<div class="fs-ol-money"><span class="fs-ol-l1"><b>'.number_format((int) $o->shipping_fee, 0, ',', '.').'đ</b>'.$flags.'</span>'
-            .'<span class="fs-ol-dim">'.e($payment).($cod > 0 ? ' · thu hộ '.number_format($cod, 0, ',', '.').'đ' : '').'</span></div>';
+        return '<div class="fs-ol-money"><b>'.number_format((int) $o->shipping_fee, 0, ',', '.').'đ</b>'
+            .'<span>'.e($payment).'</span>'.($cod > 0 ? '<small>Thu hộ <strong>'.number_format($cod, 0, ',', '.').'đ</strong></small>' : '')
+            .($flags !== '' ? '<span class="fs-ol-money__flags">'.$flags.'</span>' : '').'</div>';
     }
 
     /** Tìm thông minh: SĐT / mã đơn / địa chỉ-tài xế-ghi chú. */
@@ -833,59 +837,22 @@ class OrderResource extends Resource
                     ->html(),
 
                 Tables\Columns\TextColumn::make('customer')
-                    ->label('Khách')
+                    ->label('Khách / nguồn')
                     ->state(fn (Order $record): string => self::colCustomer($record))
                     ->html(),
 
                 Tables\Columns\TextColumn::make('status')
-                    ->label('Trạng thái')
+                    ->label('Điều phối')
                     ->formatStateUsing(fn ($state, Order $record): string => self::colStatus($record))
                     ->html(),
 
                 Tables\Columns\TextColumn::make('money')
-                    ->label('Tiền')
+                    ->label('Thanh toán')
                     ->state(fn (Order $record): string => self::colMoney($record))
                     ->html(),
             ])
-            ->recordClasses(fn (Order $record): string => 'fs-ol-row fs-order-row--'.(self::$statusColors[$record->status] ?? 'gray'))
-            ->filtersLayout(FiltersLayout::AboveContentCollapsible)
-            ->filtersFormColumns(4)
-            ->filters([
-                SelectFilter::make('period')
-                    ->label('Thời gian')
-                    ->options(['today' => 'Hôm nay', 'yesterday' => 'Hôm qua', '7d' => '7 ngày qua', '30d' => '30 ngày qua'])
-                    ->query(fn (Builder $query, array $data): Builder => match ($data['value'] ?? null) {
-                        'today' => $query->whereDate('created_at', today()),
-                        'yesterday' => $query->whereDate('created_at', today()->subDay()),
-                        '7d' => $query->where('created_at', '>=', now()->subDays(7)->startOfDay()),
-                        '30d' => $query->where('created_at', '>=', now()->subDays(30)->startOfDay()),
-                        default => $query,
-                    }),
-                SelectFilter::make('service_type')->label('Dịch vụ')->options(fn (): array => self::serviceLabels()),
-                SelectFilter::make('platform')->label('Nguồn đơn')->options(['customer_app' => 'App khách hàng', 'shop_app' => 'App cửa hàng', 'call_center' => 'Tổng đài']),
-                SelectFilter::make('created_by')
-                    ->label('Người tạo đơn')
-                    ->options(fn (): array => User::whereIn('id', DB::table('orders')->whereNotNull('created_by')->where('created_at', '>=', now()->subDays(90))->distinct()->pluck('created_by'))->orderBy('name')->pluck('name', 'id')->all()),
-                SelectFilter::make('delivery_man_id')
-                    ->label('Tài xế')
-                    ->relationship('driver', 'name')
-                    ->searchable()
-                    ->preload(),
-                SelectFilter::make('payment_method')->label('Thanh toán')->options(self::$paymentLabels),
-                SelectFilter::make('cancel_reason')
-                    ->label('Lý do hủy')
-                    ->options(fn (): array => collect(OrderTimeline::CANCEL_REASONS)->merge(['admin' => 'Admin hủy (chưa ghi lý do)', 'no_driver' => 'Hệ thống: hết thời gian tìm tài xế', 'customer' => 'Khách/cửa hàng hủy trong app'])->all()),
-                Tables\Filters\Filter::make('created_at')
-                    ->label('Khoảng ngày tuỳ chọn')
-                    ->form([
-                        Forms\Components\DatePicker::make('from')->label('Từ ngày'),
-                        Forms\Components\DatePicker::make('until')->label('Đến ngày'),
-                    ])
-                    ->columns(2)
-                    ->query(fn (Builder $query, array $data): Builder => $query
-                        ->when($data['from'] ?? null, fn (Builder $query, $date): Builder => $query->whereDate('created_at', '>=', $date))
-                        ->when($data['until'] ?? null, fn (Builder $query, $date): Builder => $query->whereDate('created_at', '<=', $date))),
-            ])
+            ->recordClasses(fn (Order $record): string => 'fs-ol-row fs-order-row--'.(self::$statusColors[$record->status] ?? 'gray')
+                .($record->status === 'pending' && $record->created_at->diffInMinutes(now()) >= 5 ? ' fs-ol-row--urgent' : ''))
             ->actions([
                 // Thao tác hay dùng nhất hiện sẵn ngay trên dòng; phần còn lại trong "⋯".
                 self::assignAction(Tables\Actions\Action::make('assignDriver'))->label('Gán')->button()->size('xs')->outlined(),
@@ -931,7 +898,11 @@ class OrderResource extends Resource
             ->actionsAlignment('end')
             ->defaultSort('created_at', 'desc')
             ->defaultPaginationPageOption(25)
-            ->paginationPageOptions([25, 50, 100]);
+            ->paginationPageOptions([25, 50, 100])
+            ->searchPlaceholder('Tìm mã đơn, SĐT, địa chỉ hoặc tài xế...')
+            ->emptyStateIcon('heroicon-o-inbox')
+            ->emptyStateHeading('Không có đơn phù hợp')
+            ->emptyStateDescription('Thử chọn tab khác hoặc bỏ bớt bộ lọc đang áp dụng.');
     }
 
     public static function getRelations(): array

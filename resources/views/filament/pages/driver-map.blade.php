@@ -2,10 +2,11 @@
 
 <header class="fs-page-header">
     <div>
-        <p class="fs-page-header__eyebrow">Theo dõi thời gian thực</p>
-        <h1 class="fs-page-header__title">Bản đồ tài xế</h1>
-        <p class="fs-page-header__description">Vị trí GPS, trạng thái tài xế và đơn đang chờ trong khu vực · chọn một đơn để thấy tài xế rảnh gần nhất.</p>
+        <p class="fs-page-header__eyebrow">Trung tâm điều phối</p>
+        <h1 class="fs-page-header__title">Bản đồ tài xế trực tiếp</h1>
+        <p class="fs-page-header__description">Theo dõi lực lượng, đơn chờ và chọn tài xế gần điểm lấy.</p>
     </div>
+    <div class="dm-head-status"><i></i><span>GPS đang cập nhật</span><small>Tự làm mới trạng thái mỗi 15 giây</small></div>
 </header>
 
 <style>
@@ -77,6 +78,72 @@
     .dark #driver-map-counter,.dark .dm-map-action { background:#1f2937; color:#e5e7eb; }
     @media(max-width:1100px){.dm-stats{grid-template-columns:repeat(3,minmax(0,1fr))}}
     @media(max-width:900px){.dm-stats{grid-template-columns:repeat(2,minmax(0,1fr))}.dm-layout{display:flex; min-height:auto; flex-direction:column}.dm-sidebar{max-height:340px; border-right:none; border-bottom:1px solid #e5e7eb}.dm-list{min-height:220px}#driver-map-wrapper{min-height:55vh}}
+
+    /* ── Bản đồ điều phối compact ─────────────────────────────────────── */
+    .fs-page-header:has(.dm-head-status) { display:flex; align-items:center; justify-content:space-between; gap:1rem; margin-bottom:.65rem; }
+    .fs-page-header:has(.dm-head-status) .fs-page-header__eyebrow { margin-bottom:.1rem; font-size:9px; }
+    .fs-page-header:has(.dm-head-status) .fs-page-header__title { font-size:var(--fs-xl); }
+    .fs-page-header:has(.dm-head-status) .fs-page-header__description { margin-top:.15rem; font-size:var(--fs-xs); }
+    .dm-head-status { display:grid; grid-template-columns:auto auto; align-items:center; gap:0 .45rem; padding:.5rem .7rem; border:1px solid #d1fae5; border-radius:.75rem; background:#f0fdf4; }
+    .dm-head-status > i { grid-row:1 / span 2; width:.5rem; height:.5rem; border-radius:50%; background:#22c55e; box-shadow:0 0 0 4px rgba(34,197,94,.13); }
+    .dm-head-status span { color:#166534; font-size:10.5px; font-weight:800; }
+    .dm-head-status small { color:#65a30d; font-size:9px; }
+
+    .dm-stats { gap:7px; margin-bottom:8px; }
+    .dm-stat { position:relative; min-height:58px; gap:9px; padding:9px 11px; overflow:hidden; border-radius:10px; box-shadow:0 1px 2px rgba(15,23,42,.025); }
+    .dm-stat::before { content:''; position:absolute; inset:0 auto 0 0; width:3px; background:#94a3b8; }
+    .dm-stat[data-stat="all"]::before { background:#22c55e; }
+    .dm-stat[data-stat="free"]::before { background:#16a34a; }
+    .dm-stat[data-stat="busy"]::before { background:#3b82f6; }
+    .dm-stat[data-stat="stale"]::before { background:#f59e0b; }
+    .dm-stat[data-stat="lost"]::before { background:#ef4444; }
+    .dm-stat[data-stat="orders"]::before { background:#f97316; }
+    .dm-stat i { width:8px; height:8px; box-shadow:0 0 0 4px color-mix(in srgb,currentColor 10%,transparent); }
+    .dm-stat strong { font-size:17px; font-weight:800; letter-spacing:-.035em; }
+    .dm-stat span { font-size:10px; white-space:nowrap; }
+    .dm-stat.active { border-color:#fdba74; background:#fffaf5; box-shadow:0 0 0 2px rgba(249,115,22,.1); }
+
+    .dm-layout { grid-template-columns:clamp(320px,28%,390px) minmax(0,1fr); height:calc(100vh - 225px); min-height:520px; border-radius:13px; box-shadow:0 8px 24px rgba(15,23,42,.055); }
+    .dm-sidebar { background:#f7f8fa; }
+    .dm-tabs { gap:4px; padding:6px; background:#fff; }
+    .dm-tab { padding:8px; border:0; border-radius:8px; font-size:11px; }
+    .dm-tab.active { background:#fff7ed; color:#c2410c; box-shadow:inset 0 0 0 1px #fed7aa; }
+    .dm-tab b { padding:1px 6px; font-size:9px; }
+    .dm-tools { gap:7px; padding:9px; }
+    .dm-search { height:36px; padding:7px 10px; border-radius:9px; font-size:11px; }
+    .dm-filters { flex-wrap:nowrap; gap:4px; overflow-x:auto; padding-bottom:1px; scrollbar-width:none; }
+    .dm-filters::-webkit-scrollbar { display:none; }
+    .dm-filter { padding:4px 7px; font-size:9.5px; white-space:nowrap; }
+    .dm-list { padding:7px; scrollbar-width:thin; scrollbar-color:#cbd5e1 transparent; }
+    .dm-driver { grid-template-columns:34px minmax(0,1fr); gap:8px; margin-bottom:3px; padding:7px; border-radius:9px; }
+    .dm-avatar { width:34px; height:34px; border-width:2px; }
+    .dm-avatar > span { font-size:11px; }
+    .dm-driver__name { font-size:11px; font-weight:700; }
+    .dm-driver__ago,.dm-driver__meta { font-size:9.5px; }
+    .dm-driver:hover,.dm-driver.active { box-shadow:0 2px 8px rgba(15,23,42,.05); }
+
+    .dm-order { gap:5px; margin-bottom:6px; padding:9px; border-radius:9px; }
+    .dm-order__top b { font-size:11.5px; }
+    .dm-order__top em,.dm-order__addr,.dm-order__note,.dm-btn,.dm-near__title,.dm-near__row,.dm-near__note { font-size:9.5px; }
+    .dm-order__addr { padding:5px 7px; border-radius:6px; background:#f8fafc; line-height:1.5; }
+    .dm-btn { padding:4px 8px; border-radius:7px; }
+    .dm-btn.primary { border-color:#f97316; background:#f97316; }
+
+    #driver-map-wrapper { min-height:0; }
+    #driver-map-counter { top:10px; left:10px; padding:6px 11px; border:1px solid rgba(255,255,255,.8); font-size:10px; box-shadow:0 4px 14px rgba(15,23,42,.15); }
+    .dm-map-actions { top:10px; right:52px; }
+    .dm-map-action { padding:6px 9px; border:1px solid rgba(255,255,255,.8); border-radius:8px; font-size:10px; box-shadow:0 4px 14px rgba(15,23,42,.15); }
+    .dm-map-legend { position:absolute; z-index:5; bottom:18px; left:12px; display:flex; align-items:center; gap:9px; padding:6px 9px; border:1px solid rgba(255,255,255,.85); border-radius:9px; background:rgba(255,255,255,.94); box-shadow:0 4px 14px rgba(15,23,42,.14); color:#64748b; font-size:9.5px; pointer-events:none; }
+    .dm-map-legend span { display:inline-flex; align-items:center; gap:4px; }
+    .dm-map-legend i { width:7px; height:7px; border-radius:50%; }
+
+    .dark .dm-head-status { border-color:#14532d; background:#11251b; }.dark .dm-head-status span { color:#86efac; }.dark .dm-head-status small { color:#65a30d; }
+    .dark .dm-tabs { background:#171b25; }.dark .dm-tab.active { background:#431407; box-shadow:inset 0 0 0 1px #9a3412; }
+    .dark .dm-order__addr { background:#111620; }.dark .dm-map-legend { border-color:#334155; background:rgba(23,27,37,.94); color:#cbd5e1; }
+
+    @media(max-width:1100px){.dm-layout{grid-template-columns:320px minmax(0,1fr)}.dm-stat span{white-space:normal}}
+    @media(max-width:900px){.fs-page-header:has(.dm-head-status){align-items:flex-start}.dm-head-status{display:none}.dm-layout{height:auto;min-height:0}.dm-sidebar{max-height:380px}.dm-stats{grid-template-columns:repeat(3,minmax(0,1fr))}#driver-map-wrapper{min-height:58vh}}
+    @media(max-width:600px){.dm-stats{grid-template-columns:repeat(2,minmax(0,1fr))}}
 </style>
 
 {{-- Làm mới trạng thái đang đi đơn / đơn chờ mỗi 15s — vị trí GPS đã realtime qua Firebase riêng. --}}
@@ -114,6 +181,7 @@
             <div id="driver-map"></div>
             <div id="driver-map-counter">— online</div>
             <div class="dm-map-actions"><button id="dm-fit-all" class="dm-map-action" type="button">Hiện tất cả</button></div>
+            <div class="dm-map-legend"><span><i style="background:#22c55e"></i>Rảnh</span><span><i style="background:#3b82f6"></i>Đang giao</span><span><i style="background:#f59e0b"></i>GPS chậm</span><span><i style="background:#ef4444"></i>Mất kết nối</span></div>
         </div>
     </div>
 </div>

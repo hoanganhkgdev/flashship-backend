@@ -43,12 +43,12 @@ class ListOrders extends ListRecords
 
     public function getHeading(): string
     {
-        return 'Quản lý đơn hàng';
+        return 'Đơn hàng';
     }
 
     public function getSubheading(): ?string
     {
-        return 'Theo dõi, xử lý và truy vết mọi thay đổi của đơn hàng trong khu vực. Đơn chỉ được hủy, không xóa.';
+        return 'Theo dõi và xử lý đơn theo thời gian thực trong khu vực.';
     }
 
     protected function getHeaderActions(): array
