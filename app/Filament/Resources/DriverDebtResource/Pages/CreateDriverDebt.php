@@ -26,7 +26,9 @@ class CreateDriverDebt extends CreateRecord
     /** Tạo qua service để có nhật ký; không dùng cơ chế tự gán tenant (DriverDebt không có city_id). */
     protected function handleRecordCreation(array $data): Model
     {
-        $res = DriverDebtService::create((int) $data['driver_id'], $data['debt_type'], (float) $data['amount_due'], $data['note'], auth()->id());
+        $res = DriverDebtService::create((int) $data['driver_id'], $data['debt_type'], (float) $data['amount_due'], $data['note'], auth()->id(),
+            $data['debt_type'] === 'weekly' ? ($data['week_start'] ?? null) : null,
+            $data['debt_type'] === 'weekly' ? ($data['week_end'] ?? null) : null);
         if (! $res['ok']) {
             Notification::make()->danger()->title($res['message'])->send();
             $this->halt();

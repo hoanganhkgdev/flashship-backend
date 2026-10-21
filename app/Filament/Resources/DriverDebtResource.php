@@ -67,7 +67,7 @@ class DriverDebtResource extends Resource
     {
         return $form->schema([
             Forms\Components\Section::make('Khoản nợ mới')
-                ->description('Ghi nhận khoản phải thu ngoài phí tuần và phạt điểm tự động.')
+                ->description('Ghi nhận khoản phải thu ngoài các khoản tự động. Chọn loại Phí tuần để đặt khoảng ngày.')
                 ->columns(2)
                 ->schema([
                     Forms\Components\Select::make('driver_id')
@@ -75,8 +75,18 @@ class DriverDebtResource extends Resource
                         ->options(fn () => User::where('user_type', 'driver')->where('status', 1)->where('city_id', Filament::getTenant()?->id)
                             ->orderBy('name')->get()->mapWithKeys(fn ($u) => [$u->id => $u->name.' — '.$u->phone]))
                         ->searchable()->required(),
-                    Forms\Components\Select::make('debt_type')->label('Loại')->options(DriverDebtService::TYPES)->default('commission')->required(),
+                    Forms\Components\Select::make('debt_type')->label('Loại')->options(DriverDebtService::TYPES)->default('commission')->required()->live(),
                     Forms\Components\TextInput::make('amount_due')->label('Số tiền nợ')->numeric()->minValue(1000)->required()->suffix('₫'),
+                    Forms\Components\DatePicker::make('week_start')->label('Phí tuần từ ngày')
+                        ->default(fn () => now()->startOfWeek()->toDateString())
+                        ->native(false)->displayFormat('d/m/Y')->live()->required()
+                        ->visible(fn (Forms\Get $get): bool => $get('debt_type') === 'weekly'),
+                    Forms\Components\DatePicker::make('week_end')->label('Đến ngày (hạn đóng)')
+                        ->default(fn () => now()->endOfWeek()->toDateString())
+                        ->native(false)->displayFormat('d/m/Y')->required()
+                        ->minDate(fn (Forms\Get $get) => $get('week_start'))
+                        ->helperText('Quá hạn tính sau ngày này')
+                        ->visible(fn (Forms\Get $get): bool => $get('debt_type') === 'weekly'),
                     Forms\Components\Textarea::make('note')->label('Lý do')->required()->minLength(5)->maxLength(300)->rows(2)->columnSpanFull(),
                 ]),
         ]);

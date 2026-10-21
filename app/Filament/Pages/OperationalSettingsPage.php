@@ -117,7 +117,7 @@ class OperationalSettingsPage extends Page implements HasForms
             }
         }
 
-        return $labels + ['pricing.night_windows' => 'Khung giờ phụ phí đêm'];
+        return $labels + ['pricing.night_windows' => 'Khung giờ phụ phí đêm', 'debt.weekly_fee' => 'Phí tuần / tài xế'];
     }
 
     protected function getHeaderActions(): array
@@ -268,6 +268,9 @@ class OperationalSettingsPage extends Page implements HasForms
                             ->native(false)->required()->live()
                             ->helperText('Mỗi khu vực chọn một cách. Công nợ đã tạo theo cách cũ được giữ nguyên.')
                             ->columnSpanFull(),
+                        $this->money('debt_weekly_fee', 'Phí tuần / tài xế', 0, 10_000_000)
+                            ->visible(fn (Get $get): bool => $get('debt_collection_mode') === 'weekly')
+                            ->helperText('Mỗi sáng thứ Hai tạo một khoản công nợ phí tuần cho từng tài xế đang hoạt động. Đặt 0 để không thu. Đổi phí chỉ áp dụng từ tuần sau, các khoản đã tạo không đổi.'),
                         $this->number('debt_daily_percent', '% phí ship thu mỗi ngày', '%', 0.1, 100, 0.1)
                             ->visible(fn (Get $get): bool => $get('debt_collection_mode') === 'daily_percent')
                             ->helperText('Mỗi sáng 00:05, thu % tổng phí ship các đơn hoàn thành hôm trước của từng tài xế, ghi thành một khoản công nợ'),
@@ -337,6 +340,7 @@ class OperationalSettingsPage extends Page implements HasForms
         $this->fillFrom(
             fn (string $key) => OperationalSettings::value($key, $cityId),
             OperationalSettings::nightWindows($cityId),
+            (int) City::whereKey($cityId)->value('weekly_fee'),
         );
     }
 
@@ -344,7 +348,7 @@ class OperationalSettingsPage extends Page implements HasForms
      * @param  callable(string): string  $value
      * @param  list<array{from: string, to: string, amount: int}>  $nightWindows
      */
-    private function fillFrom(callable $value, array $nightWindows): void
+    private function fillFrom(callable $value, array $nightWindows, ?int $weeklyFee = null): void
     {
         $state = [];
         foreach (self::FIELDS as $field => $key) {
@@ -354,6 +358,8 @@ class OperationalSettingsPage extends Page implements HasForms
         }
 
         $state['night_windows'] = $nightWindows;
+        // Phí tuần nằm ở bảng khu vực, không thuộc bộ cấu hình; null = giữ phí hiện tại của khu vực đang sửa.
+        $state['debt_weekly_fee'] = $weeklyFee ?? (int) City::whereKey($this->cityId())->value('weekly_fee');
 
         $this->form->fill($state);
     }
@@ -415,6 +421,14 @@ class OperationalSettingsPage extends Page implements HasForms
         }
         $before = collect($settings)->mapWithKeys(fn ($v, $k) => [$k => OperationalSettings::value($k, $this->cityId())])->all();
         OperationalSettings::put($settings, $this->cityId());
+
+        // Ô phí tuần chỉ có trong state khi khu vực đang thu theo tuần.
+        if (isset($values['debt_weekly_fee'])) {
+            $city = City::findOrFail($this->cityId());
+            $before['debt.weekly_fee'] = (string) $city->weekly_fee;
+            $settings['debt.weekly_fee'] = (string) (int) $values['debt_weekly_fee'];
+            $city->update(['weekly_fee' => (int) $values['debt_weekly_fee']]);
+        }
         $this->logChanges($before, $settings);
 
         Notification::make()->title('Đã lưu cấu hình vận hành')->success()->send();

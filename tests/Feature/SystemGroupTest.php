@@ -281,6 +281,27 @@ class SystemGroupTest extends TestCase
         $this->assertSame($this->admin->id, (int) $log->performed_by);
     }
 
+    public function test_operational_settings_edit_the_cities_weekly_fee_only_in_weekly_mode(): void
+    {
+        $this->city->update(['weekly_fee' => 50000]);
+
+        $page = Livewire::test(OperationalSettingsPage::class);
+        $data = $page->get('data');
+        $this->assertSame(50000, (int) $data['debt_weekly_fee']);
+
+        $data['debt_weekly_fee'] = '120.000';
+        $page->set('data', $data)->call('save')->assertHasNoErrors();
+        $this->assertSame(120000, (int) $this->city->fresh()->weekly_fee);
+        $log = ConfigLog::where('entity', 'operational')->where('entity_id', $this->city->id)->latest('id')->first();
+        $this->assertStringContainsString('Phí tuần / tài xế: 50000 → 120000', $log->detail);
+
+        // Chuyển sang thu % phí ship: ô phí tuần ẩn, phí tuần đã lưu không bị đụng tới.
+        $data['debt_collection_mode'] = 'daily_percent';
+        unset($data['debt_weekly_fee']);
+        Livewire::test(OperationalSettingsPage::class)->set('data', $data)->call('save')->assertHasNoErrors();
+        $this->assertSame(120000, (int) $this->city->fresh()->weekly_fee);
+    }
+
     // ── Tài khoản của tôi ─────────────────────────────────────────────────────
 
     public function test_my_account_changes_name_and_password_only_with_the_current_password(): void

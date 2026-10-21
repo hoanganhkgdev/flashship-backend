@@ -42,16 +42,20 @@ class DriverDebtService
     }
 
     /** @return array{ok:bool,message:string} */
-    public static function create(int $driverId, string $type, float $amount, string $reason, ?int $by): array
+    public static function create(int $driverId, string $type, float $amount, string $reason, ?int $by, ?string $weekStart = null, ?string $weekEnd = null): array
     {
         if (! isset(self::TYPES[$type]) || $amount < 1000 || mb_strlen(trim($reason)) < 5) {
             return ['ok' => false, 'message' => 'Cần loại nợ hợp lệ, số tiền từ 1.000₫ và lý do ít nhất 5 ký tự.'];
         }
+        if ($weekStart !== null && $weekEnd !== null && $weekEnd < $weekStart) {
+            return ['ok' => false, 'message' => 'Ngày kết thúc phải sau hoặc bằng ngày bắt đầu.'];
+        }
 
-        $debt = DB::transaction(function () use ($driverId, $type, $amount, $reason, $by) {
+        $debt = DB::transaction(function () use ($driverId, $type, $amount, $reason, $by, $weekStart, $weekEnd) {
             $debt = DriverDebt::create([
                 'driver_id' => $driverId, 'debt_type' => $type, 'status' => 'pending',
                 'amount_due' => $amount, 'amount_paid' => 0, 'date' => now()->toDateString(), 'note' => $reason,
+                'week_start' => $weekStart, 'week_end' => $weekEnd,
             ]);
             self::log($debt->id, 'created', $amount, $by, $reason);
 

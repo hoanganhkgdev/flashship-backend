@@ -197,6 +197,24 @@ class DriverDebtTest extends TestCase
         $this->assertSame($this->admin->id, (int) $d->logs()->first()->performed_by);
     }
 
+    public function test_weekly_debt_can_be_created_with_a_custom_period(): void
+    {
+        Livewire::test(CreateDriverDebt::class)
+            ->fillForm(['driver_id' => $this->driver->id, 'debt_type' => 'weekly', 'amount_due' => 100000,
+                'week_start' => '2026-10-12', 'week_end' => '2026-10-18', 'note' => 'Phí tuần bù tuần trước'])
+            ->call('create')->assertHasNoFormErrors();
+
+        $d = DriverDebt::where('driver_id', $this->driver->id)->firstOrFail();
+        $this->assertSame('weekly', $d->debt_type);
+        $this->assertSame('2026-10-12', (string) $d->week_start);
+        $this->assertSame('2026-10-18', (string) $d->week_end);
+
+        Livewire::test(CreateDriverDebt::class)
+            ->fillForm(['driver_id' => $this->driver->id, 'debt_type' => 'weekly', 'amount_due' => 100000,
+                'week_start' => '2026-10-18', 'week_end' => '2026-10-12', 'note' => 'Sai khoảng ngày'])
+            ->call('create')->assertHasFormErrors(['week_end']);
+    }
+
     public function test_payos_payment_closes_the_debt_and_is_logged(): void
     {
         $d = $this->debt(350000);
