@@ -40,6 +40,7 @@ class GenerateWeeklyFeesCommand extends Command
             $drivers = User::where('user_type', 'driver')
                 ->where('city_id', $city->id)
                 ->where('status', 1)
+                ->where('debt_enabled', true)
                 ->pluck('id');
 
             if ($drivers->isEmpty()) continue;

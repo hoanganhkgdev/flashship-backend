@@ -198,6 +198,14 @@ class DriverResource extends Resource
                         ->dehydrated(false),
                 ])->columns(2),
 
+            Forms\Components\Section::make('Công nợ')
+                ->icon('heroicon-o-banknotes')
+                ->schema([
+                    Forms\Components\Toggle::make('debt_enabled')
+                        ->label('Bật công nợ cho tài xế này')
+                        ->helperText('Tắt: không tạo phí tuần / phạt Offline mới và không chặn tài xế vì nợ quá hạn. Công nợ đã có được giữ nguyên. Công tắc theo khu vực vẫn có hiệu lực song song.'),
+                ]),
+
             Forms\Components\Section::make('Ca làm việc')->icon('heroicon-o-calendar-days')->schema([
                 Forms\Components\Select::make('registeredShifts')
                     ->label('Ca đang đăng ký')

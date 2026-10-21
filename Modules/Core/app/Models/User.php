@@ -77,6 +77,7 @@ class User extends Authenticatable implements FilamentUser, HasDefaultTenant, Ha
         'platform',
         'last_notification_seen',
         'is_online',
+        'debt_enabled',
         'online_since',
         'has_car_license',
         'consecutive_completed',
@@ -109,6 +110,7 @@ class User extends Authenticatable implements FilamentUser, HasDefaultTenant, Ha
             'delete_requested_at' => 'datetime',
             'avatar_updated_at' => 'datetime',
             'is_online' => 'boolean',
+            'debt_enabled' => 'boolean',
             'online_since' => 'datetime',
             'last_location_at' => 'datetime',
             'last_login_at' => 'datetime',
@@ -118,6 +120,12 @@ class User extends Authenticatable implements FilamentUser, HasDefaultTenant, Ha
     // =========================================================================
     // HELPERS
     // =========================================================================
+
+    /** Công nợ chỉ áp dụng khi khu vực bật và tài xế này không bị tắt riêng. */
+    public function debtApplies(): bool
+    {
+        return $this->debt_enabled !== false && \Modules\Core\Services\OperationalSettings::debtEnabled($this->city_id);
+    }
 
     /**
      * Tài khoản (không phải tài xế) dùng chung số điện thoại với một tài xế.
