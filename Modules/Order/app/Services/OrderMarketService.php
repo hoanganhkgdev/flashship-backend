@@ -113,7 +113,7 @@ class OrderMarketService
         FCMService::getInstance()->broadcast(
             $tokens,
             'Có đơn mới',
-            'Mở danh sách đơn mới để xem tuyến và nhận đơn.',
+            'Mở danh sách đơn mới để xem thông tin và nhận đơn.',
             ['type' => 'order_market', 'order_id' => (string) $order->id, 'order_code' => (string) $order->code],
         );
     }
@@ -125,6 +125,7 @@ class OrderMarketService
 
         return [
             'id' => $o->id, 'code' => $o->code, 'service_type' => $o->service_type,
+            'platform' => $o->platform ?? 'customer_app',
             'pickup_address' => $o->pickup_address ?? '', 'delivery_address' => $o->delivery_address ?? '',
             'order_note' => $o->order_note,
             'pickup_lat' => is_numeric($o->pickup_lat) ? (float) $o->pickup_lat : null,

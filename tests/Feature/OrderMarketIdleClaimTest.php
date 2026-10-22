@@ -57,6 +57,7 @@ class OrderMarketIdleClaimTest extends TestCase
 
         $market = new OrderMarketService($locations);
         $payload = $market->payloadFor($order, $listing);
+        $this->assertSame('customer_app', $payload['platform']);
         $this->assertSame('Gọi khách trước khi giao', $payload['order_note']);
         $this->assertTrue($payload['is_freeship']);
         $this->assertSame('GIAM20', $payload['voucher_code']);
