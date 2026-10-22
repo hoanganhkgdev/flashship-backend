@@ -197,6 +197,7 @@ class OrderService
             'is_batch'         => (bool) ($order->is_batch ?? false),
             'stops_count'      => $order->is_batch ? count($order->stops ?? []) : 0,
             'stops'            => $order->is_batch ? ($order->stops ?? []) : [],
+            'distance'         => $order->distance ? (float) $order->distance : null,
             'shipping_fee'     => (int) ($order->shipping_fee    ?? 0),
             'bonus_fee'        => (int) ($order->bonus_fee       ?? 0),
             'night_surcharge'  => (int) ($order->night_surcharge ?? 0),
