@@ -17,11 +17,7 @@
         default => 'SĐT khách',
     };
     $deliveryOptional = $serviceType !== 'topup';
-    $noDeliveryYet = $deliveryOptional && trim((string) ($data['delivery_address'] ?? '')) === '';
-    $nightFee = (int) $previewNightSurcharge;
     $phoneRequired = $serviceType === 'shopping';
-    $quotedFee = (int) ($data['shipping_fee'] ?? 0);
-    $feeDelta = $previewFee !== null ? $quotedFee - (int) $previewFee : null;
     $shortLabels = ['delivery' => 'Lấy hộ', 'shopping' => 'Mua hộ', 'topup' => 'Nạp/Rút', 'bike' => 'Xe ôm', 'motor' => 'Lái xe máy', 'car' => 'Lái ô tô'];
 @endphp
 
@@ -128,7 +124,6 @@
     .cc-pin-hint button { flex-shrink:0; width:20px; height:20px; border-radius:50%; border:none; background:rgba(255,255,255,0.15); color:#fff; cursor:pointer; font-size:var(--fs-sm); line-height:1; }
 
     .cc-row2 { display:grid; grid-template-columns:1fr 1fr; gap:7px; }
-    .cc-fee-driver-row { grid-template-columns:minmax(110px, .65fr) minmax(0, 1.35fr); }
     .cc-input, .cc-textarea { width:100%; border:1px solid #e5e7eb; border-radius:8px; padding:4px 9px; font-size:13px; color:#111827; background:#f8fafc; outline:none; transition:border-color .15s ease, background .15s ease, box-shadow .15s ease; }
     .cc-input { height:30px; }
     .cc-input::placeholder, .cc-textarea::placeholder { color:#c1c5cb; }
@@ -360,12 +355,6 @@
     .cc-service-tab span { font-size:11px; }
 
     .cc-pricing-card { border-color:#dbeafe; background:linear-gradient(180deg,#fff 0%,#f8fbff 100%); }
-    .cc-fee-summary { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; margin-bottom:12px; }
-    .cc-fee-stat { padding:9px 10px; border:1px solid #e2e8f0; border-radius:10px; background:#fff; }
-    .cc-fee-stat span { display:block; color:#94a3b8; font-size:10px; font-weight:700; letter-spacing:.035em; text-transform:uppercase; }
-    .cc-fee-stat b { display:block; margin-top:2px; color:#0f172a; font-size:14px; }
-    .cc-fee-stat.is-delta b.positive { color:#15803d; }
-    .cc-fee-stat.is-delta b.negative { color:#dc2626; }
 
     .cc-map-area::after { content:''; position:absolute; inset:0; pointer-events:none; box-shadow:inset 18px 0 28px -28px #0f172a66; }
     .cc-map-title { position:absolute; top:12px; right:12px; z-index:10; display:flex; align-items:center; gap:7px; padding:7px 10px; border:1px solid #ffffffcc; border-radius:999px; background:#fffffff2; box-shadow:0 4px 16px #0f172a1a; color:#334155; font-size:11px; font-weight:750; pointer-events:none; }
@@ -383,15 +372,12 @@
     .dark .cc-section__head::before { background:#e2e8f0; color:#0f172a; }
     .dark .cc-customer-card, .dark .cc-pricing-card { border-color:#3b465a; background:#171b25; }
     .dark .cc-phone-icon { background:#431407; color:#fb923c; }
-    .dark .cc-customer-card .cc-input, .dark .cc-fee-stat { border-color:#334155; background:#0f1420; }
-    .dark .cc-fee-stat b { color:#f8fafc; }
+    .dark .cc-customer-card .cc-input { border-color:#334155; background:#0f1420; }
     .dark .cc-map-title { border-color:#334155; background:#171b25ee; color:#e2e8f0; }
 
     @media (max-width: 1180px) {
         .cc-service-tabs { grid-template-columns:repeat(3,1fr); }
         .cc-service-tab { flex-direction:row; min-height:0; }
-        .cc-fee-summary { grid-template-columns:1fr 1fr; }
-        .cc-fee-stat.is-delta { grid-column:1 / -1; }
     }
     @media (max-width: 900px) {
         .cc-top > p { display:none; }
@@ -472,11 +458,6 @@
     .cc-customer-card .cc-hint, .cc-card > .cc-hint { margin-top:3px; padding-left:40px; font-size:10px; }
 
     .cc-pricing-card { padding-top:9px; background:#fff; }
-    .cc-fee-summary { grid-template-columns:repeat(3,minmax(0,1fr)) !important; gap:6px; margin-bottom:9px; }
-    .cc-fee-stat { padding:6px 8px; border-radius:8px; background:#f8fafc; }
-    .cc-fee-stat span { font-size:8.5px; }
-    .cc-fee-stat b { margin-top:1px; font-size:12px; white-space:nowrap; }
-    .cc-fee-stat.is-delta { grid-column:auto !important; }
     .cc-feeline { margin-top:6px !important; font-size:10.5px !important; }
     .cc-check { font-size:11px !important; }
     .cc-check input { width:15px; height:15px; }
@@ -517,7 +498,6 @@
     .dark .cc-wrapper { --cc-border:#283142; background:#171b25; }
     .dark .cc-form-panel { background:#111620; }
     .dark .cc-service-tab, .dark .cc-customer-card, .dark .cc-pricing-card { background:#171b25; border-color:#283142; }
-    .dark .cc-fee-stat { background:#111620; }
 
     @media (max-width:1180px) and (min-width:901px) {
         .cc-form-panel { width:500px !important; }
@@ -573,7 +553,7 @@
                     'bike', 'motor', 'car' => 'Điểm đến',
                     default => 'Điểm giao hàng',
                 };
-                $needDelivery = $serviceType !== 'topup';
+                $needDelivery = ! in_array($serviceType, ['delivery', 'topup'], true);
                 $pickupShort = match($serviceType) { 'shopping' => 'Mua tại', 'topup' => 'Nạp tại', 'bike', 'motor', 'car' => 'Đón', default => 'Lấy' };
                 $deliveryShort = in_array($serviceType, ['bike', 'motor', 'car'], true) ? 'Đến' : 'Giao';
             @endphp
@@ -617,7 +597,7 @@
                 @if ($serviceType === 'delivery')
                 <div class="cc-fld">
                     <label class="cc-lbl">Ghi chú cho tài xế</label>
-                    <textarea class="cc-textarea" wire:model="data.order_note" rows="3" placeholder="Ví dụ: loại hàng, cách lấy, lưu ý khi giao..."></textarea>
+                    <textarea class="cc-textarea" wire:model="data.order_note" rows="6" placeholder="Ví dụ: loại hàng, cách lấy, lưu ý khi giao..."></textarea>
                 </div>
                 @endif
 
@@ -649,6 +629,7 @@
             </section>
 
             {{-- 4. Khách đang gọi --}}
+            @if ($serviceType !== 'delivery')
             <section class="cc-section">
                 <div class="cc-section__head"><strong>SĐT khách</strong><span>Số liên hệ của người đang gọi</span></div>
                 <div class="cc-card cc-customer-card {{ $err('contact_phone') ? 'has-err' : '' }}">
@@ -663,73 +644,46 @@
                     @else<p class="cc-hint">{{ $phoneRequired ? 'Bắt buộc với đơn Mua hộ để tài xế liên hệ xác nhận.' : 'Có thể để trống nếu khách không cung cấp số.' }}</p>@endif
                 </div>
             </section>
-
-            {{-- 5. Riêng Lấy hộ: tách SĐT người nhận thành một bước rõ ràng --}}
-            @if ($serviceType === 'delivery')
-            <section class="cc-section">
-                <div class="cc-section__head"><strong>SĐT người nhận</strong><span>Để tài xế liên hệ khi giao hàng</span></div>
-                <div class="cc-card">
-                    <div class="cc-phone-row">
-                        <span class="cc-phone-icon" style="background:#eff6ff;color:#2563eb"><x-heroicon-o-user /></span>
-                        <div class="cc-fld">
-                            <label class="cc-lbl">SĐT người nhận <small>(tuỳ chọn)</small></label>
-                            <input type="tel" inputmode="tel" class="cc-input" wire:model.blur="data.delivery_phone" placeholder="Shop chưa cho thì để trống" autocomplete="off" />
-                        </div>
-                    </div>
-                    <p class="cc-hint">Tài xế sẽ dùng số này để liên hệ tại điểm giao.</p>
-                </div>
-            </section>
             @endif
 
-            {{-- 6. Phí + tài xế --}}
+            {{-- 5. Phí + tài xế --}}
             <section class="cc-section">
             <div class="cc-section__head"><strong>Phí và điều phối</strong><span>Kiểm tra lần cuối trước khi tạo</span></div>
             <div class="cc-card cc-pricing-card {{ $err('assignedDriverId') ? 'has-err' : '' }}">
-                <div class="cc-fee-summary">
-                    <div class="cc-fee-stat"><span>Giá hệ thống</span><b>{{ $previewFee !== null ? number_format($previewFee, 0, ',', '.').'đ' : 'Chưa tính' }}</b></div>
-                    <div class="cc-fee-stat"><span>Phí thu khách</span><b>{{ $quotedFee > 0 ? number_format($quotedFee, 0, ',', '.').'đ' : 'Chưa nhập' }}</b></div>
-                    <div class="cc-fee-stat is-delta"><span>Chênh lệch</span><b class="{{ $feeDelta > 0 ? 'positive' : ($feeDelta < 0 ? 'negative' : '') }}">{{ $feeDelta !== null && $quotedFee > 0 ? ($feeDelta > 0 ? '+' : '').number_format($feeDelta, 0, ',', '.').'đ' : '—' }}</b></div>
-                </div>
-                <div class="cc-row2 cc-fee-driver-row">
+                <div class="cc-row2">
                     <div>
-                        <label class="cc-lbl">Phí thu khách</label>
+                        <label class="cc-lbl">Phí đơn</label>
                         <div class="cc-fee-wrap"><input type="number" class="cc-input {{ $err('shipping_fee') ? 'has-err' : '' }}" wire:model.blur="data.shipping_fee" placeholder="0" /><span class="cc-fee-suffix">đ</span></div>
                     </div>
                     <div>
-                        <label class="cc-lbl">Gán tài xế <small>(tuỳ chọn)</small></label>
-                        <div class="cc-select-wrap">
-                            <select wire:model="assignedDriverId" class="cc-input cc-select">
-                                <option value="">Hệ thống tự chọn</option>
-                                @foreach ($onlineDrivers as $d)
-                                <option value="{{ $d['id'] }}">{{ $d['km'] !== null ? str_replace('.', ',', $d['km']).' km · ' : 'chưa có vị trí · ' }}{{ $d['label'] }}</option>
+                        <label class="cc-lbl">Bonus tài xế <small>(admin trả)</small></label>
+                        <div class="cc-fee-wrap"><input type="number" min="0" class="cc-input" wire:model.blur="data.bonus_fee" placeholder="0" /><span class="cc-fee-suffix">đ</span></div>
+                    </div>
+                </div>
+                <div class="cc-fld" style="margin-top:12px">
+                    <label class="cc-lbl">Gán tài xế <small>(tuỳ chọn)</small></label>
+                    <div class="cc-select-wrap">
+                        <select wire:model="assignedDriverId" class="cc-input cc-select">
+                            <option value="">Hệ thống tự chọn</option>
+                            @foreach ($onlineDrivers as $d)
+                            <option value="{{ $d['id'] }}">{{ $d['km'] !== null ? str_replace('.', ',', $d['km']).' km · ' : 'chưa có vị trí · ' }}{{ $d['label'] }}</option>
+                            @endforeach
+                            @if (! empty($unavailableDrivers))
+                            <optgroup label="Chưa gán được">
+                                @foreach ($unavailableDrivers as $d)
+                                <option disabled>{{ $d['name'] }}{{ $d['phone'] ? ' · '.$d['phone'] : '' }} — {{ $d['reason'] }}</option>
                                 @endforeach
-                                @if (! empty($unavailableDrivers))
-                                <optgroup label="Chưa gán được">
-                                    @foreach ($unavailableDrivers as $d)
-                                    <option disabled>{{ $d['name'] }}{{ $d['phone'] ? ' · '.$d['phone'] : '' }} — {{ $d['reason'] }}</option>
-                                    @endforeach
-                                </optgroup>
-                                @endif
-                            </select>
-                            <svg class="cc-select-chevron" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M5 7.5L10 12.5L15 7.5" stroke="#9ca3af" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                        </div>
+                            </optgroup>
+                            @endif
+                        </select>
+                        <svg class="cc-select-chevron" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M5 7.5L10 12.5L15 7.5" stroke="#9ca3af" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
                     </div>
                 </div>
                 @if ($err('assignedDriverId'))<p class="cc-err">{{ $err('assignedDriverId') }}</p>@endif
                 <div class="cc-feeline">
-                    <span>
-                        @if ($previewFee !== null)Hệ thống tính {{ number_format($previewFee, 0, ',', '.') }}đ @if ($nightFee > 0)(đêm +{{ number_format($nightFee, 0, ',', '.') }}) @endif<button type="button" wire:click="useSystemFee">Dùng giá này</button>
-                        @elseif ($noDeliveryYet && $serviceType !== 'topup')Chưa có điểm giao nên chưa tính được phí — nhập phí đã thỏa thuận.
-                        @else Chọn đủ điểm để hệ thống tính phí. @endif
-                    </span>
+                    <span></span>
                     <label class="cc-check"><input type="checkbox" wire:model.live="isFreeship" /> <strong>Freeship</strong></label>
                 </div>
-                @if (empty($onlineDrivers))
-                <p class="cc-hint">
-                    @if (! empty($unavailableDrivers))Chưa có tài xế nào gán được ngay: {{ count($unavailableDrivers) }} tài xế của khu vực chưa nhận được đơn ({{ collect($unavailableDrivers)->pluck('reason')->unique()->take(3)->implode(', ') }}) — xem danh sách bên trên. Tài xế phải online mới nhận được đơn.
-                    @else Khu vực này chưa có tài xế nào đang hoạt động.@endif
-                </p>
-                @endif
             </div>
             </section>
         </div>
@@ -737,7 +691,6 @@
         {{-- Thanh đặt đơn dính đáy --}}
         <div class="cc-bar">
             <div class="cc-bar__info">
-                <span>Phí hệ thống <b>{{ $previewFee !== null ? number_format($previewFee, 0, ',', '.').'đ' : '—' }}</b>@if ($previewFee !== null && (int) ($data['shipping_fee'] ?? 0) !== (int) $previewFee)<button type="button" wire:click="useSystemFee">Dùng giá này</button>@endif</span>
                 <span id="cc-bar-route" wire:ignore></span>
             </div>
             <button type="submit" wire:loading.attr="disabled" class="cc-submit-btn" style="background:{{ $activeSvc['color'] }}; box-shadow:0 3px 12px {{ $activeSvc['color'] }}4d;">

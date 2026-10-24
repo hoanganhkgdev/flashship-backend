@@ -61,7 +61,7 @@ class CallCenterTest extends TestCase
     {
         return $o + [
             'contact_phone' => '0911222333', 'pickup_address' => 'Quán Cơm Cô Ba', 'delivery_address' => '', 'delivery_phone' => '',
-            'shopping_note' => '', 'order_note' => '', 'cod_amount' => null, 'shipping_fee' => 15000, 'fee_note' => '',
+            'shopping_note' => '', 'order_note' => '', 'cod_amount' => null, 'shipping_fee' => 15000, 'bonus_fee' => null, 'fee_note' => '',
         ];
     }
 
@@ -74,12 +74,62 @@ class CallCenterTest extends TestCase
         $order = Order::where('code', $page->get('resultOrderCode'))->firstOrFail();
         $this->assertSame('', (string) $order->delivery_address);
         $this->assertNull($order->delivery_lat);
-        $this->assertSame('0911222333', $order->pickup_phone, 'SĐT shop là SĐT liên hệ');
+        $this->assertNull($order->pickup_phone, 'Lấy hộ đọc SĐT trong ghi chú, không lưu ô riêng');
         $this->assertNull($order->delivery_phone);
         $this->assertNull($order->sender_name, 'tổng đài không còn nhập tên shop');
         $this->assertStringStartsWith(CallCenterPage::NO_DELIVERY_NOTE, $order->order_note, 'tài xế được báo hỏi shop khi lấy hàng');
         $this->assertStringContainsString('Mang 2 phần', $order->order_note);
         $this->assertStringContainsString('chưa có điểm giao', OrderTimeline::for($order)->where('type', 'created')->pluck('text')->implode(' | '));
+    }
+
+    public function test_pickup_service_discards_stale_delivery_address_and_coordinates(): void
+    {
+        $page = $this->page('shopping')
+            ->set('deliveryLat', 10.01)
+            ->set('deliveryLng', 105.01)
+            ->set('data', $this->data([
+                'delivery_address' => 'Địa chỉ còn sót',
+                'order_note' => 'Gọi shop khi tới lấy',
+            ]))
+            ->call('selectService', 'delivery');
+
+        $this->assertSame('', $page->get('data')['delivery_address']);
+        $this->assertNull($page->get('deliveryLat'));
+        $this->assertNull($page->get('deliveryLng'));
+        $page->assertDontSeeHtml('id="cc-delivery-input"');
+        $page->assertDontSee('SĐT khách');
+        $page->assertDontSee('SĐT người nhận');
+        $page->assertDontSee('Giá hệ thống');
+        $page->assertDontSee('Phí thu khách');
+        $page->assertDontSee('Chênh lệch');
+        $page->assertDontSee('Chưa có tài xế nào gán được ngay');
+
+        // Kể cả Livewire gửi lại giá trị cũ sau khi đổi dịch vụ, backend vẫn
+        // không được lưu địa chỉ giao cho đơn Lấy hộ.
+        $page->set('data.delivery_address', 'Địa chỉ gửi lại')
+            ->set('deliveryLat', 10.02)
+            ->set('deliveryLng', 105.02)
+            ->call('placeOrder');
+
+        $order = Order::where('code', $page->get('resultOrderCode'))->firstOrFail();
+        $this->assertSame('', (string) $order->delivery_address);
+        $this->assertNull($order->delivery_lat);
+        $this->assertNull($order->delivery_lng);
+    }
+
+    public function test_admin_bonus_is_saved_as_driver_income_without_changing_the_order_fee(): void
+    {
+        $page = $this->page('delivery')->set('data', $this->data([
+            'shipping_fee' => 15000,
+            'bonus_fee' => 10000,
+            'order_note' => 'Đơn treo, admin thêm bonus',
+        ]))->call('placeOrder');
+
+        $order = Order::where('code', $page->get('resultOrderCode'))->firstOrFail();
+        $this->assertSame(15000, (int) $order->shipping_fee);
+        $this->assertSame(10000, (int) $order->bonus_fee);
+        $this->assertSame(25000, (int) $order->shipping_fee + (int) $order->bonus_fee);
+        $this->assertStringContainsString('admin thưởng thêm 10.000₫', OrderTimeline::for($order)->pluck('text')->implode(' | '));
     }
 
     public function test_shopping_only_needs_purchase_note_and_topup_still_needs_amount(): void
@@ -149,7 +199,7 @@ class CallCenterTest extends TestCase
         $this->assertSame($page->get('resultOrderCode'), $recent[0]['code']);
         $this->assertTrue($recent[0]['no_delivery']);
         $this->assertSame('Chưa có điểm giao', $recent[0]['delivery']);
-        $this->assertSame('0911 222 333', $recent[0]['phone']);
+        $this->assertSame('', $recent[0]['phone']);
     }
 
     public function test_picked_store_name_is_kept_and_cleared_with_the_form(): void
@@ -190,7 +240,7 @@ class CallCenterTest extends TestCase
 
         $page = $this->page('delivery')->set('data', $this->data())->call('placeOrder');
 
-        $order = Order::where('pickup_phone', '0911222333')->firstOrFail();
+        $order = Order::where('code', $page->get('resultOrderCode'))->firstOrFail();
         $this->assertSame($order->code, $page->get('resultOrderCode'), 'đơn đã tạo thì báo là đã tạo');
         $this->assertNull($page->get('resultError'));
         $this->assertStringContainsString('chưa phát được', $page->get('resultWarning'));
@@ -198,7 +248,7 @@ class CallCenterTest extends TestCase
         $this->assertSame('', $page->get('data')['pickup_address'], 'form được làm sạch để khỏi đặt trùng');
     }
 
-    public function test_shopping_requires_customer_phone_while_other_services_allow_it_to_be_empty(): void
+    public function test_pickup_ignores_phone_fields_while_shopping_still_requires_customer_phone(): void
     {
         $page = $this->page('delivery')->set('data', $this->data(['contact_phone' => '']))->call('placeOrder');
         $this->assertSame([], $page->get('fieldErrors'));
@@ -206,8 +256,14 @@ class CallCenterTest extends TestCase
         $this->assertNull($order->pickup_phone);
         $this->assertNull($order->delivery_phone);
 
-        $half = $this->page('delivery')->set('data', $this->data(['contact_phone' => '0911']))->call('placeOrder');
-        $this->assertArrayHasKey('contact_phone', $half->get('fieldErrors'));
+        $stalePhones = $this->page('delivery')->set('data', $this->data([
+            'contact_phone' => '0911222333',
+            'delivery_phone' => '0988777666',
+        ]))->call('placeOrder');
+        $this->assertArrayNotHasKey('contact_phone', $stalePhones->get('fieldErrors'));
+        $staleOrder = Order::where('code', $stalePhones->get('resultOrderCode'))->firstOrFail();
+        $this->assertNull($staleOrder->pickup_phone);
+        $this->assertNull($staleOrder->delivery_phone);
 
         $shopping = $this->page('shopping')
             ->set('data', $this->data(['contact_phone' => '', 'delivery_address' => 'Nhà khách', 'shopping_note' => 'Trà sữa']))->call('placeOrder');

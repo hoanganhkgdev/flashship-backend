@@ -5,7 +5,6 @@ namespace App\Filament\Pages;
 use App\Filament\Resources\OrderResource;
 use App\Support\AdminAccess;
 use App\Support\OrderListPresenter;
-use Carbon\Carbon;
 use Filament\Actions\Action;
 use Filament\Facades\Filament;
 use Filament\Forms;
@@ -163,19 +162,22 @@ class CallCenterPage extends Page implements HasForms
 
             $this->pickupLat = $request->filled('pickup_lat') ? (float) $request->get('pickup_lat') : null;
             $this->pickupLng = $request->filled('pickup_lng') ? (float) $request->get('pickup_lng') : null;
-            $this->deliveryLat = $request->filled('delivery_lat') ? (float) $request->get('delivery_lat') : null;
-            $this->deliveryLng = $request->filled('delivery_lng') ? (float) $request->get('delivery_lng') : null;
+            $this->deliveryLat = $service !== 'delivery' && $request->filled('delivery_lat') ? (float) $request->get('delivery_lat') : null;
+            $this->deliveryLng = $service !== 'delivery' && $request->filled('delivery_lng') ? (float) $request->get('delivery_lng') : null;
 
             $this->form->fill([
                 'city_id' => $this->userCityId(),
-                'contact_phone' => $this->contactFromParts($service, (string) $request->get('pickup_phone', ''), (string) $request->get('delivery_phone', '')),
+                'contact_phone' => $service === 'delivery'
+                    ? ''
+                    : $this->contactFromParts($service, (string) $request->get('pickup_phone', ''), (string) $request->get('delivery_phone', '')),
                 'pickup_address' => $request->get('pickup_address', ''),
-                'delivery_address' => $request->get('delivery_address', ''),
-                'delivery_phone' => $service === 'delivery' ? $request->get('delivery_phone', '') : '',
+                'delivery_address' => $service === 'delivery' ? '' : $request->get('delivery_address', ''),
+                'delivery_phone' => '',
                 'shopping_note' => $service === 'shopping' ? $request->get('order_note', '') : '',
                 'order_note' => $service !== 'shopping' ? $request->get('order_note', '') : '',
                 'cod_amount' => null,
                 'shipping_fee' => null,
+                'bonus_fee' => null,
                 'fee_note' => '',
             ]);
 
@@ -191,15 +193,16 @@ class CallCenterPage extends Page implements HasForms
     {
         return [
             'city_id' => $cityId ?? $this->userCityId(),
-            'contact_phone' => '', // SĐT liên hệ: shop/khách đang gọi — luôn hỏi đầu tiên
+            'contact_phone' => '', // Dùng cho Mua hộ/Nạp tiền/Dịch vụ xe; Lấy hộ đọc SĐT trong ghi chú.
             'pickup_address' => '',
             'pickup_place_name' => '', // Tên cửa hàng từ Google khi chọn gợi ý điểm lấy
             'delivery_address' => '',
-            'delivery_phone' => '', // Lấy hộ: SĐT người nhận (tuỳ chọn — shop nhiều khi chưa cho)
+            'delivery_phone' => '', // Giữ trong state tương thích; Lấy hộ không còn nhập ô riêng.
             'shopping_note' => '', // Mua hộ: nội dung đơn / gọi khách
             'order_note' => '', // Ghi chú cho tài xế
             'cod_amount' => null,
             'shipping_fee' => null,
+            'bonus_fee' => null, // Admin trả thêm để tăng sức hút cho đơn đang treo.
             'fee_note' => '',
         ];
     }
@@ -227,9 +230,18 @@ class CallCenterPage extends Page implements HasForms
         $this->data['shopping_note'] = '';
         $this->data['cod_amount'] = null;
         $this->data['shipping_fee'] = null;
+        $this->data['bonus_fee'] = null;
         $this->data['fee_note'] = '';
         if ($key !== 'delivery') {
             $this->data['delivery_phone'] = '';
+        } else {
+            // Lấy hộ chỉ cần điểm lấy và ghi chú; địa chỉ giao/SĐT đã nằm trong
+            // ghi chú. Xóa dữ liệu cũ để không mang nhầm từ dịch vụ trước đó.
+            $this->data['contact_phone'] = '';
+            $this->data['delivery_phone'] = '';
+            $this->data['delivery_address'] = '';
+            $this->deliveryLat = null;
+            $this->deliveryLng = null;
         }
         $this->previewFee = null;
         $this->previewNightSurcharge = 0;
@@ -516,7 +528,9 @@ class CallCenterPage extends Page implements HasForms
 
         // Mua hộ bắt buộc SĐT khách để tài xế xác nhận mặt hàng và điểm giao.
         // Các dịch vụ khác có thể để trống; đã nhập thì phải đủ số, tránh lưu số gõ dở.
-        $contact = $this->normalizePhone($values['contact_phone'] ?? '');
+        $contact = $this->serviceType === 'delivery'
+            ? ''
+            : $this->normalizePhone($values['contact_phone'] ?? '');
         if ($this->serviceType === 'shopping' && $contact === '') {
             $errors['contact_phone'] = 'Vui lòng nhập SĐT khách cho đơn Mua hộ.';
         } elseif ($contact !== '' && strlen($contact) < 9) {
@@ -542,6 +556,7 @@ class CallCenterPage extends Page implements HasForms
         }
 
         $shippingFee = max(0, (int) ($values['shipping_fee'] ?? 0));
+        $bonusFee = max(0, (int) ($values['bonus_fee'] ?? 0));
 
         // Tài xế chọn tay phải còn đủ điều kiện TRƯỚC khi tạo đơn — tránh tạo rồi hủy ngay làm sai số đơn hủy.
         if ($this->assignedDriverId) {
@@ -568,12 +583,19 @@ class CallCenterPage extends Page implements HasForms
             $pickupLat = $this->pickupLat;
             $pickupLng = $this->pickupLng;
 
-            $deliveryAddress = trim((string) ($values['delivery_address'] ?? ''));
+            // Lấy hộ không có ô địa chỉ giao. Cưỡng chế rỗng để dữ liệu cũ từ
+            // Livewire hoặc link đặt lại không thể lọt vào đơn.
+            $deliveryAddress = $this->serviceType === 'delivery'
+                ? ''
+                : trim((string) ($values['delivery_address'] ?? ''));
             $noDelivery = $this->serviceType !== 'topup' && $deliveryAddress === '';
 
             if ($this->serviceType === 'topup') {
                 $deliveryLat = $pickupLat;
                 $deliveryLng = $pickupLng;
+            } elseif ($this->serviceType === 'delivery') {
+                $deliveryLat = null;
+                $deliveryLng = null;
             } else {
                 $deliveryLat = $this->deliveryLat;
                 $deliveryLng = $this->deliveryLng;
@@ -589,7 +611,7 @@ class CallCenterPage extends Page implements HasForms
             $callerPhone = trim((string) ($values['contact_phone'] ?? ''));
             [$pickupPhone, $deliveryPhone] = match (true) {
                 $this->serviceType === 'shopping' => [null, $callerPhone],
-                $this->serviceType === 'delivery' => [$callerPhone, trim((string) ($values['delivery_phone'] ?? '')) ?: null],
+                $this->serviceType === 'delivery' => [null, null],
                 default => [$callerPhone, $callerPhone], // nạp tiền, xe ôm, lái xe
             };
 
@@ -611,7 +633,7 @@ class CallCenterPage extends Page implements HasForms
                 'created_by' => auth()->id(),
                 'shipping_fee' => $shippingFee,
                 'night_surcharge' => $this->previewNightSurcharge,
-                'bonus_fee' => 0,
+                'bonus_fee' => $bonusFee,
                 'is_freeship' => $this->isFreeship,
                 'status' => 'pending',
                 'payment_method' => 'cod',
@@ -635,7 +657,8 @@ class CallCenterPage extends Page implements HasForms
             $order->refresh();
             OrderTimeline::record($order, 'created', 'Tổng đài tạo đơn'
                 .($noDelivery ? ' — chưa có điểm giao' : '')
-                .' — phí '.number_format($shippingFee, 0, ',', '.').'₫', auth()->id());
+                .' — phí '.number_format($shippingFee, 0, ',', '.').'₫'
+                .($bonusFee > 0 ? ' — admin thưởng thêm '.number_format($bonusFee, 0, ',', '.').'₫' : ''), auth()->id());
 
             if ($this->assignedDriverId) {
                 // Gán tay — gán CỨNG luôn cho đúng người tổng đài chọn, đơn vào thẳng mục "Đã nhận" của tài xế.
