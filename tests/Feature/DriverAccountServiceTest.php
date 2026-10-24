@@ -159,4 +159,24 @@ class DriverAccountServiceTest extends TestCase
         ]);
         $this->assertTrue($service->hasHistory($worked));
     }
+
+    public function test_driver_with_history_can_be_deleted_and_orders_keep_no_driver(): void
+    {
+        $driver = $this->driver(1);
+        $order = Order::create([
+            'code' => 'D'.random_int(100000, 999999), 'service_type' => 'delivery', 'city_id' => $this->city->id,
+            'delivery_man_id' => $driver->id, 'status' => 'completed', 'platform' => 'call_center', 'shipping_fee' => 10000,
+            'pickup_address' => 'A', 'delivery_address' => 'B', 'payment_method' => 'cod',
+        ]);
+        DB::table('driver_wallets')->insert(['driver_id' => $driver->id, 'balance' => 50000, 'created_at' => now(), 'updated_at' => now()]);
+        DB::table('driver_debts')->insert(['driver_id' => $driver->id, 'amount_due' => 20000, 'created_at' => now(), 'updated_at' => now()]);
+        $this->assertTrue((new FakeDriverAccountService)->hasHistory($driver));
+
+        $driver->delete();
+
+        $this->assertNull(User::find($driver->id));
+        $this->assertNull($order->fresh()->delivery_man_id, 'đơn cũ được giữ, chỉ mất tham chiếu tài xế');
+        $this->assertSame(0, DB::table('driver_wallets')->where('driver_id', $driver->id)->count());
+        $this->assertSame(0, DB::table('driver_debts')->where('driver_id', $driver->id)->count());
+    }
 }

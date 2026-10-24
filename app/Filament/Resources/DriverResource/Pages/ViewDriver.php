@@ -92,10 +92,8 @@ class ViewDriver extends ViewRecord
 
             Actions\EditAction::make()->label('Chỉnh sửa')->icon('heroicon-o-pencil-square'),
 
-            // Tài xế đã có đơn, ví hoặc công nợ thì không được xóa hẳn: hãy khóa để giữ lịch sử tài chính.
             tap(
-                Actions\DeleteAction::make()->label('Xóa tài xế')->successRedirectUrl(DriverResource::getUrl('index'))
-                    ->visible(fn (): bool => ! $this->service()->hasHistory($this->record)),
+                Actions\DeleteAction::make()->label('Xóa tài xế')->successRedirectUrl(DriverResource::getUrl('index')),
                 fn ($a) => DriverResource::configureDeleteAction($a)
             ),
         ];

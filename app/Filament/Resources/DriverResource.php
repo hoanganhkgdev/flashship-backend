@@ -90,13 +90,24 @@ class DriverResource extends Resource
 
     /**
      * Cấu hình dùng chung cho nút Xóa tài xế (bảng + trang hồ sơ).
-     * Xóa cứng: kéo theo ví, công nợ, lịch sử điểm, ca; đơn đã xong mất tham chiếu tài xế.
+     * Xóa cứng, kể cả tài xế đã có lịch sử: kéo theo ví, công nợ, lịch sử điểm, ca;
+     * đơn cũ mất tham chiếu tài xế (nullOnDelete). Chỉ chặn khi tài xế đang giữ đơn.
      */
     public static function configureDeleteAction(Tables\Actions\DeleteAction|DeleteAction $action): void
     {
         $action
             ->modalHeading('Xóa tài xế')
-            ->modalDescription('Xóa vĩnh viễn tài khoản tài xế cùng ví, công nợ, lịch sử điểm và ca làm việc. Các đơn cũ sẽ không còn thông tin tài xế. Không thể khôi phục.')
+            ->modalDescription(function (User $record): string {
+                $orders = Order::where('delivery_man_id', $record->id)->count();
+                $balance = (int) DB::table('driver_wallets')->where('driver_id', $record->id)->value('balance');
+                $debts = DB::table('driver_debts')->where('driver_id', $record->id)->count();
+
+                $warning = $orders > 0 || $balance !== 0 || $debts > 0
+                    ? "Tài xế này có {$orders} đơn, số dư ví ".number_format($balance, 0, ',', '.')."₫, {$debts} khoản công nợ — tất cả sẽ mất. "
+                    : '';
+
+                return $warning.'Xóa vĩnh viễn tài khoản tài xế cùng ví, công nợ, lịch sử điểm và ca làm việc. Các đơn cũ sẽ không còn thông tin tài xế. Không thể khôi phục. Nếu chỉ muốn ngừng cho làm việc, hãy dùng Khóa.';
+            })
             ->before(function (User $record, $action) {
                 $busy = Order::where('delivery_man_id', $record->id)
                     ->whereIn('status', ['assigned', 'processing'])
@@ -365,8 +376,7 @@ class DriverResource extends Resource
                             Notification::make()->title($result['message'])->success()->send();
                         }),
 
-                    // Tài xế đã có đơn, ví hoặc công nợ thì không được xóa hẳn: hãy khóa để giữ lịch sử tài chính.
-                    tap(Tables\Actions\DeleteAction::make()->label('Xóa')->visible(fn (User $record): bool => ! $service->hasHistory($record)), fn ($a) => static::configureDeleteAction($a)),
+                    tap(Tables\Actions\DeleteAction::make()->label('Xóa'), fn ($a) => static::configureDeleteAction($a)),
                 ])->icon('heroicon-m-ellipsis-horizontal')->tooltip('Thao tác khác'),
             ])
             ->bulkActions([
