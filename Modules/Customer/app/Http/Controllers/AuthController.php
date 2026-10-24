@@ -9,7 +9,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 use Modules\Core\Models\User;
-use Modules\Customer\Services\FirebasePhoneVerifier;
+use Modules\Core\Services\FirebasePhoneVerifier;
 
 class AuthController extends Controller
 {

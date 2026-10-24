@@ -21,7 +21,6 @@ Route::middleware(['auth:sanctum', 'user_type:driver', 'driver.active'])->group(
     Route::prefix('driver')->group(function () {
         Route::get('/profile',                       [DriverController::class, 'profile']);
         Route::post('/profile/update',               [DriverController::class, 'updateProfile']);
-        Route::post('/change-password/send-otp',     [DriverController::class, 'sendChangePasswordOtp']);
         Route::post('/change-password',              [DriverController::class, 'changePassword']);
         Route::post('/update-fcm-token',             [DriverController::class, 'updateFcmToken']);
         Route::post('/toggle-status',                [DriverController::class, 'toggleOnline']);

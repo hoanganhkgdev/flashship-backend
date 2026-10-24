@@ -16,9 +16,8 @@ use Modules\Admin\Models\SupportConfig;
 */
 Route::prefix('auth')->group(function () {
     Route::post('/login',                 [AuthController::class, 'login']);
-    Route::post('/send-otp',              [AuthController::class, 'sendOtp']);
+    Route::post('/check-phone',           [AuthController::class, 'checkPhone']);
     Route::post('/verify-otp-register',   [AuthController::class, 'verifyOtpAndRegister']);
-    Route::post('/forgot-password',       [AuthController::class, 'forgotPassword']);
     Route::post('/reset-password',        [AuthController::class, 'resetPassword']);
 
     // auth:sanctum + driver.active KHÔNG kiểm tra user_type — customer/shop

@@ -10,7 +10,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Facades\Storage;
-use Modules\Core\Services\OtpService;
+use Modules\Core\Services\FirebasePhoneVerifier;
 use Modules\Core\Models\City;
 use Modules\Core\Models\User;
 use Modules\Core\Services\RTDBService;
@@ -301,33 +301,10 @@ class DriverController extends Controller
         return response()->json(['success' => true, 'message' => 'Cập nhật thành công', 'data' => ['user' => $userData]]);
     }
 
-    // Type riêng cho OTP đổi mật khẩu — tách khỏi mặc định 'register' để
-    // không bị luồng đăng ký khác (gửi OTP cùng type cho cùng SĐT) ghi đè/
-    // vô hiệu hoá lẫn nhau (OtpService::send() set used=true toàn bộ OTP cũ
-    // cùng phone+type mỗi lần gửi mới).
-    private const OTP_TYPE_CHANGE_PASSWORD = 'change_password';
-
-    public function sendChangePasswordOtp(Request $request): JsonResponse
-    {
-        $user = $request->user();
-
-        if (!OtpService::sendThrottled($user->phone, self::OTP_TYPE_CHANGE_PASSWORD)) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Vui lòng chờ 60 giây trước khi gửi lại',
-            ], 429);
-        }
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Mã OTP đã được gửi qua Zalo đến số ' . $user->phone,
-        ]);
-    }
-
     public function changePassword(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'otp'                      => 'required|string|size:6',
+            'id_token'                 => 'required|string',
             'new_password'             => 'required|string|min:6',
             'new_password_confirmation' => 'required|same:new_password',
         ]);
@@ -345,7 +322,7 @@ class DriverController extends Controller
             ], 429);
         }
 
-        if (!OtpService::verify($user->phone, $data['otp'], self::OTP_TYPE_CHANGE_PASSWORD)) {
+        if (FirebasePhoneVerifier::verifiedPhone($data['id_token']) !== FirebasePhoneVerifier::normalize((string) $user->phone)) {
             RateLimiter::hit($rateLimitKey, 600);
             return response()->json(['success' => false, 'message' => 'Mã OTP không hợp lệ hoặc đã hết hạn'], 422);
         }

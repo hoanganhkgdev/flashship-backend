@@ -1,9 +1,8 @@
 <?php
-namespace Modules\Customer\Services;
+namespace Modules\Core\Services;
 
 use Illuminate\Support\Facades\Log;
 use Kreait\Firebase\Factory;
-use Modules\Core\Services\RTDBService;
 
 /**
  * Xác minh số điện thoại của khách bằng Firebase Phone Auth: app gửi và nhập

@@ -8,33 +8,39 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\ValidationException;
 use Modules\Core\Models\User;
-use Modules\Core\Services\OtpService;
+use Modules\Core\Services\FirebasePhoneVerifier;
 use Modules\Core\Services\RTDBService;
 
 class AuthController extends Controller
 {
-    public function sendOtp(Request $request): JsonResponse
+    /**
+     * Kiểm tra số điện thoại TRƯỚC khi app xin Firebase gửi SMS — tránh tốn tiền
+     * SMS cho số đã đăng ký (register) hoặc chưa có tài khoản (forgot_password).
+     */
+    public function checkPhone(Request $request): JsonResponse
     {
-        $data = $request->validate(['phone' => 'required|string']);
+        $data = $request->validate([
+            'phone'   => 'required|string',
+            'purpose' => 'required|in:register,forgot_password',
+        ]);
 
-        // Chặn ngay từ bước gửi mã — không thì tốn tiền SMS/ZNS vô ích và
-        // người dùng điền hết form mới biết số đã có tài khoản.
-        if (User::where('phone', $data['phone'])->where('user_type', 'driver')->exists()) {
+        $exists = User::where('phone', $data['phone'])->where('user_type', 'driver')->exists();
+
+        if ($data['purpose'] === 'register' && $exists) {
             return response()->json(['success' => false, 'message' => 'Số điện thoại đã được đăng ký. Vui lòng đăng nhập hoặc dùng Quên mật khẩu.'], 422);
         }
-
-        if (!OtpService::sendThrottled($data['phone'])) {
-            return response()->json(['success' => false, 'message' => 'Vui lòng chờ 60 giây trước khi gửi lại'], 429);
+        if ($data['purpose'] === 'forgot_password' && !$exists) {
+            return response()->json(['success' => false, 'message' => 'Số điện thoại chưa được đăng ký'], 422);
         }
 
-        return response()->json(['success' => true, 'message' => 'Mã OTP đã được gửi đến ' . $data['phone']]);
+        return response()->json(['success' => true]);
     }
 
     public function verifyOtpAndRegister(Request $request): JsonResponse
     {
         $data = $request->validate([
             'phone'     => 'required|string',
-            'otp'       => 'required|string|size:6',
+            'id_token'  => 'required|string',
             'name'      => 'required|string|max:255',
             'password'  => 'required|string|min:6',
             'city_id'   => 'required|integer|exists:cities,id',
@@ -42,8 +48,8 @@ class AuthController extends Controller
             'device_id' => 'required|string|max:191',
         ]);
 
-        if (!OtpService::verify($data['phone'], $data['otp'])) {
-            return response()->json(['success' => false, 'message' => 'Mã OTP không hợp lệ hoặc đã hết hạn'], 422);
+        if (FirebasePhoneVerifier::verifiedPhone($data['id_token']) !== FirebasePhoneVerifier::normalize($data['phone'])) {
+            return response()->json(['success' => false, 'message' => 'Xác minh số điện thoại không hợp lệ hoặc đã hết hạn'], 422);
         }
 
         if (User::where('phone', $data['phone'])->where('user_type', 'driver')->exists()) {
@@ -87,32 +93,16 @@ class AuthController extends Controller
         ], 201);
     }
 
-    public function forgotPassword(Request $request): JsonResponse
-    {
-        $data  = $request->validate(['phone' => 'required|string']);
-        $phone = $data['phone'];
-
-        if (!User::where('phone', $phone)->where('user_type', 'driver')->exists()) {
-            return response()->json(['success' => false, 'message' => 'Số điện thoại chưa được đăng ký'], 422);
-        }
-
-        if (!OtpService::sendThrottled($phone, 'forgot_password')) {
-            return response()->json(['success' => false, 'message' => 'Vui lòng chờ 60 giây trước khi gửi lại'], 429);
-        }
-
-        return response()->json(['success' => true, 'message' => 'Mã OTP đã được gửi tới ' . $phone]);
-    }
-
     public function resetPassword(Request $request): JsonResponse
     {
         $data = $request->validate([
             'phone'    => 'required|string',
-            'otp'      => 'required|string|size:6',
+            'id_token' => 'required|string',
             'password' => 'required|string|min:6|confirmed',
         ]);
 
-        if (!OtpService::verify($data['phone'], $data['otp'], 'forgot_password')) {
-            return response()->json(['success' => false, 'message' => 'Mã OTP không hợp lệ hoặc đã hết hạn'], 422);
+        if (FirebasePhoneVerifier::verifiedPhone($data['id_token']) !== FirebasePhoneVerifier::normalize($data['phone'])) {
+            return response()->json(['success' => false, 'message' => 'Xác minh số điện thoại không hợp lệ hoặc đã hết hạn'], 422);
         }
 
         $user = User::where('phone', $data['phone'])->where('user_type', 'driver')->first();
