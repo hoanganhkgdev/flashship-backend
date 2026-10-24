@@ -15,11 +15,9 @@ use Modules\Customer\Http\Middleware\TrackCustomerEvent;
 Route::prefix('customer')->middleware(TrackCustomerEvent::class)->group(function () {
 
     Route::prefix('auth')->group(function () {
-        Route::post('/send-otp',             [AuthController::class, 'sendOtp']);
         Route::post('/verify-otp-register',  [AuthController::class, 'verifyOtpAndRegister']);
         Route::post('/register',         [AuthController::class, 'register']);
         Route::post('/login',            [AuthController::class, 'login']);
-        Route::post('/forgot-password',  [AuthController::class, 'forgotPassword']);
         Route::post('/reset-password',   [AuthController::class, 'resetPassword']);
 
         // auth:sanctum không tự kiểm tra user_type — cùng lỗ hổng đã sửa cho
