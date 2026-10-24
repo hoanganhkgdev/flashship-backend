@@ -162,16 +162,16 @@ class CallCenterPage extends Page implements HasForms
 
             $this->pickupLat = $request->filled('pickup_lat') ? (float) $request->get('pickup_lat') : null;
             $this->pickupLng = $request->filled('pickup_lng') ? (float) $request->get('pickup_lng') : null;
-            $this->deliveryLat = $service !== 'delivery' && $request->filled('delivery_lat') ? (float) $request->get('delivery_lat') : null;
-            $this->deliveryLng = $service !== 'delivery' && $request->filled('delivery_lng') ? (float) $request->get('delivery_lng') : null;
+            $this->deliveryLat = ! in_array($service, ['delivery', 'shopping'], true) && $request->filled('delivery_lat') ? (float) $request->get('delivery_lat') : null;
+            $this->deliveryLng = ! in_array($service, ['delivery', 'shopping'], true) && $request->filled('delivery_lng') ? (float) $request->get('delivery_lng') : null;
 
             $this->form->fill([
                 'city_id' => $this->userCityId(),
-                'contact_phone' => $service === 'delivery'
+                'contact_phone' => in_array($service, ['delivery', 'shopping'], true)
                     ? ''
                     : $this->contactFromParts($service, (string) $request->get('pickup_phone', ''), (string) $request->get('delivery_phone', '')),
                 'pickup_address' => $request->get('pickup_address', ''),
-                'delivery_address' => $service === 'delivery' ? '' : $request->get('delivery_address', ''),
+                'delivery_address' => in_array($service, ['delivery', 'shopping'], true) ? '' : $request->get('delivery_address', ''),
                 'delivery_phone' => '',
                 'shopping_note' => $service === 'shopping' ? $request->get('order_note', '') : '',
                 'order_note' => $service !== 'shopping' ? $request->get('order_note', '') : '',
@@ -239,6 +239,13 @@ class CallCenterPage extends Page implements HasForms
             // ghi chú. Xóa dữ liệu cũ để không mang nhầm từ dịch vụ trước đó.
             $this->data['contact_phone'] = '';
             $this->data['delivery_phone'] = '';
+            $this->data['delivery_address'] = '';
+            $this->deliveryLat = null;
+            $this->deliveryLng = null;
+        }
+        if ($key === 'shopping') {
+            // Mua hộ không có điểm giao và SĐT khách; bỏ dữ liệu mang từ dịch vụ trước.
+            $this->data['contact_phone'] = '';
             $this->data['delivery_address'] = '';
             $this->deliveryLat = null;
             $this->deliveryLng = null;
@@ -526,19 +533,20 @@ class CallCenterPage extends Page implements HasForms
 
         $errors = [];
 
-        // Mua hộ bắt buộc SĐT khách để tài xế xác nhận mặt hàng và điểm giao.
-        // Các dịch vụ khác có thể để trống; đã nhập thì phải đủ số, tránh lưu số gõ dở.
-        $contact = $this->serviceType === 'delivery'
+        // Lấy hộ/Mua hộ không có ô SĐT (SĐT nằm trong ghi chú). Các dịch vụ khác có thể để trống;
+        // đã nhập thì phải đủ số, tránh lưu số gõ dở.
+        $contact = in_array($this->serviceType, ['delivery', 'shopping'], true)
             ? ''
             : $this->normalizePhone($values['contact_phone'] ?? '');
-        if ($this->serviceType === 'shopping' && $contact === '') {
-            $errors['contact_phone'] = 'Vui lòng nhập SĐT khách cho đơn Mua hộ.';
-        } elseif ($contact !== '' && strlen($contact) < 9) {
+        if ($contact !== '' && strlen($contact) < 9) {
             $errors['contact_phone'] = 'Số điện thoại chưa đủ (ít nhất 9 chữ số) — nhập đủ số hoặc để trống.';
         }
 
+        // Mua hộ không bắt buộc địa chỉ cửa hàng (có thể nằm trong ghi chú); chọn từ gợi ý thì vẫn lưu toạ độ.
         $pickupAddress = trim($values['pickup_address'] ?? '');
-        if ($pickupAddress === '') {
+        if ($this->serviceType === 'shopping') {
+            // bỏ qua kiểm tra điểm mua hàng
+        } elseif ($pickupAddress === '') {
             $errors['pickup_address'] = "Vui lòng nhập {$pickupLabel}.";
         } elseif (! $this->pickupLat || ! $this->pickupLng) {
             $errors['pickup_address'] = "Vui lòng chọn {$pickupLabel} từ gợi ý hoặc bản đồ để có toạ độ chính xác.";
@@ -583,9 +591,9 @@ class CallCenterPage extends Page implements HasForms
             $pickupLat = $this->pickupLat;
             $pickupLng = $this->pickupLng;
 
-            // Lấy hộ không có ô địa chỉ giao. Cưỡng chế rỗng để dữ liệu cũ từ
+            // Lấy hộ và Mua hộ không có ô địa chỉ giao. Cưỡng chế rỗng để dữ liệu cũ từ
             // Livewire hoặc link đặt lại không thể lọt vào đơn.
-            $deliveryAddress = $this->serviceType === 'delivery'
+            $deliveryAddress = in_array($this->serviceType, ['delivery', 'shopping'], true)
                 ? ''
                 : trim((string) ($values['delivery_address'] ?? ''));
             $noDelivery = $this->serviceType !== 'topup' && $deliveryAddress === '';
@@ -593,7 +601,7 @@ class CallCenterPage extends Page implements HasForms
             if ($this->serviceType === 'topup') {
                 $deliveryLat = $pickupLat;
                 $deliveryLng = $pickupLng;
-            } elseif ($this->serviceType === 'delivery') {
+            } elseif (in_array($this->serviceType, ['delivery', 'shopping'], true)) {
                 $deliveryLat = null;
                 $deliveryLng = null;
             } else {
@@ -607,11 +615,10 @@ class CallCenterPage extends Page implements HasForms
             }
 
             // SĐT theo quy ước từng dịch vụ: lấy hộ → SĐT điểm lấy là của shop (người gọi), SĐT nhận hàng tuỳ chọn;
-            // mua hộ → người gọi là khách nhận hàng; nạp tiền/xe → người gọi là khách.
+            // mua hộ → không lưu SĐT (có trong ghi chú); nạp tiền/xe → người gọi là khách.
             $callerPhone = trim((string) ($values['contact_phone'] ?? ''));
             [$pickupPhone, $deliveryPhone] = match (true) {
-                $this->serviceType === 'shopping' => [null, $callerPhone],
-                $this->serviceType === 'delivery' => [null, null],
+                in_array($this->serviceType, ['delivery', 'shopping'], true) => [null, null],
                 default => [$callerPhone, $callerPhone], // nạp tiền, xe ôm, lái xe
             };
 

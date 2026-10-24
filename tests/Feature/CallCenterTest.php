@@ -155,9 +155,9 @@ class CallCenterTest extends TestCase
             ->call('selectService', 'shopping');
 
         $d = $page->get('data');
-        $this->assertSame('0911222333', $d['contact_phone']);
+        $this->assertSame('', $d['contact_phone'], 'Mua hộ không có SĐT khách');
         $this->assertSame('Quán Cơm Cô Ba', $d['pickup_address']);
-        $this->assertSame('Nhà khách', $d['delivery_address']);
+        $this->assertSame('', $d['delivery_address'], 'Mua hộ không có điểm giao');
         $this->assertSame(10.0, $page->get('pickupLat'));
         $this->assertNull($d['shipping_fee']);
         $this->assertSame('', $d['fee_note']);
@@ -248,7 +248,7 @@ class CallCenterTest extends TestCase
         $this->assertSame('', $page->get('data')['pickup_address'], 'form được làm sạch để khỏi đặt trùng');
     }
 
-    public function test_pickup_ignores_phone_fields_while_shopping_still_requires_customer_phone(): void
+    public function test_pickup_ignores_phone_fields_while_shopping_has_no_phone_field(): void
     {
         $page = $this->page('delivery')->set('data', $this->data(['contact_phone' => '']))->call('placeOrder');
         $this->assertSame([], $page->get('fieldErrors'));
@@ -267,8 +267,10 @@ class CallCenterTest extends TestCase
 
         $shopping = $this->page('shopping')
             ->set('data', $this->data(['contact_phone' => '', 'delivery_address' => 'Nhà khách', 'shopping_note' => 'Trà sữa']))->call('placeOrder');
-        $this->assertSame('Vui lòng nhập SĐT khách cho đơn Mua hộ.', $shopping->get('fieldErrors')['contact_phone']);
-        $this->assertNull($shopping->get('resultOrderCode'));
+        $this->assertSame([], $shopping->get('fieldErrors'), 'Mua hộ không còn ô SĐT khách');
+        $shoppingOrder = Order::where('code', $shopping->get('resultOrderCode'))->firstOrFail();
+        $this->assertNull($shoppingOrder->pickup_phone);
+        $this->assertNull($shoppingOrder->delivery_phone);
 
         $topup = $this->page('topup')
             ->set('data', $this->data(['contact_phone' => '', 'delivery_address' => 'Nhà khách', 'cod_amount' => 50000]))->call('placeOrder');
@@ -327,7 +329,7 @@ class CallCenterTest extends TestCase
 
     public function test_every_service_requires_a_pickup_point_with_coordinates(): void
     {
-        foreach (['delivery', 'shopping', 'topup'] as $service) {
+        foreach (['delivery', 'topup'] as $service) {
             $base = $this->data(['contact_phone' => '0911222333', 'delivery_address' => 'Nhà khách', 'shopping_note' => 'Trà sữa', 'cod_amount' => 50000]);
 
             // Không nhập điểm lấy
@@ -339,5 +341,16 @@ class CallCenterTest extends TestCase
             $this->assertArrayHasKey('pickup_address', $noCoords->get('fieldErrors'), "$service: thiếu toạ độ điểm lấy");
         }
         $this->assertSame(0, Order::where('city_id', $this->city->id)->count());
+    }
+
+    public function test_shopping_does_not_require_a_pickup_point(): void
+    {
+        $page = Livewire::test(CallCenterPage::class)->call('selectService', 'shopping')
+            ->set('data', $this->data(['pickup_address' => '', 'shopping_note' => 'Mua 2 phần cơm ở quán A, SĐT 0911222333']))->call('placeOrder');
+
+        $this->assertSame([], $page->get('fieldErrors'));
+        $order = Order::where('code', $page->get('resultOrderCode'))->firstOrFail();
+        $this->assertSame('', (string) $order->pickup_address);
+        $this->assertNull($order->pickup_lat);
     }
 }

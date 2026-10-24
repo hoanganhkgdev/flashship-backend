@@ -17,7 +17,7 @@
         default => 'SĐT khách',
     };
     $deliveryOptional = $serviceType !== 'topup';
-    $phoneRequired = $serviceType === 'shopping';
+    $phoneRequired = false;
     $shortLabels = ['delivery' => 'Lấy hộ', 'shopping' => 'Mua hộ', 'topup' => 'Nạp/Rút', 'bike' => 'Xe ôm', 'motor' => 'Lái xe máy', 'car' => 'Lái ô tô'];
 @endphp
 
@@ -553,7 +553,7 @@
                     'bike', 'motor', 'car' => 'Điểm đến',
                     default => 'Điểm giao hàng',
                 };
-                $needDelivery = ! in_array($serviceType, ['delivery', 'topup'], true);
+                $needDelivery = ! in_array($serviceType, ['delivery', 'shopping', 'topup'], true);
                 $pickupShort = match($serviceType) { 'shopping' => 'Mua tại', 'topup' => 'Nạp tại', 'bike', 'motor', 'car' => 'Đón', default => 'Lấy' };
                 $deliveryShort = in_array($serviceType, ['bike', 'motor', 'car'], true) ? 'Đến' : 'Giao';
             @endphp
@@ -564,7 +564,7 @@
                     <div class="cc-address-dot" style="background:#FF6B35; box-shadow:0 0 0 3px #FF6B3520;"></div>
                     <span class="cc-addr-tag" title="{{ $pickupLabel }}">{{ $pickupShort }}</span>
                     <div class="cc-address-col">
-                        <input id="cc-pickup-input" type="text" placeholder="{{ $pickupLabel }}: nhập địa chỉ..." autocomplete="off"
+                        <input id="cc-pickup-input" type="text" placeholder="{{ $serviceType === 'shopping' ? $pickupLabel.': tuỳ chọn — có thể ghi trong ghi chú' : $pickupLabel.': nhập địa chỉ...' }}" autocomplete="off"
                             value="{{ ($data['pickup_place_name'] ?? '') !== '' ? $data['pickup_place_name'] : ($data['pickup_address'] ?? '') }}" onblur="_syncTyped('pickup')" autofocus />
                         @if (($data['pickup_place_name'] ?? '') !== '')<p class="cc-addr-sub" title="{{ $data['pickup_address'] ?? '' }}">{{ $data['pickup_address'] ?? '' }}</p>@endif
                         @if ($err('pickup_address'))<p class="cc-err">{{ $err('pickup_address') }}</p>@endif
@@ -603,7 +603,7 @@
 
                 @if ($serviceType === 'shopping')
                 <div class="cc-fld"><label class="cc-lbl">Hàng cần mua</label>
-                <textarea class="cc-textarea {{ $err('shopping_note') ? 'has-err' : '' }}" wire:model="data.shopping_note" rows="2" placeholder="Ví dụ: 1 ly trà sữa size L, ít đá..."></textarea></div>
+                <textarea class="cc-textarea {{ $err('shopping_note') ? 'has-err' : '' }}" wire:model="data.shopping_note" rows="5" placeholder="Ví dụ: 1 ly trà sữa size L, ít đá..."></textarea></div>
                 @if ($err('shopping_note'))<p class="cc-err">{{ $err('shopping_note') }}</p>@endif
                 @endif
 
@@ -629,7 +629,7 @@
             </section>
 
             {{-- 4. Khách đang gọi --}}
-            @if ($serviceType !== 'delivery')
+            @if (! in_array($serviceType, ['delivery', 'shopping'], true))
             <section class="cc-section">
                 <div class="cc-section__head"><strong>SĐT khách</strong><span>Số liên hệ của người đang gọi</span></div>
                 <div class="cc-card cc-customer-card {{ $err('contact_phone') ? 'has-err' : '' }}">
