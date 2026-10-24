@@ -34,7 +34,7 @@ class CallCenterTest extends TestCase
         Queue::fake();
         // Phát đơn thật chạm Redis/Firebase/broadcast: ở đây chỉ kiểm tra đơn được tạo đúng và được đưa vào phát
         $this->mock(OrderService::class, fn ($m) => $m->shouldReceive('dispatchNewOrder')->andReturnNull());
-        foreach (['delivery' => 'Lấy đồ hộ', 'shopping' => 'Mua hộ', 'topup' => 'Nạp tiền'] as $k => $l) {
+        foreach (['delivery' => 'Lấy đồ hộ', 'shopping' => 'Mua hộ', 'topup' => 'Nạp tiền', 'bike' => 'Xe ôm', 'motor' => 'Lái xe máy', 'car' => 'Lái ô tô'] as $k => $l) {
             ServiceType::updateOrCreate(['key' => $k], ['label' => $l, 'sort_order' => 1, 'is_active' => true]);
         }
         $this->city = City::create(['name' => 'CC city', 'slug' => 'cc-city-'.uniqid(), 'is_active' => true]);
@@ -132,7 +132,7 @@ class CallCenterTest extends TestCase
         $this->assertStringContainsString('admin thưởng thêm 10.000₫', OrderTimeline::for($order)->pluck('text')->implode(' | '));
     }
 
-    public function test_shopping_only_needs_purchase_note_and_topup_still_needs_amount(): void
+    public function test_shopping_only_needs_purchase_note_and_topup_has_no_amount_field(): void
     {
         $shopping = $this->page('shopping')->set('data', $this->data(['shipping_fee' => 10000]))->call('placeOrder');
         $this->assertSame(['shopping_note'], array_keys($shopping->get('fieldErrors')));
@@ -144,9 +144,16 @@ class CallCenterTest extends TestCase
         $this->assertNull($order->delivery_lat);
         $this->assertStringStartsWith(CallCenterPage::SHOPPING_NO_DELIVERY_NOTE, $order->order_note);
 
-        $topup = $this->page('topup')->set('data', $this->data(['cod_amount' => 0]))->call('placeOrder');
-        $this->assertSame(['cod_amount'], array_keys($topup->get('fieldErrors')));
-        $this->assertSame(1, Order::where('city_id', $this->city->id)->count(), 'đơn mua hộ hợp lệ đã tạo; đơn nạp tiền lỗi không tạo thêm');
+        $noNote = $this->page('topup')->set('data', $this->data(['pickup_address' => '', 'order_note' => '']))->call('placeOrder');
+        $this->assertSame(['order_note'], array_keys($noNote->get('fieldErrors')), 'Nạp tiền bắt buộc ghi chú, không bắt buộc điểm nạp');
+
+        $topup = $this->page('topup')->set('data', $this->data(['cod_amount' => 50000, 'contact_phone' => '0911222333', 'order_note' => 'Nạp 50k']))->call('placeOrder');
+        $this->assertSame([], $topup->get('fieldErrors'), 'Nạp tiền không còn ô số tiền nạp');
+        $topupOrder = Order::where('code', $topup->get('resultOrderCode'))->firstOrFail();
+        $this->assertNull($topupOrder->cod_amount);
+        $this->assertNull($topupOrder->pickup_phone);
+        $this->assertNull($topupOrder->delivery_phone);
+        $this->assertSame('Nạp 50k', $topupOrder->order_note);
     }
 
     public function test_switching_service_keeps_the_customer_and_journey_but_drops_service_specific_fields(): void
@@ -273,7 +280,7 @@ class CallCenterTest extends TestCase
         $this->assertNull($shoppingOrder->delivery_phone);
 
         $topup = $this->page('topup')
-            ->set('data', $this->data(['contact_phone' => '', 'delivery_address' => 'Nhà khách', 'cod_amount' => 50000]))->call('placeOrder');
+            ->set('data', $this->data(['contact_phone' => '', 'delivery_address' => 'Nhà khách', 'order_note' => 'Nạp 50k']))->call('placeOrder');
         $this->assertArrayNotHasKey('contact_phone', $topup->get('fieldErrors'), 'Nạp tiền không bắt buộc SĐT');
         $this->assertNotNull($topup->get('resultOrderCode'), 'Nạp tiền vẫn đặt được khi không có SĐT');
     }
@@ -329,7 +336,7 @@ class CallCenterTest extends TestCase
 
     public function test_every_service_requires_a_pickup_point_with_coordinates(): void
     {
-        foreach (['delivery', 'topup'] as $service) {
+        foreach (['delivery'] as $service) {
             $base = $this->data(['contact_phone' => '0911222333', 'delivery_address' => 'Nhà khách', 'shopping_note' => 'Trà sữa', 'cod_amount' => 50000]);
 
             // Không nhập điểm lấy
@@ -352,5 +359,25 @@ class CallCenterTest extends TestCase
         $order = Order::where('code', $page->get('resultOrderCode'))->firstOrFail();
         $this->assertSame('', (string) $order->pickup_address);
         $this->assertNull($order->pickup_lat);
+    }
+
+    public function test_ride_services_have_no_destination_or_customer_phone(): void
+    {
+        foreach (['bike', 'motor', 'car'] as $service) {
+            $noNote = $this->page($service)->set('data', $this->data(['pickup_address' => '', 'order_note' => '']))->call('placeOrder');
+            $this->assertSame(['order_note'], array_keys($noNote->get('fieldErrors')), "$service: bắt buộc ghi chú, không bắt buộc điểm đón");
+
+            $page = $this->page($service)->call('setPickupLocation', 'Chợ A', 10.0, 105.0)
+                ->set('data', $this->data(['contact_phone' => '0911222333', 'delivery_address' => 'Nhà khách', 'order_note' => 'Đi bến xe, SĐT 0911222333']))
+                ->call('placeOrder');
+
+            $this->assertSame([], $page->get('fieldErrors'));
+            $order = Order::where('code', $page->get('resultOrderCode'))->firstOrFail();
+            $this->assertSame('', (string) $order->delivery_address);
+            $this->assertNull($order->delivery_lat);
+            $this->assertNull($order->pickup_phone);
+            $this->assertNull($order->delivery_phone);
+            $this->assertSame('Đi bến xe, SĐT 0911222333', $order->order_note, 'không chèn ghi chú "chưa có điểm giao"');
+        }
     }
 }
