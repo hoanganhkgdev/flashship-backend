@@ -68,7 +68,7 @@ class AuthController extends Controller
                 'password'           => bcrypt($data['password']),
                 'status'             => 0,
                 'user_type'          => 'driver',
-                'city_id'            => $data['city_id'],
+                'city_id'            => (int) $data['city_id'],
                 'profile_photo_path' => $path,
                 'fcm_token'          => $data['fcm_token'] ?? null,
             ]);
