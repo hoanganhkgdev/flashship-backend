@@ -186,6 +186,16 @@ class DriverDebtResource extends Resource
             ->action(fn (DriverDebt $record, array $data) => self::notify(DriverDebtService::adjustAmount($record, (float) $data['amount_due'], $data['reason'], auth()->id())));
     }
 
+    public static function deleteAction($action)
+    {
+        return $action->label('Xóa')->icon('heroicon-o-trash')->color('danger')
+            ->visible(fn (DriverDebt $d) => (float) $d->amount_paid <= 0)
+            ->modalHeading('Xóa khoản nợ')
+            ->modalDescription('Chỉ xóa được khoản chưa thu đồng nào. Việc xóa được ghi vào nhật ký.')
+            ->form([Forms\Components\Textarea::make('reason')->label('Lý do')->required()->minLength(5)->maxLength(300)->rows(2)])
+            ->action(fn (DriverDebt $record, array $data) => self::notify(DriverDebtService::delete($record, $data['reason'], auth()->id())));
+    }
+
     public static function remindAction($action)
     {
         return $action->label('Nhắc nợ')->icon('heroicon-o-bell-alert')->color('warning')
@@ -269,6 +279,7 @@ class DriverDebtResource extends Resource
                     self::waiveAction(Tables\Actions\Action::make('waive')),
                     self::adjustAction(Tables\Actions\Action::make('adjust')),
                     self::overdueAction(Tables\Actions\Action::make('mark_overdue')),
+                    self::deleteAction(Tables\Actions\Action::make('delete_debt')),
                 ])->icon('heroicon-m-ellipsis-horizontal')->label(''),
             ])
             ->bulkActions([])

@@ -66,6 +66,21 @@ class DriverDebtTest extends TestCase
         return $d->logs()->pluck('action')->all();
     }
 
+    public function test_delete_only_when_nothing_collected_and_keeps_log(): void
+    {
+        $d = $this->debt();
+        $this->assertFalse(DriverDebtService::delete($d, 'ab', $this->admin->id)['ok']);
+
+        $paid = $this->debt();
+        DriverDebtService::collectManual($paid, 100000, 'CK tay', $this->admin->id);
+        $this->assertFalse(DriverDebtService::delete($paid->fresh(), 'tạo nhầm khoản', $this->admin->id)['ok']);
+        $this->assertDatabaseHas('driver_debts', ['id' => $paid->id]);
+
+        $this->assertTrue(DriverDebtService::delete($d, 'tạo nhầm khoản', $this->admin->id)['ok']);
+        $this->assertDatabaseMissing('driver_debts', ['id' => $d->id]);
+        $this->assertDatabaseHas('driver_debt_logs', ['debt_id' => $d->id, 'action' => 'deleted']);
+    }
+
     public function test_partial_wallet_payment_keeps_debt_open_then_closes_it(): void
     {
         $this->wallet(120000);

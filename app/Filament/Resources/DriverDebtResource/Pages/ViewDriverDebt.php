@@ -41,6 +41,8 @@ class ViewDriverDebt extends ViewRecord
                 DriverDebtResource::waiveAction(Actions\Action::make('waive'))->after($refresh),
                 DriverDebtResource::adjustAction(Actions\Action::make('adjust'))->after($refresh),
                 DriverDebtResource::overdueAction(Actions\Action::make('mark_overdue'))->after($refresh),
+                DriverDebtResource::deleteAction(Actions\Action::make('delete_debt'))
+                    ->successRedirectUrl(DriverDebtResource::getUrl('index')),
                 Actions\Action::make('wallet')->label('Ví tài xế')->icon('heroicon-o-wallet')
                     ->visible((bool) $wallet)->url($wallet ? DriverWalletResource::getUrl('view', ['record' => $wallet]) : null),
                 Actions\Action::make('driver')->label('Hồ sơ tài xế')->icon('heroicon-o-user')

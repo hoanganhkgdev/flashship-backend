@@ -10,7 +10,7 @@ use Modules\Driver\Models\DriverDebt;
 use Modules\Driver\Models\DriverDebtLog;
 use Modules\Driver\Services\DriverWalletService;
 
-/** Mọi thay đổi công nợ đều đi qua đây để luôn có nhật ký (ai, bao nhiêu, vì sao). Không có sửa tự do và không xóa. */
+/** Mọi thay đổi công nợ đều đi qua đây để luôn có nhật ký (ai, bao nhiêu, vì sao). Không có sửa tự do; xóa chỉ khi chưa thu đồng nào và luôn để lại nhật ký. */
 class DriverDebtService
 {
     public const ACTIONS = [
@@ -22,6 +22,7 @@ class DriverDebtService
         'waived' => 'Miễn nợ',
         'overdue' => 'Đánh dấu quá hạn',
         'reminded' => 'Nhắc nợ',
+        'deleted' => 'Xóa khoản nợ',
     ];
 
     public const PAID_VIA = ['wallet' => 'Ví', 'payos' => 'QR PayOS', 'manual' => 'Ngoài hệ thống', 'waived' => 'Miễn nợ'];
@@ -172,6 +173,28 @@ class DriverDebtService
             self::log($d->id, 'adjusted', $newDue - $old, $by, $old.' → '.$newDue.': '.$reason);
 
             return ['ok' => true, 'message' => 'Đã điều chỉnh số nợ thành '.number_format($newDue, 0, ',', '.').'₫.'];
+        });
+    }
+
+    /** Xóa khoản nợ tạo nhầm. Chỉ khi chưa thu đồng nào (đã thu thì dùng Miễn nợ để giữ dấu vết tiền). Nhật ký giữ lại bản chụp khoản nợ. */
+    public static function delete(DriverDebt $debt, string $reason, ?int $by): array
+    {
+        if (mb_strlen(trim($reason)) < 5) {
+            return ['ok' => false, 'message' => 'Hãy ghi lý do xóa (ít nhất 5 ký tự).'];
+        }
+
+        return DB::transaction(function () use ($debt, $reason, $by) {
+            $d = DriverDebt::whereKey($debt->id)->lockForUpdate()->first();
+            if (! $d) {
+                return ['ok' => false, 'message' => 'Khoản nợ không còn tồn tại.'];
+            }
+            if ((float) $d->amount_paid > 0) {
+                return ['ok' => false, 'message' => 'Khoản nợ đã thu '.number_format($d->amount_paid, 0, ',', '.').'₫ nên không xóa được. Hãy dùng Miễn nợ cho phần còn lại.'];
+            }
+            self::log($d->id, 'deleted', (float) $d->amount_due, $by, '['.($d->debt_type ?? '-').' · tài xế #'.$d->driver_id.'] '.$reason);
+            $d->delete();
+
+            return ['ok' => true, 'message' => 'Đã xóa khoản nợ #'.$d->id.'.'];
         });
     }
 
