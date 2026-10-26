@@ -213,6 +213,7 @@ class AuthController extends Controller
             'name'    => 'sometimes|string|max:255',
             'email'   => 'sometimes|nullable|email|unique:users,email,' . $user->id,
             'city_id' => 'sometimes|integer|exists:cities,id',
+            'birth_date' => 'sometimes|nullable|date_format:Y-m-d|before_or_equal:today|after_or_equal:1900-01-01',
         ]);
 
         $user->update($data);
@@ -298,6 +299,7 @@ class AuthController extends Controller
             'user_type'           => $user->user_type,
             'city_id'             => $user->city_id,
             'city_name'           => $user->city?->name ?? '',
+            'birth_date'          => $user->birth_date?->format('Y-m-d'),
             'status'              => $user->status,
         ];
     }
