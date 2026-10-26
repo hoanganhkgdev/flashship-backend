@@ -110,7 +110,7 @@ class OrderResource extends Resource
         return '<div class="fs-order-journey">'
             .'<div class="fs-order-journey__stop fs-order-journey__stop--pickup"><span>'.e($record->pickup_address ?: '—').'</span></div>'
             .'<div class="fs-order-journey__stop fs-order-journey__stop--delivery"><span>'.e($record->delivery_address ?: '—').'</span></div>'
-            .($record->order_note ? '<p class="fs-order-journey__note" title="'.e($record->order_note).'">'.e($record->order_note).'</p>' : '')
+            .(($journeyNote = self::displayNote($record->order_note)) !== '' ? '<p class="fs-order-journey__note" title="'.e($journeyNote).'">'.e($journeyNote).'</p>' : '')
             .'<div class="fs-order-journey__source">'.e(self::sourceLabel($record)).($sender ? ' · '.e($sender) : '').'</div>'
             .'</div>';
     }
@@ -554,6 +554,7 @@ class OrderResource extends Resource
                         ->default('—'),
                     Infolists\Components\TextEntry::make('order_note')
                         ->label('Ghi chú đơn hàng')
+                        ->formatStateUsing(fn (?string $state) => self::displayNote($state) ?: 'Không có ghi chú')
                         ->default('Không có ghi chú')
                         ->columnSpanFull(),
                 ])->columns(2)->collapsible(),
@@ -708,9 +709,15 @@ class OrderResource extends Resource
             .'<span class="fs-ol-dim" title="'.e($o->created_at?->format('d/m/Y H:i:s')).'">'.e($o->created_at?->format('H:i · d/m')).$age.'</span></div>';
     }
 
+    /** Ghi chú hiển thị cho nhân viên: bỏ nhãn "[Chưa có điểm giao …]" tổng đài chèn sẵn cho tài xế. */
+    private static function displayNote(?string $note): string
+    {
+        return trim((string) preg_replace('/^\s*\[Chưa có điểm giao[^\]]*\]\s*/u', '', (string) $note));
+    }
+
     private static function colJourney(Order $o): string
     {
-        $note = trim((string) $o->order_note);
+        $note = self::displayNote($o->order_note);
         $pickup = trim((string) $o->pickup_address) ?: '—';
         $delivery = trim((string) $o->delivery_address);
 
