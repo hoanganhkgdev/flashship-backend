@@ -10,7 +10,7 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 use Modules\Core\Models\User;
-use Modules\Customer\Services\OtpService;
+use Modules\Core\Services\FirebasePhoneVerifier;
 use Modules\Driver\Services\ReferralService;
 use Modules\Shop\Services\ShopReferralService;
 use Modules\Order\Models\Order;
@@ -28,20 +28,14 @@ class AuthController extends Controller
             return response()->json(['success' => false, 'message' => 'Số điện thoại đã được đăng ký shop. Vui lòng đăng nhập hoặc dùng Quên mật khẩu.'], 422);
         }
 
-        if (OtpService::recentlySent($phone, 'register')) {
-            return response()->json(['success' => false, 'message' => 'Vui lòng chờ 60 giây trước khi gửi lại'], 429);
-        }
-
-        OtpService::send($phone, 'register');
-
-        return response()->json(['success' => true, 'message' => 'Mã OTP đã được gửi tới '.$phone]);
+        return response()->json(['success' => true, 'message' => 'Có thể gửi mã xác minh tới '.$phone]);
     }
 
     public function verifyOtpAndRegister(Request $request): JsonResponse
     {
         $data = $request->validate([
             'phone' => 'required|string',
-            'otp' => 'required|string|size:6',
+            'id_token' => 'required|string',
             'name' => 'required|string|max:255',
             'address' => 'nullable|string|max:500',
             'password' => 'required|string|min:6',
@@ -55,7 +49,7 @@ class AuthController extends Controller
 
         $phone = $this->normalizePhone($data['phone']);
 
-        // Kiểm tra mã giới thiệu trước khi xác minh OTP để mã sai không làm mất OTP.
+        // Kiểm tra mã giới thiệu trước khi xác minh số điện thoại.
         if (! empty($data['referral_code'])) {
             // Một ô nhập chung: mã tài xế hoặc mã của shop khác (mã không trùng nhau).
             $referrer = ReferralService::findDriverByCode($data['referral_code'])
@@ -68,8 +62,8 @@ class AuthController extends Controller
             }
         }
 
-        if (! OtpService::verify($phone, $data['otp'], 'register')) {
-            return response()->json(['success' => false, 'message' => 'Mã OTP không hợp lệ hoặc đã hết hạn'], 422);
+        if (FirebasePhoneVerifier::verifiedPhone($data['id_token']) !== $phone) {
+            return response()->json(['success' => false, 'message' => 'Xác minh số điện thoại không hợp lệ hoặc đã hết hạn'], 422);
         }
 
         if (User::where('phone', $phone)->where('user_type', 'shop')->exists()) {
@@ -119,27 +113,21 @@ class AuthController extends Controller
             return response()->json(['success' => false, 'message' => 'Số điện thoại chưa được đăng ký'], 422);
         }
 
-        if (OtpService::recentlySent($phone, 'forgot_password')) {
-            return response()->json(['success' => false, 'message' => 'Vui lòng chờ 60 giây trước khi gửi lại'], 429);
-        }
-
-        OtpService::send($phone, 'forgot_password');
-
-        return response()->json(['success' => true, 'message' => 'Mã OTP đã được gửi tới '.$phone]);
+        return response()->json(['success' => true, 'message' => 'Có thể gửi mã xác minh tới '.$phone]);
     }
 
     public function resetPassword(Request $request): JsonResponse
     {
         $data = $request->validate([
             'phone' => 'required|string',
-            'otp' => 'required|string|size:6',
+            'id_token' => 'required|string',
             'password' => 'required|string|min:6|confirmed',
         ]);
 
         $phone = $this->normalizePhone($data['phone']);
 
-        if (! OtpService::verify($phone, $data['otp'], 'forgot_password')) {
-            return response()->json(['success' => false, 'message' => 'Mã OTP không hợp lệ hoặc đã hết hạn'], 422);
+        if (FirebasePhoneVerifier::verifiedPhone($data['id_token']) !== $phone) {
+            return response()->json(['success' => false, 'message' => 'Xác minh số điện thoại không hợp lệ hoặc đã hết hạn'], 422);
         }
 
         $user = User::where('phone', $phone)->where('user_type', 'shop')->first();
@@ -209,28 +197,23 @@ class AuthController extends Controller
         if ($user->status == 2) {
             return response()->json(['success' => false, 'message' => 'Tài khoản bị khóa'], 403);
         }
-        if (OtpService::recentlySent($phone, 'login')) {
-            return response()->json(['success' => false, 'message' => 'Vui lòng chờ 60 giây trước khi gửi lại'], 429);
-        }
 
-        OtpService::send($phone, 'login');
-
-        return response()->json(['success' => true, 'message' => 'Mã OTP đã được gửi tới '.$phone]);
+        return response()->json(['success' => true, 'message' => 'Có thể gửi mã xác minh tới '.$phone]);
     }
 
     public function verifyLoginOtp(Request $request): JsonResponse
     {
         $data = $request->validate([
             'phone' => 'required|string',
-            'otp' => 'required|string|size:6',
+            'id_token' => 'required|string',
             'device_id' => 'nullable|string',
             'device_name' => 'sometimes|nullable|string|max:255',
             'location' => 'sometimes|nullable|string|max:255',
         ]);
         $phone = $this->normalizePhone($data['phone']);
 
-        if (! OtpService::verify($phone, $data['otp'], 'login')) {
-            return response()->json(['success' => false, 'message' => 'Mã OTP không hợp lệ hoặc đã hết hạn'], 422);
+        if (FirebasePhoneVerifier::verifiedPhone($data['id_token']) !== $phone) {
+            return response()->json(['success' => false, 'message' => 'Xác minh số điện thoại không hợp lệ hoặc đã hết hạn'], 422);
         }
 
         $user = User::where('phone', $phone)->where('user_type', 'shop')->first();
@@ -350,26 +333,20 @@ class AuthController extends Controller
             return response()->json(['success' => false, 'message' => 'Số điện thoại đã được dùng bởi tài khoản shop khác'], 422);
         }
 
-        if (OtpService::recentlySent($newPhone, 'change_phone')) {
-            return response()->json(['success' => false, 'message' => 'Vui lòng chờ 60 giây trước khi gửi lại'], 429);
-        }
-
-        OtpService::send($newPhone, 'change_phone');
-
-        return response()->json(['success' => true, 'message' => 'Mã OTP đã được gửi tới '.$newPhone]);
+        return response()->json(['success' => true, 'message' => 'Có thể gửi mã xác minh tới '.$newPhone]);
     }
 
     public function changePhoneVerify(Request $request): JsonResponse
     {
         $data = $request->validate([
             'new_phone' => 'required|string',
-            'otp' => 'required|string|size:6',
+            'id_token' => 'required|string',
         ]);
         $newPhone = $this->normalizePhone($data['new_phone']);
         $user = $request->user();
 
-        if (! OtpService::verify($newPhone, $data['otp'], 'change_phone')) {
-            return response()->json(['success' => false, 'message' => 'Mã OTP không hợp lệ hoặc đã hết hạn'], 422);
+        if (FirebasePhoneVerifier::verifiedPhone($data['id_token']) !== $newPhone) {
+            return response()->json(['success' => false, 'message' => 'Xác minh số điện thoại không hợp lệ hoặc đã hết hạn'], 422);
         }
 
         // Cột phone unique toàn hệ thống (không riêng shop) — kiểm tra lại
