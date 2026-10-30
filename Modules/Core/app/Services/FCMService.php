@@ -2,6 +2,7 @@
 namespace Modules\Core\Services;
 
 use Illuminate\Support\Facades\Log;
+use Modules\Core\Jobs\FcmSendJob;
 use Kreait\Firebase\Messaging\CloudMessage;
 use Kreait\Firebase\Messaging\AndroidConfig;
 use Kreait\Firebase\Messaging\ApnsConfig;
@@ -183,6 +184,11 @@ class FCMService
     }
 
     private function send(string $token, array $payload): void
+    {
+        RTDBService::offload(new FcmSendJob($token, $payload), 'fcm', fn () => $this->deliver($token, $payload));
+    }
+
+    public function deliver(string $token, array $payload): void
     {
         try {
             $ttl = $payload['ttl'] ?? 3600;

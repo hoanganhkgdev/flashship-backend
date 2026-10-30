@@ -3,13 +3,19 @@ namespace Modules\Core\Services;
 
 use Kreait\Firebase\Factory;
 use Kreait\Firebase\Http\HttpClientOptions;
+use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Queue;
+use Modules\Core\Jobs\RtdbWriteJob;
 use Symfony\Component\Cache\Adapter\Psr16Adapter;
 
 class RTDBService
 {
     private static ?\Kreait\Firebase\Contract\Database $db = null;
+
+    /** Khoảng chờ trước mỗi lần thử ghi (lần đầu không chờ). */
+    private const WRITE_DELAYS_MS = [0, 300, 1000, 2500];
 
     public static function db(): \Kreait\Firebase\Contract\Database
     {
@@ -51,50 +57,89 @@ class RTDBService
             ->withTimeout(10);
     }
 
+    /**
+     * Đưa việc gọi Google ra khỏi request: tài xế/khách không phải chờ Firebase,
+     * mạng tới Google chập chờn thì worker tự thử lại thay vì mất lệnh. Bật bằng
+     * FIREBASE_OFFLOAD_CONNECTION=redis khi đã có worker cho queue `rtdb`/`fcm`;
+     * mặc định `sync` = chạy ngay tại chỗ như trước. Không đẩy được vào queue
+     * (Redis chết) thì cũng chạy tại chỗ, không bỏ lệnh.
+     */
+    public static function offload(ShouldQueue $job, string $queue, \Closure $inline): void
+    {
+        $connection = config('services.firebase.offload_connection', 'sync');
+        if ($connection === 'sync') {
+            $inline();
+            return;
+        }
+
+        try {
+            Queue::connection($connection)->pushOn($queue, $job);
+        } catch (\Throwable $e) {
+            Log::warning("[Firebase] Không đẩy được vào queue {$queue}, chạy trực tiếp: ".$e->getMessage());
+            $inline();
+        }
+    }
+
+    private static function write(string $op, string $path, mixed $value = null): void
+    {
+        // Chạy tại chỗ (fallback) chỉ thử 1 lần để không giữ worker php-fpm lâu.
+        self::offload(
+            new RtdbWriteJob($op, $path, $value),
+            'rtdb',
+            fn () => self::performWrite($op, $path, $value, [0]),
+        );
+    }
+
+    /**
+     * Ghi RTDB, lỗi thì tạo lại client và thử lại theo $delaysMs.
+     *
+     * @param  'set'|'update'|'remove'  $op
+     */
+    public static function performWrite(string $op, string $path, mixed $value = null, array $delaysMs = self::WRITE_DELAYS_MS): bool
+    {
+        $last = null;
+        foreach ($delaysMs as $i => $delayMs) {
+            if ($i > 0) {
+                usleep($delayMs * 1000);
+                self::$db = null;
+            }
+            try {
+                $ref = self::db()->getReference($path);
+                match ($op) {
+                    'set'    => $ref->set($value),
+                    'update' => $ref->update($value),
+                    'remove' => $ref->remove(),
+                };
+
+                return true;
+            } catch (\Throwable $e) {
+                $last = $e;
+            }
+        }
+
+        Log::error("[RTDB] {$op} {$path} failed after ".count($delaysMs).' attempts: '.$last?->getMessage());
+
+        return false;
+    }
+
     public static function pingCustomerNotification(int $userId): void
     {
-        try {
-            self::db()->getReference("customer_notifications/{$userId}")->set([
-                'updated_at' => now()->timestamp,
-            ]);
-        } catch (\Throwable $e) {
-            Log::error('[RTDB] pingCustomerNotification failed: ' . $e->getMessage());
-        }
+        self::write('set', "customer_notifications/{$userId}", [
+            'updated_at' => now()->timestamp,
+        ]);
     }
 
     public static function updateOrderStatus(string $orderCode, string $status): void
     {
-        try {
-            self::db()->getReference("orders/{$orderCode}")->update([
-                'status'     => $status,
-                'updated_at' => now()->timestamp,
-            ]);
-        } catch (\Throwable $e) {
-            Log::error('[RTDB] updateOrderStatus failed: ' . $e->getMessage());
-        }
+        self::write('update', "orders/{$orderCode}", [
+            'status'     => $status,
+            'updated_at' => now()->timestamp,
+        ]);
     }
 
-    public static function clearOrder(string $orderCode): bool
+    public static function clearOrder(string $orderCode): void
     {
-        for ($attempt = 1; $attempt <= 3; $attempt++) {
-            try {
-                self::db()->getReference("orders/{$orderCode}")->remove();
-
-                return true;
-            } catch (\Throwable $e) {
-                if ($attempt === 3) {
-                    Log::error('[RTDB] clearOrder failed after 3 attempts: ' . $e->getMessage(), [
-                        'order_code' => $orderCode,
-                    ]);
-
-                    return false;
-                }
-                usleep($attempt * 100_000);
-                self::$db = null;
-            }
-        }
-
-        return false;
+        self::write('remove', "orders/{$orderCode}");
     }
 
     /** @return array<string, array>|null */
@@ -141,14 +186,10 @@ class RTDBService
     /** Báo revision cho các bản app cũ còn nghe nút thành phố; dùng update để không xoá nhánh `orders`. */
     public static function pingOrderMarket(int $cityId): void
     {
-        try {
-            self::db()->getReference("order_market/city_{$cityId}")->update([
-                'revision' => now()->getTimestampMs(),
-                'updated_at' => now()->timestamp,
-            ]);
-        } catch (\Throwable $e) {
-            Log::error('[RTDB] pingOrderMarket failed: '.$e->getMessage());
-        }
+        self::write('update', "order_market/city_{$cityId}", [
+            'revision' => now()->getTimestampMs(),
+            'updated_at' => now()->timestamp,
+        ]);
     }
 
     /**
@@ -157,12 +198,8 @@ class RTDBService
      */
     public static function setMarketOrder(int $cityId, int $orderId, ?array $payload): void
     {
-        try {
-            $ref = self::db()->getReference("order_market/city_{$cityId}/orders/{$orderId}");
-            $payload === null ? $ref->remove() : $ref->set($payload);
-        } catch (\Throwable $e) {
-            Log::error('[RTDB] setMarketOrder failed: '.$e->getMessage(), ['city_id' => $cityId, 'order_id' => $orderId]);
-        }
+        $path = "order_market/city_{$cityId}/orders/{$orderId}";
+        $payload === null ? self::write('remove', $path) : self::write('set', $path, $payload);
     }
 
     /** Ghi đè toàn bộ nhánh `orders` của một thành phố (đồng bộ lại từ MySQL). */
@@ -186,37 +223,33 @@ class RTDBService
      */
     public static function setAccountLocked(int $driverId, bool $locked): void
     {
-        try {
-            $ref = self::db()->getReference("dispatch/driver_{$driverId}/account_locked");
-            $locked ? $ref->set(true) : $ref->remove();
-        } catch (\Throwable $e) {
-            Log::error('[RTDB] setAccountLocked failed: ' . $e->getMessage());
-        }
+        $path = "dispatch/driver_{$driverId}/account_locked";
+        $locked ? self::write('set', $path, true) : self::write('remove', $path);
     }
 
     /**
      * Ghi device_id hiện tại của tài xế — thiết bị khác sẽ detect và force logout.
      * Path: dispatch/driver_{driverId}/session_device
+     *
+     * Ghi ngay (không qua queue): Security Rules cần giá trị này đúng lúc app
+     * vừa đăng nhập xong ký Firebase bằng custom token. Ghi hụt thì lần xin
+     * firebase-token sau sẽ thấy lệch thiết bị và đăng xuất oan → thử vài lần.
      */
     public static function writeSessionDevice(int $driverId, string $deviceId): void
     {
-        try {
-            self::db()->getReference("dispatch/driver_{$driverId}/session_device")->set($deviceId);
-        } catch (\Throwable $e) {
-            Log::error('[RTDB] writeSessionDevice failed: ' . $e->getMessage());
-        }
+        self::performWrite('set', "dispatch/driver_{$driverId}/session_device", $deviceId, [0, 200, 600]);
     }
 
-    /** Đọc thiết bị đang sở hữu phiên để backend không cấp token Firebase cho máy cũ. */
+    /**
+     * Đọc thiết bị đang sở hữu phiên để backend không cấp token Firebase cho máy cũ.
+     * Ném lỗi khi không đọc được Firebase — để nơi gọi phân biệt "mất mạng"
+     * với "chưa có phiên" (null), không đăng xuất tài xế chỉ vì lỗi mạng.
+     */
     public static function getSessionDevice(int $driverId): ?string
     {
-        try {
-            $value = self::db()->getReference("dispatch/driver_{$driverId}/session_device")->getValue();
-            return is_string($value) && $value !== '' ? $value : null;
-        } catch (\Throwable $e) {
-            Log::error('[RTDB] getSessionDevice failed: ' . $e->getMessage());
-            return null;
-        }
+        $value = self::db()->getReference("dispatch/driver_{$driverId}/session_device")->getValue();
+
+        return is_string($value) && $value !== '' ? $value : null;
     }
 
     /**
@@ -230,13 +263,9 @@ class RTDBService
      */
     public static function setDriverOnlineStatus(int $driverId, bool $isOnline): void
     {
-        try {
-            self::db()->getReference("locations/driver_{$driverId}")->update([
-                'is_online' => $isOnline,
-            ]);
-        } catch (\Throwable $e) {
-            Log::error('[RTDB] setDriverOnlineStatus failed: ' . $e->getMessage());
-        }
+        self::write('update', "locations/driver_{$driverId}", [
+            'is_online' => $isOnline,
+        ]);
     }
 
     /**
@@ -246,11 +275,7 @@ class RTDBService
      */
     public static function removeDriverLocation(int $driverId): void
     {
-        try {
-            self::db()->getReference("locations/driver_{$driverId}")->remove();
-        } catch (\Throwable $e) {
-            Log::error('[RTDB] removeDriverLocation failed: ' . $e->getMessage());
-        }
+        self::write('remove', "locations/driver_{$driverId}");
     }
 
     /**

@@ -69,7 +69,8 @@ return [
             'connection' => env('REDIS_QUEUE_CONNECTION', 'default'),
             'queue' => env('REDIS_QUEUE', 'default'),
             'retry_after' => (int) env('REDIS_QUEUE_RETRY_AFTER', 90),
-            'block_for' => null,
+            // Worker chờ job mới bằng BLPOP thay vì ngủ --sleep giây → lệnh ghi Firebase chạy gần như tức thì.
+            'block_for' => 5,
             'after_commit' => false,
         ],
 

@@ -226,7 +226,19 @@ class AuthController extends Controller
     {
         $data = $request->validate(['device_id' => 'required|string|max:191']);
 
-        $currentDeviceId = RTDBService::getSessionDevice($request->user()->id);
+        try {
+            $currentDeviceId = RTDBService::getSessionDevice($request->user()->id);
+        } catch (\Throwable $e) {
+            // Mất mạng tới Firebase ≠ bị máy khác đăng nhập đè: giữ nguyên phiên,
+            // app tự xin lại firebase_token ở lần sau.
+            \Illuminate\Support\Facades\Log::warning('[RTDB] getSessionDevice failed: '.$e->getMessage());
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Không kết nối được máy chủ realtime, vui lòng thử lại',
+            ], 503);
+        }
+
         if (!$currentDeviceId || !hash_equals($currentDeviceId, $data['device_id'])) {
             $request->user()->currentAccessToken()?->delete();
 

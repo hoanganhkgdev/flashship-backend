@@ -37,6 +37,9 @@ return [
 
     'firebase' => [
         'database_url' => env('FIREBASE_DATABASE_URL'),
+        // Queue connection cho lệnh ghi RTDB/push FCM chạy nền (xem RTDBService::offload).
+        // Chỉ đặt `redis` khi đã có worker: queue `rtdb` đúng 1 process, queue `fcm`.
+        'offload_connection' => env('FIREBASE_OFFLOAD_CONNECTION', 'sync'),
     ],
 
     'zalo_zns' => [
