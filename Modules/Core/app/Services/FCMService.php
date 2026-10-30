@@ -2,7 +2,6 @@
 namespace Modules\Core\Services;
 
 use Illuminate\Support\Facades\Log;
-use Kreait\Firebase\Factory;
 use Kreait\Firebase\Messaging\CloudMessage;
 use Kreait\Firebase\Messaging\AndroidConfig;
 use Kreait\Firebase\Messaging\ApnsConfig;
@@ -15,10 +14,7 @@ class FCMService
 
     private function __construct()
     {
-        $factory = (new Factory)->withHttpClientOptions(RTDBService::httpOptions())->withServiceAccount(
-            storage_path('app/firebase-service-account.json')
-        );
-        $this->messaging = $factory->createMessaging();
+        $this->messaging = RTDBService::factory()->createMessaging();
     }
 
     public static function getInstance(): self

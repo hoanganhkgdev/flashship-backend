@@ -3,7 +3,9 @@ namespace Modules\Core\Services;
 
 use Kreait\Firebase\Factory;
 use Kreait\Firebase\Http\HttpClientOptions;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
+use Symfony\Component\Cache\Adapter\Psr16Adapter;
 
 class RTDBService
 {
@@ -12,13 +14,26 @@ class RTDBService
     public static function db(): \Kreait\Firebase\Contract\Database
     {
         if (!self::$db) {
-            self::$db = (new Factory)
-                ->withHttpClientOptions(self::httpOptions())
-                ->withServiceAccount(storage_path('app/firebase-service-account.json'))
+            self::$db = self::factory()
                 ->withDatabaseUri(config('services.firebase.database_url'))
                 ->createDatabase();
         }
         return self::$db;
+    }
+
+    /**
+     * Factory dùng chung cho RTDB/FCM/Auth. Mặc định kreait chỉ cache OAuth
+     * token trong bộ nhớ của 1 request PHP → request nào gọi Firebase cũng
+     * phải xin token mới từ oauth2.googleapis.com (~200ms + 1 lần DNS, dễ
+     * dính timeout). Lưu token vào cache store chung (Redis) để dùng lại
+     * đến khi hết hạn (~1 giờ).
+     */
+    public static function factory(): Factory
+    {
+        return (new Factory)
+            ->withHttpClientOptions(self::httpOptions())
+            ->withServiceAccount(storage_path('app/firebase-service-account.json'))
+            ->withAuthTokenCache(new Psr16Adapter(Cache::store(), 'firebase'));
     }
 
     /**
@@ -266,10 +281,7 @@ class RTDBService
     public static function createCustomAuthToken(string $uid): ?string
     {
         try {
-            $factory = (new Factory)
-                ->withHttpClientOptions(self::httpOptions())
-                ->withServiceAccount(storage_path('app/firebase-service-account.json'));
-            return $factory->createAuth()->createCustomToken($uid)->toString();
+            return self::factory()->createAuth()->createCustomToken($uid)->toString();
         } catch (\Throwable $e) {
             Log::error('[RTDB] createCustomAuthToken failed: ' . $e->getMessage());
             return null;

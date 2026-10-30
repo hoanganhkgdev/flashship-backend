@@ -17,7 +17,8 @@
         "nwidart/laravel-modules": "^12.0",
         "payos/payos": "^2.0",
         "predis/predis": "^3.5",
-        "spatie/laravel-permission": "^6.25"
+        "spatie/laravel-permission": "^6.25",
+        "symfony/cache": "^7.3"
     },
     "require-dev": {
         "fakerphp/faker": "^1.23",
@@ -95,6 +96,9 @@
             "pestphp/pest-plugin": true,
             "php-http/discovery": true,
             "wikimedia/composer-merge-plugin": true
+        },
+        "platform": {
+            "php": "8.3.30"
         }
     },
     "minimum-stability": "stable",

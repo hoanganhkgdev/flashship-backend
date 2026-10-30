@@ -2,7 +2,6 @@
 namespace Modules\Core\Services;
 
 use Illuminate\Support\Facades\Log;
-use Kreait\Firebase\Factory;
 
 /**
  * Xác minh số điện thoại của khách bằng Firebase Phone Auth: app gửi và nhập
@@ -39,9 +38,6 @@ class FirebasePhoneVerifier
 
     private static function auth()
     {
-        return (new Factory)
-            ->withHttpClientOptions(RTDBService::httpOptions())
-            ->withServiceAccount(storage_path('app/firebase-service-account.json'))
-            ->createAuth();
+        return RTDBService::factory()->createAuth();
     }
 }
