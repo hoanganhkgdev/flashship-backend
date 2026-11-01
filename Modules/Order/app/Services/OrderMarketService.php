@@ -96,7 +96,7 @@ class OrderMarketService
             ->has('orders', '<', OperationalSettings::maxActiveOrdersPerDriver($order->city_id), 'and',
                 fn ($orders) => $orders->whereIn('status', ['assigned', 'processing']))
             ->whereNotExists(fn ($query) => $query->selectRaw('1')->from('driver_leave_requests')
-                ->whereColumn('driver_leave_requests.driver_id', 'users.id')->whereDate('leave_date', today()))
+                ->whereColumn('driver_leave_requests.driver_id', 'users.id')->where('driver_leave_requests.status', 'approved')->whereDate('leave_date', today()))
             ->when($order->service_type === 'car', fn ($query) => $query->where('has_car_license', true))
             ->get(['id', 'fcm_token']);
 
@@ -349,7 +349,7 @@ class OrderMarketService
             return false;
         }
 
-        return ! DB::table('driver_leave_requests')->where('driver_id', $driver->id)->whereDate('leave_date', today())->exists();
+        return ! \App\Services\DriverLeaveService::isOnLeave($driver->id, today());
     }
 
     private function error(string $message, int $status): array

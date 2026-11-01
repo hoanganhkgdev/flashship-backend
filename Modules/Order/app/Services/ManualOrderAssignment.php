@@ -41,10 +41,7 @@ class ManualOrderAssignment
         if ($driver->city_id !== $order->city_id) {
             return ['success' => false, 'message' => 'Tài xế không thuộc thành phố của đơn này.'];
         }
-        if (DB::table('driver_leave_requests')
-            ->where('driver_id', $driver->id)
-            ->whereDate('leave_date', today())
-            ->exists()) {
+        if (\App\Services\DriverLeaveService::isOnLeave($driver->id, today())) {
             return ['success' => false, 'message' => "Tài xế {$driver->name} đang nghỉ phép hôm nay."];
         }
         if ($this->hasBlockedDebt($driver)) {

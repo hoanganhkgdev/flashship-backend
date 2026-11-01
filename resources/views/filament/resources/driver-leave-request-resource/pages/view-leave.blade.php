@@ -20,9 +20,16 @@
     <div class="fs-cp-grid">
         <section class="fs-rr-card">
             <header class="fs-rr-card__head"><div><h2>Phiếu nghỉ</h2></div></header>
+            <div class="fs-dr-row"><span>Trạng thái</span><b><span class="fs-order-pill fs-order-pill--{{ $l->statusColor() }}">{{ $l->statusLabel() }}</span></b></div>
             <div class="fs-dr-row"><span>Lý do</span><b>{{ $l->note ?: '—' }}</b></div>
-            <div class="fs-dr-row"><span>Ghi nhận bởi</span><b>{{ $l->creator?->name ?? 'Không xác định' }}</b></div>
-            <div class="fs-dr-row"><span>Ghi nhận lúc</span><b>{{ $l->created_at?->format('H:i d/m/Y') }}</b></div>
+            <div class="fs-dr-row"><span>Gửi / ghi nhận bởi</span><b>{{ $l->creator?->name ?? 'Không xác định' }}</b></div>
+            <div class="fs-dr-row"><span>Lúc</span><b>{{ $l->created_at?->format('H:i d/m/Y') }}</b></div>
+            @if ($l->reviewed_at && $l->reviewed_by !== $l->created_by)
+                <div class="fs-dr-row"><span>{{ $l->isRejected() ? 'Từ chối bởi' : 'Duyệt bởi' }}</span><b>{{ $l->reviewer?->name ?? 'Quản trị viên' }} · {{ $l->reviewed_at->format('H:i d/m/Y') }}</b></div>
+            @endif
+            @if ($l->isRejected())
+                <div class="fs-dr-row"><span>Lý do từ chối</span><b>{{ $l->reject_reason ?: '—' }}</b></div>
+            @endif
 
             <header class="fs-rr-card__head" style="margin-top:1.25rem"><div><h2>Nhật ký</h2></div></header>
             @forelse ($o['logs'] as $g)
@@ -36,7 +43,7 @@
             <header class="fs-rr-card__head"><div><h2>Lịch sử nghỉ 90 ngày</h2><p>{{ $o['history']->count() }} lượt của tài xế</p></div></header>
             @forelse ($o['history'] as $h)
                 <a class="fs-dr-row" href="{{ $R::getUrl('view', ['record' => $h]) }}" wire:navigate>
-                    <span>{{ $h->leave_date->format('d/m/Y') }}</span><small>{{ \Illuminate\Support\Str::limit($h->note ?: '', 30) }}</small>
+                    <span>{{ $h->leave_date->format('d/m/Y') }}</span><small>{{ $h->isApproved() ? '' : $h->statusLabel().' · ' }}{{ \Illuminate\Support\Str::limit($h->note ?: '', 30) }}</small>
                 </a>
             @empty
                 <p class="fs-rr-note">Chưa có lượt nghỉ nào.</p>

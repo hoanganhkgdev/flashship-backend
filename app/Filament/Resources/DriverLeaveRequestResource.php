@@ -49,7 +49,9 @@ class DriverLeaveRequestResource extends Resource
 
     public static function getNavigationBadge(): ?string
     {
-        $count = static::scopeEloquentQueryToTenant(static::getEloquentQuery(), Filament::getTenant())
+        // Số yêu cầu tài xế gửi đang chờ duyệt (ngày nghỉ chưa qua).
+        $count = static::scopeEloquentQueryToTenant(DriverLeaveRequest::query(), Filament::getTenant())
+            ->where('status', DriverLeaveRequest::PENDING)
             ->whereDate('leave_date', '>=', today())
             ->count();
 
@@ -58,15 +60,15 @@ class DriverLeaveRequestResource extends Resource
 
     public static function getNavigationBadgeColor(): string|array|null
     {
-        return 'info';
+        return 'warning';
     }
 
     public static function getEloquentQuery(): Builder
     {
-        return parent::getEloquentQuery()->with(['driver.city', 'driver.registeredShifts', 'creator'])
+        return parent::getEloquentQuery()->with(['driver.city', 'driver.registeredShifts', 'creator', 'reviewer'])
             ->addSelect([
                 'recent_leaves' => DB::table('driver_leave_requests as l2')->selectRaw('COUNT(*)')
-                    ->whereColumn('l2.driver_id', 'driver_leave_requests.driver_id')
+                    ->whereColumn('l2.driver_id', 'driver_leave_requests.driver_id')->where('l2.status', 'approved')
                     ->where('l2.leave_date', '>=', today()->subDays(30)->toDateString())->where('l2.leave_date', '<=', today()->toDateString()),
                 'worked_before' => DB::table('orders as o')->selectRaw('COUNT(*)')
                     ->whereColumn('o.delivery_man_id', 'driver_leave_requests.driver_id')->where('o.status', 'completed')
@@ -82,7 +84,7 @@ class DriverLeaveRequestResource extends Resource
     {
         return $form->schema([
             Forms\Components\Section::make('Ghi nhận nghỉ phép')
-                ->description('Tài xế báo nghỉ trước qua điện thoại/Zalo. Trong ngày nghỉ tài xế không bật được online, không nhận đơn và được miễn chấm điểm cuối ca.')
+                ->description('Admin ghi nhận là có hiệu lực ngay (không cần duyệt). Trong ngày nghỉ tài xế không bật được online, không nhận đơn và được miễn chấm điểm cuối ca.')
                 ->icon('heroicon-o-calendar-days')
                 ->columns(2)
                 ->schema([
@@ -143,6 +145,15 @@ class DriverLeaveRequestResource extends Resource
                     ->description(fn (DriverLeaveRequest $r) => self::dateDescription($r->leave_date))
                     ->color(fn (DriverLeaveRequest $r) => $r->leave_date->isToday() ? 'warning' : ($r->leave_date->isFuture() ? 'info' : 'gray')),
 
+                Tables\Columns\TextColumn::make('status')
+                    ->label('Trạng thái')
+                    ->badge()
+                    ->formatStateUsing(fn (DriverLeaveRequest $r) => $r->statusLabel())
+                    ->color(fn (DriverLeaveRequest $r) => $r->statusColor())
+                    ->description(fn (DriverLeaveRequest $r) => $r->isRejected()
+                        ? \Illuminate\Support\Str::limit((string) $r->reject_reason, 28)
+                        : ($r->reviewed_at && $r->reviewer && $r->reviewed_by !== $r->created_by ? $r->reviewer->name.' · '.$r->reviewed_at->format('d/m H:i') : null)),
+
                 Tables\Columns\TextColumn::make('affected_shifts')
                     ->label('Ca được miễn chấm')
                     ->state(fn (DriverLeaveRequest $r) => $r->driver?->registeredShifts?->sortBy('start_time')->pluck('name')->implode(', ') ?: 'Chưa đăng ký ca'),
@@ -158,11 +169,16 @@ class DriverLeaveRequestResource extends Resource
                 Tables\Columns\TextColumn::make('note')->label('Lý do')->limit(22)->tooltip(fn (DriverLeaveRequest $r) => $r->note)->placeholder('—'),
 
                 Tables\Columns\TextColumn::make('creator.name')
-                    ->label('Ghi nhận bởi')
+                    ->label('Gửi / ghi nhận bởi')
                     ->placeholder('Không xác định')
                     ->description(fn (DriverLeaveRequest $r) => $r->created_at?->format('d/m H:i')),
             ])
             ->filters([
+                Tables\Filters\SelectFilter::make('status')->label('Trạng thái')->options([
+                    DriverLeaveRequest::PENDING => 'Chờ duyệt',
+                    DriverLeaveRequest::APPROVED => 'Đã duyệt',
+                    DriverLeaveRequest::REJECTED => 'Từ chối',
+                ]),
                 Tables\Filters\Filter::make('leave_date')
                     ->form([
                         Forms\Components\DatePicker::make('from')->label('Nghỉ từ ngày'),
@@ -176,8 +192,23 @@ class DriverLeaveRequestResource extends Resource
             ->actions([
                 Tables\Actions\ActionGroup::make([
                     Tables\Actions\ViewAction::make()->label('Xem chi tiết')->icon('heroicon-o-eye'),
+                    self::approveAction(Tables\Actions\Action::make('approve_leave')),
+                    self::rejectAction(Tables\Actions\Action::make('reject_leave')),
                     self::cancelAction(Tables\Actions\Action::make('cancel_leave')),
                 ])->icon('heroicon-m-ellipsis-horizontal')->label(''),
+            ])
+            ->bulkActions([
+                Tables\Actions\BulkAction::make('approve_selected')->label('Duyệt các yêu cầu đã chọn')->icon('heroicon-o-check-circle')->color('success')
+                    ->requiresConfirmation()
+                    ->modalDescription('Chỉ duyệt các yêu cầu đang chờ và chưa qua ngày. Duyệt nghỉ hôm nay sẽ tắt online tài xế ngay.')
+                    ->action(fn (\Illuminate\Support\Collection $records) => self::notifyBulk(
+                        $records->map(fn (DriverLeaveRequest $r) => DriverLeaveService::approve($r, auth()->id())), 'duyệt'))
+                    ->deselectRecordsAfterCompletion(),
+                Tables\Actions\BulkAction::make('reject_selected')->label('Từ chối các yêu cầu đã chọn')->icon('heroicon-o-no-symbol')->color('danger')
+                    ->form([Forms\Components\Textarea::make('reason')->label('Lý do từ chối (gửi cho tài xế)')->required()->minLength(3)->maxLength(250)->rows(2)])
+                    ->action(fn (\Illuminate\Support\Collection $records, array $data) => self::notifyBulk(
+                        $records->map(fn (DriverLeaveRequest $r) => DriverLeaveService::reject($r, $data['reason'], auth()->id())), 'từ chối'))
+                    ->deselectRecordsAfterCompletion(),
             ])
             ->recordUrl(fn (DriverLeaveRequest $record): string => static::getUrl('view', ['record' => $record]))
             ->defaultPaginationPageOption(25)
@@ -186,8 +217,8 @@ class DriverLeaveRequestResource extends Resource
 
     public static function cancelAction($action)
     {
-        return $action->label('Hủy phiếu nghỉ')->icon('heroicon-o-x-circle')->color('danger')
-            ->visible(fn (DriverLeaveRequest $r) => ! $r->leave_date->lt(today()))
+        return $action->label(fn (DriverLeaveRequest $r) => $r->isPending() ? 'Hủy yêu cầu' : 'Hủy phiếu nghỉ')->icon('heroicon-o-x-circle')->color('gray')
+            ->visible(fn (DriverLeaveRequest $r) => ! $r->leave_date->lt(today()) && ! $r->isRejected())
             ->modalHeading('Hủy phiếu nghỉ')
             ->modalDescription(fn (DriverLeaveRequest $r) => 'Hủy sẽ cho '.$r->driver?->name.' bật online và nhận đơn trở lại'.($r->leave_date->isToday() ? ' ngay hôm nay' : '').', và ngày này bị chấm điểm ca bình thường. Việc hủy được ghi nhật ký.')
             ->form([Forms\Components\Textarea::make('reason')->label('Lý do hủy')->required()->minLength(3)->maxLength(250)->rows(2)])
@@ -195,6 +226,46 @@ class DriverLeaveRequestResource extends Resource
                 $res = DriverLeaveService::cancel($record, $data['reason'], auth()->id());
                 Notification::make()->title($res['message'])->{$res['ok'] ? 'success' : 'danger'}()->send();
             });
+    }
+
+    public static function approveAction($action)
+    {
+        return $action->label('Duyệt nghỉ')->icon('heroicon-o-check-circle')->color('success')
+            ->visible(fn (DriverLeaveRequest $r) => $r->isPending() && ! $r->leave_date->lt(today()))
+            ->requiresConfirmation()
+            ->modalHeading(fn (DriverLeaveRequest $r) => 'Duyệt nghỉ ngày '.$r->leave_date->format('d/m/Y'))
+            ->modalDescription(fn (DriverLeaveRequest $r) => $r->driver?->name.' sẽ không bật được online, không nhận đơn và được miễn chấm ca trong ngày này'.($r->leave_date->isToday() ? ' — tắt online ngay bây giờ' : '').'.')
+            ->modalSubmitActionLabel('Duyệt')
+            ->action(function (DriverLeaveRequest $record): void {
+                $res = DriverLeaveService::approve($record, auth()->id());
+                Notification::make()->title($res['message'])->{$res['ok'] ? 'success' : 'danger'}()->send();
+            });
+    }
+
+    public static function rejectAction($action)
+    {
+        return $action->label('Từ chối')->icon('heroicon-o-no-symbol')->color('danger')
+            ->visible(fn (DriverLeaveRequest $r) => $r->isPending())
+            ->modalHeading(fn (DriverLeaveRequest $r) => 'Từ chối nghỉ ngày '.$r->leave_date->format('d/m/Y'))
+            ->modalDescription(fn (DriverLeaveRequest $r) => $r->driver?->name.' vẫn phải đi làm theo ca đã đăng ký. Lý do được gửi thông báo cho tài xế.')
+            ->form([Forms\Components\Textarea::make('reason')->label('Lý do từ chối')->required()->minLength(3)->maxLength(250)->rows(2)])
+            ->modalSubmitActionLabel('Từ chối')
+            ->action(function (DriverLeaveRequest $record, array $data): void {
+                $res = DriverLeaveService::reject($record, $data['reason'], auth()->id());
+                Notification::make()->title($res['message'])->{$res['ok'] ? 'success' : 'danger'}()->send();
+            });
+    }
+
+    /** @param \Illuminate\Support\Collection<int, array{ok:bool,message:string}> $results */
+    private static function notifyBulk(\Illuminate\Support\Collection $results, string $verb): void
+    {
+        $done = $results->where('ok', true)->count();
+        $failed = $results->where('ok', false);
+        Notification::make()
+            ->title('Đã '.$verb.' '.$done.'/'.$results->count().' yêu cầu')
+            ->body($failed->isNotEmpty() ? 'Bỏ qua: '.$failed->pluck('message')->unique()->implode(' · ') : null)
+            ->{$failed->isEmpty() ? 'success' : 'warning'}()
+            ->send();
     }
 
     public static function dateDescription(Carbon $date): string

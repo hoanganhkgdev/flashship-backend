@@ -93,9 +93,8 @@ class DriverController extends Controller
             }
 
             if ($targetOnline) {
-                if (\Modules\Driver\Models\DriverLeaveRequest::where('driver_id', $locked->id)
-                    ->whereDate('leave_date', today())->exists()) {
-                    return ['error' => ['message' => 'Bạn đang được ghi nhận nghỉ phép hôm nay nên không thể bật online.', 'status' => 403]];
+                if (\App\Services\DriverLeaveService::isOnLeave($locked->id, today())) {
+                    return ['error' => ['message' => 'Bạn đang được duyệt nghỉ phép hôm nay nên không thể bật online.', 'status' => 403]];
                 }
                 $approved = DriverCccdImage::where('user_id', $locked->id)
                     ->where('status', 'approved')
@@ -646,7 +645,7 @@ class DriverController extends Controller
         ]);
     }
 
-    /** Các ngày nghỉ từ hôm nay trở đi của tài xế đang đăng nhập. */
+    /** Các yêu cầu/ngày nghỉ từ hôm nay trở đi của tài xế đang đăng nhập, kèm trạng thái duyệt. */
     public function leaveRequests(Request $request): JsonResponse
     {
         $leaves = DriverLeaveRequest::where('driver_id', $request->user()->id)
@@ -654,16 +653,19 @@ class DriverController extends Controller
             ->orderBy('leave_date')
             ->get()
             ->map(fn (DriverLeaveRequest $leave) => [
-                'id'         => $leave->id,
-                'leave_date' => $leave->leave_date->toDateString(),
-                'note'       => $leave->note,
-                'created_at' => $leave->created_at?->toIso8601String(),
+                'id'            => $leave->id,
+                'leave_date'    => $leave->leave_date->toDateString(),
+                'note'          => $leave->note,
+                'status'        => $leave->status,
+                'reject_reason' => $leave->reject_reason,
+                'reviewed_at'   => $leave->reviewed_at?->toIso8601String(),
+                'created_at'    => $leave->created_at?->toIso8601String(),
             ]);
 
         return response()->json(['success' => true, 'data' => $leaves]);
     }
 
-    /** Tài xế tự ghi nhận một hoặc nhiều ngày nghỉ trên ứng dụng. */
+    /** Tài xế tự xin nghỉ một hoặc nhiều ngày — chờ admin duyệt mới có hiệu lực. */
     public function submitLeaveRequest(Request $request): JsonResponse
     {
         $data = $request->validate([
@@ -679,6 +681,7 @@ class DriverController extends Controller
             $data['to_date'] ?? null,
             $data['note'],
             $user->id,
+            needsApproval: true,
         );
 
         return response()->json([
@@ -691,7 +694,7 @@ class DriverController extends Controller
         ], $result['ok'] ? 201 : 422);
     }
 
-    /** Tài xế chỉ được tự hủy ngày nghỉ của chính mình và chưa diễn ra. */
+    /** Tài xế tự rút yêu cầu đang chờ hoặc hủy ngày nghỉ đã duyệt của chính mình, chưa diễn ra. */
     public function cancelLeaveRequest(Request $request, DriverLeaveRequest $leave): JsonResponse
     {
         if ((int) $leave->driver_id !== (int) $request->user()->id) {

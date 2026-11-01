@@ -30,6 +30,10 @@ class ViewDriverLeaveRequest extends ViewRecord
     protected function getHeaderActions(): array
     {
         return [
+            DriverLeaveRequestResource::approveAction(Actions\Action::make('approve_leave'))
+                ->after(fn () => $this->record->refresh()),
+            DriverLeaveRequestResource::rejectAction(Actions\Action::make('reject_leave'))
+                ->after(fn () => $this->record->refresh()),
             DriverLeaveRequestResource::cancelAction(Actions\Action::make('cancel_leave'))
                 ->after(fn () => $this->redirect(DriverLeaveRequestResource::getUrl('index'))),
             Actions\Action::make('driver')->label('Hồ sơ tài xế')->icon('heroicon-o-user')->color('gray')
@@ -39,7 +43,7 @@ class ViewDriverLeaveRequest extends ViewRecord
 
     public function getOverview(): array
     {
-        $l = $this->record->loadMissing('driver.registeredShifts', 'creator');
+        $l = $this->record->loadMissing('driver.registeredShifts', 'creator', 'reviewer');
         $orders = Order::where('delivery_man_id', $l->driver_id)->where('status', 'completed')->whereDate('completed_at', $l->leave_date);
         $logs = DriverLeaveService::logs($l->driver_id, $l->leave_date);
         $names = User::whereIn('id', $logs->pluck('performed_by')->filter()->unique())->pluck('name', 'id');
@@ -51,7 +55,13 @@ class ViewDriverLeaveRequest extends ViewRecord
             'ordersBefore' => (clone $orders)->where('completed_at', '<=', $l->created_at)->count(),
             'history' => DriverLeaveRequest::where('driver_id', $l->driver_id)->where('leave_date', '>=', today()->subDays(90))->orderByDesc('leave_date')->get(),
             'logs' => $logs->map(fn ($g) => [
-                'label' => $g->action === 'created' ? 'Ghi nhận nghỉ' : 'Hủy phiếu nghỉ',
+                'label' => match ($g->action) {
+                    'requested' => 'Tài xế xin nghỉ',
+                    'approved' => 'Duyệt nghỉ',
+                    'rejected' => 'Từ chối',
+                    'cancelled' => 'Hủy phiếu nghỉ',
+                    default => 'Ghi nhận nghỉ',
+                },
                 'who' => $g->performed_by ? ($names[$g->performed_by] ?? 'Quản trị viên') : 'Hệ thống',
                 'note' => $g->note, 'when' => $g->created_at,
             ]),

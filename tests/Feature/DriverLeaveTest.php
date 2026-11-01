@@ -195,4 +195,135 @@ class DriverLeaveTest extends TestCase
             ->callTableAction('cancel_leave', $leave, ['reason' => 'Tài xế đổi ý'])->assertHasNoTableActionErrors();
         $this->assertNull(DriverLeaveRequest::find($leave->id));
     }
+
+    private function driverRequestsLeave(\Carbon\Carbon $from, ?\Carbon\Carbon $to = null): \Illuminate\Testing\TestResponse
+    {
+        Sanctum::actingAs($this->driver);
+
+        return $this->postJson('/api/driver/shifts/leaves', [
+            'from_date' => $from->toDateString(),
+            'to_date' => ($to ?? $from)->toDateString(),
+            'note' => 'Có việc gia đình',
+        ]);
+    }
+
+    public function test_driver_request_waits_for_approval_and_has_no_effect_until_approved(): void
+    {
+        DB::table('users')->where('id', $this->driver->id)->update(['is_online' => true, 'online_since' => now()]);
+
+        $this->driverRequestsLeave(today())->assertCreated()
+            ->assertJsonPath('message', 'Đã gửi yêu cầu nghỉ 1 ngày, vui lòng chờ admin duyệt.');
+
+        $leave = DriverLeaveRequest::where('driver_id', $this->driver->id)->sole();
+        $this->assertSame(DriverLeaveRequest::PENDING, $leave->status);
+        $this->assertFalse(DriverLeaveService::isOnLeave($this->driver->id, today()), 'chờ duyệt chưa phải là nghỉ');
+        $this->assertSame(1, (int) DB::table('users')->where('id', $this->driver->id)->value('is_online'), 'không bị tắt online');
+        $this->assertSame(1, DB::table('driver_leave_logs')->where('driver_id', $this->driver->id)->where('action', 'requested')->count());
+        $this->assertSame(0, DriverLeaveService::impact($this->city->id)['rows'][0]['onLeave'], 'chưa trừ khỏi ca');
+
+        // Bật online vẫn không bị chặn bởi lý do nghỉ phép (chỉ còn các điều kiện khác như CCCD).
+        DB::table('users')->where('id', $this->driver->id)->update(['is_online' => false]);
+        $res = $this->postJson('/api/driver/toggle-status', ['is_online' => true]);
+        $this->assertStringNotContainsString('nghỉ phép', (string) $res->json('message'));
+
+        $this->getJson('/api/driver/shifts/leaves')->assertOk()
+            ->assertJsonPath('data.0.status', 'pending')
+            ->assertJsonPath('data.0.reject_reason', null);
+    }
+
+    public function test_admin_approval_makes_leave_effective_and_forces_offline_today(): void
+    {
+        $this->driverRequestsLeave(today())->assertCreated();
+        $leave = DriverLeaveRequest::where('driver_id', $this->driver->id)->sole();
+        DB::table('users')->where('id', $this->driver->id)->update(['is_online' => true, 'online_since' => now()]);
+
+        $res = DriverLeaveService::approve($leave, $this->admin->id);
+
+        $this->assertTrue($res['ok'], $res['message']);
+        $leave->refresh();
+        $this->assertSame(DriverLeaveRequest::APPROVED, $leave->status);
+        $this->assertSame($this->admin->id, (int) $leave->reviewed_by);
+        $this->assertNotNull($leave->reviewed_at);
+        $this->assertTrue(DriverLeaveService::isOnLeave($this->driver->id, today()));
+        $this->assertSame(0, (int) DB::table('users')->where('id', $this->driver->id)->value('is_online'));
+        $this->assertFalse(DriverLeaveService::approve($leave, $this->admin->id)['ok'], 'không duyệt lại lần 2');
+
+        Sanctum::actingAs($this->driver);
+        $this->postJson('/api/driver/toggle-status', ['is_online' => true])
+            ->assertForbidden()->assertJsonPath('message', 'Bạn đang được duyệt nghỉ phép hôm nay nên không thể bật online.');
+    }
+
+    public function test_rejected_request_keeps_driver_working_and_can_be_requested_again(): void
+    {
+        $this->driverRequestsLeave(today()->addDay())->assertCreated();
+        $leave = DriverLeaveRequest::where('driver_id', $this->driver->id)->sole();
+
+        $this->assertFalse(DriverLeaveService::reject($leave, 'ab', $this->admin->id)['ok'], 'lý do quá ngắn');
+        $this->assertTrue(DriverLeaveService::reject($leave, 'Thiếu người chạy ca', $this->admin->id)['ok']);
+
+        $leave->refresh();
+        $this->assertSame(DriverLeaveRequest::REJECTED, $leave->status);
+        $this->assertSame('Thiếu người chạy ca', $leave->reject_reason);
+        $this->assertFalse(DriverLeaveService::isOnLeave($this->driver->id, today()->addDay()));
+        $this->assertFalse(DriverLeaveService::approve($leave, $this->admin->id)['ok'], 'đã từ chối thì không duyệt');
+        $this->assertFalse(DriverLeaveService::cancel($leave, 'Không cần nữa', $this->driver->id)['ok']);
+
+        $this->getJson('/api/driver/shifts/leaves')->assertOk()
+            ->assertJsonPath('data.0.status', 'rejected')
+            ->assertJsonPath('data.0.reject_reason', 'Thiếu người chạy ca');
+
+        // Xin lại cùng ngày dùng lại bản ghi cũ, quay về chờ duyệt.
+        $this->driverRequestsLeave(today()->addDay())->assertCreated()->assertJsonPath('data.created', 1);
+        $leave->refresh();
+        $this->assertSame(DriverLeaveRequest::PENDING, $leave->status);
+        $this->assertNull($leave->reject_reason);
+        $this->assertSame(1, DriverLeaveRequest::where('driver_id', $this->driver->id)->count());
+    }
+
+    public function test_approval_guards_past_dates_and_unfinished_orders(): void
+    {
+        $past = DriverLeaveRequest::create(['driver_id' => $this->driver->id, 'leave_date' => today()->subDay(), 'note' => 'x', 'status' => DriverLeaveRequest::PENDING, 'created_by' => $this->driver->id]);
+        $this->assertFalse(DriverLeaveService::approve($past, $this->admin->id)['ok']);
+        $this->assertSame('Quá hạn chưa duyệt', $past->statusLabel());
+
+        $this->driverRequestsLeave(today())->assertCreated();
+        $today = DriverLeaveRequest::where('driver_id', $this->driver->id)->whereDate('leave_date', today())->sole();
+        Order::create(['code' => 'LA'.uniqid(), 'status' => 'processing', 'delivery_man_id' => $this->driver->id, 'pickup_address' => 'a', 'delivery_address' => 'b', 'service_type' => 'delivery']);
+
+        $this->assertFalse(DriverLeaveService::approve($today, $this->admin->id)['ok']);
+        $this->assertSame(DriverLeaveRequest::PENDING, $today->fresh()->status);
+    }
+
+    public function test_driver_can_withdraw_a_pending_request(): void
+    {
+        $this->driverRequestsLeave(today()->addDays(2))->assertCreated();
+        $leave = DriverLeaveRequest::where('driver_id', $this->driver->id)->sole();
+
+        $this->postJson("/api/driver/shifts/leaves/{$leave->id}/cancel")->assertOk()
+            ->assertJsonPath('message', 'Đã rút yêu cầu nghỉ.');
+        $this->assertNull(DriverLeaveRequest::find($leave->id));
+    }
+
+    public function test_admin_can_approve_and_reject_from_the_list_including_bulk(): void
+    {
+        $this->driverRequestsLeave(today()->addDay(), today()->addDays(3))->assertCreated();
+        [$a, $b, $c] = DriverLeaveRequest::where('driver_id', $this->driver->id)->orderBy('leave_date')->get()->all();
+        $this->actingAs($this->admin);
+
+        Livewire::test(ListDriverLeaveRequests::class)->assertSuccessful()
+            ->assertSet('activeTab', 'pending')
+            ->assertCanSeeTableRecords([$a, $b, $c])
+            ->callTableAction('approve_leave', $a)
+            ->callTableAction('reject_leave', $b, ['reason' => 'Ca đó thiếu người'])->assertHasNoTableActionErrors();
+        $this->assertSame([DriverLeaveRequest::APPROVED, DriverLeaveRequest::REJECTED], [$a->fresh()->status, $b->fresh()->status]);
+
+        Livewire::test(ListDriverLeaveRequests::class)
+            ->callTableBulkAction('approve_selected', [$b, $c]);
+        $this->assertSame(DriverLeaveRequest::REJECTED, $b->fresh()->status, 'bulk duyệt bỏ qua phiếu đã từ chối');
+        $this->assertSame(DriverLeaveRequest::APPROVED, $c->fresh()->status);
+
+        $this->assertNull(\App\Filament\Resources\DriverLeaveRequestResource::getNavigationBadge(), 'hết phiếu chờ duyệt');
+        Livewire::test(ViewDriverLeaveRequest::class, ['record' => $b->id])->assertSuccessful()
+            ->assertSee('Từ chối')->assertSee('Ca đó thiếu người');
+    }
 }

@@ -255,6 +255,7 @@ class OrderResource extends Resource
                 $query->selectRaw('1')
                     ->from('driver_leave_requests')
                     ->whereColumn('driver_leave_requests.driver_id', 'users.id')
+                    ->where('driver_leave_requests.status', 'approved')
                     ->whereDate('driver_leave_requests.leave_date', today());
             })
             ->select(['id', 'name', 'phone'])
@@ -281,7 +282,7 @@ class OrderResource extends Resource
     {
         $max = OperationalSettings::maxActiveOrdersPerDriver($record->city_id);
         $now = now();
-        $onLeave = DB::table('driver_leave_requests')->whereDate('leave_date', today())->pluck('driver_id')->flip();
+        $onLeave = DB::table('driver_leave_requests')->where('status', 'approved')->whereDate('leave_date', today())->pluck('driver_id')->flip();
 
         return User::query()
             ->where('user_type', 'driver')

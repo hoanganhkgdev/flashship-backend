@@ -68,7 +68,7 @@ class ShiftOfflineService
                 ->where('driver_id', $row->user_id)->where('shift_id', $shift->id)->where('shift_date', $shiftDate)->exists()) {
                 continue;
             }
-            if (DB::table('driver_leave_requests')->where('driver_id', $row->user_id)->whereDate('leave_date', $shiftDate)->exists()) {
+            if (\App\Services\DriverLeaveService::isOnLeave($row->user_id, $shiftDate)) {
                 continue;
             }
 
@@ -130,7 +130,7 @@ class ShiftOfflineService
             $offline = $this->offlineSeconds((int) $driver->id, $from, $end, $now);
             $penalized = DB::table('driver_shift_offline_penalties')
                 ->where('driver_id', $driver->id)->where('shift_id', $shift->id)->where('shift_date', $shiftDate)->exists();
-            $exempt = DB::table('driver_leave_requests')->where('driver_id', $driver->id)->whereDate('leave_date', $shiftDate)->exists();
+            $exempt = \App\Services\DriverLeaveService::isOnLeave($driver->id, $shiftDate);
 
             return [
                 'shift_id' => (int) $shift->id,

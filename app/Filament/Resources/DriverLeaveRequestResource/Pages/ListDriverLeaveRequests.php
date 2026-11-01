@@ -21,7 +21,7 @@ class ListDriverLeaveRequests extends ListRecords
 
     public function getSubheading(): ?string
     {
-        return 'Ngày nghỉ đã báo trước, ảnh hưởng của chúng lên từng ca và nhật ký ghi nhận.';
+        return 'Yêu cầu nghỉ tài xế gửi từ app cần được duyệt mới có hiệu lực. Admin ghi nhận trực tiếp thì có hiệu lực ngay.';
     }
 
     protected function getHeaderActions(): array
@@ -33,12 +33,16 @@ class ListDriverLeaveRequests extends ListRecords
 
     public function getDefaultActiveTab(): string|int|null
     {
-        $hasUpcoming = DriverLeaveRequestResource::scopeEloquentQueryToTenant(
+        $query = fn () => DriverLeaveRequestResource::scopeEloquentQueryToTenant(
             DriverLeaveRequest::query(),
             Filament::getTenant(),
-        )->whereDate('leave_date', '>=', today())->exists();
+        )->whereDate('leave_date', '>=', today());
 
-        return $hasUpcoming ? 'upcoming' : 'past';
+        if ($query()->where('status', DriverLeaveRequest::PENDING)->exists()) {
+            return 'pending';
+        }
+
+        return $query()->exists() ? 'upcoming' : 'past';
     }
 
     protected function getHeaderWidgets(): array
@@ -58,12 +62,19 @@ class ListDriverLeaveRequests extends ListRecords
             Filament::getTenant(),
         );
 
+        $pending = fn (Builder $query) => $query->where('status', DriverLeaveRequest::PENDING)->whereDate('leave_date', '>=', today());
+        $todayApproved = fn (Builder $query) => $query->where('status', DriverLeaveRequest::APPROVED)->whereDate('leave_date', today());
+
         return [
             'all' => Tab::make('Tất cả')->badge($query()->count() ?: null),
-            'today' => Tab::make('Nghỉ hôm nay')
-                ->modifyQueryUsing(fn (Builder $query) => $query->whereDate('leave_date', today()))
-                ->badge($query()->whereDate('leave_date', today())->count() ?: null)
+            'pending' => Tab::make('Chờ duyệt')
+                ->modifyQueryUsing($pending)
+                ->badge($pending($query())->count() ?: null)
                 ->badgeColor('warning'),
+            'today' => Tab::make('Nghỉ hôm nay')
+                ->modifyQueryUsing($todayApproved)
+                ->badge($todayApproved($query())->count() ?: null)
+                ->badgeColor('success'),
             'upcoming' => Tab::make('Hiện tại & sắp tới')
                 ->modifyQueryUsing(fn (Builder $query) => $query->whereDate('leave_date', '>=', today()))
                 ->badge($query()->whereDate('leave_date', '>=', today())->count() ?: null)
