@@ -138,6 +138,14 @@ class OrderMarketService
             'is_freeship' => (bool) $o->is_freeship,
             'voucher_code' => $o->voucher_code,
             'discount_amount' => (int) ($o->discount_amount ?? 0),
+            // Đơn app shop: cod_amount là tiền thu hộ người nhận (không phải tiền tài xế ứng trả shop).
+            'store_name' => $o->store_name,
+            'pickup_place_name' => $o->pickup_place_name,
+            'shop_service_type' => $o->shop_service_type,
+            'cargo_type' => $o->cargo_type,
+            'cargo_note' => $o->cargo_note,
+            'cargo_weight' => $o->cargo_weight ? (float) $o->cargo_weight : null,
+            'stops_count' => $o->is_batch ? count($o->stops ?? []) : 0,
             'opened_at' => $listing->opened_at?->toIso8601String(),
             'expires_at' => null,
         ];
