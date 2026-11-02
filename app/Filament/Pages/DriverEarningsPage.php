@@ -209,7 +209,7 @@ class DriverEarningsPage extends Page
             ->whereIn('delivery_man_id', $ids)->where('status', 'completed')
             ->whereBetween('completed_at', [$from, $to])
             ->groupBy('delivery_man_id')
-            ->selectRaw('delivery_man_id, COUNT(*) as cnt, COALESCE(SUM(shipping_fee), 0) as shipping, COALESCE(SUM(bonus_fee + night_surcharge), 0) as surcharge')
+            ->selectRaw('delivery_man_id, COUNT(*) as cnt, COALESCE(SUM(shipping_fee), 0) as shipping, COALESCE(SUM(bonus_fee), 0) as surcharge')
             ->get()->keyBy('delivery_man_id');
 
         $rain = $this->walletCredits($ids, 'order\_%\_rain', $from, $to);
@@ -282,7 +282,7 @@ class DriverEarningsPage extends Page
 
         $orders = $ids ? DB::table('orders')
             ->whereIn('delivery_man_id', $ids)->where('status', 'completed')->whereBetween('completed_at', [$from, $to])
-            ->selectRaw($this->bucketSql('completed_at', $granularity).' as k, COUNT(*) as cnt, COALESCE(SUM(shipping_fee + bonus_fee + night_surcharge), 0) as earnings')
+            ->selectRaw($this->bucketSql('completed_at', $granularity).' as k, COUNT(*) as cnt, COALESCE(SUM(shipping_fee + bonus_fee), 0) as earnings')
             ->groupBy('k')->get()->keyBy(fn ($r) => (string) $r->k) : collect();
 
         $wallet = fn (string $like) => $ids ? DB::table('driver_wallet_transactions as t')
@@ -354,7 +354,7 @@ class DriverEarningsPage extends Page
         $ids = $this->driverQuery()->pluck('id')->all();
         $row = $ids ? DB::table('orders')->whereIn('delivery_man_id', $ids)
             ->where('status', 'completed')->whereNull('completed_at')->whereBetween('created_at', [$from, $to])
-            ->selectRaw('COUNT(*) as c, COALESCE(SUM(shipping_fee + bonus_fee + night_surcharge), 0) as fee')->first() : null;
+            ->selectRaw('COUNT(*) as c, COALESCE(SUM(shipping_fee + bonus_fee), 0) as fee')->first() : null;
 
         return ['missing_count' => (int) ($row->c ?? 0), 'missing_fee' => (int) ($row->fee ?? 0)];
     }

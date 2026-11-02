@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\ShopResource\Pages;
 
+use App\Support\OrderMoney;
 use App\Filament\Resources\OrderResource;
 use App\Filament\Resources\ShopResource;
 use Carbon\Carbon;
@@ -68,7 +69,7 @@ class ViewShop extends ViewRecord
             COALESCE(SUM(status = 'completed'), 0) as completed,
             COALESCE(SUM(status = 'cancelled'), 0) as cancelled,
             COALESCE(SUM(status IN ('pending','assigned','processing')), 0) as active,
-            COALESCE(SUM(CASE WHEN status = 'completed' THEN shipping_fee + bonus_fee + night_surcharge END), 0) as spent,
+            COALESCE(SUM(CASE WHEN status = 'completed' THEN ".OrderMoney::COLLECTED." END), 0) as spent,
             COALESCE(SUM(CASE WHEN status = 'completed' THEN discount_amount END), 0) as discount,
             MIN(created_at) as first_at
         ")->first();
@@ -93,7 +94,7 @@ class ViewShop extends ViewRecord
         $services = ServiceType::pluck('label', 'key');
 
         return $this->orders()->orderByDesc('created_at')->limit(self::RECENT_ORDERS)
-            ->get(['id', 'code', 'service_type', 'status', 'pickup_address', 'delivery_address', 'shipping_fee', 'bonus_fee', 'night_surcharge', 'created_at'])
+            ->get(['id', 'code', 'service_type', 'status', 'pickup_address', 'delivery_address', 'shipping_fee', 'created_at'])
             ->map(fn (Order $o) => [
                 'url' => OrderResource::getUrl('view', ['record' => $o->id]),
                 'code' => $o->code ?: '#'.$o->id,
@@ -101,7 +102,7 @@ class ViewShop extends ViewRecord
                 'status' => self::STATUS_LABELS[$o->status] ?? $o->status,
                 'color' => self::STATUS_COLORS[$o->status] ?? 'gray',
                 'route' => Str::limit((string) $o->pickup_address, 36).' → '.Str::limit((string) $o->delivery_address, 36),
-                'fee' => (int) $o->shipping_fee + (int) $o->bonus_fee + (int) $o->night_surcharge,
+                'fee' => (int) $o->shipping_fee,
                 'when' => $o->created_at,
             ]);
     }

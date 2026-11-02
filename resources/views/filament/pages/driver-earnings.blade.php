@@ -163,7 +163,7 @@
             </div>
             <div class="fs-rr-composition__rows">
                 <div><span><i class="is-shipping"></i>Phí giao</span><b>{{ $money($totals['shipping']) }}</b></div>
-                <div><span><i class="is-extra"></i>Phụ phí</span><b>{{ $money($totals['surcharge']) }}</b></div>
+                <div><span><i class="is-extra"></i>Bonus</span><b>{{ $money($totals['surcharge']) }}</b></div>
                 <div><span><i class="is-rain"></i>Thưởng mưa</span><b>{{ $money($totals['rain']) }}</b></div>
                 <div><span><i class="is-discount"></i>Bù giảm giá</span><b>{{ $money($totals['discount']) }}</b></div>
             </div>
@@ -209,7 +209,7 @@
                     <thead>
                         <tr>
                             <th scope="col" class="fs-de-rank">#</th>
-                            @foreach (['name' => 'Tài xế', 'total' => 'Tổng thu nhập', 'orders' => 'Đơn', 'shipping' => 'Phí giao', 'surcharge' => 'Phụ phí', 'rain' => 'Thưởng mưa', 'discount' => 'Bù giảm giá', 'avg' => 'TB / đơn'] as $col => $label)
+                            @foreach (['name' => 'Tài xế', 'total' => 'Tổng thu nhập', 'orders' => 'Đơn', 'shipping' => 'Phí giao', 'surcharge' => 'Bonus', 'rain' => 'Thưởng mưa', 'discount' => 'Bù giảm giá', 'avg' => 'TB / đơn'] as $col => $label)
                                 <th scope="col" aria-sort="{{ $this->sortBy === $col ? ($this->sortDir === 'asc' ? 'ascending' : 'descending') : 'none' }}" @class(['is-sorted' => $this->sortBy === $col])><button type="button" wire:click="sort('{{ $col }}')">{{ $label }} <span>{{ $sortArrow($col) }}</span></button></th>
                             @endforeach
                         </tr>

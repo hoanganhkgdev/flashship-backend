@@ -109,7 +109,7 @@ class ViewDriver extends ViewRecord
             ->selectRaw("COUNT(*) as total, COALESCE(SUM(status = 'completed'), 0) as completed, COALESCE(SUM(status = 'cancelled'), 0) as cancelled")->first();
 
         $fees = (int) DB::table('orders')->where('delivery_man_id', $id)->where('status', 'completed')->where('completed_at', '>=', $since)
-            ->sum(DB::raw('shipping_fee + bonus_fee + night_surcharge'));
+            ->sum(DB::raw('shipping_fee + bonus_fee')); // phụ phí đêm đã nằm trong shipping_fee
 
         // Thưởng mưa và bù giảm giá đã ghi có vào ví cũng là thu nhập (cùng cách tính với trang Thu nhập tài xế).
         $credits = (int) DB::table('driver_wallet_transactions as t')->join('driver_wallets as w', 'w.id', '=', 't.wallet_id')
@@ -165,7 +165,7 @@ class ViewDriver extends ViewRecord
         $services = ServiceType::pluck('label', 'key');
 
         return Order::query()->where('delivery_man_id', $this->record->id)->orderByDesc('created_at')->limit(self::RECENT_ORDERS)
-            ->get(['id', 'code', 'service_type', 'status', 'pickup_address', 'delivery_address', 'shipping_fee', 'bonus_fee', 'night_surcharge', 'created_at'])
+            ->get(['id', 'code', 'service_type', 'status', 'pickup_address', 'delivery_address', 'shipping_fee', 'bonus_fee', 'created_at'])
             ->map(fn (Order $o) => [
                 'url' => OrderResource::getUrl('view', ['record' => $o->id]),
                 'code' => $o->code ?: '#'.$o->id,
@@ -173,7 +173,7 @@ class ViewDriver extends ViewRecord
                 'status' => self::STATUS_LABELS[$o->status] ?? $o->status,
                 'color' => self::STATUS_COLORS[$o->status] ?? 'gray',
                 'route' => Str::limit((string) $o->pickup_address, 36).' → '.Str::limit((string) $o->delivery_address, 36),
-                'fee' => (int) $o->shipping_fee + (int) $o->bonus_fee + (int) $o->night_surcharge,
+                'fee' => (int) $o->shipping_fee + (int) $o->bonus_fee,
                 'when' => $o->created_at,
             ]);
     }
