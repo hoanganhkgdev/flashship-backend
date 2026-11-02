@@ -1,4 +1,5 @@
 <x-filament-panels::page class="fs-call-center">
+    <link rel="stylesheet" href="{{ asset('css/call-center.css') }}?v={{ filemtime(public_path('css/call-center.css')) }}">
 
 @php
     $activeSvc = $this::services()[$serviceType];
@@ -17,23 +18,17 @@
         default => 'SĐT khách',
     };
     $deliveryOptional = $serviceType !== 'topup';
+    $nightSurcharge = $this->currentNightSurcharge();
     $phoneRequired = false;
-    $shortLabels = ['delivery' => 'Lấy hộ', 'shopping' => 'Mua hộ', 'topup' => 'Nạp/Rút', 'bike' => 'Xe ôm', 'motor' => 'Lái xe máy', 'car' => 'Lái ô tô'];
+    $shortLabels = ['delivery' => 'Lấy hộ', 'shopping' => 'Mua hộ', 'topup' => 'Nạp/Rút', 'bike' => 'Xe ôm', 'motor' => 'Xe máy', 'car' => 'Ô tô']; // nhãn ngắn để vừa ô; tên đầy đủ nằm ở title
 @endphp
 
-{{-- Form cuộn độc lập trên desktop; thanh tạo đơn luôn nằm trong khung nhìn. --}}
+{{-- Đầu trang một hàng mỏng: tổng đài viên cần chỗ cho form, không cần tiêu đề lớn. --}}
 <div class="cc-top">
-    <span class="cc-page-icon"><x-heroicon-o-phone-arrow-up-right /></span>
-    <div class="cc-top__title">
-        <span class="cc-top__eyebrow">Trung tâm vận hành</span>
-        <h1>Tổng đài đặt đơn</h1>
-        <span class="cc-top__description">Tiếp nhận yêu cầu và điều phối chuyến đi</span>
-    </div>
-    <div class="cc-header-context">
-        <span><i class="cc-live-dot"></i>{{ $currentCityName ?: 'Chưa chọn khu vực' }}</span>
-        <strong style="--svc-color:{{ $activeSvc['color'] }}">{{ $activeSvc['label'] }}</strong>
-    </div>
-    <p><kbd>Ctrl</kbd> + <kbd>Enter</kbd> để tạo đơn nhanh</p>
+    <h1><x-heroicon-o-phone-arrow-up-right />Tổng đài đặt đơn</h1>
+    <span class="cc-chip"><i class="cc-live-dot"></i>{{ $currentCityName ?: 'Chưa chọn khu vực' }}</span>
+    <span class="cc-chip cc-chip--svc" style="--svc-color:{{ $activeSvc['color'] }}">{{ $activeSvc['label'] }}</span>
+    <p class="cc-top__kbd"><kbd>Ctrl</kbd>+<kbd>Enter</kbd> tạo đơn</p>
 </div>
 
 @if ($resultOrderCode && ! $resultWarning)
@@ -62,15 +57,14 @@
 <div class="cc-wrapper">
 
     {{-- ═══ PANEL FORM ═══ --}}
-    <div class="cc-form-panel" style="--cc-accent: {{ $activeSvc['color'] }}; --cc-accent-20: {{ $activeSvc['color'] }}26;">
+    <div class="cc-form-panel">
       <form id="cc-form" class="cc-form" wire:submit="placeOrder"
             onkeydown="if (event.key === 'Enter' && event.target.tagName !== 'TEXTAREA') { event.preventDefault(); if (event.target.type === 'tel') event.target.blur(); }">
-        <div class="cc-form-heading"><span><x-heroicon-o-document-plus />Thông tin đơn mới</span><small>Điền theo yêu cầu cuộc gọi</small></div>
         <div class="cc-scroll">
 
             {{-- 1. Dịch vụ --}}
             <section class="cc-section cc-section--service">
-            <div class="cc-section__head"><strong>Chọn dịch vụ</strong><span>Chọn loại đơn trước khi nhập thông tin</span></div>
+            <div class="cc-section__head">Dịch vụ</div>
             <div class="cc-service-tabs">
                 @foreach ($this::services() as $key => $svc)
                 @php $active = $serviceType === $key; @endphp
@@ -101,7 +95,7 @@
                 $deliveryShort = in_array($serviceType, ['bike', 'motor', 'car'], true) ? 'Đến' : 'Giao';
             @endphp
             <section class="cc-section">
-            <div class="cc-section__head"><strong>Hành trình</strong><span>Chọn từ gợi ý để lấy đúng toạ độ</span></div>
+            <div class="cc-section__head">Hành trình <span>chọn từ gợi ý hoặc ghim trên bản đồ</span></div>
             <div class="cc-card cc-journey-card {{ $err('pickup_address') || $err('delivery_address') ? 'has-err' : '' }}">
                 <div class="cc-address-row">
                     <div class="cc-address-dot" style="background:#FF6B35; box-shadow:0 0 0 3px #FF6B3520;"></div>
@@ -135,7 +129,7 @@
 
             {{-- 3. Chi tiết theo dịch vụ --}}
             <section class="cc-section">
-            <div class="cc-section__head"><strong>Chi tiết đơn</strong><span>Thông tin tài xế cần biết</span></div>
+            <div class="cc-section__head">Chi tiết đơn</div>
             <div class="cc-card">
                 @if ($serviceType === 'delivery')
                 <div class="cc-fld">
@@ -171,7 +165,7 @@
             {{-- 4. Khách đang gọi --}}
             @if (! in_array($serviceType, ['delivery', 'shopping', 'topup', 'bike', 'motor', 'car'], true))
             <section class="cc-section">
-                <div class="cc-section__head"><strong>SĐT khách</strong><span>Số liên hệ của người đang gọi</span></div>
+                <div class="cc-section__head">SĐT khách</div>
                 <div class="cc-card cc-customer-card {{ $err('contact_phone') ? 'has-err' : '' }}">
                     <div class="cc-phone-row">
                         <span class="cc-phone-icon"><x-heroicon-o-phone /></span>
@@ -188,17 +182,19 @@
 
             {{-- 5. Phí + tài xế --}}
             <section class="cc-section">
-            <div class="cc-section__head"><strong>Phí và điều phối</strong><span>Kiểm tra lần cuối trước khi tạo</span></div>
+            <div class="cc-section__head">Phí và tài xế</div>
             <div class="cc-card cc-pricing-card {{ $err('assignedDriverId') ? 'has-err' : '' }}">
                 <div class="cc-row2">
                     <div>
                         <label class="cc-lbl" for="cc-shipping-fee">Phí đơn</label>
-                        <div class="cc-fee-wrap"><input id="cc-shipping-fee" type="number" class="cc-input {{ $err('shipping_fee') ? 'has-err' : '' }}" wire:model.blur="data.shipping_fee" placeholder="0" /><span class="cc-fee-suffix">đ</span></div>
-                        @if ($err('shipping_fee'))<p class="cc-err">{{ $err('shipping_fee') }}</p>@endif
+                        <div class="cc-fee-wrap"><input id="cc-shipping-fee" type="number" min="0" max="{{ $this::MAX_FEE }}" class="cc-input {{ $err('shipping_fee') ? 'has-err' : '' }}" wire:model.blur="data.shipping_fee" placeholder="0" /><span class="cc-fee-suffix">đ</span></div>
+                        @if ($err('shipping_fee'))<p class="cc-err">{{ $err('shipping_fee') }}</p>
+                        @elseif ($nightSurcharge > 0)<p class="cc-hint">+ {{ number_format($nightSurcharge, 0, ',', '.') }}đ phụ phí đêm (tự cộng khi có phí)</p>@endif
                     </div>
                     <div>
                         <label class="cc-lbl" for="cc-bonus-fee">Bonus tài xế <small>(admin trả)</small></label>
-                        <div class="cc-fee-wrap"><input id="cc-bonus-fee" type="number" min="0" class="cc-input" wire:model.blur="data.bonus_fee" placeholder="0" /><span class="cc-fee-suffix">đ</span></div>
+                        <div class="cc-fee-wrap"><input id="cc-bonus-fee" type="number" min="0" max="{{ $this::MAX_FEE }}" class="cc-input {{ $err('bonus_fee') ? 'has-err' : '' }}" wire:model.blur="data.bonus_fee" placeholder="0" /><span class="cc-fee-suffix">đ</span></div>
+                        @if ($err('bonus_fee'))<p class="cc-err">{{ $err('bonus_fee') }}</p>@endif
                     </div>
                 </div>
                 <div class="cc-fld cc-driver-field">
@@ -217,14 +213,13 @@
                             </optgroup>
                             @endif
                         </select>
-                        <svg class="cc-select-chevron" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M5 7.5L10 12.5L15 7.5" stroke="#9ca3af" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                        <svg class="cc-select-chevron" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
                     </div>
                 </div>
                 @if ($err('assignedDriverId'))<p class="cc-err">{{ $err('assignedDriverId') }}</p>@endif
-                <div class="cc-feeline">
-                    <span>Miễn phí giao cho khách</span>
-                    <label class="cc-check"><input type="checkbox" wire:model.live="isFreeship" /> <strong>Freeship</strong></label>
-                </div>
+                <label class="cc-check cc-freeship" title="Khách không trả phí ship, công ty trả thay cho tài xế khi hoàn thành">
+                    <input type="checkbox" wire:model.live="isFreeship" /> <strong>Freeship</strong> <span>công ty trả phí ship thay khách</span>
+                </label>
             </div>
             </section>
         </div>
@@ -232,11 +227,16 @@
         {{-- Thanh đặt đơn dính đáy --}}
         <div class="cc-bar">
             <div class="cc-bar__info">
-                <span>Phí đơn{{ $isFreeship ? ' · Freeship' : '' }}</span>
-                <b>{{ number_format((float) ($data['shipping_fee'] ?? 0), 0, ',', '.') }}<small>đ</small></b>
+                @php
+                    $typedFee = is_numeric($data['shipping_fee'] ?? null) ? max(0, (int) $data['shipping_fee']) : 0;
+                    $barFee = $typedFee > 0 ? $typedFee + $nightSurcharge : 0;
+                @endphp
+                <span>Phí đơn{{ $isFreeship ? ' · Freeship' : '' }}{{ $typedFee > 0 && $nightSurcharge > 0 ? ' · gồm phụ phí đêm' : '' }}</span>
+                <b>{{ number_format($barFee, 0, ',', '.') }}<small>đ</small></b>
                 <span id="cc-bar-route" wire:ignore></span>
             </div>
-            <button type="submit" wire:loading.attr="disabled" class="cc-submit-btn">
+            {{-- wire:target bắt buộc: thiếu nó, mọi request (làm mới danh sách đơn 15s, đổi địa chỉ...) đều tắt nút → nút chớp. --}}
+            <button type="submit" wire:loading.attr="disabled" wire:target="placeOrder" class="cc-submit-btn">
                 <x-heroicon-o-paper-airplane wire:loading.remove wire:target="placeOrder" />
                 <span wire:loading.remove wire:target="placeOrder">Tạo đơn</span>
                 <span wire:loading wire:target="placeOrder">Đang xử lý...</span>
@@ -248,7 +248,7 @@
     {{-- ═══ BẢN ĐỒ + ĐƠN VỪA ĐẶT ═══ wire:ignore bọc map, script và danh sách đơn: Livewire re-render
     (đổi dịch vụ, nhập SĐT...) không được đụng vào, nếu không Google Maps load lại và chớp liên tục. --}}
     <div class="cc-map-wrap">
-        <header class="cc-map-heading"><div><x-heroicon-o-map /><span>Bản đồ điều phối<small>{{ $currentCityName ?: 'Chưa chọn khu vực' }}</small></span></div><span class="cc-map-availability"><i class="cc-live-dot"></i>{{ count($onlineDrivers) }} tài xế có thể gán</span></header>
+        <header class="cc-map-heading"><div><x-heroicon-o-map /><span>Bản đồ điều phối</span></div><span class="cc-map-availability"><i class="cc-live-dot"></i>{{ count($onlineDrivers) }} tài xế có thể gán</span></header>
         <div class="cc-map-area" wire:ignore>
             <div id="cc-main-map" class="cc-map"></div>
             <div class="cc-map-title"><x-heroicon-o-map-pin />Chọn biểu tượng ghim ở ô địa chỉ để đặt điểm</div>
@@ -263,13 +263,13 @@
             </div>
         </div>
         <div class="cc-recent" wire:ignore>
-            <div class="cc-board-heading"><span><x-heroicon-o-queue-list />Theo dõi đơn tổng đài</span><small>Tự cập nhật mỗi 15 giây</small></div>
             <div class="cc-recent__head">
+                <span class="cc-recent__title"><x-heroicon-o-queue-list />Đơn tổng đài</span>
                 <div class="cc-recent__tabs" role="tablist" aria-label="Lọc đơn tổng đài">
                     <button type="button" class="cc-recent__tab active" data-cc-board="attention" role="tab" aria-selected="true" onclick="_ccSelectBoard('attention')">Cần xử lý <b id="cc-attention-count">0</b></button>
                     <button type="button" class="cc-recent__tab" data-cc-board="recent" role="tab" aria-selected="false" onclick="_ccSelectBoard('recent')">Tất cả hôm nay <b id="cc-recent-count">0</b></button>
                 </div>
-                <em id="cc-recent-time"></em>
+                <em id="cc-recent-time" title="Tự cập nhật mỗi 15 giây"></em>
             </div>
             <div id="cc-recent-list" role="region" aria-label="Danh sách đơn tổng đài"><div class="cc-recent__empty">Đang tải…</div></div>
         </div>
@@ -727,13 +727,15 @@ function _ccRenderRecent(list) {
     if (!box) return;
     const t = document.getElementById('cc-recent-time');
     if (t) t.textContent = new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    // Server trả mọi đơn còn chờ (kể cả hôm trước) cùng các đơn gần nhất hôm nay.
     const all = list || [];
     const attention = all.filter((o) => o.status === 'pending');
+    const today = all.filter((o) => o.today);
     const attentionCount = document.getElementById('cc-attention-count');
     const recentCount = document.getElementById('cc-recent-count');
     if (attentionCount) attentionCount.textContent = attention.length;
-    if (recentCount) recentCount.textContent = all.length;
-    const visible = _ccActiveBoard === 'attention' ? attention : all;
+    if (recentCount) recentCount.textContent = today.length;
+    const visible = _ccActiveBoard === 'attention' ? attention : today;
     if (!visible.length) {
         box.innerHTML = '<div class="cc-recent__empty">' + (_ccActiveBoard === 'attention' ? 'Không có đơn nào đang chờ xử lý.' : 'Chưa có đơn nào hôm nay.') + '</div>';
         return;
@@ -744,15 +746,15 @@ function _ccRenderRecent(list) {
         const label = o.status_label;
         const color = o.status === 'pending' ? '#b45309' : (o.status === 'completed' ? '#15803d' : '#64748b');
         const when = (o.status === 'pending' ? o.minutes + ' phút' : (o.driver ? _ccEsc(o.driver) : o.minutes + 'p trước'));
-        const route = '↑ ' + _ccEsc(o.pickup) + ' → ' + (o.no_delivery ? '<i>chưa có điểm giao</i>' : _ccEsc(o.delivery));
+        const route = '↑ ' + _ccEsc(o.pickup) + (o.delivery ? ' → ' + _ccEsc(o.delivery) : '');
         return '<div class="cc-ro s-' + o.status + '' + '">' +
             '<a class="code" href="' + _ccEsc(o.url) + '">#' + _ccEsc(o.code) + '</a>' +
             '<span class="who" title="' + _ccEsc(o.service) + '">' + _ccEsc(o.name ? o.name + ' · ' : '') + _ccEsc(o.phone || 'chưa có SĐT') + '</span>' +
             '<span class="route" title="' + _ccEsc(o.pickup) + '">' + route + '</span>' +
             '<span class="st" style="color:' + color + '">' + _ccEsc(label) + ' <small>' + when + '</small></span>' +
             '<span class="acts">' +
-                (canAssign ? '<button type="button" onclick="_ccAssign(' + o.id + ')">Gán</button>' : '') +
-                (canCancel ? '<button type="button" onclick="_ccCancel(' + o.id + ')">Hủy</button>' : '') +
+                (canAssign ? '<button type="button" class="is-primary" onclick="_ccAssign(' + o.id + ')">Gán</button>' : '') +
+                (canCancel ? '<button type="button" class="is-danger" onclick="_ccCancel(' + o.id + ')">Hủy</button>' : '') +
             '</span>' +
             '</div>';
     }).join('');
