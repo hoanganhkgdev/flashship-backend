@@ -1,4 +1,8 @@
 <x-filament-panels::page>
+    <link rel="stylesheet" href="{{ asset('css/revenue-report.css') }}?v={{ filemtime(public_path('css/revenue-report.css')) }}">
+    <link rel="stylesheet" href="{{ asset('css/driver-earnings.css') }}?v={{ filemtime(public_path('css/driver-earnings.css')) }}">
+    <link rel="stylesheet" href="{{ asset('css/driver-finance-report.css') }}?v={{ filemtime(public_path('css/driver-finance-report.css')) }}">
+    <div class="fs-revenue fs-driver-earnings fs-driver-finance">
     @php
         $report = $this->getReportData();
         $totals = $report['totals'];
@@ -12,6 +16,7 @@
         $sortArrow = fn (string $col) => $this->sortBy === $col ? ($this->sortDir === 'asc' ? '↑' : '↓') : '';
         $collectRate = $totals['collect_rate'];
         $topDebt = collect($report['drivers'])->sortByDesc('remaining')->first();
+        $hasChartData = array_sum(array_column($chart['bars'], 'due')) > 0 || array_sum(array_column($chart['bars'], 'paid')) > 0;
     @endphp
 
     <header class="fs-page-header">
@@ -19,7 +24,7 @@
             <p class="fs-page-header__eyebrow">Báo cáo tài chính</p>
             <h1 class="fs-page-header__title">Thu phí tài xế</h1>
             <p class="fs-page-header__description">
-                Khu vực {{ filament()->getTenant()?->name }} · Đối soát khoản phải thu, số đã thu, tiền công ty chi và tiền tài xế đã rút.
+                {{ filament()->getTenant()?->name }} · Theo dõi khoản cần thu và tiến độ đối soát theo kỳ.
             </p>
         </div>
         <div class="fs-rr-head-actions">
@@ -34,7 +39,7 @@
     <section class="fs-rr-toolbar">
         <div class="fs-seg" role="group" aria-label="Kỳ báo cáo">
             @foreach (['week' => 'Theo tuần', 'month' => 'Theo tháng'] as $key => $label)
-                <button type="button" wire:click="$set('mode', '{{ $key }}')" @class(['is-active' => $mode === $key])>{{ $label }}</button>
+                <button type="button" wire:click="$set('mode', '{{ $key }}')" aria-pressed="{{ $mode === $key ? 'true' : 'false' }}" @class(['is-active' => $mode === $key])>{{ $label }}</button>
             @endforeach
         </div>
 
@@ -42,20 +47,13 @@
             <div class="fs-nav" role="group" aria-label="Chọn kỳ">
                 <button type="button" wire:click="shiftPeriod(-1)" @disabled($periodIdx >= count($periodKeys) - 1) aria-label="Kỳ trước">‹</button>
                 <select class="fs-rr-select" wire:model.live="date" aria-label="Kỳ báo cáo">
-                    @foreach ($this->periods as $value => $label)<option value="{{ $value }}">{{ $label }}</option>@endforeach
+                    @foreach ($this->periods as $value => $label)<option value="{{ $value }}" @selected($this->date === $value)>{{ $label }}</option>@endforeach
                 </select>
                 <button type="button" wire:click="shiftPeriod(1)" @disabled($periodIdx <= 0) aria-label="Kỳ sau">›</button>
             </div>
         </div>
 
-        <div class="fs-rr-controls fs-rr-controls--row2">
-            <input type="search" class="fs-rr-search" wire:model.live.debounce.300ms="search" placeholder="Tìm tên hoặc số điện thoại" aria-label="Tìm tài xế">
-            <div class="fs-seg" role="group" aria-label="Công nợ">
-                @foreach (['all' => 'Tất cả', 'outstanding' => 'Còn nợ', 'settled' => 'Đã hoàn tất'] as $key => $label)
-                    <button type="button" wire:click="$set('debtStatus', '{{ $key }}')" @class(['is-active' => $debtStatus === $key])>{{ $label }}</button>
-                @endforeach
-            </div>
-        </div>
+
     </section>
 
     @if ($overall['amount'] > 0)
@@ -70,8 +68,8 @@
     @endif
 
     <div wire:loading.class="opacity-50" class="fs-rr-body">
-        <div class="fs-rr-kpi-grid fs-fr-kpi-grid">
-            <article class="fs-rr-kpi fs-fr-kpi--debt">
+        <section aria-label="Tổng quan thu phí"><div class="fs-rr-kpi-grid fs-fr-kpi-grid">
+            <article class="fs-rr-kpi fs-rr-kpi--revenue fs-fr-kpi--debt">
                 <span class="fs-rr-kpi__icon"><x-heroicon-o-exclamation-circle /></span>
                 <div><span class="fs-rr-kpi__label">Còn phải thu</span><strong>{{ $money($totals['remaining']) }}</strong></div>
                 <small>{{ $num($totals['debtors']) }} tài xế còn nợ trong kỳ</small>
@@ -93,6 +91,8 @@
             </article>
         </div>
 
+        <p class="fs-revenue-compare">Các chỉ số tổng hợp toàn khu vực trong {{ $this->rangeLabel }}.</p></section>
+
         {{-- Xu hướng thu nợ --}}
         <div class="fs-rr-main-grid">
         <section class="fs-rr-card fs-rr-chart-card">
@@ -101,13 +101,18 @@
                     <h2>Xu hướng thu nợ</h2>
                     <p>8 {{ $mode === 'month' ? 'tháng' : 'tuần' }} gần nhất, kết thúc ở kỳ đang xem</p>
                 </div>
+                @if ($hasChartData)
                 <div class="fs-rr-legend">
                     <span><i class="fs-rr-legend__bar"></i>Đã thu</span>
                     <span><i class="fs-rr-legend__dash"></i>Phải thu</span>
                     <span><i class="fs-rr-legend__line"></i>Còn nợ <small>(thang riêng, tối đa {{ $money($chart['max_orders']) }})</small></span>
                 </div>
+                @endif
             </header>
 
+            @if (! $hasChartData)
+                <div class="fs-revenue-empty"><x-heroicon-o-document-check /><h3>Chưa có khoản thu trong giai đoạn này</h3><p>Chọn kỳ khác để xem lịch sử thu phí tài xế.</p></div>
+            @else
             <div class="fs-rr-chart">
                 <div class="fs-rr-yaxis">
                     @foreach ($chart['axis'] as $tick)<span style="top: {{ 100 - $tick['pct'] }}%">{{ $tick['label'] }}</span>@endforeach
@@ -117,7 +122,7 @@
                         @foreach ($chart['axis'] as $tick)<div class="fs-rr-gridline" style="top: {{ 100 - $tick['pct'] }}%"></div>@endforeach
                         <div class="fs-rr-cols">
                             @foreach ($chart['bars'] as $bar)
-                                <div class="fs-rr-col">
+                                <div class="fs-rr-col" tabindex="0" role="img" aria-label="{{ $bar['label'] }}: phải thu {{ $money($bar['due']) }}, đã thu {{ $money($bar['paid']) }}, còn nợ {{ $money($bar['remaining']) }}">
                                     <i class="fs-rr-bar" style="height: {{ $bar['height'] }}%"></i>
                                     <div class="fs-rr-tip">
                                         <b>{{ $bar['label'] }}</b>
@@ -138,10 +143,11 @@
                         </svg>
                     </div>
                     <div class="fs-rr-xaxis">
-                        @foreach ($chart['bars'] as $bar)<span>{{ $bar['show_label'] ? $bar['label'] : '' }}</span>@endforeach
+                        @foreach ($chart['bars'] as $bar)<span title="{{ $bar['label'] }}" data-short-label="{{ $bar['show_label'] ? ($mode === 'week' ? explode('–', $bar['label'])[0] : $bar['label']) : '' }}">{{ $bar['show_label'] ? $bar['label'] : '' }}</span>@endforeach
                     </div>
                 </div>
             </div>
+            @endif
         </section>
 
         <aside class="fs-rr-card fs-fr-collection">
@@ -161,7 +167,7 @@
                 <div><span><i></i>Khoản khác</span><b>{{ $money($totals['other']) }}</b></div>
             </div>
             @if ($topDebt && $topDebt['remaining'] > 0)
-                <div class="fs-fr-priority"><x-heroicon-o-bell-alert /><span><small>Cần thu nhiều nhất</small><b>{{ $topDebt['name'] }}</b><strong>{{ $money($topDebt['remaining']) }}</strong></span></div>
+                <div class="fs-fr-priority"><x-heroicon-o-bell-alert /><span><small>Nợ cao nhất trong danh sách</small><b>{{ $topDebt['name'] }}</b><strong>{{ $money($topDebt['remaining']) }}</strong></span></div>
             @endif
             <div class="fs-fr-company-paid"><span>Công ty đã chi</span><b>{{ $money($totals['admin_paid']) }}</b><small>Thưởng {{ $money($totals['bonus']) }} · Bù giảm giá {{ $money($totals['voucher']) }} · Mưa {{ $money($totals['rain']) }}</small></div>
         </aside>
@@ -170,20 +176,30 @@
         <p class="fs-de-accounting-note">Điều chỉnh ví thủ công trong kỳ: <b>+{{ $money($report['adjust']['credit']) }}</b> ghi có · <b>−{{ $money($report['adjust']['debit']) }}</b> ghi nợ; không tính vào các chỉ số trên.</p>
 
         {{-- Bảng tài xế --}}
-        <section class="fs-rr-card">
+        <section class="fs-rr-card fs-fr-details">
             <header class="fs-rr-card__head">
                 <div>
                     <h2>Chi tiết theo tài xế</h2>
-                    <p>{{ $num($report['visible_count']) }} tài xế có phát sinh · bấm tiêu đề cột để sắp xếp</p>
+                    <p>Khoản còn nợ, số đã thu và chi tiết phát sinh của từng tài xế.</p>
                 </div>
+                <span class="fs-revenue-row-count">{{ $num(count($report['drivers'])) }} / {{ $num($report['visible_count']) }} tài xế</span>
             </header>
-            <div class="overflow-x-auto">
+            <div class="fs-de-list-filters">
+                <div class="fs-de-search-wrap"><x-heroicon-o-magnifying-glass /><input type="search" class="fs-rr-search" wire:model.live.debounce.300ms="search" placeholder="Tìm tên hoặc số điện thoại" aria-label="Tìm tài xế"></div>
+                <div class="fs-seg" role="group" aria-label="Công nợ">
+                    @foreach (['all' => 'Tất cả', 'outstanding' => 'Còn nợ', 'settled' => 'Đã hoàn tất'] as $key => $label)
+                        <button type="button" wire:click="$set('debtStatus', '{{ $key }}')" aria-pressed="{{ $debtStatus === $key ? 'true' : 'false' }}" @class(['is-active' => $debtStatus === $key])>{{ $label }}</button>
+                    @endforeach
+                </div>
+            </div>
+            <p class="fs-de-filter-note">Bộ lọc áp dụng cho danh sách tài xế. Dòng tổng cộng thể hiện toàn khu vực.</p>
+            <div class="fs-revenue-table-scroll" tabindex="0" role="region" aria-label="Bảng thu phí tài xế">
                 <table class="fs-rr-table fs-de-table fs-fr-table">
                     <thead>
                         <tr>
-                            <th class="fs-de-rank">#</th>
-                            @foreach (['name' => 'Tài xế', 'fee_due' => 'Phí tuần', 'penalty' => 'Phạt', 'other' => 'Khác', 'total_due' => 'Phải thu', 'total_paid' => 'Đã thu', 'remaining' => 'Còn nợ', 'admin_paid' => 'Công ty chi', 'withdrawn' => 'Đã rút'] as $col => $label)
-                                <th @class(['is-sorted' => $this->sortBy === $col])><button type="button" wire:click="sort('{{ $col }}')">{{ $label }} <span>{{ $sortArrow($col) }}</span></button></th>
+                            <th scope="col" class="fs-de-rank">#</th>
+                            @foreach (['name' => 'Tài xế', 'remaining' => 'Còn phải thu', 'total_due' => 'Phải thu', 'total_paid' => 'Đã thu', 'fee_due' => 'Phí tuần', 'penalty' => 'Phạt', 'other' => 'Khác', 'admin_paid' => 'Công ty chi', 'withdrawn' => 'Đã rút'] as $col => $label)
+                                <th scope="col" aria-sort="{{ $this->sortBy === $col ? ($this->sortDir === 'asc' ? 'ascending' : 'descending') : 'none' }}" @class(['is-sorted' => $this->sortBy === $col])><button type="button" wire:click="sort('{{ $col }}')">{{ $label }} <span>{{ $sortArrow($col) }}</span></button></th>
                             @endforeach
                         </tr>
                     </thead>
@@ -201,17 +217,6 @@
                                         </div>
                                     </div>
                                 </td>
-                                <td>{{ $d['fee_due'] ? $money($d['fee_due']) : '—' }}</td>
-                                <td>{{ $d['penalty'] ? $money($d['penalty']) : '—' }}</td>
-                                <td>{{ $d['other'] ? $money($d['other']) : '—' }}</td>
-                                <td>{{ $d['total_due'] ? $money($d['total_due']) : '—' }}</td>
-                                <td class="fs-de-total">
-                                    <b class="fs-fr-paid-amount">{{ $d['total_paid'] ? $money($d['total_paid']) : '—' }}</b>
-                                    @if ($d['total_due'] > 0)
-                                        <span class="fs-de-share fs-fr-paid"><i style="width: {{ $paidPct }}%"></i></span>
-                                        <small>{{ $paidPct }}%</small>
-                                    @endif
-                                </td>
                                 <td>
                                     @if ($d['remaining'] > 0)
                                         <span class="fs-fr-chip fs-fr-chip--due">{{ $money($d['remaining']) }}</span>
@@ -221,6 +226,17 @@
                                         —
                                     @endif
                                 </td>
+                                <td>{{ $d['total_due'] ? $money($d['total_due']) : '—' }}</td>
+                                <td class="fs-de-total">
+                                    <b class="fs-fr-paid-amount">{{ $d['total_paid'] ? $money($d['total_paid']) : '—' }}</b>
+                                    @if ($d['total_due'] > 0)
+                                        <span class="fs-de-share fs-fr-paid"><i style="width: {{ $paidPct }}%"></i></span>
+                                        <small>{{ $paidPct }}%</small>
+                                    @endif
+                                </td>
+                                <td>{{ $d['fee_due'] ? $money($d['fee_due']) : '—' }}</td>
+                                <td>{{ $d['penalty'] ? $money($d['penalty']) : '—' }}</td>
+                                <td>{{ $d['other'] ? $money($d['other']) : '—' }}</td>
                                 <td>{{ $d['admin_paid'] ? $money($d['admin_paid']) : '—' }}</td>
                                 <td>{{ $d['withdrawn'] ? $money($d['withdrawn']) : '—' }}</td>
                             </tr>
@@ -230,14 +246,14 @@
                     </tbody>
                     <tfoot>
                         <tr>
-                            <td></td>
+                            <td class="fs-de-rank"></td>
                             <td>Tổng toàn khu vực</td>
+                            <td class="fs-fr-remaining-total">{{ $money($totals['remaining']) }}</td>
+                            <td>{{ $money($totals['total_due']) }}</td>
+                            <td>{{ $money($totals['total_paid']) }}</td>
                             <td>{{ $money($totals['fee_due']) }}</td>
                             <td>{{ $money($totals['penalty']) }}</td>
                             <td>{{ $money($totals['other']) }}</td>
-                            <td>{{ $money($totals['total_due']) }}</td>
-                            <td>{{ $money($totals['total_paid']) }}</td>
-                            <td>{{ $money($totals['remaining']) }}</td>
                             <td>{{ $money($totals['admin_paid']) }}</td>
                             <td>{{ $money($totals['withdrawn']) }}</td>
                         </tr>
@@ -250,5 +266,6 @@
                 </button>
             @endif
         </section>
+    </div>
     </div>
 </x-filament-panels::page>
