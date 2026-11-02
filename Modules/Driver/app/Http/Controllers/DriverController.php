@@ -88,8 +88,23 @@ class DriverController extends Controller
 
             // Idempotent: retry cùng một request không được đảo trạng thái
             // lần thứ hai hoặc tạo/đóng thêm phiên chấm công.
-            if ((bool) $locked->is_online === $targetOnline && $targetOnline) {
+            if ((bool) $locked->is_online === $targetOnline) {
                 return ['user' => $locked];
+            }
+
+            // Cho phép tắt Offline ngay lập tức vì đây có thể là thao tác an
+            // toàn do công nợ/nghỉ phép ép xuống. Sau mọi lần đổi trạng thái,
+            // chặn bật Online lại trong 5 giây để app cũ hoặc request gửi
+            // trực tiếp không thể spam tạo/đóng phiên làm việc liên tục.
+            $toggleLimitKey = "driver-online-toggle:{$locked->id}";
+            if ($targetOnline && RateLimiter::tooManyAttempts($toggleLimitKey, 1)) {
+                $retryAfter = max(1, RateLimiter::availableIn($toggleLimitKey));
+                return ['error' => [
+                    'message' => "Vui lòng chờ {$retryAfter} giây trước khi bật Online lại.",
+                    'code' => 'status_toggle_cooldown',
+                    'retry_after' => $retryAfter,
+                    'status' => 429,
+                ]];
             }
 
             if ($targetOnline) {
@@ -145,6 +160,7 @@ class DriverController extends Controller
             }
 
             $locked->save();
+            RateLimiter::hit($toggleLimitKey, 5);
 
             \Log::info("[Toggle] #{$locked->id} → online={$locked->is_online} online_since={$locked->online_since}");
 
@@ -157,6 +173,7 @@ class DriverController extends Controller
                 'success' => false,
                 'message' => $error['message'],
                 ...(isset($error['code']) ? ['code' => $error['code']] : []),
+                ...(isset($error['retry_after']) ? ['retry_after' => $error['retry_after']] : []),
             ], $error['status']);
         }
 
