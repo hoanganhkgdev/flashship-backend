@@ -83,39 +83,24 @@ class CallCenterTest extends TestCase
         $this->assertStringNotContainsString('chưa có điểm giao', OrderTimeline::for($order)->where('type', 'created')->pluck('text')->implode(' | '));
     }
 
-    public function test_pickup_service_discards_stale_delivery_address_and_coordinates(): void
+    public function test_order_ignores_delivery_and_phone_values_sent_by_the_client(): void
     {
-        $page = $this->page('shopping')
-            ->set('deliveryLat', 10.01)
-            ->set('deliveryLng', 105.01)
-            ->set('data', $this->data([
-                'delivery_address' => 'Địa chỉ còn sót',
-                'order_note' => 'Gọi shop khi tới lấy',
-            ]))
-            ->call('selectService', 'delivery');
-
-        $this->assertSame('', $page->get('data')['delivery_address']);
-        $this->assertNull($page->get('deliveryLat'));
-        $this->assertNull($page->get('deliveryLng'));
+        // Form không còn ô điểm giao/SĐT; kể cả Livewire gửi lên giá trị cũ, đơn tổng đài vẫn không lưu chúng.
+        $page = $this->page('delivery')->set('data', $this->data([
+            'delivery_address' => 'Địa chỉ gửi lại', 'delivery_phone' => '0900111222', 'contact_phone' => '0911222333', 'cod_amount' => 500000,
+            'order_note' => 'Gọi shop khi tới lấy',
+        ]));
         $page->assertDontSeeHtml('id="cc-delivery-input"');
         $page->assertDontSee('SĐT khách');
-        $page->assertDontSee('SĐT người nhận');
-        $page->assertDontSee('Giá hệ thống');
-        $page->assertDontSee('Phí thu khách');
-        $page->assertDontSee('Chênh lệch');
-        $page->assertDontSee('Chưa có tài xế nào gán được ngay');
 
-        // Kể cả Livewire gửi lại giá trị cũ sau khi đổi dịch vụ, backend vẫn
-        // không được lưu địa chỉ giao cho đơn Lấy hộ.
-        $page->set('data.delivery_address', 'Địa chỉ gửi lại')
-            ->set('deliveryLat', 10.02)
-            ->set('deliveryLng', 105.02)
-            ->call('placeOrder');
+        $page->call('placeOrder');
 
         $order = Order::where('code', $page->get('resultOrderCode'))->firstOrFail();
         $this->assertSame('', (string) $order->delivery_address);
         $this->assertNull($order->delivery_lat);
-        $this->assertNull($order->delivery_lng);
+        $this->assertNull($order->delivery_phone);
+        $this->assertNull($order->pickup_phone);
+        $this->assertNull($order->cod_amount);
     }
 
     public function test_admin_bonus_is_saved_as_driver_income_without_changing_the_order_fee(): void
@@ -157,19 +142,17 @@ class CallCenterTest extends TestCase
         $this->assertSame('Nạp 50k', $topupOrder->order_note);
     }
 
-    public function test_switching_service_keeps_the_customer_and_journey_but_drops_service_specific_fields(): void
+    public function test_switching_service_keeps_the_pickup_and_note_but_drops_service_specific_fields(): void
     {
-        $page = $this->page('delivery')->set('data', $this->data(['delivery_address' => 'Nhà khách', 'delivery_phone' => '0900', 'order_note' => 'x', 'shipping_fee' => 20000, 'fee_note' => 'thỏa thuận']))
+        $page = $this->page('delivery')->set('data', $this->data(['order_note' => 'x', 'shipping_fee' => 20000, 'bonus_fee' => 5000]))
             ->call('selectService', 'shopping');
 
         $d = $page->get('data');
-        $this->assertSame('', $d['contact_phone'], 'Mua hộ không có SĐT khách');
         $this->assertSame('Quán Cơm Cô Ba', $d['pickup_address']);
-        $this->assertSame('', $d['delivery_address'], 'Mua hộ không có điểm giao');
+        $this->assertSame('x', $d['order_note']);
         $this->assertSame(10.0, $page->get('pickupLat'));
         $this->assertNull($d['shipping_fee']);
-        $this->assertSame('', $d['fee_note']);
-        $this->assertSame('', $d['delivery_phone']);
+        $this->assertNull($d['bonus_fee']);
     }
 
     public function test_an_ineligible_driver_is_rejected_before_any_order_is_created(): void

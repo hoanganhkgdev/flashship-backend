@@ -160,28 +160,25 @@ class OrderOpsTest extends TestCase
 
     public function test_call_center_accepts_missing_phone_any_fee_and_repeat_orders(): void
     {
-        $page = Livewire::test(CallCenterPage::class)
-            ->set('pickupLat', 10.0)->set('pickupLng', 105.0)->set('deliveryLat', 10.01)->set('deliveryLng', 105.01);
+        $base = ['pickup_address' => '1 Lê Lợi', 'shipping_fee' => 20000];
 
-        $base = ['pickup_address' => '1 Lê Lợi', 'delivery_address' => '2 Trần Phú', 'shipping_fee' => 20000, 'fee_note' => ''];
-
-        // Mua hộ bắt buộc SĐT khách (trang riêng để không đổi trạng thái của $page)
+        // Mua hộ không còn ô SĐT khách: chỉ cần hàng cần mua (SĐT, nếu có, ghi trong ghi chú)
         $shopping = Livewire::test(CallCenterPage::class)->call('selectService', 'shopping')->set('pickupLat', 10.0)->set('pickupLng', 105.0)
-            ->set('data', $base + ['contact_phone' => '', 'delivery_phone' => '', 'shopping_note' => 'Trà sữa'])->call('placeOrder');
-        $this->assertArrayHasKey('contact_phone', $shopping->get('fieldErrors'));
-        $shopping->set('data.contact_phone', '0909 111 222')->call('placeOrder');
+            ->set('data', $base + ['shopping_note' => 'Trà sữa, gọi 0909 111 222'])->call('placeOrder');
+        $this->assertSame([], $shopping->get('fieldErrors'));
         $this->assertNotNull($shopping->get('resultOrderCode'));
 
-        // Cùng SĐT + địa chỉ với đơn vừa tạo: không còn cảnh báo trùng, đặt bình thường
+        // Cùng SĐT + địa chỉ với một đơn đã có: không cảnh báo trùng, đặt bình thường
         $this->order(['pickup_phone' => '0911222333', 'pickup_address' => '1 Lê Lợi']);
-        $page->set('data', $base + ['contact_phone' => '0911 222 333', 'delivery_phone' => ''])->call('placeOrder');
+        $page = Livewire::test(CallCenterPage::class)->set('pickupLat', 10.0)->set('pickupLng', 105.0)
+            ->set('data', $base + ['order_note' => 'Khách 0911 222 333'])->call('placeOrder');
         $this->assertNotNull($page->get('resultOrderCode'));
-        $this->assertSame(3, Order::where('city_id', $this->city->id)->count(), 'đơn Mua hộ có SĐT + đơn mẫu + đơn vừa đặt');
+        $this->assertSame(3, Order::where('city_id', $this->city->id)->count(), 'đơn Mua hộ + đơn mẫu + đơn vừa đặt');
 
-        // Phí khác giá hệ thống hoặc 0₫ không còn bắt buộc lý do (sau mỗi lần đặt, form và toạ độ được làm sạch nên chọn lại điểm)
-        $page->set('pickupLat', 10.0)->set('pickupLng', 105.0);
-        $page->set('data', ['shipping_fee' => 0, 'pickup_address' => '5 Hai Bà Trưng', 'contact_phone' => '0988000111', 'delivery_address' => 'x', 'delivery_phone' => '', 'fee_note' => ''])->call('placeOrder');
-        $this->assertArrayNotHasKey('fee_note', $page->get('fieldErrors'));
+        // Phí 0₫ (chưa biết, tài xế báo lại sau) đặt được, không cần lý do (sau mỗi lần đặt form được làm sạch nên chọn lại điểm)
+        $page->set('pickupLat', 10.0)->set('pickupLng', 105.0)
+            ->set('data', ['shipping_fee' => 0, 'pickup_address' => '5 Hai Bà Trưng'])->call('placeOrder');
+        $this->assertSame([], $page->get('fieldErrors'));
         $this->assertNotNull($page->get('resultOrderCode'));
     }
 

@@ -12,14 +12,7 @@
     }
     $err = fn (string $k) => $fieldErrors[$k] ?? null;
     $isRide = in_array($serviceType, ['bike', 'motor', 'car']);
-    $contactLabel = match ($serviceType) {
-        'delivery' => 'SĐT shop / người gọi',
-        'shopping' => 'SĐT khách nhận hàng',
-        default => 'SĐT khách',
-    };
-    $deliveryOptional = $serviceType !== 'topup';
     $nightSurcharge = $this->currentNightSurcharge();
-    $phoneRequired = false;
     $shortLabels = ['delivery' => 'Lấy hộ', 'shopping' => 'Mua hộ', 'topup' => 'Nạp/Rút', 'bike' => 'Xe ôm', 'motor' => 'Xe máy', 'car' => 'Ô tô']; // nhãn ngắn để vừa ô; tên đầy đủ nằm ở title
 @endphp
 
@@ -86,44 +79,24 @@
                     'bike', 'motor', 'car' => 'Điểm đón',
                     default    => 'Điểm lấy hàng',
                 };
-                $deliveryLabel = match($serviceType) {
-                    'bike', 'motor', 'car' => 'Điểm đến',
-                    default => 'Điểm giao hàng',
-                };
-                $needDelivery = ! in_array($serviceType, ['delivery', 'shopping', 'topup', 'bike', 'motor', 'car'], true);
                 $pickupShort = match($serviceType) { 'shopping' => 'Mua tại', 'topup' => 'Nạp tại', 'bike', 'motor', 'car' => 'Đón', default => 'Lấy' };
-                $deliveryShort = in_array($serviceType, ['bike', 'motor', 'car'], true) ? 'Đến' : 'Giao';
             @endphp
             <section class="cc-section">
             <div class="cc-section__head">Hành trình <span>chọn từ gợi ý hoặc ghim trên bản đồ</span></div>
-            <div class="cc-card cc-journey-card {{ $err('pickup_address') || $err('delivery_address') ? 'has-err' : '' }}">
+            <div class="cc-card cc-journey-card {{ $err('pickup_address') ? 'has-err' : '' }}">
                 <div class="cc-address-row">
                     <div class="cc-address-dot" style="background:#FF6B35; box-shadow:0 0 0 3px #FF6B3520;"></div>
                     <label class="cc-addr-tag" for="cc-pickup-input" title="{{ $pickupLabel }}">{{ $pickupShort }}</label>
                     <div class="cc-address-col">
                         <input id="cc-pickup-input" type="text" placeholder="{{ in_array($serviceType, ['shopping', 'topup', 'bike', 'motor', 'car'], true) ? $pickupLabel.': tuỳ chọn — có thể ghi trong ghi chú' : $pickupLabel.': nhập địa chỉ...' }}" autocomplete="off"
-                            value="{{ ($data['pickup_place_name'] ?? '') !== '' ? $data['pickup_place_name'] : ($data['pickup_address'] ?? '') }}" onblur="_syncTyped('pickup')" autofocus />
+                            value="{{ ($data['pickup_place_name'] ?? '') !== '' ? $data['pickup_place_name'] : ($data['pickup_address'] ?? '') }}" onblur="_syncTyped()" autofocus />
                         @if (($data['pickup_place_name'] ?? '') !== '')<p class="cc-addr-sub" title="{{ $data['pickup_address'] ?? '' }}">{{ $data['pickup_address'] ?? '' }}</p>@endif
                         @if ($err('pickup_address'))<p class="cc-err">{{ $err('pickup_address') }}</p>@endif
                     </div>
-                    <button type="button" id="cc-pin-btn-pickup" class="cc-pin-btn" onclick="_togglePinMode('pickup')" title="Chọn điểm lấy hàng trên bản đồ">
+                    <button type="button" id="cc-pin-btn-pickup" class="cc-pin-btn" onclick="_togglePinMode()" title="Chọn điểm lấy hàng trên bản đồ">
                         <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M10 18s6-5.686 6-10A6 6 0 1 0 4 8c0 4.314 6 10 6 10Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><circle cx="10" cy="8" r="2" stroke="currentColor" stroke-width="1.6"/></svg>
                     </button>
                 </div>
-                @if ($needDelivery)
-                <div class="cc-address-row">
-                    <div class="cc-address-dot" style="background:#22c55e; box-shadow:0 0 0 3px #22c55e20;"></div>
-                    <label class="cc-addr-tag" for="cc-delivery-input" title="{{ $deliveryLabel }}">{{ $deliveryShort }}</label>
-                    <div class="cc-address-col">
-                        <input id="cc-delivery-input" type="text" placeholder="{{ $deliveryOptional ? 'Tuỳ chọn — để trống nếu khách chưa cho' : $deliveryLabel.': nhập địa chỉ...' }}" autocomplete="off"
-                            value="{{ $data['delivery_address'] ?? '' }}" onblur="_syncTyped('delivery')" />
-                        @if ($err('delivery_address'))<p class="cc-err">{{ $err('delivery_address') }}</p>@endif
-                    </div>
-                    <button type="button" id="cc-pin-btn-delivery" class="cc-pin-btn" onclick="_togglePinMode('delivery')" title="Chọn điểm giao hàng trên bản đồ">
-                        <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M10 18s6-5.686 6-10A6 6 0 1 0 4 8c0 4.314 6 10 6 10Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><circle cx="10" cy="8" r="2" stroke="currentColor" stroke-width="1.6"/></svg>
-                    </button>
-                </div>
-                @endif
             </div>
             </section>
 
@@ -161,24 +134,6 @@
                 @endif
             </div>
             </section>
-
-            {{-- 4. Khách đang gọi --}}
-            @if (! in_array($serviceType, ['delivery', 'shopping', 'topup', 'bike', 'motor', 'car'], true))
-            <section class="cc-section">
-                <div class="cc-section__head">SĐT khách</div>
-                <div class="cc-card cc-customer-card {{ $err('contact_phone') ? 'has-err' : '' }}">
-                    <div class="cc-phone-row">
-                        <span class="cc-phone-icon"><x-heroicon-o-phone /></span>
-                        <div class="cc-fld">
-                            <label class="cc-lbl">{{ $contactLabel }} @if (! $phoneRequired)<small>(tuỳ chọn)</small>@else<small>· bắt buộc</small>@endif</label>
-                            <input type="tel" inputmode="tel" class="cc-input {{ $err('contact_phone') ? 'has-err' : '' }}" wire:model.blur="data.contact_phone" placeholder="{{ $phoneRequired ? 'Bắt buộc nhập SĐT khách' : 'Nhập số điện thoại khách' }}" autocomplete="off" @if ($phoneRequired) required @endif />
-                        </div>
-                    </div>
-                    @if ($err('contact_phone'))<p class="cc-err" style="padding-left:48px">{{ $err('contact_phone') }}</p>
-                    @else<p class="cc-hint">{{ $phoneRequired ? 'Bắt buộc với đơn Mua hộ để tài xế liên hệ xác nhận.' : 'Có thể để trống nếu khách không cung cấp số.' }}</p>@endif
-                </div>
-            </section>
-            @endif
 
             {{-- 5. Phí + tài xế --}}
             <section class="cc-section">
@@ -229,11 +184,11 @@
             <div class="cc-bar__info">
                 @php
                     $typedFee = is_numeric($data['shipping_fee'] ?? null) ? max(0, (int) $data['shipping_fee']) : 0;
-                    $barFee = $typedFee > 0 ? $typedFee + $nightSurcharge : 0;
+                    // Chỉ cộng phụ phí khi phí hợp lệ (placeOrder chặn 1–999đ là gõ thiếu số 0).
+                    $barFee = $typedFee >= 1000 ? $typedFee + $nightSurcharge : $typedFee;
                 @endphp
-                <span>Phí đơn{{ $isFreeship ? ' · Freeship' : '' }}{{ $typedFee > 0 && $nightSurcharge > 0 ? ' · gồm phụ phí đêm' : '' }}</span>
+                <span>Phí đơn{{ $isFreeship ? ' · Freeship' : '' }}{{ $typedFee >= 1000 && $nightSurcharge > 0 ? ' · gồm phụ phí đêm' : '' }}</span>
                 <b>{{ number_format($barFee, 0, ',', '.') }}<small>đ</small></b>
-                <span id="cc-bar-route" wire:ignore></span>
             </div>
             {{-- wire:target bắt buộc: thiếu nó, mọi request (làm mới danh sách đơn 15s, đổi địa chỉ...) đều tắt nút → nút chớp. --}}
             <button type="submit" wire:loading.attr="disabled" wire:target="placeOrder" class="cc-submit-btn">
@@ -252,7 +207,6 @@
         <div class="cc-map-area" wire:ignore>
             <div id="cc-main-map" class="cc-map"></div>
             <div class="cc-map-title"><x-heroicon-o-map-pin />Chọn biểu tượng ghim ở ô địa chỉ để đặt điểm</div>
-            <div id="cc-map-info-route" class="cc-map-distance"></div>
             <div id="cc-map-info-drivers" class="cc-map-chip" style="display:none">
                 <span id="cc-driver-label"></span>
                 <span class="cc-legend"><i style="background:#22c55e"></i>Rảnh <i style="background:#3b82f6"></i>Đang giao <i style="background:#9ca3af"></i>Chưa nhận được</span>
@@ -292,41 +246,14 @@ document.addEventListener('wheel', (e) => {
     }
 }, { passive: true });
 
-let _mainMap, _geocoder, _pickupMarker, _deliveryMarker;
+// Đơn tổng đài chỉ có điểm lấy (không có điểm giao): bản đồ chỉ ghim điểm lấy và tài xế quanh đó.
+let _mainMap, _geocoder, _pickupMarker;
 let _mapsReady = false;
-let _pickupAc = null, _deliveryAc = null;
-let _directionsRenderer = null;
+let _pickupAc = null;
 let _driverMarkers = [];
-let _pinModeTarget = null; // 'pickup' | 'delivery' | null — chế độ chọn địa chỉ bằng click trên bản đồ
+let _pinMode = false; // đang bật "chọn điểm lấy bằng click trên bản đồ"
 
 const _cityCenter = { lat: {{ $defaultCenter['lat'] }}, lng: {{ $defaultCenter['lng'] }} };
-const _cityCoords = {
-    @foreach ($cities as $city)
-    {{ $city->id }}: { lat: {{ (float)$city->lat }}, lng: {{ (float)$city->lng }}, name: @js($city->name) },
-    @endforeach
-};
-
-// wire:ignore bọc cả card thông tin nên tên thành phố không còn tự cập nhật
-// qua Blade re-render nữa — cập nhật thẳng DOM ở đây mỗi khi đổi thành phố.
-function _onCityChange(cityId) {
-    const c = _cityCoords[cityId];
-    if (!_mainMap || !c) return;
-    _cityCenter.lat = c.lat;
-    _cityCenter.lng = c.lng;
-    _mainMap.panTo(c);
-    _mainMap.setZoom(14);
-    if (_pickupMarker) { _pickupMarker.setMap(null); _pickupMarker = null; }
-    if (_deliveryMarker) { _deliveryMarker.setMap(null); _deliveryMarker = null; }
-    _clearRoute();
-    _clearDriverMarkers();
-    _exitPinMode();
-    const pi = document.getElementById('cc-pickup-input');
-    const di = document.getElementById('cc-delivery-input');
-    if (pi) pi.value = '';
-    if (di) di.value = '';
-    _updateAutocompleteBounds();
-}
-
 // ── Init map ───────────────────────────────────────────────────────────────
 function _initMainMap() {
     _mainMap = new google.maps.Map(document.getElementById('cc-main-map'), {
@@ -352,49 +279,36 @@ function _initMainMap() {
     // (bấm nút pin cạnh ô địa chỉ) — dự phòng cho lúc Autocomplete không ra
     // đúng địa chỉ cần tìm. Mặc định bản đồ chỉ để xem, click không làm gì.
     _mainMap.addListener('click', (e) => {
-        if (!_pinModeTarget) return;
-        const target = _pinModeTarget;
+        if (!_pinMode) return;
         const lat = e.latLng.lat(), lng = e.latLng.lng();
         _exitPinMode();
         _geocoder.geocode({ location: { lat, lng } }, (res, status) => {
             const addr = (status === 'OK' && res[0]) ? res[0].formatted_address : `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
-            if (target === 'pickup') {
-                const pi = document.getElementById('cc-pickup-input');
-                if (pi) { pi.value = addr; pi._picked = addr; }
-                _setPickupPin(lat, lng);
-                @this.call('setPickupLocation', addr, lat, lng).then(() => {
-                    _updateFeeInfo();
-                    _refreshDriverMarkers(true);
-                });
-            } else {
-                const di = document.getElementById('cc-delivery-input');
-                if (di) { di.value = addr; di._picked = addr; }
-                _setDeliveryPin(lat, lng);
-                @this.call('setDeliveryLocation', addr, lat, lng).then(_updateFeeInfo);
-            }
+            const pi = document.getElementById('cc-pickup-input');
+            if (pi) { pi.value = addr; pi._picked = addr; }
+            _setPickupPin(lat, lng);
+            @this.call('setPickupLocation', addr, lat, lng).then(() => _refreshDriverMarkers(true));
         });
     });
 
     _initSearchAutocomplete();
 }
 
-// Bật/tắt "chế độ chọn trên bản đồ" cho 1 ô địa chỉ cụ thể — bấm lại nút
-// đang bật thì tắt, bấm nút còn lại thì chuyển sang ô đó.
-function _togglePinMode(target) {
-    if (_pinModeTarget === target) { _exitPinMode(); return; }
-    _pinModeTarget = target;
-    document.querySelectorAll('.cc-pin-btn').forEach((b) => b.classList.remove('active'));
-    const btn = document.getElementById(`cc-pin-btn-${target}`);
+// Bật/tắt "chế độ chọn điểm lấy trên bản đồ" — bấm lại nút đang bật thì tắt.
+function _togglePinMode() {
+    if (_pinMode) { _exitPinMode(); return; }
+    _pinMode = true;
+    const btn = document.getElementById('cc-pin-btn-pickup');
     if (btn) btn.classList.add('active');
     const hint = document.getElementById('cc-pin-hint');
     const hintText = document.getElementById('cc-pin-hint-text');
-    if (hintText) hintText.textContent = `📍 Bấm vào bản đồ để chọn ${target === 'pickup' ? 'điểm lấy hàng' : 'điểm giao hàng'}`;
+    if (hintText) hintText.textContent = '📍 Bấm vào bản đồ để chọn điểm lấy';
     if (hint) hint.style.display = 'flex';
     if (_mainMap) _mainMap.setOptions({ draggableCursor: 'crosshair' });
 }
 
 function _exitPinMode() {
-    _pinModeTarget = null;
+    _pinMode = false;
     document.querySelectorAll('.cc-pin-btn').forEach((b) => b.classList.remove('active'));
     const hint = document.getElementById('cc-pin-hint');
     if (hint) hint.style.display = 'none';
@@ -409,16 +323,9 @@ function _makeBounds() {
     );
 }
 
-function _updateAutocompleteBounds() {
-    const bounds = _makeBounds();
-    if (_pickupAc) _pickupAc.setBounds(bounds);
-    if (_deliveryAc) _deliveryAc.setBounds(bounds);
-}
-
 function _initSearchAutocomplete() {
     const bounds = _makeBounds();
     const pickupInput = document.getElementById('cc-pickup-input');
-    const deliveryInput = document.getElementById('cc-delivery-input');
 
     if (pickupInput && !pickupInput._acBound) {
         pickupInput._acBound = true;
@@ -435,31 +342,14 @@ function _initSearchAutocomplete() {
             const name = isPlace ? (p.name || '').trim() : '';
             if (name) pickupInput.value = name;
             pickupInput._picked = (name || addr).trim();
-            @this.call('setPickupLocation', addr, lat, lng, name || null).then(() => {
-                _updateFeeInfo();
-                _refreshDriverMarkers(true);
-            });
+            @this.call('setPickupLocation', addr, lat, lng, name || null).then(() => _refreshDriverMarkers(true));
             _setPickupPin(lat, lng);
         });
     }
 
-    if (deliveryInput && !deliveryInput._acBound) {
-        deliveryInput._acBound = true;
-        _deliveryAc = new google.maps.places.Autocomplete(deliveryInput, {
-            componentRestrictions: { country: 'vn' }, bounds, strictBounds: true,
-        });
-        _deliveryAc.addListener('place_changed', () => {
-            const p = _deliveryAc.getPlace();
-            if (!p.geometry?.location) return;
-            const lat = p.geometry.location.lat(), lng = p.geometry.location.lng();
-            deliveryInput._picked = (p.formatted_address || deliveryInput.value).trim();
-            @this.call('setDeliveryLocation', p.formatted_address || deliveryInput.value, lat, lng).then(_updateFeeInfo);
-            _setDeliveryPin(lat, lng);
-        });
-    }
 }
 
-// ── Markers điểm lấy/giao ──────────────────────────────────────────────────────
+// ── Marker điểm lấy ──────────────────────────────────────────────────────
 function _pinIcon(color, label) {
     return {
         url: 'data:image/svg+xml,' + encodeURIComponent(`
@@ -490,79 +380,6 @@ function _setPickupPin(lat, lng, move = true) {
     if (!move) return;
     _mainMap.panTo({ lat, lng });
     _mainMap.setZoom(15);
-    _fitBounds();
-}
-
-function _setDeliveryPin(lat, lng) {
-    if (_deliveryMarker) _deliveryMarker.setMap(null);
-    _deliveryMarker = new google.maps.Marker({
-        position: { lat, lng }, map: _mainMap,
-        icon: _pinIcon('#22c55e', 'B'),
-        title: 'Điểm giao',
-        zIndex: 20,
-    });
-    _fitBounds();
-}
-
-function _fitBounds() {
-    if (_pickupMarker && _deliveryMarker) {
-        const bounds = new google.maps.LatLngBounds();
-        bounds.extend(_pickupMarker.getPosition());
-        bounds.extend(_deliveryMarker.getPosition());
-        _mainMap.fitBounds(bounds, 80);
-        _drawRoute(_pickupMarker.getPosition(), _deliveryMarker.getPosition());
-    }
-}
-
-// ── Route + khoảng cách hiển thị cho tổng đài ─────────────────────────────────
-function _drawRoute(origin, destination) {
-    if (!_directionsRenderer) {
-        _directionsRenderer = new google.maps.DirectionsRenderer({
-            map: _mainMap,
-            suppressMarkers: true,
-            polylineOptions: {
-                strokeColor: '#4F46E5',
-                strokeOpacity: 0.8,
-                strokeWeight: 5,
-            },
-        });
-    }
-    new google.maps.DirectionsService().route({
-        origin, destination,
-        travelMode: google.maps.TravelMode.DRIVING,
-    }, (result, status) => {
-        if (status === 'OK') {
-            _directionsRenderer.setDirections(result);
-            const leg = result.routes[0]?.legs?.[0];
-            _updateRouteInfo(leg ? `≈ ${leg.distance.text} · ~${leg.duration.text}` : '');
-        }
-    });
-}
-
-function _clearRoute() {
-    if (_directionsRenderer) {
-        _directionsRenderer.setDirections({ routes: [] });
-    }
-    _updateRouteInfo('');
-    const feeEl = document.getElementById('cc-map-info-fee');
-    if (feeEl) feeEl.textContent = '';
-}
-
-function _updateRouteInfo(text) {
-    const el = document.getElementById('cc-map-info-route');
-    if (el) el.textContent = text;
-    const bar = document.getElementById('cc-bar-route');
-    if (bar) bar.textContent = text;
-}
-
-// Đọc phí ship vừa được server tự tính (suggestShippingFee()) sau khi đủ 2
-// điểm, hiện ngay dưới dòng khoảng cách để tổng đài thấy luôn không cần nhìn
-// xuống form.
-function _updateFeeInfo() {
-    const el = document.getElementById('cc-map-info-fee');
-    if (!el) return;
-    const fee = @this.previewFee;
-    el.textContent = fee ? `Phí gợi ý: ${Number(fee).toLocaleString('vi-VN')}đ` : '';
 }
 
 // Tài xế trong 4km quanh điểm lấy — đọc thẳng @this.nearbyDrivers (đã được
@@ -613,8 +430,8 @@ function _refreshDriverMarkers(fit) {
     const free = drivers.filter((d) => d.state === 'free').length;
     if (label) label.textContent = drivers.length ? `${drivers.length} tài xế trong ${_NEARBY_KM} km (${free} rảnh)` : `Chưa có tài xế nào trong ${_NEARBY_KM} km`;
     if (wrap) wrap.style.display = 'flex';
-    // Chưa có điểm giao thì thu phóng cho thấy trọn vòng 4 km; đã có hành trình thì _fitBounds lo
-    if (fit && !_deliveryMarker && _driverCircle.getBounds()) _mainMap.fitBounds(_driverCircle.getBounds(), 16);
+    // Thu phóng cho thấy trọn vòng 4 km quanh điểm lấy
+    if (fit && _driverCircle.getBounds()) _mainMap.fitBounds(_driverCircle.getBounds(), 16);
 }
 
 function _ccPickDriver(id) {
@@ -640,15 +457,11 @@ document.addEventListener('livewire:initialized', () => {
             setTimeout(_ccFit, 120); // banner kết quả hiện/ẩn làm đổi vị trí khung → tính lại chiều cao
             setTimeout(() => {
                 const pLat = @this.pickupLat, pLng = @this.pickupLng;
-                const dLat = @this.deliveryLat, dLng = @this.deliveryLng;
                 const pAddr = (@this.data && @this.data.pickup_address) || '';
                 const pShow = (@this.data && @this.data.pickup_place_name) || pAddr;
-                const dAddr = (@this.data && @this.data.delivery_address) || '';
                 const pi = document.getElementById('cc-pickup-input');
-                const di = document.getElementById('cc-delivery-input');
-                // Địa chỉ do server điền (đơn cũ, đặt lại, chọn bản đồ) phải hiện lên ô; đang gõ dở ở ô nào thì không đè
+                // Địa chỉ do server điền (đơn cũ, đặt lại, chọn bản đồ) phải hiện lên ô; đang gõ dở thì không đè
                 if (pi && pAddr && document.activeElement !== pi && pi.value.trim() !== pShow.trim()) pi.value = pShow;
-                if (di && dAddr && document.activeElement !== di && di.value.trim() !== dAddr.trim()) di.value = dAddr;
                 if (pLat && pLng) {
                     _setPickupPin(pLat, pLng, false);
                     _refreshDriverMarkers(false);
@@ -659,14 +472,6 @@ document.addEventListener('livewire:initialized', () => {
                     // Chưa có toạ độ nhưng còn chữ đã gõ thì giữ lại (chưa chọn gợi ý); chỉ xoá khi form đã được làm sạch
                     // Ô đang gõ (chữ chưa đẩy lên server vì không gắn wire:model) thì không xoá, nếu không request nào vừa xong cũng làm mất chữ
                     if (pi && !pAddr && document.activeElement !== pi) pi.value = '';
-                }
-                if (dLat && dLng) {
-                    _setDeliveryPin(dLat, dLng);
-                    if (di) di._picked = (di.value || '').trim();
-                } else {
-                    if (_deliveryMarker) { _deliveryMarker.setMap(null); _deliveryMarker = null; }
-                    _clearRoute();
-                    if (di && !dAddr && document.activeElement !== di) di.value = '';
                 }
                 if (_mapsReady) _initSearchAutocomplete();
             }, 150);
@@ -691,27 +496,34 @@ setTimeout(_ccFit, 0);
 // ── Địa chỉ gõ tay ───────────────────────────────────────────────────────────
 // Ô địa chỉ không gắn wire:model (Google Autocomplete giữ giá trị). Khi rời ô mà chữ khác với địa chỉ đã chọn
 // thì đẩy chữ lên server (không gọi request) và bỏ toạ độ cũ, để đơn không mang toạ độ của địa chỉ khác.
-function _syncTyped(kind) {
+function _syncTyped() {
     // Chọn một gợi ý Google làm ô mất focus trước khi place_changed chạy: đợi một nhịp để lựa chọn thắng
-    setTimeout(() => _syncTypedNow(kind), 250);
+    setTimeout(_syncTypedNow, 250);
 }
-function _syncTypedNow(kind) {
-    const el = document.getElementById(`cc-${kind}-input`);
+function _syncTypedNow() {
+    const el = document.getElementById('cc-pickup-input');
     if (!el) return;
     const v = el.value.trim();
-    const cur = ((@this.data || {})[`${kind}_address`] || '').trim();
+    const cur = ((@this.data || {}).pickup_address || '').trim();
     if (v === cur || v === (el._picked || '')) return;
-    @this.set(`data.${kind}_address`, v, false);
-    if (kind === 'pickup') @this.set('data.pickup_place_name', '', false);
-    @this.set(`${kind}Lat`, null, false);
-    @this.set(`${kind}Lng`, null, false);
-    if (kind === 'pickup' && _pickupMarker) { _pickupMarker.setMap(null); _pickupMarker = null; }
-    if (kind === 'delivery' && _deliveryMarker) { _deliveryMarker.setMap(null); _deliveryMarker = null; _clearRoute(); }
-    @this.call('refreshPreview'); // kèm các thay đổi vừa gom, để phí hệ thống không còn là số của hành trình cũ
+    @this.set('data.pickup_address', v, false);
+    @this.set('data.pickup_place_name', '', false);
+    @this.set('pickupLat', null, false);
+    @this.set('pickupLng', null, false);
+    if (_pickupMarker) { _pickupMarker.setMap(null); _pickupMarker = null; }
+    @this.call('refreshPreview'); // kèm các thay đổi vừa gom, để danh sách tài xế không còn theo điểm lấy cũ
 }
 
 // ── Đơn vừa đặt: tự làm mới 15s, không vẽ lại form ───────────────────────────
 function _ccEsc(v) { const d = document.createElement('div'); d.textContent = v == null ? '' : String(v); return d.innerHTML; }
+// Thời gian chờ dễ đọc: "Cần xử lý" giữ cả đơn của hôm trước, không hiện kiểu "1500 phút".
+function _ccAge(min) {
+    min = Math.max(0, Math.floor(min || 0));
+    if (min < 60) return min + ' phút';
+    if (min < 24 * 60) { const h = Math.floor(min / 60), m = min % 60; return h + ' giờ' + (m ? ' ' + m + ' phút' : ''); }
+    const d = Math.floor(min / (24 * 60));
+    return d === 1 ? 'hôm qua' : d + ' ngày';
+}
 let _ccRecentOrders = [];
 let _ccActiveBoard = 'attention';
 function _ccSelectBoard(board) {
@@ -745,7 +557,7 @@ function _ccRenderRecent(list) {
         const canCancel = ['pending', 'assigned', 'processing'].includes(o.status);
         const label = o.status_label;
         const color = o.status === 'pending' ? '#b45309' : (o.status === 'completed' ? '#15803d' : '#64748b');
-        const when = (o.status === 'pending' ? o.minutes + ' phút' : (o.driver ? _ccEsc(o.driver) : o.minutes + 'p trước'));
+        const when = (o.status === 'pending' ? _ccAge(o.minutes) : (o.driver ? _ccEsc(o.driver) : _ccAge(o.minutes) + ' trước'));
         const route = '↑ ' + _ccEsc(o.pickup) + (o.delivery ? ' → ' + _ccEsc(o.delivery) : '');
         return '<div class="cc-ro s-' + o.status + '' + '">' +
             '<a class="code" href="' + _ccEsc(o.url) + '">#' + _ccEsc(o.code) + '</a>' +
@@ -786,11 +598,9 @@ window.ccInitGoogleMaps = function () {
     _mapsReady = true;
     _initMainMap();
 
-    // Restore pins if reorder
+    // Đặt lại đơn: khôi phục ghim điểm lấy
     const pLat = @this.pickupLat, pLng = @this.pickupLng;
-    const dLat = @this.deliveryLat, dLng = @this.deliveryLng;
     if (pLat && pLng) { _setPickupPin(pLat, pLng); _refreshDriverMarkers(); }
-    if (dLat && dLng) _setDeliveryPin(dLat, dLng);
 };
 </script>
 
