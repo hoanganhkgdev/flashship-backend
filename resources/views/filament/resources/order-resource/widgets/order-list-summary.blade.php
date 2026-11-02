@@ -1,6 +1,6 @@
 <x-filament-widgets::widget>
     @php $num = fn ($v) => number_format((int) $v, 0, ',', '.'); @endphp
-    <div class="fs-ol-summary" x-data="{ comfy: false }" x-init="try { comfy = localStorage.getItem('fs-orders-comfy') === '1' } catch (e) {}; document.body.classList.toggle('fs-orders-comfy', comfy)">
+    <div class="fs-ol-summary" @if (in_array($this->activeTab ?? 'new', ['new', 'processing'], true)) wire:poll.15s @endif x-data="{ comfy: false }" x-init="try { comfy = localStorage.getItem('fs-orders-comfy') === '1' } catch (e) {}; document.body.classList.toggle('fs-orders-comfy', comfy)">
         <span class="fs-ol-summary__title"><x-heroicon-o-queue-list /> Kết quả đang xem <b>{{ $num($total) }}</b></span>
         <span>Hoàn thành <b>{{ $num($completed) }}</b></span>
         <span>Hủy <b @class(['fs-dr-low' => $cancelRate >= 25])>{{ $num($cancelled) }}</b> · {{ $cancelRate }}%</span>

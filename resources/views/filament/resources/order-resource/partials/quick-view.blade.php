@@ -88,11 +88,12 @@
                     <div class="fs-qv-money"><div><span>Phí ship</span><strong>{{ $money($order->shipping_fee) }}</strong></div><div><span>Thu hộ COD</span><strong>{{ $money($order->cod_amount) }}</strong></div></div>
                     <dl class="fs-qv-fees">
                         <div><dt>Hình thức</dt><dd>{{ $payment }}</dd></div>
-                        @foreach (['bonus_fee' => 'Thưởng thêm', 'night_surcharge' => 'Phụ phí đêm', 'discount_amount' => 'Giảm giá'] as $field => $label)
+                        {{-- Phí ship đã gồm phụ phí đêm và đã trừ voucher (xem App\Support\OrderMoney): các dòng dưới là phần tách ra. --}}
+                        @foreach (['night_surcharge' => 'Trong đó phụ phí đêm', 'discount_amount' => 'Voucher đã giảm', 'bonus_fee' => 'Bonus tài xế (công ty trả)'] as $field => $label)
                             @if ($order->{$field})<div><dt>{{ $label }}</dt><dd>{{ $money($order->{$field}) }}</dd></div>@endif
                         @endforeach
                         @if ($order->voucher_code)<div><dt>Voucher</dt><dd>{{ $order->voucher_code }}</dd></div>@endif
-                        @if ($order->is_freeship)<div><dt>Freeship</dt><dd>Khách không trả phí ship</dd></div>@endif
+                        @if ($order->is_freeship)<div><dt>Freeship</dt><dd>Khách không trả, công ty trả phí cho tài xế</dd></div>@endif
                         @if ($order->fee_note)<div class="fs-qv-fees__note"><dt>Ghi chú phí</dt><dd>{{ $order->fee_note }}</dd></div>@endif
                     </dl>
                 </section>

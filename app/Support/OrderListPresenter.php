@@ -59,6 +59,6 @@ class OrderListPresenter
 
     public static function customerName(Order $o): string
     {
-        return $o->sender?->name ?: ($o->sender_name ?: ($o->receiver_name ?: 'Khách gọi tổng đài'));
+        return $o->sender?->name ?: ($o->sender_name ?: ($o->receiver_name ?: 'Khách tổng đài'));
     }
 }

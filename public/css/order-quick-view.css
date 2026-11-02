@@ -1,4 +1,6 @@
-.fi-modal-window:has(.fs-order-quickview) { --qv-bg:#f5f7fa; --qv-surface:#fff; --qv-soft:#f8fafc; --qv-line:#e5eaf0; --qv-ink:#182338; --qv-muted:#718096; background:var(--qv-bg); }
+/* Biến màu khai báo trên chính khung: dùng chung cho popup "Xem nhanh" và trang chi tiết đơn. */
+.fs-order-quickview, .fi-modal-window:has(.fs-order-quickview) { --qv-bg:#f5f7fa; --qv-surface:#fff; --qv-soft:#f8fafc; --qv-line:#e5eaf0; --qv-ink:#182338; --qv-muted:#718096; }
+.fi-modal-window:has(.fs-order-quickview) { background:var(--qv-bg); }
 .fi-modal-window:has(.fs-order-quickview) .fi-modal-header { padding:20px 24px; border-bottom:1px solid var(--qv-line); background:var(--qv-surface); }
 .fi-modal-window:has(.fs-order-quickview) .fi-modal-heading { color:var(--qv-ink); font-size:19px; font-weight:750; letter-spacing:-.03em; }
 .fi-modal-window:has(.fs-order-quickview) .fi-modal-content { padding:24px; }
@@ -93,7 +95,7 @@
 .fs-qv-timeline p, .fs-qv-timeline time { display:inline; color:var(--qv-muted); font-size:10px; }
 .fs-qv-timeline time::before { content:' · '; }
 .fs-order-quickview a:focus-visible, .fs-qv-history > summary:focus-visible { outline:2px solid #fb923c; outline-offset:3px; }
-.dark .fi-modal-window:has(.fs-order-quickview) { --qv-bg:#101723; --qv-surface:#171e2b; --qv-soft:#1d2737; --qv-line:#2b3749; --qv-ink:#eef2f8; --qv-muted:#a0aec0; }
+.dark .fs-order-quickview, .dark .fi-modal-window:has(.fs-order-quickview) { --qv-bg:#101723; --qv-surface:#171e2b; --qv-soft:#1d2737; --qv-line:#2b3749; --qv-ink:#eef2f8; --qv-muted:#a0aec0; }
 .dark .fs-qv-wait, .dark .fs-qv-progress li.is-done > i { background:#3b271b; color:#fdba74; }
 .dark .fs-qv-contact-actions a { color:#93c5fd; }
 .dark .fs-qv-driver > span { background:#172e52; color:#93c5fd; }
