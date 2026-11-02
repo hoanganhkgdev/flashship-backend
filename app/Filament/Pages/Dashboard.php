@@ -12,6 +12,10 @@ class Dashboard extends BaseDashboard
 
     protected static ?int $navigationSort = 1;
 
+    protected static ?string $title = 'Tổng quan vận hành';
+
+    protected static string $view = 'filament.pages.dashboard';
+
     public function getHeading(): string
     {
         return '';

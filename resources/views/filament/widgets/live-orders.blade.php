@@ -15,8 +15,11 @@
         </header>
 
         @if ($orders->isEmpty())
-            <div class="fs-empty"><div>Không có đơn nào cần theo dõi</div></div>
+            <div class="fs-empty fs-dashboard-empty"><x-heroicon-o-check-circle /><strong>Không có đơn nào cần theo dõi</strong><span>Các đơn đang chờ hoặc đang giao sẽ xuất hiện tại đây.</span></div>
         @else
+            <div class="fs-dashboard-table-head" aria-hidden="true">
+                <span>Mã đơn</span><span>Hành trình</span><span>Tài xế</span><span>Trạng thái</span><span></span>
+            </div>
             <div class="fs-ops-orders">
                 @foreach ($orders as $order)
                     @php

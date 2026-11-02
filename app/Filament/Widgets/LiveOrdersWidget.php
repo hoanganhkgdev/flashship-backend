@@ -26,9 +26,9 @@ class LiveOrdersWidget extends Widget
 
     protected static bool $isLazy = false;
 
-    protected int|string|array $columnSpan = ['default' => 12, 'xl' => 7];
+    protected int|string|array $columnSpan = 'full';
 
-    protected static ?int $sort = 3;
+    protected static ?int $sort = 5;
 
     private function query()
     {

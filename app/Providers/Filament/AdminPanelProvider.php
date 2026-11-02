@@ -56,7 +56,9 @@ class AdminPanelProvider extends PanelProvider
             ->renderHook(
                 PanelsRenderHook::STYLES_AFTER,
                 fn (): HtmlString => new HtmlString(
-                    '<link rel="stylesheet" href="'.asset('css/admin-theme.css').'?v='.filemtime(public_path('css/admin-theme.css')).'">',
+                    '<link rel="stylesheet" href="'.asset('css/admin-theme.css').'?v='.filemtime(public_path('css/admin-theme.css')).'">'
+                    .'<link rel="stylesheet" href="'.asset('css/dashboard.css').'?v='.filemtime(public_path('css/dashboard.css')).'">'
+                    .'<link rel="stylesheet" href="'.asset('css/call-center.css').'?v='.filemtime(public_path('css/call-center.css')).'">',
                 ),
             )
             ->colors([

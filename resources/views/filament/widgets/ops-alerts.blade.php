@@ -1,8 +1,8 @@
 <x-filament-widgets::widget>
-    <section class="fs-widget">
+    <section class="fs-widget fs-dashboard-alerts">
         <header class="fs-widget-header">
             <div>
-                <h2 class="fs-widget-title">Cần xử lý ngay</h2>
+                <h2 class="fs-widget-title">Ưu tiên xử lý</h2>
                 <p class="fs-widget-description">Những việc đang chờ người vận hành</p>
             </div>
             @if ($needsAttention === 0)
@@ -21,6 +21,7 @@
                         <span class="fs-alert__detail">{{ $alert['detail'] }}</span>
                     </span>
                     <strong class="fs-alert__count">{{ number_format($alert['count'], 0, ',', '.') }}</strong>
+                    <x-heroicon-o-chevron-right class="fs-alert__arrow" />
                 </a>
             @endforeach
         </div>

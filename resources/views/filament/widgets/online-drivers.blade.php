@@ -9,7 +9,7 @@
     <section class="fs-widget fs-supply">
         <header class="fs-widget-header">
             <div>
-                <h2 class="fs-widget-title">Cân bằng đơn – tài xế</h2>
+                <h2 class="fs-widget-title">Nguồn lực tài xế</h2>
                 <p class="fs-widget-description">Nguồn lực trực tuyến tại {{ \Filament\Facades\Filament::getTenant()?->name ?? 'tất cả khu vực' }}</p>
             </div>
             <span class="fs-supply__state is-{{ $pressureClass }}">{{ $pressure }}</span>
@@ -21,6 +21,10 @@
             <div><span>Đơn đang chờ</span><strong>{{ $pending }}</strong><small>Tỷ lệ cung/cầu {{ $pending ? $ratio : '—' }}</small></div>
         </div>
 
+        <div class="fs-dashboard-capacity">
+            <div><span>Tài xế sẵn sàng / trực tuyến</span><b>{{ $supply['online'] > 0 ? round($ready / $supply['online'] * 100) : 0 }}%</b></div>
+            <div class="fs-dashboard-capacity__track"><i style="width: {{ $supply['online'] > 0 ? min(100, round($ready / $supply['online'] * 100)) : 0 }}%"></i></div>
+        </div>
         <div class="fs-supply__grid">
             <div><i class="green"></i><span>Rảnh</span><b>{{ $ready }}</b></div>
             <div><i class="blue"></i><span>Đang chạy</span><b>{{ $supply['busy1'] }}</b></div>

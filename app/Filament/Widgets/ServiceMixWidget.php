@@ -9,7 +9,7 @@ class ServiceMixWidget extends BreakdownWidget
 {
     protected int|string|array $columnSpan = ['default' => 12, 'md' => 6, 'xl' => 4];
 
-    protected static ?int $sort = 5;
+    protected static ?int $sort = 6;
 
     protected function title(): string
     {

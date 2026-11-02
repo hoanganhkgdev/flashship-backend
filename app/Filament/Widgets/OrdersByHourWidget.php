@@ -21,11 +21,11 @@ class OrdersByHourWidget extends ChartWidget
 
     protected static ?string $maxHeight = '280px';
 
-    protected int|string|array $columnSpan = ['default' => 12, 'xl' => 6];
+    protected int|string|array $columnSpan = ['default' => 12, 'xl' => 8];
 
     protected static bool $isLazy = false;
 
-    protected static ?int $sort = 9;
+    protected static ?int $sort = 3;
 
     protected function getData(): array
     {

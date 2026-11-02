@@ -25,7 +25,7 @@ class TopDriversWidget extends Widget
 
     protected int|string|array $columnSpan = ['default' => 12, 'md' => 12, 'xl' => 4];
 
-    protected static ?int $sort = 7;
+    protected static ?int $sort = 8;
 
     public function getDrivers(): Collection
     {

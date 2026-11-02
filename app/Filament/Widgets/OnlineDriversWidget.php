@@ -20,7 +20,7 @@ class OnlineDriversWidget extends Widget
 
     protected static ?string $pollingInterval = '15s';
 
-    protected int|string|array $columnSpan = ['default' => 12, 'xl' => 5];
+    protected int|string|array $columnSpan = ['default' => 12, 'xl' => 4];
 
     protected static bool $isLazy = false;
 

@@ -3,6 +3,7 @@
 namespace App\Filament\Widgets;
 
 use App\Filament\Resources\DriverRatingResource;
+use App\Services\DriverRatingService;
 use Filament\Facades\Filament;
 use Filament\Widgets\Widget;
 use Illuminate\Support\Collection;
@@ -24,13 +25,13 @@ class LowRatingsWidget extends Widget
 
     protected static bool $isLazy = false;
 
-    protected int|string|array $columnSpan = ['default' => 12, 'xl' => 6];
+    protected int|string|array $columnSpan = 'full';
 
-    protected static ?int $sort = 8;
+    protected static ?int $sort = 9;
 
     public function getPending(): int
     {
-        return \App\Services\DriverRatingService::pendingCount(Filament::getTenant()?->id);
+        return DriverRatingService::pendingCount(Filament::getTenant()?->id);
     }
 
     public function getReviews(): Collection
