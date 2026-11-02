@@ -13,11 +13,12 @@ use Filament\Forms\Contracts\HasForms;
 use Filament\Forms\Form;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\Renderless;
 use Modules\Core\Models\ServiceType;
 use Modules\Core\Services\GoogleMapService;
-use Modules\Core\Services\RTDBService;
+use Modules\Core\Services\OperationalSettings;
 use Modules\Driver\Services\DriverLocationService;
 use Modules\Order\Models\Order;
 use Modules\Order\Services\ManualOrderAssignment;
@@ -165,16 +166,20 @@ class CallCenterPage extends Page implements HasForms
             $this->deliveryLat = ! in_array($service, ['delivery', 'shopping', 'bike', 'motor', 'car'], true) && $request->filled('delivery_lat') ? (float) $request->get('delivery_lat') : null;
             $this->deliveryLng = ! in_array($service, ['delivery', 'shopping', 'bike', 'motor', 'car'], true) && $request->filled('delivery_lng') ? (float) $request->get('delivery_lng') : null;
 
+            // Đơn cũ có thể còn nhãn "[Chưa có điểm giao …]" tổng đài từng chèn sẵn — không mang sang đơn mới.
+            $oldNote = trim((string) preg_replace('/^\s*\[Chưa có điểm giao[^\]]*\]\s*/u', '', (string) $request->get('order_note', '')));
+
             $this->form->fill([
                 'city_id' => $this->userCityId(),
                 'contact_phone' => in_array($service, ['delivery', 'shopping', 'topup', 'bike', 'motor', 'car'], true)
                     ? ''
                     : $this->contactFromParts($service, (string) $request->get('pickup_phone', ''), (string) $request->get('delivery_phone', '')),
                 'pickup_address' => $request->get('pickup_address', ''),
+                'pickup_place_name' => mb_substr(trim((string) $request->get('pickup_place_name', '')), 0, 100),
                 'delivery_address' => in_array($service, ['delivery', 'shopping', 'bike', 'motor', 'car'], true) ? '' : $request->get('delivery_address', ''),
                 'delivery_phone' => '',
-                'shopping_note' => $service === 'shopping' ? $request->get('order_note', '') : '',
-                'order_note' => $service !== 'shopping' ? $request->get('order_note', '') : '',
+                'shopping_note' => $service === 'shopping' ? $oldNote : '',
+                'order_note' => $service !== 'shopping' ? $oldNote : '',
                 'cod_amount' => null,
                 'shipping_fee' => null,
                 'bonus_fee' => null,
@@ -337,7 +342,7 @@ class CallCenterPage extends Page implements HasForms
             return;
         }
 
-        $cityId = $this->data['city_id'] ?? null;
+        $cityId = $this->userCityId();
 
         if (in_array($this->serviceType, ['delivery', 'shopping'])) {
             $pricing = ShopPricingService::estimateFromCoords(
@@ -380,7 +385,8 @@ class CallCenterPage extends Page implements HasForms
 
     private function refreshNearbyDrivers(): void
     {
-        $cityId = $this->data['city_id'] ?? null;
+        // Khu vực lấy từ tenant phía server, không từ data.city_id (trình duyệt sửa được).
+        $cityId = $this->userCityId();
         $this->onlineDrivers = [];
         $this->nearbyDrivers = [];
         $this->unavailableDrivers = [];
@@ -390,8 +396,8 @@ class CallCenterPage extends Page implements HasForms
 
         // Tất cả tài xế đang hoạt động của khu vực kèm lý do chưa gán được (cùng bộ điều kiện với hộp thoại gán).
         $probe = new Order(['city_id' => $cityId, 'service_type' => $this->serviceType]);
-        $assignable = OrderResource::manualAssignmentDriverOptions($probe);
         $candidates = collect(OrderResource::manualAssignmentCandidates($probe));
+        $assignable = OrderResource::manualAssignmentOptionsFrom($candidates->all());
 
         $this->unavailableDrivers = $candidates
             ->filter(fn (array $c) => $c['reason'] !== null)
@@ -410,7 +416,7 @@ class CallCenterPage extends Page implements HasForms
         $roadDistances = [];
         if ($pickupKnown) {
             $origins = array_intersect_key($locations, $assignable);
-            $roadDistances = GoogleMapService::roadDistanceBatchKm($origins, $this->pickupLat, $this->pickupLng);
+            $roadDistances = $this->cachedRoadDistances($origins);
         }
         $this->onlineDrivers = $candidates
             ->filter(fn (array $c) => $c['reason'] === null)
@@ -449,6 +455,24 @@ class CallCenterPage extends Page implements HasForms
         }
     }
 
+    /**
+     * Distance Matrix tính phí theo lượt gọi: đổi tab dịch vụ hay rời ô địa chỉ mà điểm lấy và tập tài xế
+     * không đổi thì dùng lại kết quả trong 60 giây (vị trí tài xế cũng chỉ cập nhật cỡ đó).
+     *
+     * @param  array<int, array{lat: float, lng: float}>  $origins
+     * @return array<int, float>
+     */
+    private function cachedRoadDistances(array $origins): array
+    {
+        if (! $origins) {
+            return [];
+        }
+        ksort($origins);
+        $key = sprintf('cc:road:%.4f,%.4f:%s', $this->pickupLat, $this->pickupLng, md5(implode(',', array_keys($origins))));
+
+        return Cache::remember($key, 60, fn () => GoogleMapService::roadDistanceBatchKm($origins, $this->pickupLat, $this->pickupLng));
+    }
+
     public function form(Form $form): Form
     {
         return $form->schema([])->statePath('data');
@@ -458,7 +482,7 @@ class CallCenterPage extends Page implements HasForms
 
     private function cityName(): ?string
     {
-        $cityId = $this->data['city_id'] ?? null;
+        $cityId = $this->userCityId();
         if (! $cityId) {
             return null;
         }
@@ -499,9 +523,25 @@ class CallCenterPage extends Page implements HasForms
         return $this->serviceType !== 'shopping' && $this->serviceType !== 'topup';
     }
 
-    public const NO_DELIVERY_NOTE = '[Chưa có điểm giao — hỏi shop khi lấy hàng]';
+    /** Trần cho phí đơn và bonus tổng đài nhập tay (chưa gồm phụ phí đêm hệ thống tự cộng). */
+    public const MAX_FEE = 300_000;
 
-    public const SHOPPING_NO_DELIVERY_NOTE = '[Chưa có điểm giao — liên hệ khách để bổ sung]';
+    /** Ô tiền: trống → 0; số nguyên không âm → giá trị; còn lại (âm, chữ, số lẻ) → null để báo lỗi. */
+    private function moneyInput(mixed $raw): ?int
+    {
+        $raw = trim((string) $raw);
+        if ($raw === '') {
+            return 0;
+        }
+
+        return preg_match('/^\d{1,9}$/', $raw) ? (int) $raw : null;
+    }
+
+    /** Phụ phí đêm đang áp dụng ở khu vực này; tự cộng vào phí đơn khi tổng đài đã nhập phí. */
+    public function currentNightSurcharge(): int
+    {
+        return OperationalSettings::nightSurcharge($this->userCityId() ?: null);
+    }
 
     public function placeOrder(): void
     {
@@ -564,8 +604,19 @@ class CallCenterPage extends Page implements HasForms
             $errors['order_note'] = $this->isRide() ? 'Vui lòng ghi chú điểm đón/điểm đến.' : 'Vui lòng ghi chú nội dung cần nạp.';
         }
 
-        $shippingFee = max(0, (int) ($values['shipping_fee'] ?? 0));
-        $bonusFee = max(0, (int) ($values['bonus_fee'] ?? 0));
+        // Phí được để trống/0: có đơn tài xế tới cửa hàng mới biết giao đi đâu, báo lại để tổng đài cập nhật.
+        $shippingFee = $this->moneyInput($values['shipping_fee'] ?? null);
+        $bonusFee = $this->moneyInput($values['bonus_fee'] ?? null);
+        foreach (['shipping_fee' => [$shippingFee, 'Phí đơn'], 'bonus_fee' => [$bonusFee, 'Bonus tài xế']] as $field => [$amount, $label]) {
+            if ($amount === null) {
+                $errors[$field] = "{$label} chỉ nhập số, ví dụ 25000.";
+            } elseif ($amount > 0 && $amount < 1000) {
+                // Gõ "25.000" vào ô số trình duyệt hiểu thành 25 — chặn thay vì lưu 25đ.
+                $errors[$field] = "{$label} {$amount}đ có vẻ thiếu số 0 — nhập đủ, ví dụ 25000.";
+            } elseif ($amount > self::MAX_FEE) {
+                $errors[$field] = "{$label} tối đa ".number_format(self::MAX_FEE, 0, ',', '.').'đ.';
+            }
+        }
 
         // Tài xế chọn tay phải còn đủ điều kiện TRƯỚC khi tạo đơn — tránh tạo rồi hủy ngay làm sai số đơn hủy.
         if ($this->assignedDriverId) {
@@ -597,7 +648,6 @@ class CallCenterPage extends Page implements HasForms
             $deliveryAddress = in_array($this->serviceType, ['delivery', 'shopping', 'bike', 'motor', 'car'], true)
                 ? ''
                 : trim((string) ($values['delivery_address'] ?? ''));
-            $noDelivery = ! in_array($this->serviceType, ['topup', 'bike', 'motor', 'car'], true) && $deliveryAddress === '';
 
             if ($this->serviceType === 'topup') {
                 $deliveryLat = $pickupLat;
@@ -623,15 +673,15 @@ class CallCenterPage extends Page implements HasForms
                 default => [$callerPhone, $callerPhone], // nạp tiền, xe ôm, lái xe
             };
 
+            // Đơn tổng đài không cần điểm giao (chỉ app shop/khách mới bắt buộc) — không gắn nhãn "chưa có điểm giao".
             $note = $this->serviceType === 'shopping'
                 ? trim($values['shopping_note'] ?? '')
                 : trim($values['order_note'] ?? '');
-            if ($noDelivery) {
-                $missingDeliveryNote = $this->serviceType === 'shopping'
-                    ? self::SHOPPING_NO_DELIVERY_NOTE
-                    : self::NO_DELIVERY_NOTE;
-                $note = trim($missingDeliveryNote.' '.$note);
-            }
+
+            // Phụ phí đêm cộng vào phí đơn như đơn shop (shipping_fee đã gồm, night_surcharge ghi phần tách).
+            // Chưa có phí (tài xế báo lại sau) thì chưa cộng, tránh đơn chỉ có mỗi phụ phí.
+            $nightSurcharge = $shippingFee > 0 ? $this->currentNightSurcharge() : 0;
+            $totalFee = $shippingFee + $nightSurcharge;
 
             $order = Order::create([
                 'code' => '',
@@ -639,8 +689,8 @@ class CallCenterPage extends Page implements HasForms
                 'platform' => 'call_center',
                 'city_id' => $cityId,
                 'created_by' => auth()->id(),
-                'shipping_fee' => $shippingFee,
-                'night_surcharge' => $this->previewNightSurcharge,
+                'shipping_fee' => $totalFee,
+                'night_surcharge' => $nightSurcharge,
                 'bonus_fee' => $bonusFee,
                 'is_freeship' => $this->isFreeship,
                 'status' => 'pending',
@@ -664,38 +714,28 @@ class CallCenterPage extends Page implements HasForms
 
             $order->refresh();
             OrderTimeline::record($order, 'created', 'Tổng đài tạo đơn'
-                .($noDelivery ? ' — chưa có điểm giao' : '')
-                .' — phí '.number_format($shippingFee, 0, ',', '.').'₫'
+                .' — phí '.number_format($totalFee, 0, ',', '.').'₫'
+                .($nightSurcharge > 0 ? ' (gồm phụ phí đêm '.number_format($nightSurcharge, 0, ',', '.').'₫)' : '')
                 .($bonusFee > 0 ? ' — admin thưởng thêm '.number_format($bonusFee, 0, ',', '.').'₫' : ''), auth()->id());
 
             if ($this->assignedDriverId) {
                 // Gán tay — gán CỨNG luôn cho đúng người tổng đài chọn, đơn vào thẳng mục "Đã nhận" của tài xế.
                 // Điều kiện đã kiểm tra ở trên; nếu vẫn thất bại (vừa bận do đua nhau) thì HUỶ đơn, KHÔNG tự chuyển
                 // sang phát cho cả thành phố vì tổng đài đã chủ động chọn đúng người này.
-                $assignResult = app(ManualOrderAssignment::class)->assign($order, $this->assignedDriverId);
+                // Đơn đã tạo: lỗi hạ tầng (Redis/Firebase) trong lúc gán không được rơi xuống "Đặt đơn thất bại".
+                try {
+                    $assignResult = app(ManualOrderAssignment::class)->assign($order, $this->assignedDriverId);
+                } catch (\Throwable $e) {
+                    report($e);
+                    $assignResult = ['success' => false, 'message' => 'Lỗi hệ thống khi gán ('.$e->getMessage().').'];
+                }
+
                 if ($assignResult['success']) {
                     Notification::make()
                         ->title($assignResult['message'])
                         ->success()
                         ->send();
-                } else {
-                    DB::table('orders')->where('id', $order->id)->update([
-                        'status' => 'cancelled',
-                        'cancel_reason' => 'admin_no_driver',
-                        'cancel_note' => 'Gán tay thất bại: '.$assignResult['message'],
-                        'cancelled_by' => auth()->id(),
-                        'cancelled_at' => now(),
-                        'updated_at' => now(),
-                    ]);
-                    OrderTimeline::record($order, 'cancelled', 'Hủy đơn — gán tay thất bại: '.$assignResult['message'], auth()->id());
-                    RTDBService::clearOrder($order->code);
-                    $this->resultError = "Không gán được cho tài xế đã chọn — {$assignResult['message']} Đơn #{$order->code} đã bị huỷ, vui lòng thử lại với tài xế khác.";
-                    Notification::make()
-                        ->title('Gán tay thất bại — đơn đã huỷ')
-                        ->body($assignResult['message'])
-                        ->danger()
-                        ->send();
-
+                } elseif ($this->cancelAfterFailedAssign($order, $assignResult['message'])) {
                     return;
                 }
             } else {
@@ -710,7 +750,7 @@ class CallCenterPage extends Page implements HasForms
             }
 
             $this->resultOrderCode = $order->code;
-            $this->resultFee = $shippingFee;
+            $this->resultFee = $totalFee;
             $this->resultDistance = null;
 
             $this->pickupLat = null;
@@ -729,7 +769,7 @@ class CallCenterPage extends Page implements HasForms
             $this->dispatch('cc-recent-refresh');
 
             if ($this->resultWarning) {
-                Notification::make()->title("Đơn #{$order->code} đã tạo — chưa phát được")->body('Chưa phát được cho tài xế, hãy gán tay.')->warning()->send();
+                Notification::make()->title("Đơn #{$order->code} đã tạo — cần kiểm tra")->body($this->resultWarning)->warning()->send();
             } else {
                 Notification::make()
                     ->title("Đặt đơn thành công — #{$order->code}")
@@ -745,6 +785,42 @@ class CallCenterPage extends Page implements HasForms
                 ->danger()
                 ->send();
         }
+    }
+
+    /**
+     * Gán tay thất bại: hủy đơn vừa tạo qua đúng luồng hủy (khóa dòng, chỉ hủy khi còn pending, đóng chợ đơn, hoàn voucher).
+     * Trả true khi đã hủy và báo lỗi; false khi đơn không hủy được và trang cần báo "đã tạo" kèm cảnh báo.
+     */
+    private function cancelAfterFailedAssign(Order $order, string $message): bool
+    {
+        try {
+            $cancel = app(OrderService::class)->cancelPendingOrder($order, 'admin_no_driver', 'Gán tay thất bại: '.$message, auth()->id());
+        } catch (\Throwable $e) {
+            report($e);
+            $this->resultWarning = "Đơn #{$order->code} đã được tạo nhưng không gán được ({$message}) và cũng chưa hủy được. Đừng đặt lại — kiểm tra đơn ở khối \"Theo dõi đơn tổng đài\".";
+
+            return false;
+        }
+
+        if (! $cancel['success']) {
+            // Không còn pending: lỗi xảy ra sau khi gán đã commit (vd. Firebase), đơn thực ra đã có tài xế.
+            $status = $order->fresh()?->status;
+            $this->resultWarning = $status === 'assigned'
+                ? "Đơn #{$order->code} đã gán cho tài xế nhưng hệ thống báo lỗi ({$message}). Kiểm tra tài xế đã thấy đơn chưa."
+                : "Đơn #{$order->code} đã được tạo nhưng không gán được ({$message}). Đừng đặt lại — kiểm tra đơn ở khối \"Theo dõi đơn tổng đài\".";
+
+            return false;
+        }
+
+        $this->resultError = "Không gán được cho tài xế đã chọn — {$message} Đơn #{$order->code} đã bị huỷ, vui lòng thử lại với tài xế khác.";
+        Notification::make()
+            ->title('Gán tay thất bại — đơn đã huỷ')
+            ->body($message)
+            ->danger()
+            ->send();
+        $this->dispatch('cc-recent-refresh');
+
+        return true;
     }
 
     public function clearResult(): void
@@ -764,8 +840,12 @@ class CallCenterPage extends Page implements HasForms
         'completed' => 'Hoàn thành', 'cancelled' => 'Đã hủy',
     ];
 
+    /** Số đơn gần nhất của hôm nay hiện ở tab "Tất cả hôm nay". */
+    private const RECENT_LIMIT = 20;
+
     /**
-     * Đơn tổng đài tạo hôm nay ở khu vực này, mới nhất trước. Renderless: JS gọi định kỳ
+     * Đơn tổng đài của khu vực này, mới nhất trước: mọi đơn còn chờ tài xế (kể cả của hôm trước, để tab
+     * "Cần xử lý" không bỏ sót) cộng RECENT_LIMIT đơn gần nhất hôm nay. Renderless: JS gọi định kỳ
      * mà không làm Livewire vẽ lại form (sẽ đè lên địa chỉ đang gõ dở).
      *
      * @return array<int, array>
@@ -774,13 +854,18 @@ class CallCenterPage extends Page implements HasForms
     public function recentOrders(): array
     {
         $labels = ServiceType::pluck('label', 'key');
+        $startOfDay = now()->startOfDay();
+        $base = fn () => Order::query()
+            ->where('city_id', $this->userCityId())
+            ->where('platform', 'call_center');
+
+        $pendingIds = $base()->where('status', 'pending')->latest('id')->limit(100)->pluck('id');
+        $todayIds = $base()->where('created_at', '>=', $startOfDay)->latest('id')->limit(self::RECENT_LIMIT)->pluck('id');
 
         return Order::query()
-            ->where('city_id', $this->userCityId())
-            ->where('platform', 'call_center')
-            ->where('created_at', '>=', now()->startOfDay())
+            ->whereIn('id', $pendingIds->merge($todayIds)->unique())
             ->with(['driver:id,name,phone', 'sender:id,name,phone'])
-            ->latest('id')->limit(10)
+            ->latest('id')
             ->get()
             ->map(fn (Order $o) => [
                 'id' => $o->id,
@@ -789,9 +874,9 @@ class CallCenterPage extends Page implements HasForms
                 'status' => $o->status,
                 'status_label' => self::STATUS_LABELS[$o->status] ?? $o->status,
                 'minutes' => (int) $o->created_at->diffInMinutes(now()),
+                'today' => $o->created_at->gte($startOfDay),
                 'pickup' => trim((string) $o->pickup_address) ?: '—',
-                'delivery' => trim((string) $o->delivery_address) ?: 'Chưa có điểm giao',
-                'no_delivery' => trim((string) $o->delivery_address) === '',
+                'delivery' => trim((string) $o->delivery_address),
                 'phone' => OrderListPresenter::phone(OrderListPresenter::contactPhone($o)),
                 'name' => $o->sender_name ?: '',
                 'driver' => $o->driver?->name,

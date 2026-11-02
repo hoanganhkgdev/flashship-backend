@@ -32,6 +32,8 @@ class CallCenterTest extends TestCase
         parent::setUp();
         $this->assertStringEndsWith('_test', DB::connection()->getDatabaseName());
         Queue::fake();
+        // Giờ trưa: ngoài mọi khung phụ phí đêm, để số phí trong các test không phụ thuộc lúc chạy.
+        $this->travelTo(now()->setTime(12, 0));
         // Phát đơn thật chạm Redis/Firebase/broadcast: ở đây chỉ kiểm tra đơn được tạo đúng và được đưa vào phát
         $this->mock(OrderService::class, fn ($m) => $m->shouldReceive('dispatchNewOrder')->andReturnNull());
         foreach (['delivery' => 'Lấy đồ hộ', 'shopping' => 'Mua hộ', 'topup' => 'Nạp tiền', 'bike' => 'Xe ôm', 'motor' => 'Lái xe máy', 'car' => 'Lái ô tô'] as $k => $l) {
@@ -77,9 +79,8 @@ class CallCenterTest extends TestCase
         $this->assertNull($order->pickup_phone, 'Lấy hộ đọc SĐT trong ghi chú, không lưu ô riêng');
         $this->assertNull($order->delivery_phone);
         $this->assertNull($order->sender_name, 'tổng đài không còn nhập tên shop');
-        $this->assertStringStartsWith(CallCenterPage::NO_DELIVERY_NOTE, $order->order_note, 'tài xế được báo hỏi shop khi lấy hàng');
-        $this->assertStringContainsString('Mang 2 phần', $order->order_note);
-        $this->assertStringContainsString('chưa có điểm giao', OrderTimeline::for($order)->where('type', 'created')->pluck('text')->implode(' | '));
+        $this->assertSame('Mang 2 phần', $order->order_note, 'đơn tổng đài không cần điểm giao nên không gắn nhãn "chưa có điểm giao"');
+        $this->assertStringNotContainsString('chưa có điểm giao', OrderTimeline::for($order)->where('type', 'created')->pluck('text')->implode(' | '));
     }
 
     public function test_pickup_service_discards_stale_delivery_address_and_coordinates(): void
@@ -142,7 +143,7 @@ class CallCenterTest extends TestCase
         $order = Order::where('code', $shopping->get('resultOrderCode'))->firstOrFail();
         $this->assertSame('', (string) $order->delivery_address);
         $this->assertNull($order->delivery_lat);
-        $this->assertStringStartsWith(CallCenterPage::SHOPPING_NO_DELIVERY_NOTE, $order->order_note);
+        $this->assertSame('Mua hai phần cơm', $order->order_note);
 
         $noNote = $this->page('topup')->set('data', $this->data(['pickup_address' => '', 'order_note' => '']))->call('placeOrder');
         $this->assertSame(['order_note'], array_keys($noNote->get('fieldErrors')), 'Nạp tiền bắt buộc ghi chú, không bắt buộc điểm nạp');
@@ -194,7 +195,7 @@ class CallCenterTest extends TestCase
         $this->assertSame([$ok->id], array_column($page->get('onlineDrivers'), 'id'));
     }
 
-    public function test_recent_orders_show_todays_call_center_orders_with_no_delivery_flag(): void
+    public function test_recent_orders_show_todays_call_center_orders(): void
     {
         $page = $this->page('delivery')->set('data', $this->data())->call('placeOrder');
         Order::create(['code' => 'OLD'.uniqid(), 'status' => 'pending', 'city_id' => $this->city->id, 'service_type' => 'delivery', 'platform' => 'customer_app',
@@ -204,8 +205,8 @@ class CallCenterTest extends TestCase
 
         $this->assertCount(1, $recent, 'chỉ đơn tổng đài tạo hôm nay');
         $this->assertSame($page->get('resultOrderCode'), $recent[0]['code']);
-        $this->assertTrue($recent[0]['no_delivery']);
-        $this->assertSame('Chưa có điểm giao', $recent[0]['delivery']);
+        $this->assertTrue($recent[0]['today']);
+        $this->assertSame('', $recent[0]['delivery']);
         $this->assertSame('', $recent[0]['phone']);
     }
 
@@ -379,5 +380,105 @@ class CallCenterTest extends TestCase
             $this->assertNull($order->delivery_phone);
             $this->assertSame('Đi bến xe, SĐT 0911222333', $order->order_note, 'không chèn ghi chú "chưa có điểm giao"');
         }
+    }
+
+    public function test_fee_inputs_accept_blank_reject_typos_and_cap_at_300k(): void
+    {
+        $blank = $this->page('delivery')->set('data', $this->data(['shipping_fee' => null, 'order_note' => 'Tài xế tới shop hỏi điểm giao']))->call('placeOrder');
+        $this->assertSame([], $blank->get('fieldErrors'), 'được để trống phí, cập nhật sau khi tài xế báo');
+        $this->assertSame(0, (int) Order::where('code', $blank->get('resultOrderCode'))->value('shipping_fee'));
+
+        $typo = $this->page('delivery')->set('data', $this->data(['shipping_fee' => 25]))->call('placeOrder');
+        $this->assertArrayHasKey('shipping_fee', $typo->get('fieldErrors'), '"25.000" bị trình duyệt hiểu thành 25');
+        $this->assertNull($typo->get('resultOrderCode'));
+
+        $tooHigh = $this->page('delivery')->set('data', $this->data(['shipping_fee' => 300001, 'bonus_fee' => 300001]))->call('placeOrder');
+        $this->assertSame(['shipping_fee', 'bonus_fee'], array_keys($tooHigh->get('fieldErrors')));
+
+        $max = $this->page('delivery')->set('data', $this->data(['shipping_fee' => 300000]))->call('placeOrder');
+        $this->assertSame([], $max->get('fieldErrors'));
+    }
+
+    public function test_night_surcharge_is_added_to_a_typed_fee_but_not_to_a_blank_one(): void
+    {
+        $this->travelTo(now()->setTime(23, 30));
+        $surcharge = \Modules\Core\Services\OperationalSettings::nightSurcharge($this->city->id);
+        $this->assertGreaterThan(0, $surcharge, 'khung đêm mặc định phải có phụ phí lúc 23:30');
+
+        $page = $this->page('delivery')->set('data', $this->data(['shipping_fee' => 20000]))->call('placeOrder');
+        $order = Order::where('code', $page->get('resultOrderCode'))->firstOrFail();
+        $this->assertSame(20000 + $surcharge, (int) $order->shipping_fee);
+        $this->assertSame($surcharge, (int) $order->night_surcharge);
+        $this->assertStringContainsString('phụ phí đêm', OrderTimeline::for($order)->where('type', 'created')->pluck('text')->implode(' | '));
+
+        $blank = $this->page('delivery')->set('data', $this->data(['shipping_fee' => null]))->call('placeOrder');
+        $order = Order::where('code', $blank->get('resultOrderCode'))->firstOrFail();
+        $this->assertSame(0, (int) $order->shipping_fee);
+        $this->assertSame(0, (int) $order->night_surcharge);
+    }
+
+    public function test_driver_lists_follow_the_tenant_not_the_client_city_id(): void
+    {
+        $other = City::create(['name' => 'Other city', 'slug' => 'other-'.uniqid(), 'is_active' => true]);
+        $mine = $this->user('driver', ['is_online' => true, 'name' => 'Của tôi']);
+        $this->user('driver', ['is_online' => true, 'name' => 'Tỉnh khác', 'city_id' => $other->id]);
+
+        $page = Livewire::test(CallCenterPage::class)->set('data.city_id', $other->id)->call('refreshPreview');
+
+        $this->assertSame([$mine->id], array_column($page->get('onlineDrivers'), 'id'));
+    }
+
+    public function test_attention_list_keeps_pending_orders_from_earlier_days(): void
+    {
+        $old = Order::create(['code' => 'OLD'.uniqid(), 'status' => 'pending', 'city_id' => $this->city->id, 'service_type' => 'delivery', 'platform' => 'call_center',
+            'pickup_address' => 'a', 'delivery_address' => '', 'created_by' => $this->admin->id]);
+        $old->forceFill(['created_at' => now()->subDay()])->save();
+        $done = Order::create(['code' => 'DONE'.uniqid(), 'status' => 'completed', 'city_id' => $this->city->id, 'service_type' => 'delivery', 'platform' => 'call_center',
+            'pickup_address' => 'a', 'delivery_address' => '', 'created_by' => $this->admin->id]);
+        $done->forceFill(['created_at' => now()->subDay()])->save();
+
+        $recent = collect(Livewire::test(CallCenterPage::class)->instance()->recentOrders())->keyBy('code');
+
+        $this->assertTrue($recent->has($old->code), 'đơn hôm qua còn chờ vẫn phải nằm trong "Cần xử lý"');
+        $this->assertFalse($recent[$old->code]['today']);
+        $this->assertFalse($recent->has($done->code), 'đơn hôm qua đã xong thì không cần hiện');
+    }
+
+    public function test_a_crash_while_assigning_cancels_the_new_order_through_the_cancel_flow(): void
+    {
+        $driver = $this->user('driver', ['is_online' => true]);
+        $this->mock(OrderService::class, fn ($m) => $m->makePartial()->shouldReceive('dispatchNewOrder')->never());
+        $this->mock(\Modules\Order\Services\ManualOrderAssignment::class, fn ($m) => $m->shouldReceive('assign')->andThrow(new \RuntimeException('Redis down')));
+
+        $page = $this->page('delivery')->set('assignedDriverId', $driver->id)->set('data', $this->data())->call('placeOrder');
+
+        $order = Order::where('platform', 'call_center')->where('city_id', $this->city->id)->latest('id')->firstOrFail();
+        $this->assertSame('cancelled', $order->status, 'đơn vừa tạo không được kẹt ở pending');
+        $this->assertSame('admin_no_driver', $order->cancel_reason);
+        $this->assertStringContainsString('đã bị huỷ', (string) $page->get('resultError'));
+        $this->assertNull($page->get('resultOrderCode'));
+    }
+
+    public function test_reorder_restores_pickup_pin_place_name_and_note_without_old_label(): void
+    {
+        $page = Livewire::withQueryParams([
+            'reorder' => 1, 'service' => 'delivery', 'pickup_address' => '12 Lê Lợi', 'pickup_place_name' => 'Quán Cô Ba',
+            'pickup_lat' => '10.5', 'pickup_lng' => '105.5', 'order_note' => '[Chưa có điểm giao — hỏi shop khi lấy hàng] Giao 5 Trần Phú',
+        ])->test(CallCenterPage::class);
+
+        $this->assertSame(10.5, $page->get('pickupLat'));
+        $this->assertSame(105.5, $page->get('pickupLng'));
+        $this->assertSame('Quán Cô Ba', $page->get('data')['pickup_place_name']);
+        $this->assertSame('Giao 5 Trần Phú', $page->get('data')['order_note']);
+    }
+
+    public function test_exempt_driver_with_overdue_debt_is_assignable(): void
+    {
+        $exempt = $this->user('driver', ['is_online' => true, 'name' => 'Miễn nợ', 'debt_enabled' => false]);
+        DriverDebt::create(['driver_id' => $exempt->id, 'debt_type' => 'weekly', 'status' => 'overdue', 'amount_due' => 100000, 'amount_paid' => 0, 'week_start' => now()->subWeek()->startOfWeek()->toDateString(), 'week_end' => now()->subWeek()->endOfWeek()->toDateString(), 'note' => 'test']);
+
+        $page = Livewire::test(CallCenterPage::class);
+
+        $this->assertContains($exempt->id, array_column($page->get('onlineDrivers'), 'id'), 'cùng điều kiện với ManualOrderAssignment::assign()');
     }
 }

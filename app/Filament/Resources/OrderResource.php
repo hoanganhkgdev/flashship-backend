@@ -242,39 +242,27 @@ class OrderResource extends Resource
     /** Tài xế đủ điều kiện nhận gán tay cho đơn này (id => nhãn): online, không nợ quá hạn, không bị khóa điểm/nghỉ phép, chưa đủ đơn. */
     public static function manualAssignmentDriverOptions(Order $record): array
     {
-        $now = now();
+        return self::manualAssignmentOptionsFrom(self::manualAssignmentCandidates($record));
+    }
 
-        return User::query()
-            ->where('user_type', 'driver')
-            ->where('city_id', $record->city_id)
-            ->where('status', 1)
-            ->where('is_online', true)
-            ->when($record->service_type === 'car', fn (Builder $query) => $query->where('has_car_license', true))
-            ->whereDoesntHave('debts', fn (Builder $query) => $query->where('status', 'overdue'))
-            ->whereNotExists(function ($query) {
-                $query->selectRaw('1')
-                    ->from('driver_leave_requests')
-                    ->whereColumn('driver_leave_requests.driver_id', 'users.id')
-                    ->where('driver_leave_requests.status', 'approved')
-                    ->whereDate('driver_leave_requests.leave_date', today());
-            })
-            ->select(['id', 'name', 'phone'])
-            ->withCount([
-                'orders as active_orders_count' => fn (Builder $query) => $query->whereIn('status', ['assigned', 'processing']),
-            ])
-            ->orderBy('name')
-            ->get()
-            ->filter(fn (User $driver) => $driver->active_orders_count < OperationalSettings::maxActiveOrdersPerDriver($record->city_id))
-            ->mapWithKeys(fn (User $driver) => [
-                $driver->id => trim("{$driver->name} · {$driver->phone} · {$driver->active_orders_count}/".OperationalSettings::maxActiveOrdersPerDriver($record->city_id).' đơn đang chạy'),
-            ])
+    /**
+     * Rút danh sách chọn (id => nhãn) từ kết quả manualAssignmentCandidates(), để nơi đã có candidates không phải truy vấn lại.
+     *
+     * @param  array<int, array{id:int, name:string, phone:?string, active:int, max:int, reason:?string}>  $candidates
+     * @return array<int, string>
+     */
+    public static function manualAssignmentOptionsFrom(array $candidates): array
+    {
+        return collect($candidates)
+            ->filter(fn (array $c) => $c['reason'] === null)
+            ->mapWithKeys(fn (array $c) => [$c['id'] => trim("{$c['name']} · {$c['phone']} · {$c['active']}/{$c['max']} đơn đang chạy")])
             ->all();
     }
 
     /**
      * Mọi tài xế đang hoạt động của khu vực kèm lý do chưa gán được (null = gán được). Dùng để tổng đài thấy
      * "vì sao không chọn được người này" thay vì tài xế biến mất khỏi danh sách.
-     * Điều kiện khớp với manualAssignmentDriverOptions().
+     * Điều kiện khớp với ManualOrderAssignment::assign() (nợ quá hạn chỉ chặn khi tài xế áp dụng công nợ).
      *
      * @return array<int, array{id:int, name:string, phone:?string, online:bool, active:int, max:int, reason:?string}>
      */
@@ -288,7 +276,7 @@ class OrderResource extends Resource
             ->where('user_type', 'driver')
             ->where('city_id', $record->city_id)
             ->where('status', 1)
-            ->select(['id', 'name', 'phone', 'is_online', 'has_car_license'])
+            ->select(['id', 'name', 'phone', 'city_id', 'is_online', 'has_car_license', 'debt_enabled'])
             ->withExists(['debts as has_overdue_debt' => fn (Builder $query) => $query->where('status', 'overdue')])
             ->withCount(['orders as active_orders_count' => fn (Builder $query) => $query->whereIn('status', ['assigned', 'processing'])])
             ->orderBy('name')
@@ -297,7 +285,7 @@ class OrderResource extends Resource
                 $reason = match (true) {
                     ! $d->is_online => 'đang offline',
                     $record->service_type === 'car' && ! $d->has_car_license => 'không có bằng lái ô tô',
-                    (bool) $d->has_overdue_debt => 'nợ quá hạn',
+                    $d->has_overdue_debt && $d->debtApplies() => 'nợ quá hạn',
                     isset($onLeave[$d->id]) => 'nghỉ phép hôm nay',
                     $d->active_orders_count >= $max => "đủ đơn ({$d->active_orders_count}/{$max})",
                     default => null,
@@ -890,6 +878,7 @@ class OrderResource extends Resource
                             'service' => $record->service_type,
                             'city_id' => $record->city_id,
                             'pickup_address' => $record->pickup_address,
+                            'pickup_place_name' => $record->pickup_place_name,
                             'pickup_phone' => $record->pickup_phone,
                             'pickup_lat' => $record->pickup_lat,
                             'pickup_lng' => $record->pickup_lng,
