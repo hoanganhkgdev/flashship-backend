@@ -82,10 +82,11 @@ class DriverMapPage extends Page
         $activeOrders = DB::table('orders')
             ->whereIn('status', ['assigned', 'processing'])
             ->whereIn('delivery_man_id', (clone $query)->pluck('id'))
+            ->when($this->fixedCityId, fn ($q) => $q->where('city_id', $this->fixedCityId))
             ->orderByDesc('id')
-            ->get(['id', 'code', 'status', 'delivery_man_id'])
-            ->unique('delivery_man_id')
-            ->keyBy('delivery_man_id');
+            ->get(['id', 'code', 'status', 'delivery_man_id', 'pickup_address', 'delivery_address',
+                'sender_name', 'receiver_name', 'pickup_phone', 'delivery_phone', 'shipping_fee', 'cod_amount', 'order_note'])
+            ->groupBy('delivery_man_id');
 
         $shiftNames = DB::table('shift_user as su')
             ->join('shifts as s', 's.id', '=', 'su.shift_id')
@@ -99,7 +100,8 @@ class DriverMapPage extends Page
         // còn nguồn nào từ MySQL nữa.
         $meta = [];
         foreach ($query->get() as $d) {
-            $activeOrder = $activeOrders->get($d->id);
+            $driverOrders = $activeOrders->get($d->id, collect());
+            $activeOrder = $driverOrders->first();
             $meta[$d->id] = [
                 'name' => $d->name ?? '',
                 'phone' => $d->phone ?? '',
@@ -111,6 +113,22 @@ class DriverMapPage extends Page
                 'active_order_id' => $activeOrder?->id,
                 'active_order_code' => $activeOrder?->code,
                 'active_order_status' => $activeOrder?->status,
+                'active_orders' => $driverOrders->map(fn ($order) => [
+                    'id' => $order->id,
+                    'code' => $order->code,
+                    'status' => $order->status,
+                    'status_label' => $order->status === 'processing' ? 'Đã lấy hàng' : 'Đã phân công',
+                    'pickup_address' => $order->pickup_address,
+                    'delivery_address' => $order->delivery_address,
+                    'sender_name' => $order->sender_name,
+                    'receiver_name' => $order->receiver_name,
+                    'pickup_phone' => $order->pickup_phone,
+                    'delivery_phone' => $order->delivery_phone,
+                    'shipping_fee' => (int) $order->shipping_fee,
+                    'cod_amount' => (int) $order->cod_amount,
+                    'note' => trim((string) $order->order_note),
+                    'url' => OrderResource::getUrl('view', ['record' => $order->id]),
+                ])->values()->all(),
                 'shift_names' => $shiftNames->get($d->id, ''),
                 'avatar' => $d->profile_photo_path
                     ? Storage::url($d->profile_photo_path)

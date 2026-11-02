@@ -86,6 +86,45 @@ class DriverMapTest extends TestCase
         }
     }
 
+    public function test_driver_meta_includes_all_active_order_details_and_refreshes_after_completion(): void
+    {
+        $driver = $this->user('driver');
+        $free = $this->user('driver');
+        $assigned = $this->order(['status' => 'assigned', 'delivery_man_id' => $driver->id,
+            'sender_name' => 'Người gửi', 'receiver_name' => 'Người nhận', 'delivery_phone' => '0999888777',
+            'cod_amount' => 150000, 'order_note' => '  Gọi trước khi giao  ']);
+        $processing = $this->order(['status' => 'processing', 'delivery_man_id' => $driver->id]);
+        $this->order(['status' => 'completed', 'delivery_man_id' => $driver->id]);
+        $this->order(['status' => 'cancelled', 'delivery_man_id' => $driver->id]);
+        $this->order(['status' => 'pending', 'delivery_man_id' => $driver->id]);
+        $this->order(['status' => 'assigned', 'delivery_man_id' => $driver->id,
+            'city_id' => City::create(['name' => 'Khác 3', 'slug' => 'k3-'.uniqid(), 'is_active' => true])->id]);
+
+        $page = Livewire::test(DriverMapPage::class);
+        $meta = $page->get('driversMeta');
+        $orders = $meta[$driver->id]['active_orders'];
+
+        $this->assertSame([$processing->id, $assigned->id], array_column($orders, 'id'));
+        $this->assertSame('Đã lấy hàng', $orders[0]['status_label']);
+        $this->assertSame('Đã phân công', $orders[1]['status_label']);
+        $this->assertSame('1 Lê Lợi', $orders[1]['pickup_address']);
+        $this->assertSame('2 Trần Phú', $orders[1]['delivery_address']);
+        $this->assertSame('Người gửi', $orders[1]['sender_name']);
+        $this->assertSame('Người nhận', $orders[1]['receiver_name']);
+        $this->assertSame('0911222333', $orders[1]['pickup_phone']);
+        $this->assertSame('0999888777', $orders[1]['delivery_phone']);
+        $this->assertSame(20000, $orders[1]['shipping_fee']);
+        $this->assertSame(150000, $orders[1]['cod_amount']);
+        $this->assertSame('Gọi trước khi giao', $orders[1]['note']);
+        $this->assertSame($meta[$driver->id]['order_url'], $orders[0]['url']);
+        $this->assertSame([], $meta[$free->id]['active_orders']);
+        $this->assertFalse($meta[$free->id]['busy']);
+
+        $processing->update(['status' => 'completed']);
+        $page->call('loadDriversMeta');
+        $this->assertSame([$assigned->id], array_column($page->get('driversMeta')[$driver->id]['active_orders'], 'id'));
+    }
+
     public function test_assign_action_prefills_the_chosen_driver_and_old_url_redirects(): void
     {
         $driver = $this->user('driver', ['is_online' => true]);

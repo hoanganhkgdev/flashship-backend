@@ -76,6 +76,78 @@
     .dark .dm-tab.active,.dark .dm-filter.active { color:#fdba74; }
     .dark .dm-order__note { color:#5eead4; }
     .dark #driver-map-counter,.dark .dm-map-action { background:#1f2937; color:#e5e7eb; }
+
+    /* Google Maps giới hạn chiều cao popup: cho cuộn để không cắt nội dung ở đáy. */
+    .gm-style-iw-c:has(.dm-popup) { padding:0 !important; border-radius:16px !important; }
+    .gm-style-iw-c:has(.dm-popup) .gm-style-iw-d { overflow-x:hidden !important; overflow-y:auto !important; scrollbar-width:thin; }
+    .gm-style-iw-c:has(.dm-popup) .gm-style-iw-chr { position:absolute; top:5px; right:5px; z-index:2; }
+    .gm-style-iw-c:has(.dm-popup) .gm-style-iw-ch { padding:0; }
+    .gm-style-iw-c:has(.dm-popup) .gm-ui-hover-effect { width:28px !important; height:28px !important; }
+    .gm-style-iw-c:has(.dm-popup) .gm-ui-hover-effect > span { width:18px !important; height:18px !important; margin:5px !important; }
+    .dm-popup { --dp-bg:#fff; --dp-soft:#f8fafc; --dp-line:#e8edf2; --dp-text:#172033; --dp-muted:#64748b; width:320px; max-width:calc(100vw - 80px); background:var(--dp-bg); color:var(--dp-text); font-family:inherit; font-size:11px; line-height:1.45; text-align:left; }
+    .dm-popup,.dm-popup * { box-sizing:border-box; }
+    .dm-popup a { text-decoration:none; }
+    .dm-popup a:hover { text-decoration:underline; }
+    .dm-popup__head { display:flex; align-items:center; gap:10px; padding:16px 34px 10px 14px; }
+    .dm-popup__avatar { position:relative; display:grid; flex:none; place-items:center; width:42px; height:42px; overflow:hidden; border:2px solid var(--dm-color); border-radius:14px; background:var(--dp-soft); color:var(--dm-color); font-size:17px; font-weight:800; }
+    .dm-popup__avatar img { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }
+    .dm-popup__identity { min-width:0; }
+    .dm-popup__name { margin:0 0 3px; color:var(--dp-text); font-size:14px; font-weight:750; overflow-wrap:anywhere; }
+    .dm-popup__status { display:inline-flex; align-items:center; gap:5px; color:var(--dm-color); font-size:10px; font-weight:650; }
+    .dm-popup__status::before { content:''; width:6px; height:6px; border-radius:50%; background:currentColor; }
+    .dm-popup__actions { display:flex; gap:6px; padding:0 14px 10px; }
+    .dm-popup__action { display:inline-flex; align-items:center; justify-content:center; gap:5px; min-height:30px; padding:5px 10px; border:1px solid var(--dp-line); border-radius:8px; color:var(--dp-text); font-size:11px; font-weight:650; }
+    .dm-popup__action.primary { flex:1; border-color:#ffedd5; background:#fff7ed; color:#c2410c; }
+    .dm-popup__action svg { width:13px; height:13px; }
+    .dm-popup__shift { display:flex; gap:8px; padding:0 14px 11px; color:var(--dp-muted); font-size:10px; }
+    .dm-popup__shift span { flex:none; }
+    .dm-popup__shift b { color:var(--dp-text); font-weight:500; overflow-wrap:anywhere; }
+    .dm-popup__section { display:flex; align-items:center; justify-content:space-between; padding:10px 14px 8px; border-top:1px solid var(--dp-line); color:var(--dp-muted); font-size:10px; font-weight:650; }
+    .dm-popup__count { display:grid; place-items:center; min-width:20px; height:19px; padding:0 5px; border-radius:6px; background:#fff7ed; color:#c2410c; font-weight:750; }
+    .dm-popup__orders { display:grid; grid-auto-rows:max-content; gap:9px; padding:4px 16px 20px; }
+    .dm-popup__order-trigger { display:flex; align-items:center; justify-content:space-between; gap:10px; width:100%; padding:10px 12px; border:1px solid var(--dp-line); border-radius:9px; background:var(--dp-soft); color:var(--dp-text); text-align:left; cursor:pointer; font:inherit; }
+    .dm-popup__order-trigger:hover,.dm-popup__order-trigger:focus-visible { border-color:#fb923c; outline:2px solid #fed7aa; outline-offset:1px; }
+    .dm-popup__order-trigger b { color:#ea580c; font-size:12px; overflow-wrap:anywhere; }
+    .dm-popup__hint { margin:0 14px 8px; color:var(--dp-muted); font-size:10px; }
+    .dm-order-preview { position:fixed; z-index:9999; width:400px; max-width:calc(100vw - 24px); max-height:calc(100dvh - 24px); overflow-y:auto; overscroll-behavior:contain; border:1px solid var(--dp-line); border-radius:14px; box-shadow:0 16px 48px rgba(15,23,42,.24); font-size:13px; line-height:1.6; }
+    .dm-order-preview__heading { display:flex; justify-content:space-between; align-items:center; padding:10px 14px; color:var(--dp-muted); font-size:11px; }
+    .dm-order-preview__close { display:grid; place-items:center; width:28px; height:28px; border:1px solid var(--dp-line); border-radius:8px; background:var(--dp-soft); color:var(--dp-text); cursor:pointer; font-size:18px; }
+    .dm-order-preview .dm-popup-order { margin:0 12px 12px; }
+    .dm-order-preview .dm-popup-order__head { flex-wrap:wrap; padding:10px 14px; }
+    .dm-order-preview .dm-popup-order__code { font-size:14px; }
+    .dm-order-preview .dm-popup-order__status { padding:3px 8px; font-size:11px; }
+    .dm-order-preview .dm-popup-route { gap:16px; padding:14px; }
+    .dm-order-preview .dm-popup-stop__label { margin-bottom:3px; font-size:10px; }
+    .dm-order-preview .dm-popup-stop__contact { gap:4px 10px; margin-top:4px; font-size:12px; }
+    .dm-order-preview .dm-popup-order__note { margin:0 14px 12px; padding:8px 10px; font-size:12px; }
+    .dm-order-preview .dm-popup-order__link { padding:10px 14px; font-size:12px; }
+    .dm-popup-order { min-width:0; border:1px solid var(--dp-line); border-radius:10px; overflow:hidden; }
+    .dm-popup-order__head { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:8px 10px; background:var(--dp-soft); border-bottom:1px solid var(--dp-line); }
+    .dm-popup-order__code { color:var(--dp-text); font-size:12px; font-weight:750; overflow-wrap:anywhere; }
+    .dm-popup-order__code span { color:var(--dp-muted); font-weight:500; }
+    .dm-popup-order__status { flex:none; padding:2px 6px; border-radius:5px; background:#eff6ff; color:#2563eb; font-size:9px; font-weight:650; }
+    .dm-popup-order__status.picked { background:#ecfdf5; color:#047857; }
+    .dm-popup-route { display:grid; gap:10px; padding:10px; }
+    .dm-popup-stop { position:relative; display:grid; grid-template-columns:8px minmax(0,1fr); gap:8px; }
+    .dm-popup-stop__dot { position:relative; z-index:1; width:7px; height:7px; margin-top:4px; border:2px solid #f97316; border-radius:50%; background:var(--dp-bg); }
+    .dm-popup-stop__label { margin-bottom:1px; color:var(--dp-muted); font-size:9px; }
+    .dm-popup-stop__address { font-weight:550; overflow-wrap:anywhere; }
+    .dm-popup-stop__contact { display:flex; flex-wrap:wrap; gap:2px 6px; margin-top:2px; color:var(--dp-muted); font-size:10px; overflow-wrap:anywhere; }
+    .dm-popup-stop__contact a { color:#2563eb; white-space:nowrap; }
+    .dm-popup-order__note { margin:0 10px 8px; padding:6px 8px; border-left:2px solid #fbbf24; border-radius:4px; background:#fffbeb; color:#92400e; font-size:10px; white-space:pre-wrap; overflow-wrap:anywhere; }
+    .dm-popup-order__link { display:block; padding:7px 10px; border-top:1px solid var(--dp-line); color:#ea580c; text-align:right; font-size:10px; font-weight:650; }
+    .dm-popup__empty { padding:4px 14px 16px; color:var(--dp-muted); font-size:11px; }
+    .dm-popup__foot { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:5px 10px; padding:9px 14px; border-top:1px solid var(--dp-line); background:var(--dp-soft); color:var(--dp-muted); font-size:9px; }
+    .dm-popup__foot a { color:var(--dp-text); font-size:10px; font-weight:650; }
+    .dark .dm-popup { --dp-bg:#171b25; --dp-soft:#1e2532; --dp-line:#2d3748; --dp-text:#f1f5f9; --dp-muted:#94a3b8; }
+    .dark .gm-style-iw-c:has(.dm-popup),.dark .gm-style-iw-c:has(.dm-popup) + .gm-style-iw-tc::after { background:#171b25; }
+    .dark .gm-style-iw-c:has(.dm-popup) .gm-ui-hover-effect > span { background-color:#cbd5e1; }
+    .dark .dm-popup__action.primary,.dark .dm-popup__count { border-color:#7c2d12; background:#431407; color:#fdba74; }
+    .dark .dm-popup-order__status { background:#172e52; color:#93c5fd; }
+    .dark .dm-popup-order__status.picked { background:#063b30; color:#6ee7b7; }
+    .dark .dm-popup-stop__contact a { color:#93c5fd; }
+    .dark .dm-popup-order__note { background:#382c15; color:#fde68a; }
+    .dark .dm-popup-order__link { color:#fdba74; }
     @media(max-width:1100px){.dm-stats{grid-template-columns:repeat(3,minmax(0,1fr))}}
     @media(max-width:900px){.dm-stats{grid-template-columns:repeat(2,minmax(0,1fr))}.dm-layout{display:flex; min-height:auto; flex-direction:column}.dm-sidebar{max-height:340px; border-right:none; border-bottom:1px solid #e5e7eb}.dm-list{min-height:220px}#driver-map-wrapper{min-height:55vh}}
 
@@ -223,9 +295,79 @@
         var rtdbGps = {};
         var dbMeta = cfg.driversMeta || {};
         var ordersMeta = cfg.ordersMeta || [];
-        var activeFilter = 'all', searchTerm = '', tab = 'drivers', selectedOrder = null, fitted = false;
+        var activeFilter = 'all', searchTerm = '', tab = 'drivers', selectedOrder = null, selectedDriver = null, fitted = false;
 
         var $ = function (id) { return document.getElementById(id); };
+        var previewOrder = null, previewTrigger = null, previewTimer = null, previewPinned = false, previewClosedUntil = 0;
+        var orderPreview = document.createElement('div');
+        orderPreview.id = 'dm-order-preview-' + cfg.wireId;
+        orderPreview.className = 'dm-popup dm-order-preview';
+        orderPreview.setAttribute('role', 'region');
+        orderPreview.setAttribute('aria-label', 'Chi tiết đơn');
+        orderPreview.hidden = true;
+        document.body.appendChild(orderPreview);
+        orderPreview.addEventListener('mouseenter', function () { clearTimeout(previewTimer); });
+        orderPreview.addEventListener('mouseleave', scheduleHidePreview);
+        orderPreview.addEventListener('focusin', function () { clearTimeout(previewTimer); });
+        orderPreview.addEventListener('focusout', function (event) {
+            if (!orderPreview.contains(event.relatedTarget)) scheduleHidePreview();
+        });
+        orderPreview.addEventListener('click', function (event) {
+            if (event.target.closest('[data-preview-close]')) {
+                previewClosedUntil = Date.now() + 400;
+                var trigger = previewTrigger;
+                if (trigger && trigger.isConnected) trigger.focus();
+                hideOrderPreview();
+            }
+        });
+        function hideOrderPreview() {
+            clearTimeout(previewTimer);
+            orderPreview.hidden = true;
+            if (previewTrigger) previewTrigger.setAttribute('aria-expanded', 'false');
+            previewOrder = null; previewTrigger = null; previewPinned = false;
+        }
+        function scheduleHidePreview() {
+            clearTimeout(previewTimer);
+            if (!previewPinned) previewTimer = setTimeout(hideOrderPreview, 300);
+        }
+        function previewContent(order) {
+            return '<div class="dm-order-preview__heading"><span>Chi tiết đơn đang nhận</span>' +
+                '<button type="button" class="dm-order-preview__close" data-preview-close aria-label="Đóng chi tiết đơn">×</button></div>' + driverOrderInfo(order);
+        }
+        window._dmHideOrderPreview = scheduleHidePreview;
+        window._dmPreviewOrder = function (driverId, orderId, trigger, pin) {
+            if (!pin && Date.now() < previewClosedUntil) return;
+            var order = ((dbMeta[driverId] || {}).active_orders || []).find(function (o) { return Number(o.id) === orderId; });
+            if (!order) { hideOrderPreview(); return; }
+            clearTimeout(previewTimer);
+            if (previewTrigger) previewTrigger.setAttribute('aria-expanded', 'false');
+            previewTrigger = trigger; previewPinned = !!pin;
+            previewOrder = { driverId: driverId, orderId: orderId };
+            trigger.setAttribute('aria-expanded', 'true');
+            orderPreview.innerHTML = previewContent(order);
+            orderPreview.hidden = false;
+            var rect = trigger.getBoundingClientRect(), width = orderPreview.offsetWidth, height = orderPreview.offsetHeight;
+            var left = rect.right + 12;
+            if (left + width > window.innerWidth - 12) left = rect.left - width - 12;
+            orderPreview.style.left = Math.max(12, Math.min(left, window.innerWidth - width - 12)) + 'px';
+            orderPreview.style.top = Math.max(12, Math.min(rect.top - 12, window.innerHeight - height - 12)) + 'px';
+            if (pin && trigger.matches(':focus-visible')) orderPreview.querySelector('button').focus();
+        };
+        function onPreviewKeydown(event) {
+            if (event.key === 'Escape' && !orderPreview.hidden) {
+                event.stopPropagation();
+                previewClosedUntil = Date.now() + 400;
+                var trigger = previewTrigger;
+                if (trigger && trigger.isConnected) trigger.focus();
+                hideOrderPreview();
+            }
+        }
+        function onPreviewScroll(event) {
+            if (!orderPreview.contains(event.target)) hideOrderPreview();
+        }
+        window.addEventListener('keydown', onPreviewKeydown, true);
+        window.addEventListener('scroll', onPreviewScroll, true);
+        window.addEventListener('resize', hideOrderPreview);
         function escapeHtml(v) { var d = document.createElement('div'); d.textContent = v == null ? '' : String(v); return d.innerHTML; }
         function initial(meta, id) { var n = (meta && meta.name || '').trim(); return n ? n.charAt(0).toUpperCase() : '#'; }
         function isDark() { return document.documentElement.classList.contains('dark'); }
@@ -262,6 +404,7 @@
             styles: isDark() ? DARK_STYLE : LIGHT_STYLE,
         });
         infoWindow = new google.maps.InfoWindow();
+        infoWindow.addListener('closeclick', function () { selectedDriver = null; hideOrderPreview(); });
         themeObserver = new MutationObserver(function () { map.setOptions({ styles: isDark() ? DARK_STYLE : LIGHT_STYLE }); });
         themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
 
@@ -312,24 +455,46 @@
             } else draw(null);
         }
 
+        function driverOrderInfo(order) {
+            var note = String(order.note || '').replace(/^\s*\[Chưa có điểm giao[^\]]*\]\s*/u, '').trim();
+            var stop = function (label, address, name, phone) {
+                var number = String(phone || '').replace(/\D+/g, '');
+                return '<div class="dm-popup-stop"><i class="dm-popup-stop__dot"></i><div>' +
+                    '<div class="dm-popup-stop__label">' + label + '</div><div class="dm-popup-stop__address">' + escapeHtml(address || 'Chưa có địa chỉ') + '</div>' +
+                    (name || number ? '<div class="dm-popup-stop__contact">' + (name ? '<span>' + escapeHtml(name) + '</span>' : '') +
+                    (number ? '<a href="tel:' + number + '">' + escapeHtml(phone) + '</a>' : '') + '</div>' : '') + '</div></div>';
+            };
+            return '<article class="dm-popup-order"><div class="dm-popup-order__head">' +
+                '<a class="dm-popup-order__code" href="' + escapeHtml(order.url) + '"><span>Đơn</span> #' + escapeHtml(order.code) + '</a>' +
+                '<span class="dm-popup-order__status' + (order.status === 'processing' ? ' picked' : '') + '">' + escapeHtml(order.status_label) + '</span></div>' +
+                '<div class="dm-popup-route">' + stop('LẤY HÀNG', order.pickup_address, order.sender_name, order.pickup_phone) + '</div>' +
+                (note ? '<div class="dm-popup-order__note">' + escapeHtml(note) + '</div>' : '') +
+                '<a class="dm-popup-order__link" href="' + escapeHtml(order.url) + '">Chi tiết đơn →</a></article>';
+        }
+
         function driverPopup(id) {
             var meta = dbMeta[id] || {}, gps = rtdbGps[id], state = classify(id) || 'lost', color = COLORS[state];
             var phone = (meta.phone || '').replace(/\D+/g, '');
-            var avatar = '<div style="position:relative;width:56px;height:56px;margin:0 auto;border-radius:50%;overflow:hidden;background:#e5e7eb;border:2.5px solid ' + color + ';display:grid;place-items:center;font-weight:700;color:' + color + ';font-size:20px">' + escapeHtml(initial(meta, id)) +
-                (meta.avatar ? '<img src="' + escapeHtml(meta.avatar) + '" onerror="this.remove()" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover">' : '') + '</div>';
-            var row = function (icon, html) { return '<div style="display:flex;align-items:center;gap:8px;font-size:13px;color:#374151"><span style="width:16px;text-align:center;flex-shrink:0">' + icon + '</span>' + html + '</div>'; };
-            var link = 'color:#2563eb;text-decoration:none;font-weight:600';
-            return '<div style="width:220px;font-family:inherit;padding:2px">' +
-                '<div style="text-align:center;padding-bottom:10px;margin-bottom:10px;border-bottom:1px solid #f0f0f0">' + avatar +
-                '<div style="margin-top:8px;font-size:14.5px;font-weight:700;color:#111827">' + escapeHtml(meta.name || ('#' + id)) + '</div>' +
-                '<span style="display:inline-block;margin-top:5px;background:' + color + ';color:#fff;padding:2px 11px;border-radius:999px;font-size:12px;font-weight:600">' + LABELS[state] + '</span></div>' +
-                '<div style="display:flex;flex-direction:column;gap:7px">' +
-                (phone ? row('📞', '<a href="tel:' + phone + '" style="' + link + '">' + escapeHtml(meta.phone) + '</a><a href="https://zalo.me/' + phone + '" target="_blank" rel="noopener" style="' + link + ';margin-left:auto">Zalo</a>') : row('📞', '<span style="color:#9ca3af">—</span>')) +
-                row('🗓', '<span>' + escapeHtml(meta.shift_names || 'Chưa đăng ký ca') + '</span>') +
-                (meta.active_order_code ? row('📦', '<a href="' + escapeHtml(meta.order_url || '#') + '" style="' + link + '">Đơn #' + escapeHtml(meta.active_order_code) + '</a>') : '') +
-                row('🕐', '<span style="color:#6b7280">' + formatAgo(gps && gps.updated_at) + '</span>') +
-                (meta.url ? '<a href="' + escapeHtml(meta.url) + '" style="' + link + ';text-align:center;margin-top:4px">Xem hồ sơ tài xế →</a>' : '') +
-                '</div></div>';
+            var orders = meta.active_orders || [];
+            var phoneIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6 19.8 19.8 0 0 1-3.1-8.7A2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1 1 .4 1.9.7 2.8a2 2 0 0 1-.5 2.1L8 9.9a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.5c.9.3 1.8.6 2.8.7a2 2 0 0 1 1.8 2.1z"/></svg>';
+            return '<div class="dm-popup" style="--dm-color:' + color + '">' +
+                '<div class="dm-popup__head"><div class="dm-popup__avatar">' + escapeHtml(initial(meta, id)) +
+                (meta.avatar ? '<img src="' + escapeHtml(meta.avatar) + '" alt="" onerror="this.remove()">' : '') + '</div>' +
+                '<div class="dm-popup__identity"><div class="dm-popup__name">' + escapeHtml(meta.name || ('Tài xế #' + id)) + '</div>' +
+                '<span class="dm-popup__status">' + LABELS[state] + '</span></div></div>' +
+                (phone ? '<div class="dm-popup__actions"><a class="dm-popup__action primary" href="tel:' + phone + '">' + phoneIcon + escapeHtml(meta.phone) + '</a>' +
+                '<a class="dm-popup__action" href="https://zalo.me/' + phone + '" target="_blank" rel="noopener">Zalo ↗</a></div>' : '') +
+                '<div class="dm-popup__shift"><span>Ca làm</span><b>' + escapeHtml(meta.shift_names || 'Chưa đăng ký ca') + '</b></div>' +
+                '<div class="dm-popup__section"><span>Đơn đang nhận</span><span class="dm-popup__count">' + orders.length + '</span></div>' +
+                (orders.length ? '<p class="dm-popup__hint">Rê chuột hoặc bấm mã đơn để xem chi tiết</p><div class="dm-popup__orders">' + orders.map(function (order) {
+                    var args = Number(id) + ',' + Number(order.id) + ',this';
+                    return '<button type="button" class="dm-popup__order-trigger" aria-expanded="false" aria-controls="' + escapeHtml(orderPreview.id) + '" ' +
+                        'onmouseenter="if(window.matchMedia(\'(hover: hover)\').matches)_dmPreviewOrder(' + args + ',false)" onmouseleave="_dmHideOrderPreview()" ' +
+                        'onfocus="if(this.matches(\':focus-visible\'))_dmPreviewOrder(' + args + ',false)" onblur="_dmHideOrderPreview()" onclick="_dmPreviewOrder(' + args + ',true)">' +
+                        '<b>#' + escapeHtml(order.code) + '</b><span class="dm-popup-order__status' + (order.status === 'processing' ? ' picked' : '') + '">' + escapeHtml(order.status_label) + '</span></button>';
+                }).join('') + '</div>' : '<div class="dm-popup__empty">Tài xế chưa có đơn đang nhận.</div>') +
+                '<div class="dm-popup__foot"><span>GPS · ' + escapeHtml(formatAgo(gps && gps.updated_at)) + '</span>' +
+                (meta.url ? '<a href="' + escapeHtml(meta.url) + '">Hồ sơ tài xế →</a>' : '') + '</div></div>';
         }
 
         // ── Marker tài xế ────────────────────────────────────────────────────
@@ -350,7 +515,7 @@
                         position: pos, map: map, visible: true, zIndex: 10, title: meta.name || ('#' + id),
                         icon: { path: google.maps.SymbolPath.CIRCLE, fillColor: COLORS[state], fillOpacity: 1, strokeColor: '#fff', strokeWeight: 2, scale: 9 },
                     });
-                    m.addListener('click', function () { infoWindow.setContent(driverPopup(id)); infoWindow.open(map, m); });
+                    m.addListener('click', function () { hideOrderPreview(); selectedDriver = id; infoWindow.setContent(driverPopup(id)); infoWindow.open(map, m); });
                 } else { m.setPosition(pos); m.setVisible(true); m.setTitle(meta.name || ('#' + id)); }
                 buildIcon(id, meta, state, function (icon) { if (markers[id]) markers[id].setIcon(icon); });
             });
@@ -376,7 +541,7 @@
                         map: map, position: pos, zIndex: 999,
                         icon: { path: google.maps.SymbolPath.CIRCLE, scale: 9, fillColor: '#ef4444', fillOpacity: 1, strokeColor: '#fff', strokeWeight: 2 },
                     });
-                    m.addListener('click', function () { _select(o.id, false); infoWindow.setContent(orderInfo(m._order)); infoWindow.open(map, m); });
+                    m.addListener('click', function () { hideOrderPreview(); selectedDriver = null; _select(o.id, false); infoWindow.setContent(orderInfo(m._order)); infoWindow.open(map, m); });
                 }
                 m._order = o; m.setPosition(pos);
             });
@@ -498,6 +663,7 @@
                         google.maps.event.trigger(marker, 'click');
                     } else {
                         // Mất kết nối: không có vị trí để bay tới, hiện thông tin liên hệ ở giữa bản đồ
+                        hideOrderPreview(); selectedDriver = id;
                         infoWindow.setContent(driverPopup(id)); infoWindow.setPosition(map.getCenter()); infoWindow.open(map);
                     }
                 });
@@ -529,7 +695,32 @@
         setTab('drivers'); setFilter('all');
 
         // ── Dữ liệu ──────────────────────────────────────────────────────────
-        function onMeta(e) { dbMeta = e.detail.meta || {}; renderMarkers(); }
+        function onMeta(e) {
+            dbMeta = e.detail.meta || {}; renderMarkers();
+            if (selectedDriver !== null) {
+                if (dbMeta[selectedDriver]) {
+                    var ordersEl = mapEl.querySelector('.gm-style-iw-d:has(.dm-popup)');
+                    var scrollTop = ordersEl ? ordersEl.scrollTop : 0;
+                    google.maps.event.addListenerOnce(infoWindow, 'domready', function () {
+                        var updatedOrders = mapEl.querySelector('.gm-style-iw-d:has(.dm-popup)');
+                        if (updatedOrders) updatedOrders.scrollTop = scrollTop;
+                    });
+                    infoWindow.setContent(driverPopup(selectedDriver));
+                }
+                else { infoWindow.close(); selectedDriver = null; hideOrderPreview(); }
+            }
+            if (previewOrder) {
+                var order = ((dbMeta[previewOrder.driverId] || {}).active_orders || []).find(function (o) { return Number(o.id) === previewOrder.orderId; });
+                if (!order) hideOrderPreview();
+                else {
+                    var content = previewContent(order);
+                    if (orderPreview.innerHTML !== content) {
+                        var scrollTop = orderPreview.scrollTop;
+                        orderPreview.innerHTML = content; orderPreview.scrollTop = scrollTop;
+                    }
+                }
+            }
+        }
         function onOrders(e) {
             ordersMeta = e.detail.orders || [];
             if (selectedOrder && !ordersMeta.some(function (o) { return o.id === selectedOrder; })) clearSelection();
@@ -553,6 +744,11 @@
         renderMarkers(); renderOrderMarkers();
 
         window._dmTeardown = function () {
+            hideOrderPreview(); orderPreview.remove();
+            window.removeEventListener('keydown', onPreviewKeydown, true);
+            window.removeEventListener('scroll', onPreviewScroll, true);
+            window.removeEventListener('resize', hideOrderPreview);
+            delete window._dmPreviewOrder; delete window._dmHideOrderPreview;
             try { locRef.off('value', locHandler); } catch (e) {}
             window.removeEventListener('metaUpdated', onMeta);
             window.removeEventListener('ordersUpdated', onOrders);
