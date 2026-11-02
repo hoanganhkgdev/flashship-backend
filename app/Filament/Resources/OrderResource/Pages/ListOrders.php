@@ -10,13 +10,15 @@ use App\Support\AdminAccess;
 use App\Support\OrderListPresenter;
 use Filament\Actions;
 use Filament\Facades\Filament;
+use Filament\Infolists\Components\ViewEntry;
+use Filament\Infolists\Infolist;
 use Filament\Notifications\Notification;
 use Filament\Pages\Concerns\ExposesTableToWidgets;
 use Filament\Resources\Components\Tab;
 use Filament\Resources\Pages\ListRecords;
+use Filament\Tables\Actions\ViewAction;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
-use Modules\Core\Services\OperationalSettings;
 use Modules\Order\Services\OrderTimeline;
 
 class ListOrders extends ListRecords
@@ -24,6 +26,8 @@ class ListOrders extends ListRecords
     use ExposesTableToWidgets;
 
     protected static string $resource = OrderResource::class;
+
+    protected static string $view = 'filament.resources.order-resource.pages.list-orders';
 
     /**
      * Danh sách tự làm mới 15 giây. Nếu đơn đang mở ở cửa sổ xem nhanh/gán/hủy vừa được gán, hủy hoặc chuyển tab,
@@ -91,6 +95,22 @@ class ListOrders extends ListRecords
     public function getDefaultActiveTab(): string|int|null
     {
         return 'new';
+    }
+
+    protected function configureViewAction(ViewAction $action): void
+    {
+        parent::configureViewAction($action);
+
+        $action
+            ->modalWidth('4xl')
+            ->stickyModalHeader()
+            ->stickyModalFooter()
+            ->infolist(fn (Infolist $infolist): Infolist => $infolist->columns(1)->schema([
+                ViewEntry::make('quick_view')
+                    ->hiddenLabel()
+                    ->view('filament.resources.order-resource.partials.quick-view')
+                    ->columnSpanFull(),
+            ]));
     }
 
     /** Số đơn theo từng tab, tính bằng đúng một truy vấn cho mỗi lần hiển thị. */

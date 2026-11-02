@@ -723,7 +723,9 @@ class OrderResource extends Resource
         $delivery = trim((string) $o->delivery_address);
 
         return '<div class="fs-ol-journey"><span class="fs-ol-stop fs-ol-stop--pickup"><i>A</i><span><small>Điểm lấy</small><b title="'.e($pickup).'">'.e($pickup).'</b></span></span>'
-            .'<span class="fs-ol-stop fs-ol-stop--delivery"><i>B</i><span><small>Điểm giao</small><b title="'.e($delivery).'">'.($delivery !== '' ? e($delivery) : '<em>Chưa có điểm giao</em>').'</b></span></span>'
+            .(in_array($o->platform, ['customer_app', 'shop_app'], true)
+                ? '<span class="fs-ol-stop fs-ol-stop--delivery"><i>B</i><span><small>Điểm giao</small><b title="'.e($delivery).'">'.($delivery !== '' ? e($delivery) : '<em>Chưa có điểm giao</em>').'</b></span></span>'
+                : '')
             .($note !== '' ? '<span class="fs-ol-note"><svg viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M3 4a2 2 0 012-2h10a2 2 0 012 2v8a2 2 0 01-2 2H9l-4 3v-3a2 2 0 01-2-2V4z"/></svg><b>Ghi chú</b><span class="fs-ol-note__txt">'.e($note).'</span><span class="fs-ol-note__pop">'.e($note).'</span></span>' : '').'</div>';
     }
 

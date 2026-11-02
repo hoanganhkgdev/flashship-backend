@@ -5,7 +5,7 @@
             <span class="fs-order-pulse__icon"><x-heroicon-o-archive-box /></span>
             <span class="fs-order-pulse__label">Đơn hôm nay</span>
             <strong>{{ $num($total) }}</strong>
-            <small>{{ $num($active) }} đang chạy · {{ $num($pending) }} chờ</small>
+            <small>{{ $num($active) }} đơn đang xử lý, tạo hôm nay</small>
         </article>
         <article class="fs-order-pulse__card {{ $oldest >= 5 ? 'is-danger' : ($pending ? 'is-warning' : 'is-success') }}">
             <span class="fs-order-pulse__icon"><x-heroicon-o-clock /></span>
