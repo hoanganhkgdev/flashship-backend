@@ -4,7 +4,7 @@
         $statusConfig = match ($this->record->status) {
             'pending' => ['label' => 'Chờ tài xế', 'class' => 'warning'],
             'assigned' => ['label' => 'Đã phân công', 'class' => 'info'],
-            'processing' => ['label' => 'Đang giao hàng', 'class' => 'primary'],
+            'processing' => ['label' => 'Đã lấy hàng', 'class' => 'primary'],
             'completed' => ['label' => 'Hoàn thành', 'class' => 'success'],
             'cancelled' => ['label' => 'Đã huỷ', 'class' => 'danger'],
             default => ['label' => $this->record->status, 'class' => 'gray'],
@@ -115,6 +115,16 @@ let _editAddr = '', _editLat = 0, _editLng = 0;
 let _editMapsReady = false;
 let _editMapMode = 'pickup';
 
+// Toạ độ đi cùng địa chỉ: ghi vào ô ẩn data.{pickup|delivery}_lat/lng của form (gõ tay thì server tự geocode khi lưu).
+function _editSetCoords(inputId, lat, lng) {
+    const side = inputId === 'edit-delivery-addr' ? 'delivery' : 'pickup';
+    const root = document.getElementById(inputId)?.closest('[wire\\:id]');
+    const wire = root && window.Livewire ? window.Livewire.find(root.getAttribute('wire:id')) : null;
+    if (!wire) return;
+    wire.set(`data.${side}_lat`, lat, false);
+    wire.set(`data.${side}_lng`, lng, false);
+}
+
 // ── Autocomplete trên input ──
 function _editInitAutocomplete(inputId) {
     const input = document.getElementById(inputId);
@@ -126,6 +136,7 @@ function _editInitAutocomplete(inputId) {
         if (!p.geometry?.location) return;
         input.value = p.formatted_address || input.value;
         input.dispatchEvent(new Event('input', { bubbles: true }));
+        _editSetCoords(inputId, p.geometry.location.lat(), p.geometry.location.lng());
     });
 }
 
@@ -236,6 +247,7 @@ window.editConfirmMap = function () {
     if (input) {
         input.value = _editAddr;
         input.dispatchEvent(new Event('input', { bubbles: true }));
+        _editSetCoords(inputId, _editLat, _editLng);
     }
     editCloseMap();
 };

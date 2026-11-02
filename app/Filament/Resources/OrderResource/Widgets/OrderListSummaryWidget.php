@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\OrderResource\Widgets;
 
 use App\Filament\Resources\OrderResource\Pages\ListOrders;
+use App\Support\OrderMoney;
 use Filament\Widgets\Concerns\InteractsWithPageTable;
 use Filament\Widgets\Widget;
 
@@ -25,8 +26,9 @@ class OrderListSummaryWidget extends Widget
     protected function getViewData(): array
     {
         $base = $this->getPageTableQuery()->toBase()->reorder();
+        // Phí = tiền khách thật sự trả (freeship tổng đài = 0), cùng định nghĩa với trang Doanh thu.
         $row = (clone $base)->selectRaw("COUNT(*) total, SUM(status = 'cancelled') cancelled, SUM(status = 'completed') completed,
-            COALESCE(SUM(CASE WHEN status = 'completed' THEN shipping_fee END), 0) fee, COALESCE(SUM(CASE WHEN status = 'completed' THEN cod_amount END), 0) cod")->first();
+            COALESCE(SUM(CASE WHEN status = 'completed' THEN ".OrderMoney::COLLECTED." END), 0) fee, COALESCE(SUM(CASE WHEN status = 'completed' THEN cod_amount END), 0) cod")->first();
 
         return [
             'total' => (int) $row->total,

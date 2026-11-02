@@ -10,7 +10,6 @@ use App\Support\AdminAccess;
 use App\Support\OrderListPresenter;
 use Filament\Actions;
 use Filament\Facades\Filament;
-use Filament\Infolists\Components\ViewEntry;
 use Filament\Infolists\Infolist;
 use Filament\Notifications\Notification;
 use Filament\Pages\Concerns\ExposesTableToWidgets;
@@ -19,6 +18,7 @@ use Filament\Resources\Pages\ListRecords;
 use Filament\Tables\Actions\ViewAction;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\Cache;
 use Modules\Order\Services\OrderTimeline;
 
 class ListOrders extends ListRecords
@@ -101,34 +101,35 @@ class ListOrders extends ListRecords
     {
         parent::configureViewAction($action);
 
+        // Filament gắn sẵn link sang trang chi tiết khi resource có trang View; "Xem nhanh" phải mở popup
+        // (trang đầy đủ đã có mục "Mở trang đầy đủ" riêng trong menu).
         $action
+            ->url(null)
             ->modalWidth('4xl')
             ->stickyModalHeader()
             ->stickyModalFooter()
-            ->infolist(fn (Infolist $infolist): Infolist => $infolist->columns(1)->schema([
-                ViewEntry::make('quick_view')
-                    ->hiddenLabel()
-                    ->view('filament.resources.order-resource.partials.quick-view')
-                    ->columnSpanFull(),
-            ]));
+            ->infolist(fn (Infolist $infolist): Infolist => OrderResource::infolist($infolist));
     }
 
-    /** Số đơn theo từng tab, tính bằng đúng một truy vấn cho mỗi lần hiển thị. */
+    /**
+     * Số đơn theo từng tab. Bảng tự làm mới 15s và mỗi admin đang mở trang đều gọi: đếm toàn bộ lịch sử đơn của khu vực
+     * nên dùng chung kết quả 10 giây cho cả khu vực thay vì quét lại mỗi lần.
+     */
     private function counts(): array
     {
         static $memo = [];
         $key = Filament::getTenant()?->getKey() ?? 0;
-        if (isset($memo[$key])) {
-            return $memo[$key];
-        }
-        $r = OrderResource::getEloquentQuery()->toBase()->reorder()->selectRaw(
-            "COUNT(*) total,
-             SUM(status = 'pending') pending,
-             SUM(status IN ('assigned','processing')) active,
-             SUM(status = 'completed') completed, SUM(status = 'cancelled') cancelled"
-        )->first();
 
-        return $memo[$key] = collect((array) $r)->map(fn ($v) => (int) $v)->all();
+        return $memo[$key] ??= Cache::remember("orders:tab-counts:{$key}", 10, function () {
+            $r = OrderResource::getEloquentQuery()->toBase()->reorder()->selectRaw(
+                "COUNT(*) total,
+                 SUM(status = 'pending') pending,
+                 SUM(status IN ('assigned','processing')) active,
+                 SUM(status = 'completed') completed, SUM(status = 'cancelled') cancelled"
+            )->first();
+
+            return collect((array) $r)->map(fn ($v) => (int) $v)->all();
+        });
     }
 
     public function getTabs(): array
@@ -151,26 +152,41 @@ class ListOrders extends ListRecords
 
     private const EXPORT_LIMIT = 20000;
 
+    /**
+     * Chặn công thức Excel trong dữ liệu khách nhập (tên, địa chỉ...): ô bắt đầu bằng = + - @ hoặc tab/xuống dòng
+     * được thêm dấu ' để Excel coi là chữ. Số giữ nguyên để vẫn cộng được.
+     */
+    private static function csvCell(mixed $value): mixed
+    {
+        if (! is_string($value) || $value === '' || ! in_array($value[0], ['=', '+', '-', '@', "\t", "\r"], true)) {
+            return $value;
+        }
+
+        return "'".$value;
+    }
+
     /** Xuất đúng kết quả đang lọc/tìm/tab (tối đa 20.000 đơn). Chỉ quản trị viên đầy đủ. */
     public function exportCsv()
     {
         abort_unless(AdminAccess::allows(auth()->user(), AdminAccess::EXPORT_DATA), 403);
 
-        $query = $this->getFilteredSortedTableQuery()->with(['city:id,name', 'driver:id,name,phone', 'sender:id,name,phone', 'creator:id,name'])->limit(self::EXPORT_LIMIT);
+        // lazy() nạp quan hệ theo từng lô (cursor() thì không → ~3 truy vấn mỗi dòng). lazy() tự phân trang nên
+        // giới hạn số dòng bằng take() thay vì limit().
+        $query = $this->getFilteredSortedTableQuery()->with(['city:id,name', 'driver:id,name,phone', 'sender:id,name,phone', 'creator:id,name']);
         $statuses = ['pending' => 'Chờ tài xế', 'assigned' => 'Đã phân công', 'processing' => 'Đã lấy hàng', 'completed' => 'Hoàn thành', 'cancelled' => 'Đã hủy'];
 
         return response()->streamDownload(function () use ($query, $statuses) {
             $out = fopen('php://output', 'w');
             fwrite($out, "\xEF\xBB\xBF"); // BOM để Excel đọc đúng tiếng Việt
             fputcsv($out, ['Mã đơn', 'Tạo lúc', 'Dịch vụ', 'Nguồn', 'Người tạo', 'Khách', 'SĐT khách', 'Điểm lấy', 'Điểm giao', 'Phí ship', 'Thu hộ', 'Thanh toán', 'Trạng thái', 'Lý do hủy', 'Tài xế', 'SĐT tài xế', 'Hoàn thành lúc']);
-            foreach ($query->cursor() as $o) {
-                fputcsv($out, [
+            foreach ($query->lazy(500)->take(self::EXPORT_LIMIT) as $o) {
+                fputcsv($out, array_map(self::csvCell(...), [
                     $o->code, $o->created_at?->format('Y-m-d H:i:s'), $o->service_type, $o->platform, $o->creator?->name,
                     OrderListPresenter::customerName($o), OrderListPresenter::contactPhone($o),
                     $o->pickup_address, $o->delivery_address, (int) $o->shipping_fee, (int) $o->cod_amount, $o->payment_method,
                     $statuses[$o->status] ?? $o->status, $o->status === 'cancelled' ? OrderTimeline::cancelReasonLabel($o->cancel_reason) : '',
                     $o->driver?->name, $o->driver?->phone, $o->completed_at?->format('Y-m-d H:i:s'),
-                ]);
+                ]));
             }
             fclose($out);
         }, 'don-hang_'.now()->format('Ymd_His').'.csv', ['Content-Type' => 'text/csv; charset=UTF-8']);

@@ -2,7 +2,6 @@
 
 namespace App\Filament\Resources\OrderResource\Pages;
 
-use App\Filament\Pages\CallCenterPage;
 use App\Filament\Resources\OrderResource;
 use App\Support\AdminAccess;
 use Filament\Actions;
@@ -26,39 +25,13 @@ class ViewOrder extends ViewRecord
     protected function getHeaderActions(): array
     {
         return [
-            Actions\Action::make('assignDriver')
-                ->label('Gán tài xế')
-                ->icon('heroicon-o-user-plus')
-                ->color('info')
-                ->visible(fn (): bool => AdminAccess::allows(auth()->user(), AdminAccess::ORDERS_MANAGE) && $this->record->status === 'pending')
-                ->modalHeading(fn (): string => 'Gán tài xế cho đơn #'.$this->record->code)
-                ->modalDescription('Đơn sẽ ngừng tìm tự động và chuyển thẳng vào danh sách đã nhận của tài xế.')
-                ->form(fn (): array => OrderResource::manualAssignmentForm($this->record))
-                ->action(function (array $data): void {
-                    if (OrderResource::assignDriverManually($this->record, $data)) {
-                        $this->redirect(OrderResource::getUrl('view', ['record' => $this->record]));
-                    }
-                }),
+            OrderResource::assignAction(Actions\Action::make('assignDriver'))->after(fn () => $this->record->refresh()),
             Actions\Action::make('reorder')
                 ->label('Đặt lại đơn')
                 ->icon('heroicon-o-arrow-path')
                 ->color('gray')
                 ->visible(fn (Order $record): bool => AdminAccess::allows(auth()->user(), AdminAccess::ORDERS_MANAGE) && in_array($record->status, ['cancelled', 'completed']))
-                ->url(fn (Order $record): string => CallCenterPage::getUrl().'?'.http_build_query(array_filter([
-                    'reorder' => $record->id,
-                    'service' => $record->service_type,
-                    'city_id' => $record->city_id,
-                    'pickup_address' => $record->pickup_address,
-                    'pickup_place_name' => $record->pickup_place_name,
-                    'pickup_phone' => $record->pickup_phone,
-                    'pickup_lat' => $record->pickup_lat,
-                    'pickup_lng' => $record->pickup_lng,
-                    'delivery_address' => $record->delivery_address,
-                    'delivery_phone' => $record->delivery_phone,
-                    'delivery_lat' => $record->delivery_lat,
-                    'delivery_lng' => $record->delivery_lng,
-                    'order_note' => $record->order_note,
-                ]))),
+                ->url(fn (Order $record): string => OrderResource::reorderUrl($record)),
             OrderResource::completeAction(Actions\Action::make('complete'))->after(fn () => $this->record->refresh()),
             OrderResource::cancelAction(Actions\Action::make('cancel'))->after(fn () => $this->record->refresh()),
             Actions\EditAction::make()

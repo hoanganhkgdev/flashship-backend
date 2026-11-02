@@ -180,11 +180,45 @@ class OrderResource extends Resource
         return in_array($record?->status, ['completed', 'cancelled'], true);
     }
 
+    /**
+     * Phụ phí đêm áp cho phí sửa tay: đã ghi trên đơn thì giữ nguyên; đơn tạo với phí 0 (tài xế báo phí sau) thì tính theo
+     * giờ TẠO đơn, giống lúc đặt. Đơn đã có phí mà chưa từng có phụ phí thì không tự thêm.
+     */
+    /** Link "Đặt lại đơn" sang trang Tổng đài: một nơi dựng tham số cho cả bảng và trang chi tiết. */
+    public static function reorderUrl(Order $record): string
+    {
+        return CallCenterPage::getUrl().'?'.http_build_query(array_filter([
+            'reorder' => $record->id,
+            'service' => $record->service_type,
+            'pickup_address' => $record->pickup_address,
+            'pickup_place_name' => $record->pickup_place_name,
+            'pickup_lat' => $record->pickup_lat,
+            'pickup_lng' => $record->pickup_lng,
+            'order_note' => $record->order_note,
+        ]));
+    }
+
+    public static function nightSurchargeFor(?Order $record): int
+    {
+        if (! $record) {
+            return 0;
+        }
+        if ((int) $record->night_surcharge > 0) {
+            return (int) $record->night_surcharge;
+        }
+        if ((int) $record->shipping_fee > 0) {
+            return 0;
+        }
+
+        return OperationalSettings::nightSurcharge($record->city_id, $record->created_at ?? now());
+    }
+
     public static function manualAssignmentForm(Order $record): array
     {
         // Tài xế gán được hiện trước; người chưa gán được vẫn hiện mờ kèm lý do để tổng đài biết vì sao thiếu người.
-        $assignable = self::manualAssignmentDriverOptions($record);
-        $blocked = collect(self::manualAssignmentCandidates($record))
+        $candidates = self::manualAssignmentCandidates($record);
+        $assignable = self::manualAssignmentOptionsFrom($candidates);
+        $blocked = collect($candidates)
             ->filter(fn (array $c) => $c['reason'] !== null)
             ->mapWithKeys(fn (array $c) => [$c['id'] => trim($c['name'].($c['phone'] ? ' · '.$c['phone'] : '').' — '.$c['reason'])]);
 
@@ -323,6 +357,9 @@ class OrderResource extends Resource
                                 ->action(fn ($livewire) => $livewire->dispatch('openEditPickupMap')),
                         ]),
                     Forms\Components\TextInput::make('pickup_phone')->label('SĐT lấy hàng')->disabled(fn (?Order $record) => self::isFinished($record)),
+                    // Toạ độ đi cùng địa chỉ: JS điền khi chọn gợi ý/bản đồ; gõ tay thì EditOrder tự geocode.
+                    Forms\Components\Hidden::make('pickup_lat'),
+                    Forms\Components\Hidden::make('pickup_lng'),
                 ])->columns(2),
 
                 Forms\Components\Section::make('Điểm giao hàng')->icon('heroicon-o-arrow-down-circle')->schema([
@@ -334,12 +371,19 @@ class OrderResource extends Resource
                                 ->action(fn ($livewire) => $livewire->dispatch('openEditDeliveryMap')),
                         ]),
                     Forms\Components\TextInput::make('delivery_phone')->label('SĐT giao hàng')->disabled(fn (?Order $record) => self::isFinished($record)),
+                    Forms\Components\Hidden::make('delivery_lat'),
+                    Forms\Components\Hidden::make('delivery_lng'),
                 ])->columns(2),
 
                 Forms\Components\Section::make('Phí & thanh toán')->icon('heroicon-o-banknotes')->schema([
-                    Forms\Components\TextInput::make('shipping_fee')->label('Phí ship')->numeric()->suffix('đ')
+                    // Ô hiện phí CHƯA gồm phụ phí đêm; EditOrder cộng lại khi lưu (shipping_fee lưu đã gồm, xem OrderMoney).
+                    Forms\Components\TextInput::make('shipping_fee')->label('Phí ship')->numeric()->minValue(0)->suffix('đ')
                         ->disabled(fn (?Order $record) => self::isFinished($record))
-                        ->helperText(fn (?Order $record) => self::isFinished($record) ? 'Đơn đã hoàn thành hoặc hủy: không sửa được địa chỉ, số điện thoại và phí (chỉ sửa ghi chú).' : 'Mọi thay đổi được ghi vào dòng thời gian của đơn.'),
+                        ->helperText(fn (?Order $record) => self::isFinished($record)
+                            ? 'Đơn đã hoàn thành hoặc hủy: không sửa được địa chỉ, số điện thoại và phí (chỉ sửa ghi chú).'
+                            : (($night = self::nightSurchargeFor($record)) > 0
+                                ? 'Chưa gồm '.number_format($night, 0, ',', '.').'đ phụ phí đêm — hệ thống tự cộng khi có phí. Mọi thay đổi được ghi vào dòng thời gian của đơn.'
+                                : 'Để 0 nếu chưa biết phí. Mọi thay đổi được ghi vào dòng thời gian của đơn.')),
                 ])->columns(1),
 
                 Forms\Components\Section::make('Ghi chú')->icon('heroicon-o-chat-bubble-left-ellipsis')->schema([
@@ -402,172 +446,17 @@ class OrderResource extends Resource
         ])->columns(3);
     }
 
+    /**
+     * Trang chi tiết dùng chung khung "Xem nhanh" của danh sách: một thiết kế, một nơi sửa (trạng thái + tiến trình,
+     * hành trình, tài xế, thanh toán, lịch sử).
+     */
     public static function infolist(Infolist $infolist): Infolist
     {
-        return $infolist->schema([
-            Infolists\Components\Section::make('Tổng quan đơn hàng')
-                ->description('Thông tin nhận diện và tiến trình xử lý hiện tại')
-                ->icon('heroicon-o-clipboard-document-list')
-                ->schema([
-                    Infolists\Components\TextEntry::make('code')
-                        ->label('Mã đơn')
-                        ->weight('bold')
-                        ->copyable(),
-
-                    Infolists\Components\TextEntry::make('service_type')
-                        ->label('Dịch vụ')
-                        ->badge()
-                        ->formatStateUsing(fn ($state) => self::serviceLabels()[$state] ?? $state)
-                        ->color('info'),
-
-                    Infolists\Components\TextEntry::make('status')
-                        ->label('Trạng thái')
-                        ->badge()
-                        ->formatStateUsing(fn ($state) => self::$statusLabels[$state] ?? $state)
-                        ->color(fn ($state) => self::$statusColors[$state] ?? 'gray'),
-
-                    Infolists\Components\TextEntry::make('city.name')
-                        ->label('Thành phố')
-                        ->default('—'),
-
-                    Infolists\Components\TextEntry::make('cancel_reason')
-                        ->label('Lý do huỷ')
-                        ->default('—')
-                        ->visible(fn ($record) => $record->status === 'cancelled'),
-
-                    Infolists\Components\TextEntry::make('created_at')
-                        ->label('Tạo lúc')
-                        ->dateTime('d/m/Y H:i'),
-
-                    Infolists\Components\TextEntry::make('completed_at')
-                        ->label('Hoàn thành lúc')
-                        ->dateTime('d/m/Y H:i')
-                        ->placeholder('—'),
-                ])->columns(3),
-
-            Infolists\Components\Grid::make(['default' => 1, 'lg' => 2])->schema([
-                Infolists\Components\Section::make('Điểm lấy hàng')
-                    ->description('Thông tin người gửi và nơi nhận hàng')
-                    ->icon('heroicon-o-arrow-up-circle')
-                    ->schema([
-                        Infolists\Components\TextEntry::make('sender_name')->label('Người gửi')->default('—'),
-                        Infolists\Components\TextEntry::make('pickup_phone')->label('SĐT')->default('—')->copyable(),
-                        Infolists\Components\TextEntry::make('store_name')->label('Tên cửa hàng')->default('—'),
-                        Infolists\Components\TextEntry::make('pickup_address')->label('Địa chỉ')->columnSpanFull(),
-                    ])->columns(2),
-
-                Infolists\Components\Section::make('Điểm giao hàng')
-                    ->description('Thông tin người nhận và nơi giao hàng')
-                    ->icon('heroicon-o-arrow-down-circle')
-                    ->schema([
-                        Infolists\Components\TextEntry::make('receiver_name')->label('Người nhận')->default('—'),
-                        Infolists\Components\TextEntry::make('delivery_phone')->label('SĐT')->default('—')->copyable(),
-                        Infolists\Components\TextEntry::make('delivery_address')->label('Địa chỉ')->columnSpanFull(),
-                    ])->columns(2),
-            ]),
-
-            Infolists\Components\Grid::make(['default' => 1, 'lg' => 2])->schema([
-                Infolists\Components\Section::make('Tài xế phụ trách')
-                    ->description('Thông tin phân công và đánh giá sau chuyến')
-                    ->icon('heroicon-o-truck')
-                    ->schema([
-                        Infolists\Components\TextEntry::make('driver.name')
-                            ->label('Tên tài xế')
-                            ->default('Chưa phân công'),
-
-                        Infolists\Components\TextEntry::make('driver.phone')
-                            ->label('SĐT tài xế')
-                            ->default('—'),
-
-                        Infolists\Components\TextEntry::make('driver_rating')
-                            ->label('Đánh giá')
-                            ->default('Chưa đánh giá')
-                            ->suffix(fn ($state) => $state ? ' ⭐' : ''),
-
-                        Infolists\Components\TextEntry::make('driver_rating_note')
-                            ->label('Ghi chú đánh giá')
-                            ->default('—'),
-                    ])->columns(2),
-
-                Infolists\Components\Section::make('Chi phí & thanh toán')
-                    ->description('Các khoản phí, thu hộ và ưu đãi của đơn')
-                    ->icon('heroicon-o-banknotes')
-                    ->schema([
-                        Infolists\Components\TextEntry::make('shipping_fee')
-                            ->label('Phí ship')
-                            ->formatStateUsing(fn ($state) => number_format((int) $state).'đ'),
-
-                        Infolists\Components\TextEntry::make('bonus_fee')
-                            ->label('Thưởng thêm')
-                            ->formatStateUsing(fn ($state) => number_format((int) $state).'đ')
-                            ->color(fn ($state) => $state > 0 ? 'success' : 'gray'),
-
-                        Infolists\Components\TextEntry::make('cod_amount')
-                            ->label('Thu hộ COD')
-                            ->formatStateUsing(fn ($state) => $state ? number_format((int) $state).'đ' : '—'),
-
-                        Infolists\Components\TextEntry::make('discount_amount')
-                            ->label('Giảm giá')
-                            ->formatStateUsing(fn ($state) => $state ? number_format((int) $state).'đ' : '—'),
-
-                        Infolists\Components\TextEntry::make('distance')
-                            ->label('Khoảng cách')
-                            ->formatStateUsing(fn ($state) => $state ? number_format((float) $state, 1).' km' : '—'),
-
-                        Infolists\Components\TextEntry::make('payment_method')
-                            ->label('Thanh toán')
-                            ->badge()
-                            ->formatStateUsing(fn ($state) => self::$paymentLabels[$state] ?? $state)
-                            ->color('info'),
-
-                        Infolists\Components\TextEntry::make('voucher_code')
-                            ->label('Voucher')
-                            ->default('—'),
-
-                        Infolists\Components\IconEntry::make('is_freeship')
-                            ->label('Freeship')
-                            ->boolean(),
-                    ])->columns(2),
-            ]),
-
-            Infolists\Components\Section::make('Hàng hóa & ghi chú')
-                ->description('Thông tin cần lưu ý trong quá trình giao nhận')
-                ->icon('heroicon-o-archive-box')
-                ->schema([
-                    Infolists\Components\TextEntry::make('cargo_type')
-                        ->label('Loại hàng')
-                        ->default('—'),
-                    Infolists\Components\TextEntry::make('cargo_weight')
-                        ->label('Khối lượng')
-                        ->suffix(' kg')
-                        ->default('—'),
-                    Infolists\Components\TextEntry::make('order_note')
-                        ->label('Ghi chú đơn hàng')
-                        ->formatStateUsing(fn (?string $state) => self::displayNote($state) ?: 'Không có ghi chú')
-                        ->default('Không có ghi chú')
-                        ->columnSpanFull(),
-                ])->columns(2)->collapsible(),
-
-            Infolists\Components\Section::make('Lịch sử xử lý')
-                ->description('Mọi sự kiện của đơn: tạo, phát, nhận, lấy hàng, hoàn thành, hủy, sửa — kèm người thực hiện')
-                ->icon('heroicon-o-clock')
-                ->schema([
-                    Infolists\Components\RepeatableEntry::make('timeline')
-                        ->label('')
-                        ->state(fn (Order $record): array => OrderTimeline::for($record)->map(fn ($e) => [
-                            'text' => $e['text'],
-                            'who' => $e['who'] ?: 'Hệ thống',
-                            'when' => $e['at']?->format('H:i:s · d/m/Y'),
-                        ])->all())
-                        ->schema([
-                            Infolists\Components\TextEntry::make('text')->label('Sự kiện')->weight('bold'),
-                            Infolists\Components\TextEntry::make('who')->label('Bởi')->badge()->color('gray'),
-                            Infolists\Components\TextEntry::make('when')->label('Thời gian'),
-                        ])
-                        ->columns(3),
-                ])
-                // Mở sẵn khi đơn đang cần tổng đài xử lý để dòng log hiện ngay.
-                ->collapsed(false),
+        return $infolist->columns(1)->schema([
+            Infolists\Components\ViewEntry::make('quick_view')
+                ->hiddenLabel()
+                ->view('filament.resources.order-resource.partials.quick-view')
+                ->columnSpanFull(),
         ]);
     }
 
@@ -622,14 +511,21 @@ class OrderResource extends Resource
         } elseif (in_array($fresh->status, ['assigned', 'processing'], true)) {
             $result = app(OrderService::class)->cancelActiveOrderByAdmin($fresh, $reason, $note, $by);
             if ($result['success']) {
-                RTDBService::clearOrder($fresh->code);
-                if ($fresh->driver?->fcm_token) {
-                    FCMService::getInstance()->sendDriverNotice(
-                        $fresh->driver->fcm_token,
-                        "Đơn #{$fresh->code} đã bị hủy",
-                        'Tổng đài đã hủy đơn hàng này.',
-                        ['type' => 'order_status', 'order_code' => $fresh->code, 'status' => 'cancelled'],
-                    );
+                // Đơn đã hủy trong DB: lỗi Firebase/Redis lúc dọn realtime hoặc báo tài xế không được thành 500
+                // (admin bấm lại sẽ gặp "đơn không còn đang thực hiện" và tài xế có thể không được báo).
+                try {
+                    RTDBService::clearOrder($fresh->code);
+                    if ($fresh->driver?->fcm_token) {
+                        FCMService::getInstance()->sendDriverNotice(
+                            $fresh->driver->fcm_token,
+                            "Đơn #{$fresh->code} đã bị hủy",
+                            'Tổng đài đã hủy đơn hàng này.',
+                            ['type' => 'order_status', 'order_code' => $fresh->code, 'status' => 'cancelled'],
+                        );
+                    }
+                } catch (\Throwable $e) {
+                    report($e);
+                    Notification::make()->title('Đã hủy đơn, nhưng chưa báo được cho tài xế qua app — hãy gọi tài xế.')->warning()->send();
                 }
             }
         } else {
@@ -681,21 +577,21 @@ class OrderResource extends Resource
         return $o->city?->name;
     }
 
-    private static function minutesLabel(int $m): string
+    /** 45 phút · 1g04 · 12 ngày — dùng chung cho bảng và ô KPI "Chờ lâu nhất". */
+    public static function minutesLabel(int $m): string
     {
         return $m >= 1440 ? intdiv($m, 1440).' ngày' : ($m >= 60 ? intdiv($m, 60).'g'.str_pad((string) ($m % 60), 2, '0', STR_PAD_LEFT) : $m.' phút');
     }
 
     private static function colOrder(Order $o): string
     {
-        $service = self::serviceLabels()[$o->service_type] ?? $o->service_type;
         $waitMinutes = $o->status === 'pending' ? (int) $o->created_at->diffInMinutes(now()) : 0;
         $age = $o->status === 'pending'
-            ? ' · <span class="fs-ol-wait'.($waitMinutes >= 5 ? ' is-alert' : '').'">chờ '.self::minutesLabel($waitMinutes).'</span>'
-            : ($o->status === 'completed' && $o->completed_at ? ' · giao '.self::minutesLabel((int) $o->created_at->diffInMinutes($o->completed_at)) : '');
+            ? '<span class="fs-ol-wait'.($waitMinutes >= 5 ? ' is-alert' : '').'">Chờ '.self::minutesLabel($waitMinutes).'</span>'
+            : ($o->status === 'completed' && $o->completed_at ? '<span class="fs-ol-speed">Giao '.self::minutesLabel((int) $o->created_at->diffInMinutes($o->completed_at)).'</span>' : '');
 
-        return '<div class="fs-ol-order"><span class="fs-ol-l1"><b>#'.e($o->code).'</b><span class="fs-ol-svc" title="'.e($service).'">'.e(Str::limit((string) ($service ?: '—'), 14)).'</span></span>'
-            .'<span class="fs-ol-dim" title="'.e($o->created_at?->format('d/m/Y H:i:s')).'">'.e($o->created_at?->format('H:i · d/m')).$age.'</span></div>';
+        return '<div class="fs-ol-order"><span class="fs-ol-l1"><b>#'.e($o->code).'</b></span>'
+            .'<span class="fs-ol-dim" title="'.e($o->created_at?->format('d/m/Y H:i:s')).'"><span class="fs-ol-created">'.e($o->created_at?->format('H:i · d/m')).'</span>'.$age.'</span></div>';
     }
 
     /** Ghi chú hiển thị cho nhân viên: bỏ nhãn "[Chưa có điểm giao …]" tổng đài chèn sẵn cho tài xế. */
@@ -709,12 +605,15 @@ class OrderResource extends Resource
         $note = self::displayNote($o->order_note);
         $pickup = trim((string) $o->pickup_address) ?: '—';
         $delivery = trim((string) $o->delivery_address);
+        $service = (self::serviceLabels()[$o->service_type] ?? $o->service_type) ?: '—';
+        $fee = number_format((int) $o->shipping_fee, 0, ',', '.').'đ';
 
-        return '<div class="fs-ol-journey"><span class="fs-ol-stop fs-ol-stop--pickup"><i>A</i><span><small>Điểm lấy</small><b title="'.e($pickup).'">'.e($pickup).'</b></span></span>'
+        return '<div class="fs-ol-journey"><span class="fs-ol-stop fs-ol-stop--pickup"><span><small class="fs-ol-stop__label">Điểm lấy:</small><b title="'.e($pickup).'">'.e($pickup).'</b></span></span>'
             .(in_array($o->platform, ['customer_app', 'shop_app'], true)
-                ? '<span class="fs-ol-stop fs-ol-stop--delivery"><i>B</i><span><small>Điểm giao</small><b title="'.e($delivery).'">'.($delivery !== '' ? e($delivery) : '<em>Chưa có điểm giao</em>').'</b></span></span>'
+                ? '<span class="fs-ol-stop fs-ol-stop--delivery"><span><small class="fs-ol-stop__label">Điểm giao:</small><b title="'.e($delivery).'">'.($delivery !== '' ? e($delivery) : '<em>Chưa có điểm giao</em>').'</b></span></span>'
                 : '')
-            .($note !== '' ? '<span class="fs-ol-note"><svg viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M3 4a2 2 0 012-2h10a2 2 0 012 2v8a2 2 0 01-2 2H9l-4 3v-3a2 2 0 01-2-2V4z"/></svg><b>Ghi chú</b><span class="fs-ol-note__txt">'.e($note).'</span><span class="fs-ol-note__pop">'.e($note).'</span></span>' : '').'</div>';
+            .($note !== '' ? '<details class="fs-ol-note"><summary><span class="fs-ol-note__txt" title="'.e($note).'">'.e($note).'</span><span class="fs-ol-note__toggle"></span></summary></details>' : '')
+            .'<span class="fs-ol-journey-meta"><span class="fs-ol-type">'.e($service).'</span><span class="fs-ol-meta-separator">·</span><span class="fs-ol-fee"><small>Phí ship</small><b>'.$fee.'</b></span></span></div>';
     }
 
     private static function colCustomer(Order $o): string
@@ -741,18 +640,6 @@ class OrderResource extends Resource
                 : '<span class="fs-ol-no-driver">Chưa có tài xế</span>');
 
         return '<div class="fs-ol-status"><span class="fs-order-pill fs-order-pill--'.e($color).'">'.e($label).'</span>'.$second.'</div>';
-    }
-
-    private static function colMoney(Order $o): string
-    {
-        $payment = self::$paymentLabels[$o->payment_method] ?? $o->payment_method ?: '—';
-        $cod = (int) $o->cod_amount;
-        $flags = ($o->is_freeship ? '<span class="fs-order-chip" title="Khách không trả phí ship">Freeship</span>' : '')
-            .($o->fee_note ? '<span class="fs-order-chip" title="'.e($o->fee_note).'">Phí đã chỉnh</span>' : '');
-
-        return '<div class="fs-ol-money"><b>'.number_format((int) $o->shipping_fee, 0, ',', '.').'đ</b>'
-            .'<span>'.e($payment).'</span>'.($cod > 0 ? '<small>Thu hộ <strong>'.number_format($cod, 0, ',', '.').'đ</strong></small>' : '')
-            .($flags !== '' ? '<span class="fs-ol-money__flags">'.$flags.'</span>' : '').'</div>';
     }
 
     /** Tìm thông minh: SĐT / mã đơn / địa chỉ-tài xế-ghi chú. */
@@ -832,7 +719,8 @@ class OrderResource extends Resource
                 Tables\Columns\TextColumn::make('journey')
                     ->label('Hành trình')
                     ->state(fn (Order $record): string => self::colJourney($record))
-                    ->html(),
+                    ->html()
+                    ->disabledClick(),
 
                 Tables\Columns\TextColumn::make('customer')
                     ->label('Khách / nguồn')
@@ -844,10 +732,6 @@ class OrderResource extends Resource
                     ->formatStateUsing(fn ($state, Order $record): string => self::colStatus($record))
                     ->html(),
 
-                Tables\Columns\TextColumn::make('money')
-                    ->label('Thanh toán')
-                    ->state(fn (Order $record): string => self::colMoney($record))
-                    ->html(),
             ])
             ->recordClasses(fn (Order $record): string => 'fs-ol-row fs-order-row--'.(self::$statusColors[$record->status] ?? 'gray')
                 .($record->status === 'pending' && $record->created_at->diffInMinutes(now()) >= 5 ? ' fs-ol-row--urgent' : ''))
@@ -873,21 +757,7 @@ class OrderResource extends Resource
                         ->icon('heroicon-o-arrow-path')
                         ->color('success')
                         ->visible(fn (Order $record) => AdminAccess::allows(auth()->user(), AdminAccess::ORDERS_MANAGE) && in_array($record->status, ['cancelled', 'completed']))
-                        ->url(fn (Order $record) => CallCenterPage::getUrl().'?'.http_build_query(array_filter([
-                            'reorder' => $record->id,
-                            'service' => $record->service_type,
-                            'city_id' => $record->city_id,
-                            'pickup_address' => $record->pickup_address,
-                            'pickup_place_name' => $record->pickup_place_name,
-                            'pickup_phone' => $record->pickup_phone,
-                            'pickup_lat' => $record->pickup_lat,
-                            'pickup_lng' => $record->pickup_lng,
-                            'delivery_address' => $record->delivery_address,
-                            'delivery_phone' => $record->delivery_phone,
-                            'delivery_lat' => $record->delivery_lat,
-                            'delivery_lng' => $record->delivery_lng,
-                            'order_note' => $record->order_note,
-                        ]))),
+                        ->url(fn (Order $record) => self::reorderUrl($record)),
                 ])->icon('heroicon-m-ellipsis-horizontal')->label(''),
             ])
             // Bấm dòng mở ngăn kéo xem nhanh (dòng thời gian, hành trình, tiền); "Mở trang đầy đủ" trong ngăn kéo hoặc menu ⋯.

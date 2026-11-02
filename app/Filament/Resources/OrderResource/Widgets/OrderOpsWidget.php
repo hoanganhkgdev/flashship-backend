@@ -3,7 +3,9 @@
 namespace App\Filament\Resources\OrderResource\Widgets;
 
 use App\Filament\Resources\OrderResource;
+use App\Filament\Resources\OrderResource\Pages\ListOrders;
 use Filament\Facades\Filament;
+use Filament\Widgets\Concerns\InteractsWithPageTable;
 use Filament\Widgets\Widget;
 use Illuminate\Support\Facades\DB;
 use Modules\Core\Services\OperationalSettings;
@@ -11,6 +13,14 @@ use Modules\Core\Services\OperationalSettings;
 /** KPI đầu trang Đơn hàng. Nằm ngoài app/Filament/Widgets để không lọt vào Tổng quan. */
 class OrderOpsWidget extends Widget
 {
+    // Chỉ để biết tab đang mở (làm mới 15s ở tab trực, như bảng); số liệu KPI không phụ thuộc bộ lọc của bảng.
+    use InteractsWithPageTable;
+
+    protected function getTablePage(): string
+    {
+        return ListOrders::class;
+    }
+
     protected static string $view = 'filament.resources.order-resource.widgets.order-ops';
 
     protected int|string|array $columnSpan = 'full';

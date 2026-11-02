@@ -12,6 +12,7 @@ use App\Support\OrderListPresenter;
 use Filament\Facades\Filament;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Route;
 use Livewire\Livewire;
 use Modules\Core\Models\City;
@@ -38,6 +39,10 @@ class OrderOpsTest extends TestCase
         $this->actingAs($this->admin);
         Filament::setCurrentPanel(Filament::getPanel('admin'));
         Filament::setTenant($this->city);
+        // Sửa địa chỉ gõ tay thì EditOrder geocode: trả một toạ độ cố định thay vì gọi Google thật.
+        Http::fake(['maps.googleapis.com/maps/api/geocode/*' => fn ($request) => str_contains(urldecode($request->url()), 'không tồn tại')
+            ? Http::response(['status' => 'ZERO_RESULTS', 'results' => []])
+            : Http::response(['status' => 'OK', 'results' => [['formatted_address' => 'x', 'geometry' => ['location' => ['lat' => 10.5, 'lng' => 105.5]]]]])]);
     }
 
     private function user(string $type): User
@@ -306,5 +311,100 @@ class OrderOpsTest extends TestCase
         DB::table('orders')->where('id', $o->id)->delete();
 
         $page->call('$refresh')->assertSuccessful();
+    }
+
+    public function test_fee_edits_follow_call_center_rules_and_reject_typos(): void
+    {
+        $order = $this->order(['status' => 'processing']);
+        $edit = fn (array $data) => Livewire::test(EditOrder::class, ['record' => $order->id])->fillForm($data)->call('save');
+
+        $edit(['shipping_fee' => 25])->assertHasErrors(['data.shipping_fee']);
+        $edit(['shipping_fee' => -5000])->assertHasErrors(['data.shipping_fee']);
+        $edit(['shipping_fee' => 300001])->assertHasErrors(['data.shipping_fee']);
+        $this->assertSame(20000, (int) $order->fresh()->shipping_fee, 'phí sai không được lưu');
+
+        $edit(['shipping_fee' => 0])->assertHasNoErrors();
+        $this->assertSame(0, (int) $order->fresh()->shipping_fee, 'được để 0 khi chưa biết phí');
+    }
+
+    public function test_night_surcharge_is_added_when_a_night_order_gets_its_fee_later(): void
+    {
+        $this->travelTo(now()->setTime(23, 30));
+        $night = \Modules\Core\Services\OperationalSettings::nightSurcharge($this->city->id);
+        $this->assertGreaterThan(0, $night);
+        $order = $this->order(['status' => 'processing', 'shipping_fee' => 0, 'night_surcharge' => 0]);
+        $this->travelTo(now()->addHours(10)); // tài xế báo phí vào ban ngày, vẫn tính theo giờ tạo đơn
+
+        Livewire::test(EditOrder::class, ['record' => $order->id])->fillForm(['shipping_fee' => 30000])->call('save')->assertHasNoErrors();
+
+        $order->refresh();
+        $this->assertSame(30000 + $night, (int) $order->shipping_fee);
+        $this->assertSame($night, (int) $order->night_surcharge);
+
+        // Mở lại form: ô hiện phí gốc, lưu lại không cộng thêm lần nữa.
+        $form = Livewire::test(EditOrder::class, ['record' => $order->id]);
+        $this->assertSame(30000, (int) $form->get('data.shipping_fee'));
+        $form->call('save');
+        $this->assertSame(30000 + $night, (int) $order->fresh()->shipping_fee);
+    }
+
+    public function test_an_order_that_already_had_a_fee_does_not_gain_a_night_surcharge(): void
+    {
+        $this->travelTo(now()->setTime(23, 30));
+        $order = $this->order(['status' => 'processing', 'shipping_fee' => 20000, 'night_surcharge' => 0]);
+
+        Livewire::test(EditOrder::class, ['record' => $order->id])->fillForm(['shipping_fee' => 25000])->call('save')->assertHasNoErrors();
+
+        $this->assertSame(25000, (int) $order->fresh()->shipping_fee);
+    }
+
+    public function test_address_edits_move_the_coordinates_too(): void
+    {
+        $order = $this->order(['status' => 'assigned', 'delivery_lat' => 10.1, 'delivery_lng' => 105.1]);
+
+        // Chọn trên bản đồ: toạ độ gửi kèm được lưu.
+        Livewire::test(EditOrder::class, ['record' => $order->id])
+            ->fillForm(['pickup_address' => 'Chợ mới', 'pickup_lat' => 10.25, 'pickup_lng' => 105.25])->call('save')->assertHasNoErrors();
+        $order->refresh();
+        $this->assertSame([10.25, 105.25], [(float) $order->pickup_lat, (float) $order->pickup_lng]);
+
+        // Gõ tay: toạ độ cũ không được giữ, server tự geocode.
+        Livewire::test(EditOrder::class, ['record' => $order->id])->fillForm(['delivery_address' => '9 Nguyễn Huệ'])->call('save')->assertHasNoErrors();
+        $order->refresh();
+        $this->assertSame([10.5, 105.5], [(float) $order->delivery_lat, (float) $order->delivery_lng]);
+
+        // Sửa thứ khác: toạ độ giữ nguyên.
+        Livewire::test(EditOrder::class, ['record' => $order->id])->fillForm(['order_note' => 'Gọi trước'])->call('save');
+        $this->assertSame([10.25, 105.25], [(float) $order->fresh()->pickup_lat, (float) $order->fresh()->pickup_lng]);
+    }
+
+    public function test_unresolvable_typed_address_is_rejected(): void
+    {
+        $order = $this->order(['status' => 'assigned']);
+
+        Livewire::test(EditOrder::class, ['record' => $order->id])->fillForm(['delivery_address' => 'đâu đó không tồn tại xyz'])->call('save')
+            ->assertHasErrors(['data.delivery_address']);
+        $this->assertSame('2 Trần Phú', $order->fresh()->delivery_address);
+    }
+
+    public function test_cancelled_order_page_shows_the_reason_in_vietnamese(): void
+    {
+        $order = $this->order(['status' => 'cancelled', 'cancel_reason' => 'wrong_order', 'cancel_note' => 'khách đặt nhầm']);
+
+        Livewire::test(ViewOrder::class, ['record' => $order->id])
+            ->assertSee(OrderTimeline::cancelReasonLabel('wrong_order'))->assertDontSee('wrong_order');
+    }
+
+    public function test_csv_export_neutralises_spreadsheet_formulas(): void
+    {
+        $this->order(['status' => 'completed', 'completed_at' => now(), 'pickup_address' => '=HYPERLINK("http://evil","x")']);
+
+        $page = Livewire::test(ListOrders::class)->set('activeTab', 'completed');
+        ob_start();
+        $page->instance()->exportCsv()->sendContent();
+        $csv = ob_get_clean();
+
+        $this->assertStringContainsString("'=HYPERLINK", $csv);
+        $this->assertStringNotContainsString(',"=HYPERLINK', $csv);
     }
 }

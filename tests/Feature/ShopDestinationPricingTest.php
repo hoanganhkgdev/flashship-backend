@@ -33,6 +33,8 @@ class ShopDestinationPricingTest extends TestCase
     {
         parent::setUp();
         $this->assertStringEndsWith('_test', DB::connection()->getDatabaseName());
+        // Giờ trưa: ngoài khung phụ phí đêm, để giá trong test không phụ thuộc lúc chạy.
+        $this->travelTo(now()->setTime(12, 0));
         Cache::flush();
         Http::fake(['*' => Http::response([], 500)]);
         $this->city = City::create(['name' => 'Dest pricing', 'slug' => 'dest-pricing-'.uniqid(), 'is_active' => true]);
