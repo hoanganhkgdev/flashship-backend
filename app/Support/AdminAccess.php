@@ -15,6 +15,8 @@ final class AdminAccess
 
     public const OPERATIONS_MANAGE = 'operations_manage';
 
+    public const RAIN_MODE_MANAGE = 'rain_mode_manage';
+
     public const ORDERS_VIEW = 'orders_view';
 
     public const ORDERS_MANAGE = 'orders_manage';
@@ -30,9 +32,9 @@ final class AdminAccess
     private const MATRIX = [
         'admin' => ['*'],
         // Vai trò cũ, chỉ giữ để tài khoản lịch sử vẫn đăng nhập an toàn.
-        'subadmin' => [self::OPERATIONS_VIEW, self::OPERATIONS_MANAGE, self::ORDERS_VIEW, self::ORDERS_MANAGE, self::REPORTS_VIEW],
-        'city_manager' => [self::OPERATIONS_VIEW, self::OPERATIONS_MANAGE, self::ORDERS_VIEW, self::ORDERS_MANAGE, self::REPORTS_VIEW],
-        'call_center' => [self::OPERATIONS_VIEW, self::ORDERS_VIEW, self::ORDERS_MANAGE],
+        'subadmin' => [self::OPERATIONS_VIEW, self::OPERATIONS_MANAGE, self::RAIN_MODE_MANAGE, self::ORDERS_VIEW, self::ORDERS_MANAGE, self::REPORTS_VIEW],
+        'city_manager' => [self::OPERATIONS_VIEW, self::OPERATIONS_MANAGE, self::RAIN_MODE_MANAGE, self::ORDERS_VIEW, self::ORDERS_MANAGE, self::REPORTS_VIEW],
+        'call_center' => [self::OPERATIONS_VIEW, self::RAIN_MODE_MANAGE, self::ORDERS_VIEW, self::ORDERS_MANAGE],
         'accountant' => [self::ORDERS_VIEW, self::FINANCE_VIEW, self::FINANCE_MANAGE, self::REPORTS_VIEW, self::EXPORT_DATA],
         'viewer' => [self::OPERATIONS_VIEW, self::ORDERS_VIEW, self::REPORTS_VIEW],
     ];

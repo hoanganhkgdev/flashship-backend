@@ -25,23 +25,23 @@ class RainModeControl extends Component
     {
         $user = auth()->user();
 
-        return AdminAccess::allows($user, AdminAccess::OPERATIONS_MANAGE);
+        return AdminAccess::allows($user, AdminAccess::RAIN_MODE_MANAGE);
     }
 
     public function getCitiesProperty()
     {
-        if (! auth()->user()) {
+        if (! $this->canManage()) {
             return collect();
         }
 
         // Chỉ điều khiển đúng khu vực (tenant) đang đứng — đổi khu vực thì
         // dùng bộ chuyển tenant trên topbar, không cần danh sách riêng ở đây.
-        $tenantId = Filament::getTenant()?->id;
-        if (! $tenantId) {
+        $tenant = Filament::getTenant();
+        if (! $tenant || ! auth()->user()->canAccessTenant($tenant)) {
             return collect();
         }
 
-        return City::where('id', $tenantId)->get(['id', 'name', 'is_rain_mode', 'rain_mode_started_at']);
+        return City::where('id', $tenant->id)->get(['id', 'name', 'is_rain_mode', 'rain_mode_started_at']);
     }
 
     public function toggleCity(int $cityId): void
@@ -58,7 +58,7 @@ class RainModeControl extends Component
         }
 
         $city = City::find($cityId);
-        if (! $city) {
+        if (! $city || ! $user->canAccessTenant($city)) {
             return;
         }
 
