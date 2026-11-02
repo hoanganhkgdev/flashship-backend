@@ -16,7 +16,7 @@ trait BuildsReportSeries
         return $days <= 62 ? 'day' : ($days <= 200 ? 'week' : 'month');
     }
 
-    /** @return array<string, array{key: string, label: string, weekend: bool}> */
+    /** @return array<string, array{key: string, label: string, weekend: bool, start: string, end: string}> */
     private function buckets(Carbon $from, Carbon $to, string $granularity): array
     {
         $out = [];
@@ -38,7 +38,8 @@ trait BuildsReportSeries
                 'month' => $cursor->format('m/Y'),
                 default => $cursor->format('d/m'),
             };
-            $out[$key] = ['key' => $key, 'label' => $label, 'weekend' => $granularity === 'day' && $cursor->isWeekend()];
+            $out[$key] = ['key' => $key, 'label' => $label, 'weekend' => $granularity === 'day' && $cursor->isWeekend(),
+                'start' => $cursor->toDateString(), 'end' => $end->toDateString()];
 
             $cursor = $end->copy()->addDay();
         }

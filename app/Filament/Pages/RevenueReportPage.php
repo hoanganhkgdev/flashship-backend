@@ -4,11 +4,13 @@ namespace App\Filament\Pages;
 
 use App\Filament\Pages\Concerns\BuildsReportSeries;
 use App\Support\AdminAccess;
+use App\Support\OrderMoney;
 use Carbon\Carbon;
 use Filament\Facades\Filament;
 use Filament\Pages\Page;
 use Illuminate\Database\Eloquent\Builder;
 use Modules\Core\Models\ServiceType;
+use Modules\Core\Services\OperationalSettings;
 use Modules\Order\Models\Order;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
@@ -56,7 +58,10 @@ class RevenueReportPage extends Page
         'this_year' => 'Năm nay',
     ];
 
-    private const SORTABLE = ['date', 'total', 'completed', 'discount', 'revenue'];
+    private const SORTABLE = ['date', 'total', 'completed', 'cost', 'revenue'];
+
+    /** Khoảng dài nhất một lần xem (ngày): cột completed_at chưa có index, khoảng vô hạn sẽ quét cả bảng đơn. */
+    private const MAX_RANGE_DAYS = 731;
 
     private static array $platformLabels = ['customer_app' => 'App khách', 'shop_app' => 'App shop', 'call_center' => 'Tổng đài', 'admin' => 'Quản trị viên'];
 
@@ -74,6 +79,18 @@ class RevenueReportPage extends Page
     public static function canAccess(): bool
     {
         return AdminAccess::allows(auth()->user(), AdminAccess::REPORTS_VIEW);
+    }
+
+    /** Xuất file chứa số liệu từng đơn: cùng quyền với xuất ở trang Đơn hàng, không chỉ quyền xem báo cáo. */
+    public function canExport(): bool
+    {
+        return AdminAccess::allows(auth()->user(), AdminAccess::EXPORT_DATA);
+    }
+
+    /** Thưởng mưa chưa chốt trên đơn thì tính theo mức của khu vực, như OrderService::completeOrder(). */
+    private function rainDefault(): int
+    {
+        return OperationalSettings::rainBonusAmount(Filament::getTenant()?->getKey());
     }
 
     public function getHeading(): string
@@ -152,14 +169,24 @@ class RevenueReportPage extends Page
         $previous = $this->summaryForPeriod($previousFrom, $previousTo);
         $summary['revenue_change'] = $this->percentChange($summary['total_revenue'], $previous['total_revenue']);
         $summary['orders_change'] = $this->percentChange($summary['completed_orders'], $previous['completed_orders']);
+        $summary['cost_change'] = $this->percentChange($summary['platform_cost'], $previous['platform_cost']);
+        $summary['driver_change'] = $this->percentChange($summary['driver_total'], $previous['driver_total']);
         // Tính trên đơn TẠO trong kỳ rồi đã hoàn thành, nên không bao giờ vượt 100%.
         $summary['completion_rate'] = $summary['total_orders'] ? round($summary['created_completed'] / $summary['total_orders'] * 100, 1) : 0;
 
         $granularity = $this->granularity($days);
-        $series = $this->series($from, $to, $granularity, true);
-        $previousSeries = array_values($this->series($previousFrom, $previousTo, $granularity, false));
-        foreach (array_values($series) as $i => $row) {
-            $series[$row['key']]['prev_revenue'] = $previousSeries[$i]['revenue'] ?? null;
+        $series = $this->series($from, $to, $granularity);
+        // Kỳ trước so theo đúng khoảng ngày của từng cột lùi lại $days ngày (không ghép theo vị trí:
+        // tuần/tháng của hai kỳ dài ngắn khác nhau, ghép vị trí làm lệch cả tháng).
+        $previousDaily = $this->completedQuery($previousFrom, $previousTo)
+            ->selectRaw('DATE(completed_at) as d, COALESCE(SUM('.OrderMoney::COLLECTED.'), 0) as v')
+            ->groupBy('d')->pluck('v', 'd');
+        foreach ($series as $key => $row) {
+            $sum = 0;
+            for ($d = Carbon::parse($row['start'])->subDays($days); $d->lte(Carbon::parse($row['end'])->subDays($days)); $d->addDay()) {
+                $sum += (int) ($previousDaily[$d->toDateString()] ?? 0);
+            }
+            $series[$key]['prev_revenue'] = $sum;
         }
         $rows = array_values($series);
 
@@ -178,9 +205,10 @@ class RevenueReportPage extends Page
             'totals' => [
                 'total' => array_sum(array_column($rows, 'total')),
                 'completed' => array_sum(array_column($rows, 'completed')),
-                'discount' => array_sum(array_column($rows, 'discount')),
+                'cost' => array_sum(array_column($rows, 'cost')),
                 'revenue' => array_sum(array_column($rows, 'revenue')),
             ],
+            'clamped' => $this->rangeWasClamped,
             'services' => $this->withColors($services),
             'platforms' => $this->withColors($platforms),
             'payments' => $payments,
@@ -190,18 +218,25 @@ class RevenueReportPage extends Page
 
     public function exportCsv(): StreamedResponse
     {
+        abort_unless($this->canExport(), 403);
         [$from, $to] = $this->dateRange();
+        $rain = OrderMoney::rainCost($this->rainDefault());
 
-        return response()->streamDownload(function () use ($from, $to): void {
+        return response()->streamDownload(function () use ($from, $to, $rain): void {
             $output = fopen('php://output', 'w');
             fwrite($output, "\xEF\xBB\xBF");
-            fputcsv($output, ['Mã đơn', 'Hoàn thành', 'Dịch vụ', 'Nguồn đơn', 'Thanh toán', 'Phí ship', 'Phụ phí', 'Giảm giá', 'Tổng thu']);
-            $this->completedQuery($from, $to)->orderBy('completed_at')->chunkById(500, function ($orders) use ($output): void {
-                foreach ($orders as $order) {
-                    $surcharge = (int) $order->bonus_fee + (int) $order->night_surcharge;
-                    fputcsv($output, [$order->code ?: $order->id, optional($order->completed_at)->format('d/m/Y H:i'), $this->serviceLabels()[$order->service_type] ?? $order->service_type, self::$platformLabels[$order->platform] ?? $order->platform, self::$paymentLabels[$order->payment_method] ?? $order->payment_method, (int) $order->shipping_fee, $surcharge, (int) $order->discount_amount, (int) $order->shipping_fee + $surcharge]);
-                }
-            });
+            fputcsv($output, ['Mã đơn', 'Hoàn thành', 'Dịch vụ', 'Nguồn đơn', 'Thanh toán', 'Khách trả', 'Trong đó phụ phí đêm', 'Bonus tài xế', 'Bù voucher', 'Bù freeship', 'Thưởng mưa', 'Công ty chi']);
+            // lazy() phân trang theo đúng thứ tự (completed_at, id); chunkById sắp lại theo id nên bỏ sót đơn hoàn thành không theo thứ tự id.
+            $this->completedQuery($from, $to)
+                ->select(['id', 'code', 'completed_at', 'service_type', 'platform', 'payment_method'])
+                ->selectRaw(OrderMoney::COLLECTED.' as m_collected, '.OrderMoney::NIGHT_INCLUDED.' as m_night, '.OrderMoney::BONUS_COST.' as m_bonus')
+                ->selectRaw(OrderMoney::DISCOUNT_COST.' as m_discount, '.OrderMoney::FREESHIP_COST.' as m_freeship, '.$rain.' as m_rain')
+                ->orderBy('completed_at')->orderBy('id')
+                ->lazy(500)
+                ->each(function ($order) use ($output): void {
+                    $cost = (int) $order->m_bonus + (int) $order->m_discount + (int) $order->m_freeship + (int) $order->m_rain;
+                    fputcsv($output, [$order->code ?: $order->id, optional($order->completed_at)->format('d/m/Y H:i'), $this->serviceLabels()[$order->service_type] ?? $order->service_type, self::$platformLabels[$order->platform] ?? $order->platform, self::$paymentLabels[$order->payment_method] ?? $order->payment_method, (int) $order->m_collected, (int) $order->m_night, (int) $order->m_bonus, (int) $order->m_discount, (int) $order->m_freeship, (int) $order->m_rain, $cost]);
+                });
             fclose($output);
         }, "bao-cao-doanh-thu-{$from->format('Ymd')}-{$to->format('Ymd')}.csv", ['Content-Type' => 'text/csv; charset=UTF-8']);
     }
@@ -214,12 +249,19 @@ class RevenueReportPage extends Page
             ->selectRaw("SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) as cancelled_orders")
             ->selectRaw("SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as created_completed")->first();
         $financial = $this->completedQuery($from, $to)
-            ->selectRaw('COUNT(*) as completed_orders, COALESCE(SUM(shipping_fee), 0) as shipping_revenue')
-            ->selectRaw('COALESCE(SUM(bonus_fee + night_surcharge), 0) as surcharge_revenue, COALESCE(SUM(discount_amount), 0) as total_discount')
-            ->selectRaw('COALESCE(SUM(rain_bonus_amount), 0) as rain_bonus')->first();
-        $shipping = (int) $financial->shipping_revenue;
-        $surcharge = (int) $financial->surcharge_revenue;
+            ->selectRaw('COUNT(*) as completed_orders')
+            ->selectRaw('COALESCE(SUM('.OrderMoney::COLLECTED.'), 0) as collected, COALESCE(SUM('.OrderMoney::NIGHT_INCLUDED.'), 0) as night')
+            ->selectRaw('COALESCE(SUM('.OrderMoney::BONUS_COST.'), 0) as bonus, COALESCE(SUM('.OrderMoney::DISCOUNT_COST.'), 0) as discount')
+            ->selectRaw('COALESCE(SUM('.OrderMoney::FREESHIP_COST.'), 0) as freeship, COALESCE(SUM('.OrderMoney::rainCost($this->rainDefault()).'), 0) as rain')
+            ->first();
+        $collected = (int) $financial->collected;
         $completed = (int) $financial->completed_orders;
+        $costs = [
+            'bonus' => (int) $financial->bonus,
+            'discount' => (int) $financial->discount,
+            'freeship' => (int) $financial->freeship,
+            'rain' => (int) $financial->rain,
+        ];
 
         return [
             'total_orders' => (int) $operational->total_orders,
@@ -227,33 +269,33 @@ class RevenueReportPage extends Page
             'active_orders' => (int) $operational->active_orders,
             'cancelled_orders' => (int) $operational->cancelled_orders,
             'created_completed' => (int) $operational->created_completed,
-            'shipping_revenue' => $shipping,
-            'surcharge_revenue' => $surcharge,
-            'total_discount' => (int) $financial->total_discount,
-            'rain_bonus' => (int) $financial->rain_bonus,
-            'total_revenue' => $shipping + $surcharge,
-            'avg_fee' => $completed ? (int) round(($shipping + $surcharge) / $completed) : 0,
+            // Doanh thu = tiền khách thật sự trả (đã gồm phụ phí đêm, đã trừ voucher, freeship tổng đài = 0).
+            'total_revenue' => $collected,
+            'night_included' => (int) $financial->night,
+            'costs' => $costs,
+            'platform_cost' => array_sum($costs),
+            'driver_total' => $collected + array_sum($costs),
+            'avg_fee' => $completed ? (int) round($collected / $completed) : 0,
         ];
     }
 
     /**
-     * Chuỗi theo kỳ (ngày/tuần/tháng). $withCreated=false bỏ truy vấn đơn tạo (kỳ trước chỉ cần doanh thu).
+     * Chuỗi theo kỳ (ngày/tuần/tháng): đơn tạo, đơn hoàn thành, tiền khách trả và công ty chi.
      *
      * @return array<string, array<string, mixed>>
      */
-    private function series(Carbon $from, Carbon $to, string $granularity, bool $withCreated): array
+    private function series(Carbon $from, Carbon $to, string $granularity): array
     {
         $buckets = $this->buckets($from, $to, $granularity);
 
         $completed = $this->completedQuery($from, $to)
-            ->selectRaw($this->bucketSql('completed_at', $granularity).' as k, COUNT(*) as completed, COALESCE(SUM(shipping_fee + bonus_fee + night_surcharge), 0) as revenue, COALESCE(SUM(discount_amount), 0) as discount')
+            ->selectRaw($this->bucketSql('completed_at', $granularity).' as k, COUNT(*) as completed')
+            ->selectRaw('COALESCE(SUM('.OrderMoney::COLLECTED.'), 0) as revenue, COALESCE(SUM('.OrderMoney::platformCost($this->rainDefault()).'), 0) as cost')
             ->groupBy('k')->get()->keyBy(fn ($r) => (string) $r->k);
 
-        $created = $withCreated
-            ? $this->filteredQuery()->whereBetween('created_at', [$from, $to])
-                ->selectRaw($this->bucketSql('created_at', $granularity).' as k, COUNT(*) as total')
-                ->groupBy('k')->get()->mapWithKeys(fn ($r) => [(string) $r->k => (int) $r->total])
-            : collect();
+        $created = $this->filteredQuery()->whereBetween('created_at', [$from, $to])
+            ->selectRaw($this->bucketSql('created_at', $granularity).' as k, COUNT(*) as total')
+            ->groupBy('k')->get()->mapWithKeys(fn ($r) => [(string) $r->k => (int) $r->total]);
 
         $i = 0;
         foreach ($buckets as $key => &$bucket) {
@@ -263,7 +305,7 @@ class RevenueReportPage extends Page
                 'total' => (int) ($created[(string) $key] ?? 0),
                 'completed' => (int) ($row?->completed ?? 0),
                 'revenue' => (int) ($row?->revenue ?? 0),
-                'discount' => (int) ($row?->discount ?? 0),
+                'cost' => (int) ($row?->cost ?? 0),
                 'prev_revenue' => null,
             ];
         }
@@ -307,14 +349,14 @@ class RevenueReportPage extends Page
     {
         $row = $this->filteredQuery()->where('status', 'completed')->whereNull('completed_at')
             ->whereBetween('created_at', [$from, $to])
-            ->selectRaw('COUNT(*) as c, COALESCE(SUM(shipping_fee + bonus_fee + night_surcharge), 0) as fee')->first();
+            ->selectRaw('COUNT(*) as c, COALESCE(SUM('.OrderMoney::COLLECTED.'), 0) as fee')->first();
 
         return ['missing_count' => (int) $row->c, 'missing_fee' => (int) $row->fee];
     }
 
     private function breakdown(string $column, Carbon $from, Carbon $to, array $labels): array
     {
-        return $this->completedQuery($from, $to)->select($column)->selectRaw('COUNT(*) as total, COALESCE(SUM(shipping_fee + bonus_fee + night_surcharge), 0) as revenue')->groupBy($column)->orderByDesc('revenue')->get()->map(fn ($row) => ['key' => $row->{$column} ?: 'unknown', 'label' => $labels[$row->{$column}] ?? ($row->{$column} ?: 'Chưa xác định'), 'total' => (int) $row->total, 'revenue' => (int) $row->revenue])->all();
+        return $this->completedQuery($from, $to)->select($column)->selectRaw('COUNT(*) as total, COALESCE(SUM('.OrderMoney::COLLECTED.'), 0) as revenue')->groupBy($column)->orderByDesc('revenue')->get()->map(fn ($row) => ['key' => $row->{$column} ?: 'unknown', 'label' => $labels[$row->{$column}] ?? ($row->{$column} ?: 'Chưa xác định'), 'total' => (int) $row->total, 'revenue' => (int) $row->revenue])->all();
     }
 
     private function filteredQuery(): Builder
@@ -327,8 +369,11 @@ class RevenueReportPage extends Page
         return $this->filteredQuery()->where('status', 'completed')->whereBetween('completed_at', [$from, $to]);
     }
 
+    private bool $rangeWasClamped = false;
+
     private function dateRange(): array
     {
+        $this->rangeWasClamped = false;
         try {
             $from = Carbon::parse($this->from)->startOfDay();
             $to = Carbon::parse($this->to)->endOfDay();
@@ -338,6 +383,10 @@ class RevenueReportPage extends Page
         }
         if ($from->gt($to)) {
             [$from, $to] = [$to->copy()->startOfDay(), $from->copy()->endOfDay()];
+        }
+        if ($from->diffInDays($to) > self::MAX_RANGE_DAYS) {
+            $from = $to->copy()->subDays(self::MAX_RANGE_DAYS)->startOfDay();
+            $this->rangeWasClamped = true;
         }
 
         return [$from, $to];

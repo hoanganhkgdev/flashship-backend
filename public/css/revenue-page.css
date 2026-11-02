@@ -1,0 +1,90 @@
+/* Trang Doanh thu. revenue-report.css là nền chung với Thu nhập / Thu phí tài xế (cùng class .fs-revenue),
+   nên phần riêng của trang này nằm dưới .fs-revenue-page để không ảnh hưởng hai trang kia. */
+.fs-revenue-page {
+    --rv-collected: #f97316;
+    --rv-cost: #3b82f6;
+    --rv-driver: #10b981;
+}
+
+/* ── KPI ─────────────────────────────────────────────────────────────────────── */
+.fs-revenue-page .fs-rv-kpis { display:grid; grid-template-columns:1.35fr repeat(3,minmax(0,1fr)); gap:14px; }
+.fs-revenue-page .fs-rv-kpi { position:relative; display:flex; flex-direction:column; gap:8px; min-width:0; min-height:158px; padding:18px 18px 16px; overflow:hidden; border:1px solid var(--rv-border); border-radius:14px; background:var(--rv-surface); box-shadow:0 2px 5px #0f172a05; }
+.fs-revenue-page .fs-rv-kpi::after { content:''; position:absolute; inset:0 auto 0 0; width:3px; background:var(--rv-accent, transparent); }
+.fs-revenue-page .fs-rv-kpi--cost { --rv-accent:var(--rv-cost); }
+.fs-revenue-page .fs-rv-kpi--driver { --rv-accent:var(--rv-driver); }
+.fs-revenue-page .fs-rv-kpi--orders { --rv-accent:#8b5cf6; }
+.fs-revenue-page .fs-rv-kpi__head { display:flex; align-items:center; justify-content:space-between; gap:10px; color:var(--rv-muted); font-size:var(--fs-xs, 12px); font-weight:600; }
+.fs-revenue-page .fs-rv-kpi__head svg { width:18px; height:18px; flex:none; color:var(--rv-accent, var(--rv-muted)); }
+.fs-revenue-page .fs-rv-kpi strong { color:var(--rv-ink); font-size:clamp(22px,1.9vw,28px); font-weight:750; letter-spacing:-.04em; line-height:1.15; overflow-wrap:anywhere; }
+.fs-revenue-page .fs-rv-kpi .fs-rr-delta { font-size:var(--fs-xs, 12px); white-space:normal; line-height:1.45; }
+.fs-revenue-page .fs-rv-kpi > small { margin-top:auto; color:var(--rv-muted); font-size:var(--fs-xs, 12px); line-height:1.45; }
+.fs-revenue-page .fs-rv-kpi__facts { display:grid; gap:4px; margin:auto 0 0; padding-top:8px; border-top:1px dashed var(--rv-border); }
+.fs-revenue-page .fs-rv-kpi__facts div { display:flex; justify-content:space-between; gap:8px; font-size:var(--fs-xs, 12px); }
+.fs-revenue-page .fs-rv-kpi__facts dt { color:var(--rv-muted); }
+.fs-revenue-page .fs-rv-kpi__facts dd { margin:0; color:var(--rv-ink); font-weight:650; }
+
+/* Thẻ chính: nền tối, đường xu hướng nhỏ ở đáy */
+.fs-revenue-page .fs-rv-kpi--hero { min-height:172px; padding:20px 20px 18px; border-color:#24354c; background:linear-gradient(130deg,#172539 0%,#24384f 100%); color:#fff; }
+.fs-revenue-page .fs-rv-kpi--hero .fs-rv-kpi__head { color:#cbd5e1; }
+.fs-revenue-page .fs-rv-kpi--hero .fs-rv-kpi__head svg { color:#fdba74; }
+.fs-revenue-page .fs-rv-kpi--hero strong { color:#fff; font-size:clamp(28px,2.6vw,38px); }
+.fs-revenue-page .fs-rv-kpi--hero > small { color:#a9b8cb; }
+.fs-revenue-page .fs-rv-kpi--hero .fs-rv-spark + small { margin-top:0; }
+.fs-revenue-page .fs-rv-kpi--hero .fs-rr-delta--up { color:#86efac; }
+.fs-revenue-page .fs-rv-kpi--hero .fs-rr-delta--down { color:#fda4af; }
+.fs-revenue-page .fs-rv-kpi--hero .fs-rr-delta--flat, .fs-revenue-page .fs-rv-kpi--hero .fs-rr-delta small { color:#cbd5e1; }
+.fs-revenue-page .fs-rv-spark { display:block; width:100%; height:34px; margin-top:auto; color:#fb923c; opacity:.7; pointer-events:none; }
+
+/* Chi phí tăng là xấu: đảo màu tăng/giảm của thẻ Công ty chi */
+.fs-revenue-page .fs-rv-kpi--cost .fs-rr-delta--up { color:#dc2626; }
+.fs-revenue-page .fs-rv-kpi--cost .fs-rr-delta--down { color:#16a34a; }
+
+/* ── Dòng tiền ──────────────────────────────────────────────────────────────── */
+.fs-revenue-page .fs-rv-flow { display:flex; flex-direction:column; }
+.fs-revenue-page .fs-rv-flow .fs-rr-card__head { margin-bottom:16px; }
+.fs-revenue-page .fs-rv-flow__bar { display:flex; gap:3px; height:10px; overflow:hidden; border-radius:999px; background:var(--rv-soft); }
+.fs-revenue-page .fs-rv-flow__bar i { display:block; height:100%; }
+.fs-revenue-page .fs-rv-flow__bar .is-collected { background:var(--rv-collected); }
+.fs-revenue-page .fs-rv-flow__bar .is-cost { background:var(--rv-cost); }
+.fs-revenue-page .fs-rv-flow__list { display:grid; margin:16px 0 0; padding:0; list-style:none; }
+.fs-revenue-page .fs-rv-flow__row { position:relative; display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:baseline; gap:2px 12px; padding:10px 0; border-bottom:1px solid var(--rv-border); }
+.fs-revenue-page .fs-rv-flow__row > span { display:flex; align-items:center; gap:8px; min-width:0; color:var(--rv-ink); font-size:var(--fs-sm, 14px); font-weight:600; }
+.fs-revenue-page .fs-rv-flow__row > b { color:var(--rv-ink); font-size:var(--fs-sm, 14px); font-weight:700; }
+.fs-revenue-page .fs-rv-flow__row > small { grid-column:1 / -1; color:var(--rv-muted); font-size:var(--fs-xs, 12px); }
+.fs-revenue-page .fs-rv-flow__row.is-collected > span i { width:8px; height:8px; border-radius:3px; background:var(--rv-collected); }
+.fs-revenue-page .fs-rv-flow__row--cost { padding-left:16px; }
+.fs-revenue-page .fs-rv-flow__row--cost > span { color:var(--rv-muted); font-weight:550; }
+.fs-revenue-page .fs-rv-flow__row--cost > span em { position:absolute; left:0; color:var(--rv-cost); font-style:normal; font-weight:700; }
+.fs-revenue-page .fs-rv-flow__row--cost > b { color:var(--rv-ink); font-weight:650; }
+.fs-revenue-page .fs-rv-flow__meter { grid-column:1 / -1; display:block; height:4px; margin-top:4px; border-radius:999px; background:linear-gradient(90deg,var(--rv-cost) var(--w),var(--rv-soft) var(--w)); }
+.fs-revenue-page .fs-rv-flow__row.is-zero > b, .fs-revenue-page .fs-rv-flow__row.is-zero > span { opacity:.55; }
+.fs-revenue-page .fs-rv-flow__row.is-total { padding-top:12px; border-bottom:0; }
+.fs-revenue-page .fs-rv-flow__row.is-total > span { color:var(--rv-ink); font-weight:700; }
+.fs-revenue-page .fs-rv-flow__row.is-total > b { color:var(--rv-driver); font-size:var(--fs-lg, 18px); font-weight:750; }
+.fs-revenue-page .fs-rv-flow .fs-rr-highlight { margin-top:auto; }
+
+/* Biểu đồ cao hơn để cân với khối Dòng tiền bên cạnh */
+.fs-revenue-page .fs-rr-chart-card .fs-rr-yaxis, .fs-revenue-page .fs-rr-chart-card .fs-rr-plot { height:330px; }
+@media (max-width:640px) { .fs-revenue-page .fs-rr-chart-card .fs-rr-yaxis, .fs-revenue-page .fs-rr-chart-card .fs-rr-plot { height:220px; } }
+
+/* ── Bảng: cột Công ty chi màu chi phí, Khách trả đậm ───────────────────────── */
+.fs-revenue-page .fs-rr-table tbody td:last-child { color:var(--rv-cost); font-weight:600; }
+.fs-revenue-page .fs-rr-table tbody td:nth-child(4) { color:var(--rv-ink); font-weight:700; }
+.fs-revenue-page .fs-rr-table tfoot td:last-child { color:var(--rv-cost); }
+.fs-revenue-page .fs-rr-table tfoot td:nth-child(4) { color:#ea580c; }
+
+/* ── Dark mode ──────────────────────────────────────────────────────────────── */
+.dark .fs-revenue-page { --rv-cost:#60a5fa; --rv-driver:#34d399; }
+.dark .fs-revenue-page .fs-rv-kpi--cost .fs-rr-delta--up { color:#fca5a5; }
+.dark .fs-revenue-page .fs-rv-kpi--cost .fs-rr-delta--down { color:#86efac; }
+.dark .fs-revenue-page .fs-rr-table tfoot td:nth-child(4) { color:#fdba74; }
+
+/* ── Màn hẹp ────────────────────────────────────────────────────────────────── */
+@media (max-width:1250px) {
+    .fs-revenue-page .fs-rv-kpis { grid-template-columns:repeat(2,minmax(0,1fr)); }
+}
+@media (max-width:640px) {
+    .fs-revenue-page .fs-rv-kpis { grid-template-columns:minmax(0,1fr); gap:10px; }
+    .fs-revenue-page .fs-rv-kpi { min-height:0; }
+    .fs-revenue-page .fs-rv-kpi--hero strong { font-size:32px; }
+}

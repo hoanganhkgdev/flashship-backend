@@ -1,6 +1,7 @@
 <x-filament-panels::page>
     <link rel="stylesheet" href="{{ asset('css/revenue-report.css') }}?v={{ filemtime(public_path('css/revenue-report.css')) }}">
-    <div class="fs-revenue">
+    <link rel="stylesheet" href="{{ asset('css/revenue-page.css') }}?v={{ filemtime(public_path('css/revenue-page.css')) }}">
+    <div class="fs-revenue fs-revenue-page">
     @php
         $report = $this->getReportData();
         $summary = $report['summary'];
@@ -25,7 +26,7 @@
             <p class="fs-page-header__eyebrow">Báo cáo kinh doanh</p>
             <h1 class="fs-page-header__title">Doanh thu</h1>
             <p class="fs-page-header__description">
-                {{ filament()->getTenant()?->name }} · Theo dõi kết quả kinh doanh và cơ cấu khoản thu.
+                {{ filament()->getTenant()?->name }} · Tiền khách trả cho các chuyến hoàn thành và khoản công ty chi thêm cho tài xế.
             </p>
         </div>
         <div class="fs-rr-head-actions">
@@ -33,9 +34,11 @@
                 <span>Kỳ báo cáo</span>
                 <b>{{ $report['from']->format('d/m/Y') }} – {{ $report['to']->format('d/m/Y') }}</b>
             </div>
-            <x-filament::button wire:click="exportCsv" wire:loading.attr="disabled" icon="heroicon-o-arrow-down-tray" color="gray">
+            @if ($this->canExport())
+            <x-filament::button wire:click="exportCsv" wire:loading.attr="disabled" wire:target="exportCsv" icon="heroicon-o-arrow-down-tray" color="gray">
                 Xuất CSV
             </x-filament::button>
+            @endif
         </div>
     </header>
 
@@ -82,6 +85,13 @@
         @endif
     </section>
 
+    @if ($report['clamped'])
+        <div class="fs-rr-notice" role="status">
+            <x-heroicon-o-exclamation-triangle class="h-5 w-5" />
+            <span>Khoảng thời gian quá dài — báo cáo chỉ tính <b>2 năm gần nhất</b> đến {{ $report['to']->format('d/m/Y') }}.</span>
+        </div>
+    @endif
+
     @if ($report['quality']['missing_count'] > 0)
         <div class="fs-rr-notice" role="status">
             <x-heroicon-o-exclamation-triangle class="h-5 w-5" />
@@ -93,32 +103,47 @@
     @endif
 
     <div wire:loading.class="opacity-50" class="fs-rr-body">
-        {{-- Bốn chỉ số cần đọc đầu tiên --}}
+        {{-- Bốn chỉ số: khách trả, công ty chi, tài xế nhận, đơn --}}
+        @php
+            $costs = $summary['costs'];
+            $driverTotal = max(1, $summary['driver_total']);
+            $costShare = round($summary['platform_cost'] / $driverTotal * 100, 1);
+        @endphp
         <section class="fs-revenue-overview" aria-label="Tổng quan doanh thu">
-        <div class="fs-rr-kpi-grid">
-            <article class="fs-rr-kpi fs-rr-kpi--revenue">
-                <span class="fs-rr-kpi__icon"><x-heroicon-o-banknotes /></span>
-                <div><span class="fs-rr-kpi__label">Tổng doanh thu</span><strong>{{ $money($summary['total_revenue']) }}</strong></div>
-                @include('filament.pages.partials.delta', ['change' => $summary['revenue_change'], 'label' => $compareLabel])
-                <small class="fs-revenue-kpi-note">Phí vận chuyển + phụ phí · Đơn đã hoàn thành</small>
-            </article>
-            <article class="fs-rr-kpi fs-rr-kpi--orders">
-                <span class="fs-rr-kpi__icon"><x-heroicon-o-check-circle /></span>
-                <div><span class="fs-rr-kpi__label">Đơn hoàn thành</span><strong>{{ number_format($summary['completed_orders'], 0, ',', '.') }}</strong></div>
-                @include('filament.pages.partials.delta', ['change' => $summary['orders_change'], 'label' => $compareLabel])
-            </article>
-            <article class="fs-rr-kpi fs-rr-kpi--average">
-                <span class="fs-rr-kpi__icon"><x-heroicon-o-calculator /></span>
-                <div><span class="fs-rr-kpi__label">Trung bình / đơn</span><strong>{{ $money($summary['avg_fee']) }}</strong></div>
-                <small>Trên mỗi đơn hoàn thành</small>
-            </article>
-            <article class="fs-rr-kpi fs-rr-kpi--rate">
-                <span class="fs-rr-kpi__icon"><x-heroicon-o-chart-pie /></span>
-                <div><span class="fs-rr-kpi__label">Tỷ lệ hoàn thành</span><strong>{{ $summary['completion_rate'] }}%</strong></div>
-                <small>{{ number_format($summary['cancelled_orders'], 0, ',', '.') }} huỷ · {{ number_format($summary['active_orders'], 0, ',', '.') }} đang xử lý</small>
-            </article>
-        </div>
-        <p class="fs-revenue-compare">Tăng/giảm so với kỳ {{ $compareLabel }}.</p>
+            <div class="fs-rv-kpis">
+                <article class="fs-rv-kpi fs-rv-kpi--hero">
+                    <div class="fs-rv-kpi__head"><span>Doanh thu · khách trả</span><x-heroicon-o-banknotes /></div>
+                    <strong>{{ $money($summary['total_revenue']) }}</strong>
+                    @include('filament.pages.partials.delta', ['change' => $summary['revenue_change'], 'label' => $compareLabel])
+                    @if ($hasChartData && $chart['spark_points'])
+                        <svg class="fs-rv-spark" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><polyline points="{{ $chart['spark_points'] }}" fill="none" stroke="currentColor" stroke-width="2.2" vector-effect="non-scaling-stroke" stroke-linejoin="round" stroke-linecap="round"/></svg>
+                    @endif
+                    <small>Cước đơn hoàn thành · đã gồm phụ phí đêm, đã trừ voucher</small>
+                </article>
+                <article class="fs-rv-kpi fs-rv-kpi--cost">
+                    <div class="fs-rv-kpi__head"><span>Công ty chi</span><x-heroicon-o-arrow-trending-down /></div>
+                    <strong>{{ $money($summary['platform_cost']) }}</strong>
+                    @include('filament.pages.partials.delta', ['change' => $summary['cost_change'], 'label' => $compareLabel])
+                    <small>{{ $costShare }}% tiền tài xế nhận · bonus, bù voucher, freeship, thưởng mưa</small>
+                </article>
+                <article class="fs-rv-kpi fs-rv-kpi--driver">
+                    <div class="fs-rv-kpi__head"><span>Tài xế nhận</span><x-heroicon-o-truck /></div>
+                    <strong>{{ $money($summary['driver_total']) }}</strong>
+                    @include('filament.pages.partials.delta', ['change' => $summary['driver_change'], 'label' => $compareLabel])
+                    <small>Khách trả + công ty chi</small>
+                </article>
+                <article class="fs-rv-kpi fs-rv-kpi--orders">
+                    <div class="fs-rv-kpi__head"><span>Đơn hoàn thành</span><x-heroicon-o-check-circle /></div>
+                    <strong>{{ number_format($summary['completed_orders'], 0, ',', '.') }}</strong>
+                    @include('filament.pages.partials.delta', ['change' => $summary['orders_change'], 'label' => $compareLabel])
+                    <dl class="fs-rv-kpi__facts">
+                        <div><dt>TB / đơn</dt><dd>{{ $money($summary['avg_fee']) }}</dd></div>
+                        <div><dt>Tỷ lệ hoàn thành</dt><dd>{{ $summary['completion_rate'] }}%</dd></div>
+                        <div><dt>Huỷ · đang xử lý</dt><dd>{{ number_format($summary['cancelled_orders'], 0, ',', '.') }} · {{ number_format($summary['active_orders'], 0, ',', '.') }}</dd></div>
+                    </dl>
+                </article>
+            </div>
+            <p class="fs-revenue-compare">Tăng/giảm so với kỳ {{ $compareLabel }} (cùng số ngày, liền trước).</p>
         </section>
 
         <div class="fs-rr-main-grid">
@@ -131,7 +156,7 @@
                 </div>
                 @if ($hasChartData)
                 <div class="fs-rr-legend">
-                    <span><i class="fs-rr-legend__bar"></i>Doanh thu</span>
+                    <span><i class="fs-rr-legend__bar"></i>Khách trả</span>
                     @if ($chart['has_previous'])<span><i class="fs-rr-legend__dash"></i>Kỳ trước</span>@endif
                     <span><i class="fs-rr-legend__line"></i>Đơn hoàn thành <small>(thang riêng, tối đa {{ $chart['max_orders'] }})</small></span>
                 </div>
@@ -158,7 +183,8 @@
                                     <i class="fs-rr-bar" style="height: {{ $bar['height'] }}%"></i>
                                     <div class="fs-rr-tip">
                                         <b>{{ $bar['label'] }}</b>
-                                        <span>Doanh thu <strong>{{ $money($bar['revenue']) }}</strong></span>
+                                        <span>Khách trả <strong>{{ $money($bar['revenue']) }}</strong></span>
+                                        <span>Công ty chi <strong>{{ $money($bar['cost']) }}</strong></span>
                                         <span>Hoàn thành <strong>{{ number_format($bar['completed'], 0, ',', '.') }} đơn</strong></span>
                                         @if ($bar['prev_revenue'] !== null)<span>Kỳ trước <strong>{{ $money($bar['prev_revenue']) }}</strong></span>@endif
                                     </div>
@@ -182,24 +208,38 @@
             @endif
         </section>
 
-        {{-- Doanh thu hình thành --}}
-        <aside class="fs-rr-card fs-rr-composition">
-            <header class="fs-rr-card__head"><div><h2>Cơ cấu khoản thu</h2><p>Giá trị ghi nhận trong kỳ</p></div></header>
-            <div class="fs-rr-total-mini">
-                <span>Tổng khoản thu</span><strong>{{ $money($summary['total_revenue']) }}</strong>
+        {{-- Dòng tiền: khách trả + công ty chi = tài xế nhận (khớp ví tài xế khi hoàn thành đơn) --}}
+        @php
+            $flow = [
+                ['label' => 'Bonus tài xế', 'hint' => 'Admin thưởng thêm cho đơn', 'value' => $costs['bonus']],
+                ['label' => 'Bù voucher', 'hint' => 'Phần giảm giá công ty trả thay', 'value' => $costs['discount']],
+                ['label' => 'Bù freeship', 'hint' => 'Đơn tổng đài miễn phí cho khách', 'value' => $costs['freeship']],
+                ['label' => 'Thưởng mưa', 'hint' => 'Đơn đủ điều kiện', 'value' => $costs['rain']],
+            ];
+        @endphp
+        <aside class="fs-rr-card fs-rv-flow" aria-label="Dòng tiền">
+            <header class="fs-rr-card__head"><div><h2>Dòng tiền</h2><p>Tiền tài xế nhận đến từ đâu</p></div></header>
+
+            <div class="fs-rv-flow__bar" role="img" aria-label="Khách trả {{ round(100 - $costShare, 1) }}%, công ty chi {{ $costShare }}%">
+                <i class="is-collected" style="width: {{ 100 - $costShare }}%"></i>
+                <i class="is-cost" style="width: {{ $costShare }}%"></i>
             </div>
-            <div class="fs-revenue-stack" role="img" aria-label="Tỷ trọng phí vận chuyển và phụ phí">
-                <i style="width: {{ $summary['shipping_revenue'] / max(1, $summary['total_revenue']) * 100 }}%"></i>
-                <i style="width: {{ $summary['surcharge_revenue'] / max(1, $summary['total_revenue']) * 100 }}%"></i>
-            </div>
-            <div class="fs-rr-composition__rows">
-                <div><span><i class="is-shipping"></i>Phí vận chuyển</span><b>{{ $money($summary['shipping_revenue']) }}</b></div>
-                <div><span><i class="is-extra"></i>Phụ phí</span><b>{{ $money($summary['surcharge_revenue']) }}</b></div>
-            </div>
-            <div class="fs-rr-composition__memo">
-                <div><span>Giảm giá voucher</span><b>{{ $money($summary['total_discount']) }}</b><small>Chưa trừ khỏi doanh thu</small></div>
-                <div><span>Thưởng mưa</span><b>{{ $money($summary['rain_bonus']) }}</b><small>Không tính vào doanh thu</small></div>
-            </div>
+
+            <ol class="fs-rv-flow__list">
+                <li class="fs-rv-flow__row is-collected">
+                    <span><i></i>Khách trả</span><b>{{ $money($summary['total_revenue']) }}</b>
+                    @if ($summary['night_included'] > 0)<small>gồm {{ $money($summary['night_included']) }} phụ phí đêm</small>@endif
+                </li>
+                @foreach ($flow as $item)
+                    <li @class(['fs-rv-flow__row fs-rv-flow__row--cost', 'is-zero' => $item['value'] === 0])>
+                        <span><em>+</em>{{ $item['label'] }}</span><b>{{ $money($item['value']) }}</b>
+                        <small>{{ $item['hint'] }}</small>
+                        <i class="fs-rv-flow__meter" style="--w: {{ $summary['platform_cost'] ? round($item['value'] / $summary['platform_cost'] * 100, 1) : 0 }}%"></i>
+                    </li>
+                @endforeach
+                <li class="fs-rv-flow__row is-total"><span>= Tài xế nhận</span><b>{{ $money($summary['driver_total']) }}</b></li>
+            </ol>
+
             @if ($bestRow && $bestRow['revenue'] > 0)
                 <div class="fs-rr-highlight"><x-heroicon-o-sparkles /><span>Cao nhất kỳ: <b>{{ $bestRow['label'] }}</b><strong>{{ $money($bestRow['revenue']) }}</strong></span></div>
             @endif
@@ -210,7 +250,7 @@
         <div class="fs-rr-split">
             @foreach ([['Dịch vụ', $report['services']], ['Nguồn đơn', $report['platforms']]] as [$title, $group])
                 <section class="fs-rr-card">
-                    <header class="fs-rr-card__head"><div><h2>{{ $title }}</h2><p>Cơ cấu doanh thu</p></div></header>
+                    <header class="fs-rr-card__head"><div><h2>{{ $title }}</h2><p>Tiền khách trả theo {{ mb_strtolower($title) }}</p></div></header>
                     @if (empty($group['rows']))
                         <div class="fs-empty">Không có dữ liệu trong khoảng thời gian này.</div>
                     @else
@@ -256,7 +296,7 @@
                 <table class="fs-rr-table">
                     <thead>
                         <tr>
-                            @foreach (['date' => 'Kỳ', 'total' => 'Tổng đơn', 'completed' => 'Hoàn thành', 'discount' => 'Giảm giá', 'revenue' => 'Doanh thu'] as $col => $label)
+                            @foreach (['date' => 'Kỳ', 'total' => 'Tổng đơn', 'completed' => 'Hoàn thành', 'revenue' => 'Khách trả', 'cost' => 'Công ty chi'] as $col => $label)
                                 <th scope="col" aria-sort="{{ $this->sortBy === $col ? ($this->sortDir === 'asc' ? 'ascending' : 'descending') : 'none' }}" @class(['is-sorted' => $this->sortBy === $col])><button type="button" wire:click="sort('{{ $col }}')">{{ $label }} <span>{{ $sortArrow($col) }}</span></button></th>
                             @endforeach
                         </tr>
@@ -267,8 +307,8 @@
                                 <td>{{ $row['label'] }}</td>
                                 <td>{{ number_format($row['total'], 0, ',', '.') }}</td>
                                 <td>{{ number_format($row['completed'], 0, ',', '.') }}</td>
-                                <td>{{ $money($row['discount']) }}</td>
                                 <td>{{ $money($row['revenue']) }}</td>
+                                <td>{{ $money($row['cost']) }}</td>
                             </tr>
                         @empty
                             <tr><td colspan="5">Không có dữ liệu</td></tr>
@@ -279,8 +319,8 @@
                             <td>Tổng cộng</td>
                             <td>{{ number_format($report['totals']['total'], 0, ',', '.') }}</td>
                             <td>{{ number_format($report['totals']['completed'], 0, ',', '.') }}</td>
-                            <td>{{ $money($report['totals']['discount']) }}</td>
                             <td>{{ $money($report['totals']['revenue']) }}</td>
+                            <td>{{ $money($report['totals']['cost']) }}</td>
                         </tr>
                     </tfoot>
                 </table>
