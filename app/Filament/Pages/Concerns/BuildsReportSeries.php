@@ -47,6 +47,44 @@ trait BuildsReportSeries
         return $out;
     }
 
+    /** Khoảng dài nhất một lần xem (ngày): khoảng vô hạn sẽ quét cả bảng đơn và dựng hàng nghìn cột. */
+    private const MAX_RANGE_DAYS = 731;
+
+    /**
+     * Giới hạn khoảng ngày còn MAX_RANGE_DAYS (giữ ngày cuối).
+     *
+     * @return array{0: Carbon, 1: Carbon, 2: bool} [from, to, đã bị cắt]
+     */
+    private function clampRange(Carbon $from, Carbon $to): array
+    {
+        if ($from->diffInDays($to) <= self::MAX_RANGE_DAYS) {
+            return [$from, $to, false];
+        }
+
+        return [$to->copy()->subDays(self::MAX_RANGE_DAYS)->startOfDay(), $to, true];
+    }
+
+    /**
+     * Gán prev_revenue cho từng cột = tổng của đúng khoảng ngày của cột đó lùi lại $days ngày. Không ghép theo vị trí:
+     * tuần/tháng của hai kỳ dài ngắn khác nhau, ghép vị trí làm lệch cả tháng.
+     *
+     * @param  array<string, array>  $series  cột từ buckets() (có start/end)
+     * @param  iterable<string, int|float|string>  $previousDaily  'Y-m-d' => giá trị của kỳ trước theo ngày
+     */
+    private function attachPrevious(array $series, iterable $previousDaily, int $days): array
+    {
+        $daily = collect($previousDaily)->map(fn ($v) => (int) $v);
+        foreach ($series as $key => $row) {
+            $sum = 0;
+            for ($d = Carbon::parse($row['start'])->subDays($days), $end = Carbon::parse($row['end'])->subDays($days); $d->lte($end); $d->addDay()) {
+                $sum += $daily[$d->toDateString()] ?? 0;
+            }
+            $series[$key]['prev_revenue'] = $sum;
+        }
+
+        return $series;
+    }
+
     private function bucketSql(string $column, string $granularity): string
     {
         return match ($granularity) {

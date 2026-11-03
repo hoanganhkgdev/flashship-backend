@@ -4,11 +4,14 @@ namespace App\Filament\Pages;
 
 use App\Filament\Pages\Concerns\BuildsReportSeries;
 use App\Support\AdminAccess;
+use App\Support\Csv;
+use App\Support\OrderMoney;
 use Carbon\Carbon;
 use Filament\Facades\Filament;
 use Filament\Pages\Page;
-use Illuminate\Support\Collection;
+use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Facades\DB;
+use Modules\Core\Services\OperationalSettings;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class DriverEarningsPage extends Page
@@ -67,6 +70,14 @@ class DriverEarningsPage extends Page
     {
         return AdminAccess::allows(auth()->user(), AdminAccess::FINANCE_VIEW);
     }
+
+    /** File xuất có tên, SĐT và thu nhập từng tài xế: cần quyền xuất dữ liệu, không chỉ quyền xem. */
+    public function canExport(): bool
+    {
+        return AdminAccess::allows(auth()->user(), AdminAccess::EXPORT_DATA);
+    }
+
+    private bool $rangeWasClamped = false;
 
     public function mount(): void
     {
@@ -134,15 +145,13 @@ class DriverEarningsPage extends Page
 
         $drivers = $this->driverRows($from, $to);
         $totals = $this->totals($drivers);
-        $previousTotal = $this->periodTotal($previousFrom, $previousTo);
+        $previousTotal = (int) $this->completedQuery($previousFrom, $previousTo)->sum(DB::raw($this->earningsSql()));
 
         $granularity = $this->granularity($days);
-        $series = $this->series($from, $to, $granularity);
-        $previousSeries = array_values($this->series($previousFrom, $previousTo, $granularity));
-        foreach (array_values($series) as $i => $row) {
-            $series[$row['key']]['prev_revenue'] = $previousSeries[$i]['revenue'] ?? null;
-        }
-        $rows = array_values($series);
+        $previousDaily = $this->completedQuery($previousFrom, $previousTo)
+            ->selectRaw('DATE(completed_at) as d, COALESCE(SUM('.$this->earningsSql().'), 0) as v')
+            ->groupBy('d')->pluck('v', 'd');
+        $rows = array_values($this->attachPrevious($this->series($from, $to, $granularity), $previousDaily, $days));
 
         $visible = $this->filterAndSort($drivers);
 
@@ -160,92 +169,100 @@ class DriverEarningsPage extends Page
             'visible_count' => count($visible),
             'has_more' => count($visible) > $this->limit,
             'quality' => $this->dataQuality($from, $to),
+            'clamped' => $this->rangeWasClamped,
         ];
     }
 
     public function exportCsv(): StreamedResponse
     {
+        abort_unless($this->canExport(), 403);
         [$from, $to] = $this->dateRange();
         $rows = $this->filterAndSort($this->driverRows($from, $to));
 
         return response()->streamDownload(function () use ($rows): void {
             $out = fopen('php://output', 'w');
             fwrite($out, "\xEF\xBB\xBF");
-            fputcsv($out, ['Tài xế', 'Số điện thoại', 'Trạng thái', 'Đơn hoàn thành', 'Phí giao', 'Phụ phí', 'Thưởng mưa', 'Bù giảm giá', 'Tổng thu nhập', 'TB / đơn']);
+            fputcsv($out, ['Tài xế', 'Số điện thoại', 'Trạng thái', 'Đơn hoàn thành', 'Phí giao', 'Bonus', 'Thưởng mưa', 'Bù giảm giá', 'Tổng thu nhập', 'TB / đơn']);
             foreach ($rows as $d) {
-                fputcsv($out, [$d['name'], $d['phone'], $d['is_online'] ? 'Online' : 'Offline', $d['orders'], $d['shipping'], $d['surcharge'], $d['rain'], $d['discount'], $d['total'], $d['avg']]);
+                fputcsv($out, Csv::row([$d['name'], $d['phone'], $d['is_online'] ? 'Online' : 'Offline', $d['orders'], $d['shipping'], $d['surcharge'], $d['rain'], $d['discount'], $d['total'], $d['avg']]));
             }
             fclose($out);
         }, "thu-nhap-tai-xe-{$from->format('Ymd')}-{$to->format('Ymd')}.csv", ['Content-Type' => 'text/csv; charset=UTF-8']);
     }
 
-    private function cityId(): ?int
+    private function cityId(): int
     {
-        return Filament::getTenant()?->id;
-    }
-
-    /** Tài xế thuộc khu vực đang chọn (gồm cả tài khoản bị khóa vì vẫn có thể có thu nhập trong kỳ). */
-    private function driverQuery()
-    {
-        return DB::table('users')
-            ->where('user_type', 'driver')
-            ->where('status', '>=', 1)
-            ->when($this->cityId(), fn ($q, $id) => $q->where('city_id', $id));
+        return (int) (Filament::getTenant()?->getKey() ?? 0);
     }
 
     /**
-     * Thu nhập gồm: phí giao + phụ phí (đơn hoàn thành trong kỳ) + thưởng mưa + bù giảm giá
-     * (các khoản đã ghi có vào ví trong kỳ). Không tính nạp/rút ví, điều chỉnh của admin, phạt.
+     * Đơn hoàn thành trong kỳ CỦA KHU VỰC (theo khu vực của đơn, không theo khu vực hiện tại của tài xế): tài xế đổi
+     * khu vực thì thu nhập đã làm vẫn thuộc khu vực cũ, và tổng khớp trang Doanh thu.
+     */
+    private function completedQuery(Carbon $from, Carbon $to): Builder
+    {
+        return DB::table('orders')
+            ->where('city_id', $this->cityId())
+            ->where('status', 'completed')
+            ->whereNotNull('delivery_man_id')
+            ->whereBetween('completed_at', [$from, $to]);
+    }
+
+    /** Thưởng mưa chưa chốt trên đơn thì tính theo mức của khu vực, như OrderService::completeOrder(). */
+    private function rainSql(): string
+    {
+        return OrderMoney::rainCost(OperationalSettings::rainBonusAmount($this->cityId() ?: null));
+    }
+
+    /**
+     * Thu nhập của một đơn = khách trả + công ty chi (App\Support\OrderMoney, khớp completeOrder()). Phí giao gồm cả phí
+     * freeship công ty trả thay khách; phụ phí đêm đã nằm trong phí giao.
+     */
+    private function earningsSql(): string
+    {
+        return '('.OrderMoney::COLLECTED.' + '.OrderMoney::FREESHIP_COST.' + '.OrderMoney::BONUS_COST.' + '.OrderMoney::DISCOUNT_COST.' + '.$this->rainSql().')';
+    }
+
+    /**
+     * Thu nhập theo tài xế: phí giao + bonus + thưởng mưa + bù giảm giá của các đơn hoàn thành trong kỳ (cùng một ngày
+     * hoàn thành cho mọi khoản). Danh sách gồm tài xế đang thuộc khu vực và cả người đã chuyển đi nhưng có đơn ở đây
+     * trong kỳ. Không tính nạp/rút ví, điều chỉnh của admin, phạt.
      */
     private function driverRows(Carbon $from, Carbon $to): array
     {
-        $drivers = $this->driverQuery()->orderBy('name')->get(['id', 'name', 'phone', 'is_online', 'status']);
-        $ids = $drivers->pluck('id')->all();
-        if (! $ids) {
-            return [];
-        }
-
-        $orders = DB::table('orders')
-            ->whereIn('delivery_man_id', $ids)->where('status', 'completed')
-            ->whereBetween('completed_at', [$from, $to])
+        $orders = $this->completedQuery($from, $to)
             ->groupBy('delivery_man_id')
-            ->selectRaw('delivery_man_id, COUNT(*) as cnt, COALESCE(SUM(shipping_fee), 0) as shipping, COALESCE(SUM(bonus_fee), 0) as surcharge')
+            ->selectRaw('delivery_man_id, COUNT(*) as cnt')
+            ->selectRaw('COALESCE(SUM('.OrderMoney::COLLECTED.' + '.OrderMoney::FREESHIP_COST.'), 0) as shipping')
+            ->selectRaw('COALESCE(SUM('.OrderMoney::BONUS_COST.'), 0) as bonus, COALESCE(SUM('.OrderMoney::DISCOUNT_COST.'), 0) as discount')
+            ->selectRaw('COALESCE(SUM('.$this->rainSql().'), 0) as rain')
             ->get()->keyBy('delivery_man_id');
 
-        $rain = $this->walletCredits($ids, 'order\_%\_rain', $from, $to);
-        $discount = $this->walletCredits($ids, 'order\_%\_discount', $from, $to);
+        $drivers = DB::table('users')
+            ->where('user_type', 'driver')
+            ->where('status', '>=', 1) // gồm cả tài khoản bị khóa vì vẫn có thể có thu nhập trong kỳ
+            ->where(fn ($q) => $q->where('city_id', $this->cityId())->orWhereIn('id', $orders->keys()->all()))
+            ->orderBy('name')
+            ->get(['id', 'name', 'phone', 'is_online', 'status']);
 
-        return $drivers->map(function ($d) use ($orders, $rain, $discount) {
+        return $drivers->map(function ($d) use ($orders) {
             $o = $orders->get($d->id);
             $shipping = (int) ($o->shipping ?? 0);
-            $surcharge = (int) ($o->surcharge ?? 0);
+            $bonus = (int) ($o->bonus ?? 0);
+            $rain = (int) ($o->rain ?? 0);
+            $discount = (int) ($o->discount ?? 0);
             $count = (int) ($o->cnt ?? 0);
-            $r = (int) ($rain[$d->id] ?? 0);
-            $dc = (int) ($discount[$d->id] ?? 0);
-            $total = $shipping + $surcharge + $r + $dc;
+            $total = $shipping + $bonus + $rain + $discount;
 
             return [
                 'id' => $d->id, 'name' => (string) $d->name, 'phone' => (string) $d->phone,
                 'is_online' => (bool) $d->is_online, 'locked' => (int) $d->status === 2,
-                'orders' => $count, 'shipping' => $shipping, 'surcharge' => $surcharge,
-                'rain' => $r, 'discount' => $dc, 'total' => $total,
+                // 'surcharge' giữ tên khóa cũ (cột sắp xếp, CSS) nhưng là bonus_fee.
+                'orders' => $count, 'shipping' => $shipping, 'surcharge' => $bonus,
+                'rain' => $rain, 'discount' => $discount, 'total' => $total,
                 'avg' => $count ? (int) round($total / $count) : 0,
             ];
         })->all();
-    }
-
-    /** @return Collection<int, int> driver_id => số tiền ghi có theo mẫu reference */
-    private function walletCredits(array $driverIds, string $referenceLike, Carbon $from, Carbon $to)
-    {
-        return DB::table('driver_wallet_transactions as t')
-            ->join('driver_wallets as w', 'w.id', '=', 't.wallet_id')
-            ->whereIn('w.driver_id', $driverIds)
-            ->where('t.type', 'credit')
-            ->where('t.reference', 'like', $referenceLike)
-            ->whereBetween('t.created_at', [$from, $to])
-            ->groupBy('w.driver_id')
-            ->selectRaw('w.driver_id, SUM(t.amount) as amount')
-            ->pluck('amount', 'driver_id');
     }
 
     private function totals(array $drivers): array
@@ -269,30 +286,13 @@ class DriverEarningsPage extends Page
         ];
     }
 
-    private function periodTotal(Carbon $from, Carbon $to): int
-    {
-        return array_sum(array_column($this->driverRows($from, $to), 'total'));
-    }
-
     /** Tổng thu nhập theo kỳ (ngày/tuần/tháng) cho cả khu vực, dùng chung với biểu đồ. */
     private function series(Carbon $from, Carbon $to, string $granularity): array
     {
         $buckets = $this->buckets($from, $to, $granularity);
-        $ids = $this->driverQuery()->pluck('id')->all();
-
-        $orders = $ids ? DB::table('orders')
-            ->whereIn('delivery_man_id', $ids)->where('status', 'completed')->whereBetween('completed_at', [$from, $to])
-            ->selectRaw($this->bucketSql('completed_at', $granularity).' as k, COUNT(*) as cnt, COALESCE(SUM(shipping_fee + bonus_fee), 0) as earnings')
-            ->groupBy('k')->get()->keyBy(fn ($r) => (string) $r->k) : collect();
-
-        $wallet = fn (string $like) => $ids ? DB::table('driver_wallet_transactions as t')
-            ->join('driver_wallets as w', 'w.id', '=', 't.wallet_id')
-            ->whereIn('w.driver_id', $ids)->where('t.type', 'credit')->where('t.reference', 'like', $like)
-            ->whereBetween('t.created_at', [$from, $to])
-            ->selectRaw($this->bucketSql('t.created_at', $granularity).' as k, COALESCE(SUM(t.amount), 0) as amount')
-            ->groupBy('k')->pluck('amount', 'k')->mapWithKeys(fn ($v, $k) => [(string) $k => (int) $v]) : collect();
-        $rain = $wallet('order\_%\_rain');
-        $discount = $wallet('order\_%\_discount');
+        $orders = $this->completedQuery($from, $to)
+            ->selectRaw($this->bucketSql('completed_at', $granularity).' as k, COUNT(*) as cnt, COALESCE(SUM('.$this->earningsSql().'), 0) as earnings')
+            ->groupBy('k')->get()->keyBy(fn ($r) => (string) $r->k);
 
         $i = 0;
         foreach ($buckets as $key => &$bucket) {
@@ -300,7 +300,7 @@ class DriverEarningsPage extends Page
             $bucket += [
                 'idx' => $i++,
                 'completed' => (int) ($o->cnt ?? 0),
-                'revenue' => (int) ($o->earnings ?? 0) + (int) ($rain[(string) $key] ?? 0) + (int) ($discount[(string) $key] ?? 0),
+                'revenue' => (int) ($o->earnings ?? 0),
                 'prev_revenue' => null,
             ];
         }
@@ -351,10 +351,10 @@ class DriverEarningsPage extends Page
     /** Đơn hoàn thành thiếu completed_at sẽ không được tính vào thu nhập — báo cho người xem biết. */
     private function dataQuality(Carbon $from, Carbon $to): array
     {
-        $ids = $this->driverQuery()->pluck('id')->all();
-        $row = $ids ? DB::table('orders')->whereIn('delivery_man_id', $ids)
-            ->where('status', 'completed')->whereNull('completed_at')->whereBetween('created_at', [$from, $to])
-            ->selectRaw('COUNT(*) as c, COALESCE(SUM(shipping_fee + bonus_fee), 0) as fee')->first() : null;
+        $row = DB::table('orders')
+            ->where('city_id', $this->cityId())->where('status', 'completed')->whereNotNull('delivery_man_id')
+            ->whereNull('completed_at')->whereBetween('created_at', [$from, $to])
+            ->selectRaw('COUNT(*) as c, COALESCE(SUM('.$this->earningsSql().'), 0) as fee')->first();
 
         return ['missing_count' => (int) ($row->c ?? 0), 'missing_fee' => (int) ($row->fee ?? 0)];
     }
@@ -371,6 +371,7 @@ class DriverEarningsPage extends Page
         if ($from->gt($to)) {
             [$from, $to] = [$to->copy()->startOfDay(), $from->copy()->endOfDay()];
         }
+        [$from, $to, $this->rangeWasClamped] = $this->clampRange($from, $to);
 
         return [$from, $to];
     }

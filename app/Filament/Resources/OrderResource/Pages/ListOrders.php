@@ -7,6 +7,7 @@ use App\Filament\Resources\OrderResource;
 use App\Filament\Resources\OrderResource\Widgets\OrderListSummaryWidget;
 use App\Filament\Resources\OrderResource\Widgets\OrderOpsWidget;
 use App\Support\AdminAccess;
+use App\Support\Csv;
 use App\Support\OrderListPresenter;
 use Filament\Actions;
 use Filament\Facades\Filament;
@@ -152,18 +153,6 @@ class ListOrders extends ListRecords
 
     private const EXPORT_LIMIT = 20000;
 
-    /**
-     * Chặn công thức Excel trong dữ liệu khách nhập (tên, địa chỉ...): ô bắt đầu bằng = + - @ hoặc tab/xuống dòng
-     * được thêm dấu ' để Excel coi là chữ. Số giữ nguyên để vẫn cộng được.
-     */
-    private static function csvCell(mixed $value): mixed
-    {
-        if (! is_string($value) || $value === '' || ! in_array($value[0], ['=', '+', '-', '@', "\t", "\r"], true)) {
-            return $value;
-        }
-
-        return "'".$value;
-    }
 
     /** Xuất đúng kết quả đang lọc/tìm/tab (tối đa 20.000 đơn). Chỉ quản trị viên đầy đủ. */
     public function exportCsv()
@@ -180,7 +169,7 @@ class ListOrders extends ListRecords
             fwrite($out, "\xEF\xBB\xBF"); // BOM để Excel đọc đúng tiếng Việt
             fputcsv($out, ['Mã đơn', 'Tạo lúc', 'Dịch vụ', 'Nguồn', 'Người tạo', 'Khách', 'SĐT khách', 'Điểm lấy', 'Điểm giao', 'Phí ship', 'Thu hộ', 'Thanh toán', 'Trạng thái', 'Lý do hủy', 'Tài xế', 'SĐT tài xế', 'Hoàn thành lúc']);
             foreach ($query->lazy(500)->take(self::EXPORT_LIMIT) as $o) {
-                fputcsv($out, array_map(self::csvCell(...), [
+                fputcsv($out, Csv::row([
                     $o->code, $o->created_at?->format('Y-m-d H:i:s'), $o->service_type, $o->platform, $o->creator?->name,
                     OrderListPresenter::customerName($o), OrderListPresenter::contactPhone($o),
                     $o->pickup_address, $o->delivery_address, (int) $o->shipping_fee, (int) $o->cod_amount, $o->payment_method,

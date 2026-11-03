@@ -60,8 +60,7 @@ class RevenueReportPage extends Page
 
     private const SORTABLE = ['date', 'total', 'completed', 'cost', 'revenue'];
 
-    /** Khoảng dài nhất một lần xem (ngày): cột completed_at chưa có index, khoảng vô hạn sẽ quét cả bảng đơn. */
-    private const MAX_RANGE_DAYS = 731;
+
 
     private static array $platformLabels = ['customer_app' => 'App khách', 'shop_app' => 'App shop', 'call_center' => 'Tổng đài', 'admin' => 'Quản trị viên'];
 
@@ -181,14 +180,7 @@ class RevenueReportPage extends Page
         $previousDaily = $this->completedQuery($previousFrom, $previousTo)
             ->selectRaw('DATE(completed_at) as d, COALESCE(SUM('.OrderMoney::COLLECTED.'), 0) as v')
             ->groupBy('d')->pluck('v', 'd');
-        foreach ($series as $key => $row) {
-            $sum = 0;
-            for ($d = Carbon::parse($row['start'])->subDays($days); $d->lte(Carbon::parse($row['end'])->subDays($days)); $d->addDay()) {
-                $sum += (int) ($previousDaily[$d->toDateString()] ?? 0);
-            }
-            $series[$key]['prev_revenue'] = $sum;
-        }
-        $rows = array_values($series);
+        $rows = array_values($this->attachPrevious($series, $previousDaily, $days));
 
         $services = $this->breakdown('service_type', $from, $to, $this->serviceLabels());
         $platforms = $this->breakdown('platform', $from, $to, self::$platformLabels);
@@ -384,10 +376,7 @@ class RevenueReportPage extends Page
         if ($from->gt($to)) {
             [$from, $to] = [$to->copy()->startOfDay(), $from->copy()->endOfDay()];
         }
-        if ($from->diffInDays($to) > self::MAX_RANGE_DAYS) {
-            $from = $to->copy()->subDays(self::MAX_RANGE_DAYS)->startOfDay();
-            $this->rangeWasClamped = true;
-        }
+        [$from, $to, $this->rangeWasClamped] = $this->clampRange($from, $to);
 
         return [$from, $to];
     }
