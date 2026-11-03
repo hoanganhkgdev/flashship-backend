@@ -1,0 +1,127 @@
+/* Trang Ví tài xế (danh sách + chi tiết). Tự đủ biến màu, không phụ thuộc CSS của các trang báo cáo. */
+.fs-wallet, .fi-resource-driver-wallets {
+    --wl-surface: #fff;
+    --wl-soft: #f8fafc;
+    --wl-border: #e5eaf0;
+    --wl-ink: #182338;
+    --wl-muted: #718096;
+    --wl-green: #16a34a;
+    --wl-red: #dc2626;
+    --wl-amber: #d97706;
+    --wl-blue: #2563eb;
+    --wl-teal: #0f766e;
+    --wl-shadow: 0 1px 2px rgb(15 23 42 / 4%);
+}
+.dark .fs-wallet, .dark .fi-resource-driver-wallets { --wl-surface:#171e2b; --wl-soft:#1d2737; --wl-border:#2b3749; --wl-ink:#eef2f8; --wl-muted:#a0aec0; --wl-green:#4ade80; --wl-red:#f87171; --wl-amber:#fbbf24; --wl-blue:#60a5fa; --wl-teal:#2dd4bf; }
+.fs-wallet { display:grid; gap:14px; color:var(--wl-ink); }
+
+/* ── Thẻ KPI ─────────────────────────────────────────────────────────────── */
+.fs-wallet__kpis { display:grid; grid-template-columns:1.4fr repeat(3,minmax(0,1fr)); gap:14px; }
+.fs-wallet__kpi { position:relative; display:flex; flex-direction:column; gap:6px; min-width:0; min-height:132px; padding:16px 18px; overflow:hidden; border:1px solid var(--wl-border); border-radius:15px; background:var(--wl-surface); box-shadow:var(--wl-shadow); }
+.fs-wallet__kpi::after { content:''; position:absolute; inset:0 0 auto; height:3px; background:linear-gradient(90deg,var(--wl-accent,transparent),transparent 80%); }
+.fs-wallet__kpi--gray { --wl-accent:#94a3b8; }
+.fs-wallet__kpi--amber { --wl-accent:var(--wl-amber); }
+.fs-wallet__kpi--blue { --wl-accent:var(--wl-blue); }
+.fs-wallet__kpi-head { display:flex; align-items:center; justify-content:space-between; gap:10px; color:var(--wl-muted); font-size:12px; font-weight:600; }
+.fs-wallet__kpi-head svg { width:30px; height:30px; flex:none; padding:7px; border-radius:9px; background:color-mix(in srgb,var(--wl-accent,var(--wl-muted)) 11%,transparent); color:var(--wl-accent,var(--wl-muted)); }
+.fs-wallet__kpi strong { font-size:clamp(20px,1.7vw,26px); font-weight:750; letter-spacing:-.035em; line-height:1.2; overflow-wrap:anywhere; }
+.fs-wallet__kpi strong em { margin-left:4px; color:var(--wl-muted); font-size:13px; font-style:normal; font-weight:500; letter-spacing:0; }
+.fs-wallet__kpi > small { margin-top:auto; color:var(--wl-muted); font-size:12px; line-height:1.45; }
+.fs-wallet__kpi > small a { color:var(--wl-amber); font-weight:600; }
+.fs-wallet__up { color:var(--wl-green); }
+.fs-wallet__down { color:var(--wl-red); }
+
+.fs-wallet__kpi--hero { border-color:#115e59; background:linear-gradient(135deg,#064e3b 0%,#0f766e 62%,#0d9488 100%); color:#fff; box-shadow:0 12px 28px rgb(15 118 110 / 20%); }
+.fs-wallet__kpi--hero::before { content:''; position:absolute; top:-70px; right:-45px; width:170px; height:170px; border-radius:50%; border:32px solid rgb(255 255 255 / 6%); }
+.fs-wallet__kpi--hero::after { display:none; }
+.fs-wallet__kpi--hero .fs-wallet__kpi-head { color:#99f6e4; }
+.fs-wallet__kpi--hero .fs-wallet__kpi-head svg { background:rgb(255 255 255 / 14%); color:#ccfbf1; }
+.fs-wallet__kpi--hero strong { color:#fff; font-size:clamp(26px,2.4vw,34px); }
+.fs-wallet__kpi--hero > small { color:#99f6e4; }
+
+/* ── Khối chung ──────────────────────────────────────────────────────────── */
+.fs-wallet__card { padding:16px 18px; border:1px solid var(--wl-border); border-radius:15px; background:var(--wl-surface); box-shadow:var(--wl-shadow); }
+.fs-wallet__card-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-bottom:14px; }
+.fs-wallet__card-head h2 { font-size:15px; font-weight:700; }
+.fs-wallet__card-head p { margin-top:2px; color:var(--wl-muted); font-size:12px; }
+.fs-wallet__empty { color:var(--wl-muted); font-size:13px; }
+.fs-wallet__grid { display:grid; grid-template-columns:minmax(0,1.6fr) minmax(280px,1fr); gap:14px; align-items:start; }
+
+.fs-wallet__ledger { display:flex; align-items:center; gap:8px; padding:9px 14px; border:1px solid color-mix(in srgb,var(--wl-green) 30%,transparent); border-radius:12px; background:color-mix(in srgb,var(--wl-green) 7%,var(--wl-surface)); color:var(--wl-green); font-size:13px; font-weight:600; }
+.fs-wallet__ledger svg { flex:none; width:18px; height:18px; }
+.fs-wallet__ledger span { color:var(--wl-muted); font-weight:500; }
+.fs-wallet__ledger.is-bad { border-color:color-mix(in srgb,var(--wl-red) 38%,transparent); background:color-mix(in srgb,var(--wl-red) 8%,var(--wl-surface)); color:var(--wl-red); align-items:flex-start; }
+.fs-wallet__ledger.is-bad span { color:var(--wl-ink); }
+.fs-wallet__ledger.is-warn { border-color:color-mix(in srgb,var(--wl-amber) 38%,transparent); background:color-mix(in srgb,var(--wl-amber) 8%,var(--wl-surface)); color:var(--wl-amber); align-items:flex-start; }
+.fs-wallet__ledger.is-warn span { color:var(--wl-ink); }
+
+/* Dòng tiền theo nguồn: thanh vào (xanh) và ra (đỏ) */
+.fs-wallet__flow { display:grid; }
+.fs-wallet__flow-row { display:grid; grid-template-columns:minmax(120px,190px) minmax(0,1fr) minmax(120px,170px); align-items:center; gap:14px; padding:9px 0; border-top:1px solid var(--wl-border); }
+.fs-wallet__flow-row:first-child { border-top:0; }
+.fs-wallet__flow-name { display:grid; min-width:0; }
+.fs-wallet__flow-name b { overflow:hidden; font-size:13px; text-overflow:ellipsis; white-space:nowrap; }
+.fs-wallet__flow-name small { color:var(--wl-muted); font-size:11px; }
+.fs-wallet__bars { display:grid; gap:3px; }
+.fs-wallet__bars i { display:block; height:7px; min-width:3px; border-radius:999px; }
+.fs-wallet__bars i.is-in { background:var(--wl-green); }
+.fs-wallet__bars i.is-out { background:var(--wl-red); }
+.fs-wallet__flow-amt { display:grid; justify-items:end; font-size:13px; font-weight:650; }
+.fs-wallet__flow-amt .is-in { color:var(--wl-green); }
+.fs-wallet__flow-amt .is-out { color:var(--wl-red); }
+
+/* Điều chỉnh gần đây */
+.fs-wallet__adj { display:grid; margin:0; padding:0; list-style:none; }
+.fs-wallet__adj li { display:grid; grid-template-columns:30px minmax(0,1fr) auto; align-items:center; gap:2px 10px; padding:9px 0; border-top:1px solid var(--wl-border); }
+.fs-wallet__adj li:first-child { border-top:0; }
+.fs-wallet__sign { display:grid; grid-row:1 / span 2; place-items:center; width:30px; height:30px; border-radius:50%; font-size:15px; font-weight:750; }
+.fs-wallet__sign.is-in { background:color-mix(in srgb,var(--wl-green) 14%,transparent); color:var(--wl-green); }
+.fs-wallet__sign.is-out { background:color-mix(in srgb,var(--wl-red) 12%,transparent); color:var(--wl-red); }
+.fs-wallet__adj a { overflow:hidden; color:var(--wl-ink); font-size:13px; font-weight:650; text-decoration:none; text-overflow:ellipsis; white-space:nowrap; }
+.fs-wallet__adj a:hover { color:var(--wl-teal); }
+.fs-wallet__adj b { font-size:13px; font-weight:700; }
+.fs-wallet__adj b.is-in { color:var(--wl-green); }
+.fs-wallet__adj b.is-out { color:var(--wl-red); }
+.fs-wallet__adj small { grid-column:2 / -1; color:var(--wl-muted); font-size:11px; line-height:1.45; }
+
+/* ── Bảng danh sách ─────────────────────────────────────────────────────── */
+.fi-resource-driver-wallets .fi-ta-row.fs-wl-row--neg > td:first-child { box-shadow:inset 3px 0 #dc2626; }
+.fi-resource-driver-wallets .fi-ta-row.fs-wl-row--low > td:first-child { box-shadow:inset 3px 0 #f59e0b; }
+.fi-resource-driver-wallets .fi-ta-row.fs-wl-row--locked > td:first-child { box-shadow:inset 3px 0 #94a3b8; }
+
+/* ── Trang chi tiết ─────────────────────────────────────────────────────── */
+.fs-wallet__summary { display:grid; grid-template-columns:minmax(0,1.3fr) minmax(0,1fr); gap:0; padding:0; overflow:hidden; }
+.fs-wallet__balance { display:grid; align-content:center; gap:10px; padding:22px 24px; }
+.fs-wallet__balance > span { color:var(--wl-muted); font-size:12px; font-weight:600; }
+.fs-wallet__balance strong { font-size:clamp(30px,3.2vw,42px); font-weight:780; letter-spacing:-.04em; line-height:1.1; }
+.fs-wallet__balance strong.is-neg { color:var(--wl-red); }
+.fs-wallet__balance strong.is-low { color:var(--wl-amber); }
+.fs-wallet__chips { display:flex; flex-wrap:wrap; gap:8px; }
+.fs-wallet__chip { padding:2px 10px; border-radius:999px; font-size:12px; font-weight:700; }
+.fs-wallet__chip--green { background:color-mix(in srgb,var(--wl-green) 14%,transparent); color:var(--wl-green); }
+.fs-wallet__chip--amber { background:color-mix(in srgb,var(--wl-amber) 14%,transparent); color:var(--wl-amber); }
+.fs-wallet__chip--red { background:color-mix(in srgb,var(--wl-red) 12%,transparent); color:var(--wl-red); }
+.fs-wallet__chip--gray { background:var(--wl-soft); color:var(--wl-muted); border:1px solid var(--wl-border); }
+.fs-wallet__inout { display:flex; flex-wrap:wrap; gap:6px 22px; color:var(--wl-muted); font-size:12px; }
+.fs-wallet__inout b { font-size:14px; }
+
+.fs-wallet__facts { display:grid; align-content:center; margin:0; padding:18px 22px; border-left:1px solid var(--wl-border); background:var(--wl-soft); }
+.fs-wallet__facts div { display:flex; justify-content:space-between; gap:12px; padding:9px 0; border-top:1px solid var(--wl-border); font-size:13px; }
+.fs-wallet__facts div:first-child { border-top:0; }
+.fs-wallet__facts dt { color:var(--wl-muted); }
+.fs-wallet__facts dd { margin:0; font-weight:650; text-align:right; }
+.fs-wallet__facts dd.is-alert { color:var(--wl-red); }
+.fs-wallet__facts dd small { display:block; color:var(--wl-muted); font-size:11px; font-weight:500; }
+.fs-wallet__facts a { color:var(--wl-teal); }
+
+@media (max-width:1180px) { .fs-wallet__kpis { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media (max-width:900px) {
+    .fs-wallet__grid, .fs-wallet__summary { grid-template-columns:minmax(0,1fr); }
+    .fs-wallet__facts { border-left:0; border-top:1px solid var(--wl-border); }
+    .fs-wallet__flow-row { grid-template-columns:minmax(0,1fr) auto; }
+    .fs-wallet__bars { grid-column:1 / -1; grid-row:2; }
+}
+@media (max-width:560px) {
+    .fs-wallet__kpis { grid-template-columns:minmax(0,1fr); }
+    .fs-wallet__kpi { min-height:0; }
+}
