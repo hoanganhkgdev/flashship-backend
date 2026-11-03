@@ -8,6 +8,7 @@ use Filament\Actions\CreateAction;
 use Filament\Facades\Filament;
 use Filament\Resources\Components\Tab;
 use Filament\Resources\Pages\ListRecords;
+use Modules\Core\Services\OperationalSettings;
 use Modules\Driver\Models\DriverDebt;
 
 class ListDriverDebts extends ListRecords
@@ -21,12 +22,12 @@ class ListDriverDebts extends ListRecords
 
     public function getSubheading(): ?string
     {
-        return 'Phí tuần, phạt điểm và các khoản phải thu. Mọi thay đổi đều được ghi nhật ký.';
+        return 'Phí tuần, phạt Offline và các khoản phải thu. Mọi thay đổi đều được ghi nhật ký.';
     }
 
     protected function getHeaderActions(): array
     {
-        return [CreateAction::make()->label('Tạo công nợ')->icon('heroicon-o-plus')];
+        return [CreateAction::make()->label('Tạo công nợ')->icon('heroicon-o-plus')->visible(DriverDebtResource::canManage())];
     }
 
     protected function getHeaderWidgets(): array
@@ -50,7 +51,11 @@ class ListDriverDebts extends ListRecords
 
         $open = fn ($q) => $q->whereIn('status', ['pending', 'overdue']);
         $overdue = fn ($q) => $q->where('status', 'overdue');
-        $blocked = fn ($q) => $q->where('status', 'overdue')->whereHas('driver', fn ($d) => $d->where('status', 1));
+        // Cùng điều kiện chặn nhận đơn như KPI (DriverDebtService::blocking).
+        $debtOn = OperationalSettings::debtEnabled(Filament::getTenant()?->id);
+        $blocked = fn ($q) => $q->where('status', 'overdue')->whereColumn('amount_due', '>', 'amount_paid')
+            ->whereRaw($debtOn ? '1 = 1' : '1 = 0')
+            ->whereHas('driver', fn ($d) => $d->where('status', 1)->where(fn ($e) => $e->whereNull('debt_enabled')->orWhere('debt_enabled', true)));
         $paid = fn ($q) => $q->where('status', 'paid');
 
         $tab = fn (string $label, ?callable $scope, ?string $color = null) => Tab::make($label)

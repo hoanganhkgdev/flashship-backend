@@ -23,7 +23,7 @@ class CreateDriverDebt extends CreateRecord
         return 'Ghi nhận khoản phải thu theo tài xế. Việc tạo được lưu vào nhật ký.';
     }
 
-    /** Tạo qua service để có nhật ký; không dùng cơ chế tự gán tenant (DriverDebt không có city_id). */
+    /** Tạo qua service để có nhật ký và khu vực phát sinh = khu vực của tài xế; không dùng cơ chế tự gán tenant. */
     protected function handleRecordCreation(array $data): Model
     {
         $res = DriverDebtService::create((int) $data['driver_id'], $data['debt_type'], (float) $data['amount_due'], $data['note'], auth()->id(),

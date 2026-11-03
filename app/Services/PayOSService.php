@@ -54,9 +54,18 @@ class PayOSService
      */
     public static function getPaymentStatus(int $orderCode): ?string
     {
+        return self::getPaymentInfo($orderCode)['status'] ?? null;
+    }
+
+    /** @return array{status:string,amount_paid:?int}|null amount_paid = số tiền PayOS thật sự nhận. */
+    public static function getPaymentInfo(int $orderCode): ?array
+    {
         try {
             $data   = self::client()->getPaymentLinkInformation($orderCode);
-            return strtoupper($data['status'] ?? 'PENDING');
+            return [
+                'status' => strtoupper($data['status'] ?? 'PENDING'),
+                'amount_paid' => isset($data['amountPaid']) ? (int) $data['amountPaid'] : null,
+            ];
         } catch (\Throwable $e) {
             Log::error('[PayOS] getPaymentStatus error: ' . $e->getMessage());
             return null;

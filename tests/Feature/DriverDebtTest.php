@@ -250,4 +250,118 @@ class DriverDebtTest extends TestCase
         $this->assertSame(350000.0, $log->amount);
         $this->assertNull($log->performed_by);
     }
+
+    private function payos(DriverDebt $d, int $qr, ?int $received): void
+    {
+        $id = DB::table('payment_orders')->insertGetId([
+            'driver_id' => $this->driver->id, 'type' => 'debt_payment', 'ref_id' => $d->id, 'order_code' => random_int(100000000, 999999999),
+            'amount' => $qr, 'status' => 'pending', 'created_at' => now(), 'updated_at' => now(),
+        ]);
+        $m = new \ReflectionMethod(\Modules\Driver\Http\Controllers\PaymentController::class, 'handlePaid');
+        $m->setAccessible(true);
+        $m->invoke(new \Modules\Driver\Http\Controllers\PaymentController(), DB::table('payment_orders')->find($id), $received);
+    }
+
+    private function balance(): float
+    {
+        return (float) (DriverWallet::where('driver_id', $this->driver->id)->value('balance') ?? 0);
+    }
+
+    public function test_payos_records_the_amount_actually_received(): void
+    {
+        $short = $this->debt(350000);
+        $this->payos($short, 350000, 200000);
+        $short->refresh();
+        $this->assertSame(200000.0, (float) $short->amount_paid, 'chuyển thiếu: chỉ ghi số thật nhận');
+        $this->assertSame('overdue', $short->status, 'phần còn lại vẫn là nợ');
+        $this->assertSame(0.0, $this->balance());
+
+        $over = $this->debt(100000);
+        $this->payos($over, 100000, 150000);
+        $this->assertSame('paid', $over->fresh()->status);
+        $this->assertSame(50000.0, $this->balance(), 'chuyển dư: phần dư vào ví');
+    }
+
+    public function test_overdue_starts_the_day_after_the_period_and_is_logged(): void
+    {
+        $this->travelTo(now()->startOfWeek()->addDays(6)->setTime(12, 0)); // Chủ nhật
+        $current = DriverDebt::create(['driver_id' => $this->driver->id, 'city_id' => $this->city->id, 'debt_type' => 'weekly', 'status' => 'pending',
+            'amount_due' => 100000, 'amount_paid' => 0, 'week_start' => now()->startOfWeek()->toDateString(), 'week_end' => now()->toDateString(), 'note' => 'Tuần này']);
+        $last = $this->debt(100000, 'pending');
+        $settled = $this->debt(100000, 'pending');
+        $settled->update(['amount_paid' => 100000]); // vừa thu xong nhưng status chưa kịp đổi
+
+        $this->artisan('driver:mark-overdue-debts')->assertSuccessful();
+        $this->assertSame('pending', $current->fresh()->status, 'Chủ nhật vẫn còn hạn');
+        $this->assertSame('overdue', $last->fresh()->status);
+        $this->assertContains('overdue', $this->actions($last));
+        $this->assertSame('pending', $settled->fresh()->status, 'đã thu đủ thì không đánh quá hạn');
+
+        $this->travelTo(now()->addDay()->startOfDay()->addMinutes(1)); // 0h01 thứ Hai
+        $this->artisan('driver:mark-overdue-debts')->assertSuccessful();
+        $this->assertSame('overdue', $current->fresh()->status);
+    }
+
+    public function test_weekly_fee_is_not_skipped_by_a_monday_penalty(): void
+    {
+        $this->city->update(['weekly_fee' => 70000]);
+        $monday = now()->startOfWeek()->toDateString();
+        DriverDebt::create(['driver_id' => $this->driver->id, 'city_id' => $this->city->id, 'status' => 'pending', 'amount_due' => 50000, 'amount_paid' => 0,
+            'week_start' => $monday, 'week_end' => $monday, 'ref_id' => 'shift_offline_'.$this->driver->id.'_1_'.$monday, 'note' => 'Phạt Offline']);
+
+        $this->artisan('driver:generate-weekly-fees', ['--week' => $monday])->assertSuccessful();
+        $this->artisan('driver:generate-weekly-fees', ['--week' => $monday])->assertSuccessful();
+
+        $fees = DriverDebt::where('driver_id', $this->driver->id)->whereNull('ref_id')->where('week_start', $monday)->get();
+        $this->assertCount(1, $fees, 'có đúng một phí tuần, chạy lại không tạo trùng');
+        $this->assertSame(70000.0, (float) $fees->first()->amount_due);
+    }
+
+    public function test_adjusting_down_to_what_was_paid_is_recorded_as_a_waiver(): void
+    {
+        $d = $this->debt(350000);
+        DriverDebtService::collectManual($d, 100000, 'CK tay', $this->admin->id);
+        $this->assertTrue(DriverDebtService::adjustAmount($d, 100000, 'Chỉ thu chừng này thôi', $this->admin->id)['ok']);
+
+        $d->refresh();
+        $this->assertSame('paid', $d->status);
+        $this->assertSame('waived', $d->paid_via);
+        $this->assertSame(250000.0, (float) $d->logs()->where('action', 'waived')->value('amount'));
+    }
+
+    public function test_amounts_are_whole_dong(): void
+    {
+        $d = $this->debt(100000);
+        DriverDebtService::collectManual($d, 40000.6, 'CK tay', $this->admin->id);
+        $this->assertSame(40001.0, (float) $d->fresh()->amount_paid);
+        $this->assertSame(40001.0, (float) $d->logs()->where('action', 'paid_manual')->value('amount'));
+    }
+
+    public function test_blocked_kpi_ignores_drivers_exempt_from_debt_and_list_follows_issuing_city(): void
+    {
+        $exempt = $this->user('driver');
+        $exempt->update(['debt_enabled' => false]);
+        $this->debt(350000, 'overdue');
+        $this->debt(90000, 'overdue', $exempt);
+
+        $s = DriverDebtService::summary($this->city->id);
+        $this->assertSame(1, $s['blockedDrivers']);
+        $this->assertSame(350000, $s['blockedMoney']);
+
+        $other = City::create(['name' => 'Khác', 'slug' => 'kh-'.uniqid(), 'is_active' => true]);
+        $elsewhere = $this->debt(10000);
+        $elsewhere->update(['city_id' => $other->id]);
+        Livewire::test(ListDriverDebts::class)->set('activeTab', 'all')->assertCanNotSeeTableRecords([$elsewhere]);
+    }
+
+    public function test_penalties_are_labelled_as_penalties(): void
+    {
+        $d = $this->debt(50000);
+        $d->update(['ref_id' => 'shift_offline_1_2_2026-11-02']);
+        $this->assertSame('Phạt Offline', \App\Filament\Resources\DriverDebtResource::kindLabel($d));
+
+        Livewire::test(ListDriverDebts::class)->set('activeTab', 'all')
+            ->filterTable('debt_type', 'weekly')->assertCanNotSeeTableRecords([$d])
+            ->filterTable('debt_type', 'penalty')->assertCanSeeTableRecords([$d]);
+    }
 }

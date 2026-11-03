@@ -2,6 +2,7 @@
 
 namespace Modules\Driver\Http\Controllers;
 
+use App\Services\DriverDebtService;
 use App\Services\PayOSService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -52,7 +53,7 @@ class PaymentController extends Controller
                 return response()->json(['success' => false, 'message' => 'Không tìm thấy công nợ'], 404);
             }
 
-            $amount      = (int) ($debt->amount_due - $debt->amount_paid);
+            $amount      = (int) round((float) $debt->amount_due - (float) $debt->amount_paid);
             if ($amount <= 0) {
                 return response()->json(['success' => false, 'message' => 'Khoản công nợ đã được thanh toán'], 409);
             }
@@ -132,10 +133,11 @@ class PaymentController extends Controller
         }
 
         // Query PayOS
-        $payosStatus = PayOSService::getPaymentStatus($orderCode);
+        $info = PayOSService::getPaymentInfo($orderCode);
+        $payosStatus = $info['status'] ?? null;
 
         if ($payosStatus === 'PAID') {
-            $this->handlePaid($order);
+            $this->handlePaid($order, $info['amount_paid'] ?? null);
         } elseif ($payosStatus === 'CANCELLED') {
             DB::table('payment_orders')->where('id', $order->id)->update(['status' => 'cancelled', 'updated_at' => now()]);
         }
@@ -168,19 +170,26 @@ class PaymentController extends Controller
             return response()->json(['success' => true]);
         }
 
+        // PayOS chỉ gọi webhook khi đã nhận tiền (code '00'); hủy link không có webhook, app poll tự thấy CANCELLED.
         if ($status === '00') {
-            $this->handlePaid($order);
-            Log::info("[PayOS] Webhook PAID orderCode={$code} driver={$order->driver_id}");
-        } elseif ($status === 'CANCELLED' && $order->status === 'pending') {
-            DB::table('payment_orders')->where('id', $order->id)->update(['status' => 'cancelled', 'updated_at' => now()]);
+            $paid = isset($payload['data']['amount']) ? (int) $payload['data']['amount'] : null;
+            $this->handlePaid($order, $paid);
+            Log::info("[PayOS] Webhook PAID orderCode={$code} driver={$order->driver_id} amount=".($paid ?? '?'));
         }
 
         return response()->json(['success' => true]);
     }
 
-    private function handlePaid(object $order): void
+    /** $paidAmount: số tiền PayOS báo đã nhận; null (không có thông tin) thì lấy số trên QR. */
+    private function handlePaid(object $order, ?int $paidAmount = null): void
     {
-        DB::transaction(function () use ($order) {
+        // Ghi đúng số tiền thật nhận: chuyển thiếu thì phần còn lại vẫn là nợ, chuyển dư thì dư vào ví.
+        $received = $paidAmount !== null && $paidAmount > 0 ? $paidAmount : (int) $order->amount;
+        if ($received !== (int) $order->amount) {
+            Log::warning('[PayOS] Số tiền nhận khác QR', ['order_code' => $order->order_code, 'qr' => (int) $order->amount, 'received' => $received]);
+        }
+
+        DB::transaction(function () use ($order, $received) {
             // PAID có chữ ký hợp lệ phải được ghi nhận kể cả QR vừa bị app
             // thay thế và đánh dấu cancelled trong lúc ngân hàng đã trừ tiền.
             // Compare-and-swap đảm bảo poll/webhook/retry chỉ xử lý một lần.
@@ -203,7 +212,7 @@ class PaymentController extends Controller
             if ($order->type === 'topup') {
                 DriverWalletService::adjust(
                     $order->driver_id,
-                    $order->amount,
+                    $received,
                     'credit',
                     'Nạp ví qua PayOS',
                     "payos_{$order->order_code}"
@@ -211,20 +220,14 @@ class PaymentController extends Controller
             } elseif ($order->type === 'debt_payment' && $order->ref_id) {
                 $debt = DriverDebt::where('id', $order->ref_id)->lockForUpdate()->first();
                 if ($debt) {
-                    $remaining = max(0, (float) $debt->amount_due - (float) $debt->amount_paid);
-                    $applied = min($remaining, (float) $order->amount);
-                    $excess = (float) $order->amount - $applied;
+                    $remaining = DriverDebtService::remaining($debt);
+                    $applied = min($remaining, (float) $received);
+                    $excess = (float) $received - $applied;
 
                     if ($applied > 0) {
-                        $newPaid = min((float) $debt->amount_due, (float) $debt->amount_paid + $applied);
-                        $done = $newPaid >= (float) $debt->amount_due;
-                        $debt->update([
-                            'amount_paid' => $newPaid,
-                            'status' => $done ? 'paid' : $debt->status,
-                            'paid_at' => $done ? now() : $debt->paid_at,
-                            'paid_via' => $done ? 'payos' : $debt->paid_via,
-                        ]);
-                        \App\Services\DriverDebtService::log($debt->id, 'paid_payos', $applied, null, 'Đơn QR '.$order->order_code);
+                        DriverDebtService::applyPayment($debt, $applied, 'payos');
+                        $note = 'Đơn QR '.$order->order_code.($received !== (int) $order->amount ? ' (QR '.number_format((int) $order->amount, 0, ',', '.').'₫, nhận '.number_format($received, 0, ',', '.').'₫)' : '');
+                        DriverDebtService::log($debt->id, 'paid_payos', $applied, null, $note);
                     }
 
                     if ($excess > 0) {
@@ -241,7 +244,7 @@ class PaymentController extends Controller
                     // không được nuốt tiền, hoàn toàn bộ vào ví tài xế.
                     DriverWalletService::adjust(
                         $order->driver_id,
-                        $order->amount,
+                        $received,
                         'credit',
                         'Hoàn tiền QR công nợ không còn tồn tại',
                         "payos_debt_excess_{$order->order_code}"

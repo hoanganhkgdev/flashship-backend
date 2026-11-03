@@ -37,6 +37,12 @@ class DriverDebtService
         return max(0, (float) $d->amount_due - (float) $d->amount_paid);
     }
 
+    /** Tiền đồng không có phần lẻ (cột DECIMAL(10,0)): làm tròn ở đây để phần lẻ không bị DB cắt âm thầm. */
+    public static function vnd($amount): float
+    {
+        return (float) round((float) $amount);
+    }
+
     public static function log(int $debtId, string $action, float $amount = 0, ?int $by = null, ?string $note = null): void
     {
         DriverDebtLog::create(['debt_id' => $debtId, 'action' => $action, 'amount' => $amount, 'performed_by' => $by, 'note' => $note]);
@@ -45,6 +51,7 @@ class DriverDebtService
     /** @return array{ok:bool,message:string} */
     public static function create(int $driverId, string $type, float $amount, string $reason, ?int $by, ?string $weekStart = null, ?string $weekEnd = null): array
     {
+        $amount = self::vnd($amount);
         if (! isset(self::TYPES[$type]) || $amount < 1000 || mb_strlen(trim($reason)) < 5) {
             return ['ok' => false, 'message' => 'Cần loại nợ hợp lệ, số tiền từ 1.000₫ và lý do ít nhất 5 ký tự.'];
         }
@@ -69,9 +76,9 @@ class DriverDebtService
     }
 
     /** Ghi nhận một khoản thu đã xảy ra: tăng amount_paid, đóng nợ nếu đủ. Phải gọi trong transaction đã khóa dòng nợ. */
-    private static function applyPayment(DriverDebt $d, float $amount, string $via): void
+    public static function applyPayment(DriverDebt $d, float $amount, string $via): void
     {
-        $paid = min((float) $d->amount_due, (float) $d->amount_paid + $amount);
+        $paid = min((float) $d->amount_due, (float) $d->amount_paid + self::vnd($amount));
         $done = $paid >= (float) $d->amount_due;
         $d->update([
             'amount_paid' => $paid,
@@ -84,6 +91,7 @@ class DriverDebtService
     /** Thu từ ví tài xế, được thu một phần (tối đa bằng số còn lại và số dư ví). */
     public static function payFromWallet(DriverDebt $debt, float $amount, ?int $by): array
     {
+        $amount = self::vnd($amount);
         if ($amount < 1) {
             return ['ok' => false, 'message' => 'Số tiền không hợp lệ.'];
         }
@@ -114,6 +122,7 @@ class DriverDebtService
     /** Admin đã thu ngoài hệ thống (tiền mặt, chuyển khoản tay): chỉ ghi nhận. */
     public static function collectManual(DriverDebt $debt, float $amount, string $note, ?int $by): array
     {
+        $amount = self::vnd($amount);
         if ($amount < 1 || mb_strlen(trim($note)) < 3) {
             return ['ok' => false, 'message' => 'Cần số tiền và ghi chú (hình thức/mã giao dịch).'];
         }
@@ -157,6 +166,7 @@ class DriverDebtService
     /** Sửa số phải thu (tạo nhầm...). Không được thấp hơn phần đã thu. */
     public static function adjustAmount(DriverDebt $debt, float $newDue, string $reason, ?int $by): array
     {
+        $newDue = self::vnd($newDue);
         if (mb_strlen(trim($reason)) < 5) {
             return ['ok' => false, 'message' => 'Hãy ghi lý do điều chỉnh (ít nhất 5 ký tự).'];
         }
@@ -170,8 +180,15 @@ class DriverDebtService
                 return ['ok' => false, 'message' => 'Số nợ mới không được thấp hơn phần đã thu ('.number_format($d->amount_paid, 0, ',', '.').'₫).'];
             }
             $old = (float) $d->amount_due;
-            $closes = $newDue <= (float) $d->amount_paid;
-            $d->update(['amount_due' => $newDue] + ($closes ? ['status' => 'paid', 'paid_at' => now(), 'paid_via' => $d->paid_via ?: 'manual'] : []));
+            if ($newDue <= (float) $d->amount_paid) {
+                // Hạ về đúng phần đã thu = bỏ phần còn lại: ghi như Miễn nợ để báo cáo không coi là đã thu đủ.
+                $waived = $old - (float) $d->amount_paid;
+                $d->update(['amount_due' => $d->amount_paid, 'status' => 'paid', 'paid_at' => now(), 'paid_via' => 'waived']);
+                self::log($d->id, 'waived', $waived, $by, 'Điều chỉnh '.$old.' → '.$newDue.': '.$reason);
+
+                return ['ok' => true, 'message' => 'Đã hạ số nợ về phần đã thu, miễn '.number_format($waived, 0, ',', '.').'₫.'];
+            }
+            $d->update(['amount_due' => $newDue]);
             self::log($d->id, 'adjusted', $newDue - $old, $by, $old.' → '.$newDue.': '.$reason);
 
             return ['ok' => true, 'message' => 'Đã điều chỉnh số nợ thành '.number_format($newDue, 0, ',', '.').'₫.'];
@@ -202,7 +219,8 @@ class DriverDebtService
 
     public static function markOverdue(DriverDebt $debt, ?int $by): array
     {
-        $ok = DriverDebt::whereKey($debt->id)->where('status', 'pending')->update(['status' => 'overdue']) > 0;
+        $ok = DriverDebt::whereKey($debt->id)->where('status', 'pending')->whereColumn('amount_due', '>', 'amount_paid')
+            ->update(['status' => 'overdue']) > 0;
         if ($ok) {
             self::log($debt->id, 'overdue', 0, $by);
         }
@@ -240,10 +258,20 @@ class DriverDebtService
 
     // ─── Số liệu ────────────────────────────────────────────────────────────────
 
+    /** Nợ thuộc khu vực phát sinh (d.city_id); nợ cũ chưa có khu vực thì theo khu vực hiện tại của tài xế. */
     private static function debts(?int $cityId)
     {
         return DB::table('driver_debts as d')->join('users as u', 'u.id', '=', 'd.driver_id')
-            ->when($cityId, fn ($q) => $q->where('u.city_id', $cityId));
+            ->where(fn ($q) => $q->where('d.city_id', (int) $cityId)
+                ->orWhere(fn ($q) => $q->whereNull('d.city_id')->where('u.city_id', (int) $cityId)));
+    }
+
+    /** Đúng điều kiện chặn nhận đơn (OrderMarketService): nợ quá hạn còn tiền, tài xế đang hoạt động và áp dụng công nợ. */
+    private static function blocking(?int $cityId)
+    {
+        return self::debts($cityId)->where('d.status', 'overdue')->whereColumn('d.amount_due', '>', 'd.amount_paid')
+            ->where('u.status', 1)->where(fn ($q) => $q->whereNull('u.debt_enabled')->orWhere('u.debt_enabled', true))
+            ->when(! \Modules\Core\Services\OperationalSettings::debtEnabled($cityId), fn ($q) => $q->whereRaw('1 = 0'));
     }
 
     public static function summary(?int $cityId): array
@@ -252,7 +280,7 @@ class DriverDebtService
             ->selectRaw('COUNT(*) c, COALESCE(SUM(d.amount_due - d.amount_paid),0) s')->first();
         $overdue = self::debts($cityId)->where('d.status', 'overdue')->whereColumn('d.amount_due', '>', 'd.amount_paid')
             ->selectRaw('COUNT(*) c, COALESCE(SUM(d.amount_due - d.amount_paid),0) s')->first();
-        $blocked = self::debts($cityId)->where('d.status', 'overdue')->where('u.status', 1)
+        $blocked = self::blocking($cityId)
             ->selectRaw('COUNT(DISTINCT d.driver_id) c, COALESCE(SUM(d.amount_due - d.amount_paid),0) s')->first();
         $locked = self::debts($cityId)->where('u.status', 2)->where('d.status', '<>', 'paid')->whereColumn('d.amount_due', '>', 'd.amount_paid')
             ->selectRaw('COUNT(DISTINCT d.driver_id) c, COALESCE(SUM(d.amount_due - d.amount_paid),0) s')->first();
@@ -271,8 +299,7 @@ class DriverDebtService
     /** Tài xế đang hoạt động nhưng bị chặn nhận đơn vì nợ quá hạn, nợ lớn nhất trước. */
     public static function blockedDrivers(?int $cityId, int $limit = 5): Collection
     {
-        return self::debts($cityId)->leftJoin('driver_wallets as w', 'w.driver_id', '=', 'u.id')
-            ->where('d.status', 'overdue')->where('u.status', 1)
+        return self::blocking($cityId)->leftJoin('driver_wallets as w', 'w.driver_id', '=', 'u.id')
             ->groupBy('u.id', 'u.name', 'w.balance')
             ->selectRaw('u.id, u.name, COALESCE(w.balance,0) wallet, COUNT(*) items, SUM(d.amount_due - d.amount_paid) remaining, MIN(COALESCE(d.week_end, DATE(d.created_at))) since')
             ->orderByDesc('remaining')->limit($limit)->get();

@@ -3,6 +3,7 @@ namespace Modules\Driver\Console\Commands;
 
 use Carbon\Carbon;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Modules\Core\Models\City;
@@ -34,6 +35,22 @@ class GenerateWeeklyFeesCommand extends Command
             return self::SUCCESS;
         }
 
+        // Chạy tay trùng lúc cron (hoặc 2 lần cùng lúc) thì phép kiểm tra "đã có" ở dưới không đủ.
+        $lock = Cache::lock('driver:generate-weekly-fees:'.$weekStart->toDateString(), 300);
+        if (! $lock->get()) {
+            $this->warn('Đang có tiến trình khác tạo phí tuần này.');
+            return self::SUCCESS;
+        }
+
+        try {
+            return $this->generate($cities, $weekStart, $weekEnd);
+        } finally {
+            $lock->release();
+        }
+    }
+
+    private function generate($cities, Carbon $weekStart, Carbon $weekEnd): int
+    {
         $created = 0;
         $skipped = 0;
 
@@ -46,7 +63,11 @@ class GenerateWeeklyFeesCommand extends Command
 
             if ($drivers->isEmpty()) continue;
 
+            // Chỉ phí tuần (không ref_id) mới tính là "đã có": phạt Offline cũng có week_start = ngày ca,
+            // nếu tính cả thì tài xế bị phạt đúng thứ Hai sẽ không có phí tuần.
             $existing = DriverDebt::where('week_start', $weekStart->toDateString())
+                ->where('debt_type', 'weekly')
+                ->whereNull('ref_id')
                 ->whereIn('driver_id', $drivers)
                 ->pluck('driver_id')
                 ->flip();
@@ -63,6 +84,7 @@ class GenerateWeeklyFeesCommand extends Command
                 $rows[] = [
                     'driver_id'   => $driverId,
                     'city_id'     => $city->id,
+                    'debt_type'   => 'weekly',
                     'status'      => 'pending',
                     'amount_due'  => $city->weekly_fee,
                     'amount_paid' => 0,
