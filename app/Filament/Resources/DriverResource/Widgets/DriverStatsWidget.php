@@ -21,13 +21,13 @@ class DriverStatsWidget extends Widget
 
     protected function getViewData(): array
     {
-        $cityId = Filament::getTenant()?->id;
+        $cityId = (int) Filament::getTenant()?->id;
 
         // Trạng thái của giấy tờ MỚI NHẤT mỗi tài xế (tải lại giấy tờ thì bản cũ không còn tính).
         $latest = fn (string $table) => "(SELECT d.status FROM {$table} d WHERE d.user_id = users.id ORDER BY d.id DESC LIMIT 1)";
 
         $drivers = DB::table('users')->where('user_type', 'driver')->where('city_id', $cityId)
-            ->selectRaw("users.id, users.status, users.created_at, {$latest('driver_cccd_images')} as cccd, {$latest('driver_licenses')} as license")
+            ->selectRaw("users.id, users.status, users.is_online, users.created_at, {$latest('driver_cccd_images')} as cccd, {$latest('driver_licenses')} as license")
             ->get();
 
         $working = DB::table('orders')->where('status', 'completed')->where('completed_at', '>=', now()->subDays(30))
@@ -40,6 +40,8 @@ class DriverStatsWidget extends Widget
         return [
             'total' => $drivers->count(),
             'active' => $drivers->where('status', 1)->count(),
+            'online' => $drivers->where('status', 1)->where('is_online', 1)->count(),
+            'tabUrl' => fn (string $tab) => DriverResource::getUrl('index', ['activeTab' => $tab]),
             'locked' => $drivers->where('status', 2)->count(),
             'working' => $working->count(),
             'workingLocked' => $working->filter(fn ($id) => ($statusById[$id] ?? null) == 2)->count(),
