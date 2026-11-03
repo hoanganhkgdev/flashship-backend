@@ -1,0 +1,56 @@
+/* Trang Thu phí tài xế: dùng chung thẻ KPI (revenue-page.css) và bảng vừa khung (driver-earnings-page.css, .fs-de-page).
+   Ở đây chỉ là phần khác: 11 cột của bảng công nợ, thanh tiến độ trong thẻ chính, khối tiến độ thu. */
+
+/* Thẻ chính "Còn phải thu": nền đỏ sẫm thay cam, kèm thanh % đã thu */
+.fs-fr-page .fs-fr-hero { border-color:#4c1d24; background:linear-gradient(130deg,#3b1219 0%,#5b1d26 100%); }
+.fs-fr-page .fs-fr-hero .fs-rv-kpi__head svg { color:#fca5a5; }
+.fs-fr-page .fs-fr-hero__meter { height:6px; margin-top:auto; overflow:hidden; border-radius:999px; background:rgba(255,255,255,.14); }
+.fs-fr-page .fs-fr-hero__meter i { display:block; height:100%; border-radius:inherit; background:#86efac; }
+.fs-fr-page .fs-fr-hero__meter + small { margin-top:6px; }
+
+/* ── Bảng 11 cột: #, Tài xế, Còn phải thu, Phải thu, Đã thu, Miễn, Phí, Phạt, Khác, Công ty chi, Đã rút ── */
+.fs-fr-page .fs-de-table th:nth-child(2), .fs-fr-page .fs-de-table td:nth-child(2) { width:19%; }
+.fs-fr-page .fs-de-table th:nth-child(3) { width:11%; }
+.fs-fr-page .fs-de-table th:nth-child(4) { width:auto; }
+.fs-fr-page .fs-de-table th:nth-child(5) { width:10%; }
+/* Bỏ quy tắc ẩn cột của trang Thu nhập (thứ tự cột khác), dùng quy tắc riêng bên dưới */
+.fs-fr-page .fs-de-table th, .fs-fr-page .fs-de-table td { display:table-cell; }
+.fs-fr-page .fs-de-table tbody td:nth-child(4) { color:var(--rv-ink); font-weight:600; }
+.fs-fr-page .fs-de-table tbody td:last-child { color:var(--rv-muted); font-weight:500; }
+.fs-fr-page .fs-fr-chip { display:inline-block; padding:2px 8px; border-radius:999px; font-size:12px; font-weight:700; white-space:nowrap; }
+.fs-fr-page .fs-fr-chip--due { background:#fef2f2; color:#b91c1c; }
+.fs-fr-page .fs-fr-chip--ok { background:#f0fdf4; color:#15803d; font-weight:600; }
+.fs-fr-page .fs-fr-paid-amount { color:var(--rv-ink); }
+.fs-fr-page .fs-fr-paid i { background:#22c55e; }
+.fs-fr-page .fs-fr-row--due td:first-child { box-shadow:inset 3px 0 #ef4444; }
+.fs-fr-page .fs-fr-row--settled td:first-child { box-shadow:inset 3px 0 #22c55e; }
+.fs-fr-page .fs-fr-remaining-total { color:#b91c1c; font-weight:750; }
+
+/* Khối tiến độ thu: số lớn đã nằm ở thẻ chính, ở đây là thanh + cấu thành + các dòng đối soát */
+.fs-fr-page .fs-fr-collection .fs-rr-card__head { margin-bottom:12px; }
+.fs-fr-page .fs-fr-meter { margin-bottom:6px; }
+.fs-fr-page .fs-fr-breakdown { display:grid; gap:0; margin:8px 0 10px; }
+.fs-fr-page .fs-fr-breakdown > div { display:flex; justify-content:space-between; gap:10px; padding:8px 0; border-bottom:1px solid var(--rv-border); font-size:13px; }
+.fs-fr-page .fs-fr-breakdown > div:last-child { border-bottom:0; }
+.fs-fr-page .fs-fr-breakdown span { color:var(--rv-muted); }
+.fs-fr-page .fs-fr-breakdown b { color:var(--rv-ink); }
+.fs-fr-page .fs-fr-company-paid { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:2px 10px; margin-top:8px; padding:10px 12px; border:1px solid var(--rv-border); border-radius:10px; background:var(--rv-soft); }
+.fs-fr-page .fs-fr-company-paid span { color:var(--rv-ink); font-size:13px; font-weight:600; }
+.fs-fr-page .fs-fr-company-paid b { color:var(--rv-ink); font-size:13px; text-align:right; }
+.fs-fr-page .fs-fr-company-paid small { grid-column:1 / -1; color:var(--rv-muted); font-size:11px; line-height:1.45; }
+.fs-fr-page .fs-fr-priority { margin-top:8px; }
+
+/* Dark */
+.dark .fs-fr-page .fs-fr-chip--due { background:#3b1219; color:#fca5a5; }
+.dark .fs-fr-page .fs-fr-chip--ok { background:#0f2a1b; color:#86efac; }
+.dark .fs-fr-page .fs-fr-remaining-total { color:#fca5a5; }
+
+/* Màn hẹp: ẩn cột phụ thay vì cuộn ngang */
+@media (max-width:1320px) {
+    .fs-fr-page .fs-de-table th:nth-child(6), .fs-fr-page .fs-de-table td:nth-child(6),
+    .fs-fr-page .fs-de-table th:nth-child(9), .fs-fr-page .fs-de-table td:nth-child(9) { display:none; }
+}
+@media (max-width:1100px) {
+    .fs-fr-page .fs-de-table th:nth-child(10), .fs-fr-page .fs-de-table td:nth-child(10),
+    .fs-fr-page .fs-de-table th:nth-child(11), .fs-fr-page .fs-de-table td:nth-child(11) { display:none; }
+}
