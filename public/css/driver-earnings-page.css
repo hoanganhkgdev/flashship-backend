@@ -1,0 +1,97 @@
+/* Trang Thu nhập tài xế. driver-earnings.css là nền chung với trang Thu phí tài xế (.fs-driver-earnings),
+   nên phần riêng của trang này nằm dưới .fs-de-page. Thẻ KPI dùng chung với trang Doanh thu (revenue-page.css). */
+.fs-de-page {
+    --de-shipping: #f97316;
+    --de-bonus: #3b82f6;
+    --de-rain: #06b6d4;
+    --de-discount: #8b5cf6;
+    gap: 16px;
+}
+.fs-de-page .fs-rr-body { gap: 16px; }
+
+/* Đầu trang gọn */
+.fs-de-page .fs-page-header__eyebrow { display: none; }
+.fs-de-page .fs-page-header__title { font-size: 24px; }
+.fs-de-page .fs-page-header__description { margin-top: 3px; }
+.fs-de-page .fs-rr-toolbar { padding: 10px; }
+
+.fs-de-page .fs-rv-kpi .fs-de-of { color: var(--rv-muted); font-size: 15px; font-weight: 500; letter-spacing: 0; }
+.fs-de-page .fs-revenue-compare { margin-top: 8px; }
+
+/* ── Bảng tài xế: vừa khung, không cuộn ngang ───────────────────────────────── */
+.fs-de-page .fs-de-details .fs-rr-card__head { margin-bottom: 14px; }
+.fs-de-page .fs-de-list-filters { margin-bottom: 14px; gap: 10px; }
+.fs-de-page .fs-revenue-table-scroll { overflow-x: hidden; max-height: none; }
+.fs-de-page .fs-de-table { width: 100%; min-width: 0; table-layout: fixed; }
+.fs-de-page .fs-de-table th, .fs-de-page .fs-de-table td { padding: 11px 10px; font-size: 13px; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fs-de-page .fs-de-table th { white-space: normal; overflow: visible; text-overflow: clip; vertical-align: bottom; }
+.fs-de-page .fs-de-table th button { display: inline; font-size: 11px; line-height: 1.3; letter-spacing: .02em; text-align: inherit; text-transform: uppercase; white-space: normal; }
+.fs-de-page .fs-de-table th:nth-child(1), .fs-de-page .fs-de-table td:nth-child(1) { width: 40px; text-align: center; position: static; }
+.fs-de-page .fs-de-table th:nth-child(2), .fs-de-page .fs-de-table td:nth-child(2) { width: 21%; text-align: left; position: static; border-right: 0; min-width: 0; }
+.fs-de-page .fs-de-table th:nth-child(3) { width: 15%; }
+.fs-de-page .fs-de-table th:nth-child(4) { width: 7%; }
+/* Các cột tiền còn lại chia đều phần còn lại */
+.fs-de-page .fs-de-table tbody td:nth-child(-n+2) { background: transparent; }
+.fs-de-page .fs-de-table tbody tr:hover td { background: var(--rv-soft); }
+.fs-de-page .fs-de-table tbody td:nth-child(4) { color: var(--rv-ink); font-weight: 600; }
+.fs-de-page .fs-de-table tbody td:last-child { color: var(--rv-muted); font-weight: 500; }
+.fs-de-page .fs-de-table tfoot td { font-size: 13px; }
+.fs-de-page .fs-de-table tfoot td:nth-child(4) { color: var(--rv-ink); }
+.fs-de-page .fs-de-table tfoot td:last-child { color: var(--rv-ink); }
+
+.fs-de-page .fs-de-driver { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.fs-de-page .fs-de-driver > div { min-width: 0; }
+.fs-de-page .fs-de-driver b { display: block; max-width: none; overflow: hidden; color: var(--rv-ink); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.fs-de-page .fs-de-driver small { display: block; margin-top: 2px; font-size: 11px; }
+.fs-de-page .fs-de-avatar { flex: none; width: 32px; height: 32px; border-radius: 50%; }
+
+.fs-de-page .fs-de-total b { display: block; color: #ea580c; font-size: 14px; font-weight: 750; }
+.fs-de-page .fs-de-share { display: block; height: 4px; margin: 5px 0 3px auto; width: 100%; max-width: 110px; overflow: hidden; border-radius: 999px; background: var(--rv-soft); }
+.fs-de-page .fs-de-share i { display: block; height: 100%; border-radius: inherit; background: #fb923c; }
+.fs-de-page .fs-de-total small { margin-top: 0; font-size: 11px; }
+
+/* ── Biểu đồ + cấu thành: cao theo nội dung, không chừa khoảng trống ─────────── */
+.fs-de-page .fs-rr-main-grid { align-items: start; }
+.fs-de-page .fs-rr-chart-card .fs-rr-yaxis, .fs-de-page .fs-rr-chart-card .fs-rr-plot { height: 336px; }
+.fs-de-page .fs-de-composition .fs-rr-card__head { margin-bottom: 12px; }
+.fs-de-page .fs-de-stack { height: 10px; margin-top: 12px; }
+.fs-de-page .fs-de-stack .is-shipping { background: var(--de-shipping); }
+.fs-de-page .fs-de-stack .is-surcharge { background: var(--de-bonus); }
+.fs-de-page .fs-de-stack .is-rain { background: var(--de-rain); }
+.fs-de-page .fs-de-stack .is-discount { background: var(--de-discount); }
+
+.fs-de-page .fs-de-parts { display: grid; margin: 12px 0 14px; padding: 0; list-style: none; }
+.fs-de-page .fs-de-parts li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 1px 10px; padding: 9px 0; border-bottom: 1px solid var(--rv-border); }
+.fs-de-page .fs-de-parts li:last-child { border-bottom: 0; }
+.fs-de-page .fs-de-parts li.is-zero { opacity: .55; }
+.fs-de-page .fs-de-parts__name { display: flex; align-items: center; gap: 8px; color: var(--rv-ink); font-size: 13px; font-weight: 600; }
+.fs-de-page .fs-de-parts__name i { width: 8px; height: 8px; border-radius: 3px; }
+.fs-de-page .fs-de-parts b { color: var(--rv-ink); font-size: 13px; font-weight: 700; text-align: right; }
+.fs-de-page .fs-de-parts small { color: var(--rv-muted); font-size: 11px; }
+.fs-de-page .fs-de-parts em { color: var(--rv-muted); font-size: 11px; font-style: normal; text-align: right; }
+.fs-de-page .fs-de-parts__bar { grid-column: 1 / -1; display: block; height: 4px; margin-top: 4px; overflow: hidden; border-radius: 999px; background: var(--rv-soft); }
+.fs-de-page .fs-de-parts__bar i { display: block; height: 100%; border-radius: inherit; }
+.fs-de-page .is-shipping { background: var(--de-shipping); }
+.fs-de-page .is-surcharge { background: var(--de-bonus); }
+.fs-de-page .is-rain { background: var(--de-rain); }
+.fs-de-page .is-discount { background: var(--de-discount); }
+.fs-de-page .fs-de-leader { margin-bottom: 10px; }
+
+.fs-de-page .fs-de-accounting-note { padding: 10px 14px; font-size: 12px; line-height: 1.6; }
+
+/* Dark */
+.dark .fs-de-page .fs-de-total b { color: #fdba74; }
+.dark .fs-de-page .fs-de-share i { background: #fdba74; }
+
+/* Màn hẹp: ẩn cột phụ trước khi phải cuộn ngang */
+@media (max-width: 1180px) {
+    .fs-de-page .fs-de-table th:nth-child(9), .fs-de-page .fs-de-table td:nth-child(9) { display: none; }
+}
+@media (max-width: 1024px) {
+    .fs-de-page .fs-de-table th:nth-child(7), .fs-de-page .fs-de-table td:nth-child(7),
+    .fs-de-page .fs-de-table th:nth-child(8), .fs-de-page .fs-de-table td:nth-child(8) { display: none; }
+}
+@media (max-width: 640px) {
+    .fs-de-page .fs-revenue-table-scroll { overflow-x: auto; }
+    .fs-de-page .fs-de-table { min-width: 560px; }
+}
