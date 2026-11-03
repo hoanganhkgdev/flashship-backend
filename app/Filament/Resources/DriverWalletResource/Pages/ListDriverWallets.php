@@ -46,7 +46,7 @@ class ListDriverWallets extends ListRecords
 
     public function getTabs(): array
     {
-        $cityId = Filament::getTenant()?->id;
+        $cityId = (int) Filament::getTenant()?->id;
         $low = DriverWalletResource::lowThreshold();
         $status = fn ($query, int $s) => $query->whereHas('driver', fn ($q) => $q->where('status', $s));
 

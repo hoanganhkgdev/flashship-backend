@@ -8,4 +8,5 @@ class DriverWalletTransaction extends Model
     protected $casts    = ['amount' => 'float'];
 
     public function wallet() { return $this->belongsTo(DriverWallet::class); }
+    public function performer() { return $this->belongsTo(\Modules\Core\Models\User::class, 'performed_by'); }
 }

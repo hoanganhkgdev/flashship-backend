@@ -128,4 +128,139 @@ class DriverWalletTest extends TestCase
 
         Livewire::test(ViewDriverWallet::class, ['record' => $wallet->id])->assertSuccessful()->assertSee('Tiền vào/ra theo nguồn');
     }
+
+    private function bank(): void
+    {
+        \Modules\Driver\Models\Bank::create(['user_id' => $this->driver->id, 'bank_code' => 'VCB', 'bank_name' => 'Vietcombank', 'account_number' => '0123456789', 'account_name' => 'TAI XE']);
+    }
+
+    private function overdueDebt(int $due, int $paid = 0): void
+    {
+        DB::table('driver_debts')->insert(['driver_id' => $this->driver->id, 'city_id' => $this->city->id, 'debt_type' => 'weekly', 'status' => 'overdue',
+            'amount_due' => $due, 'amount_paid' => $paid, 'week_start' => now()->subWeek()->startOfWeek()->toDateString(),
+            'week_end' => now()->subWeek()->endOfWeek()->toDateString(), 'note' => 'Phí tuần', 'created_at' => now(), 'updated_at' => now()]);
+    }
+
+    public function test_withdrawals_must_be_whole_dong_within_the_cap(): void
+    {
+        $this->bank();
+        DriverWalletService::adjust($this->driver->id, 200000, 'credit', 'x', 'order_10_rain');
+        \Laravel\Sanctum\Sanctum::actingAs($this->driver);
+
+        $this->postJson('/api/wallet/withdraw', ['amount' => 150000.5])->assertStatus(422)->assertJsonValidationErrors('amount');
+        $this->postJson('/api/wallet/withdraw', ['amount' => DriverWalletService::MAX_WITHDRAW + 1])->assertStatus(422)->assertJsonValidationErrors('amount');
+        $this->assertSame(0, DB::table('withdraw_requests')->where('driver_id', $this->driver->id)->count());
+
+        $this->postJson('/api/wallet/withdraw', ['amount' => 150000])->assertOk();
+        $this->assertSame(50000.0, DriverWallet::where('driver_id', $this->driver->id)->first()->balance);
+    }
+
+    public function test_overdue_debt_is_held_back_from_withdrawals(): void
+    {
+        $this->bank();
+        DriverWalletService::adjust($this->driver->id, 500000, 'credit', 'x', 'order_11_rain');
+        $this->overdueDebt(350000);
+        \Laravel\Sanctum\Sanctum::actingAs($this->driver);
+
+        $this->getJson('/api/wallet')->assertOk()->assertJsonPath('data.overdue_debt', 350000)->assertJsonPath('data.withdrawable', 150000);
+
+        $this->postJson('/api/wallet/withdraw', ['amount' => 200000])->assertStatus(422)->assertJsonPath('code', 'debt_hold');
+        $this->assertSame(500000.0, DriverWallet::where('driver_id', $this->driver->id)->first()->balance, 'không giữ tiền khi bị chặn');
+
+        $this->postJson('/api/wallet/withdraw', ['amount' => 150000])->assertOk();
+        $this->assertSame(350000.0, DriverWallet::where('driver_id', $this->driver->id)->first()->balance, 'phần nợ vẫn nằm trong ví để thu');
+    }
+
+    public function test_the_debt_hold_ignores_drivers_exempt_from_debt_and_paid_debts(): void
+    {
+        $this->bank();
+        DriverWalletService::adjust($this->driver->id, 500000, 'credit', 'x', 'order_12_rain');
+        $this->overdueDebt(350000, 350000); // đã thu đủ
+        \Laravel\Sanctum\Sanctum::actingAs($this->driver);
+        $this->postJson('/api/wallet/withdraw', ['amount' => 100000])->assertOk();
+
+        $this->overdueDebt(300000);
+        $this->driver->update(['debt_enabled' => false]);
+        $this->postJson('/api/wallet/withdraw', ['amount' => 100000])->assertOk();
+    }
+
+    public function test_transaction_history_has_a_stable_order_across_pages(): void
+    {
+        $wallet = DriverWalletService::ensureWallet($this->driver->id);
+        $at = now()->startOfSecond();
+        foreach (range(1, 25) as $i) {
+            DB::table('driver_wallet_transactions')->insert(['wallet_id' => $wallet->id, 'type' => 'credit', 'amount' => 1000, 'reference' => 'order_'.(900 + $i).'_bonus', 'created_at' => $at, 'updated_at' => $at]);
+        }
+        \Laravel\Sanctum\Sanctum::actingAs($this->driver);
+
+        $ids = array_merge(
+            array_column($this->getJson('/api/wallet/transactions?page=1')->assertOk()->json('data'), 'id'),
+            array_column($this->getJson('/api/wallet/transactions?page=2')->assertOk()->json('data'), 'id'),
+        );
+        $this->assertCount(25, array_unique($ids), 'không trùng, không sót dòng giữa các trang');
+        $this->assertSame($ids, collect($ids)->sortDesc()->values()->all(), 'cùng giây thì mới nhất (id lớn) trước');
+    }
+
+    public function test_refund_of_an_excess_qr_payment_is_not_labelled_as_a_top_up(): void
+    {
+        $this->assertSame('debt_refund', DriverWalletReport::categoryOf('payos_debt_excess_123456'));
+        $this->assertSame('payos', DriverWalletReport::categoryOf('payos_123456'));
+
+        DriverWalletService::adjust($this->driver->id, 30000, 'credit', 'x', 'payos_debt_excess_555');
+        $keys = DriverWalletReport::cashflow($this->city->id)->pluck('key')->all();
+        $this->assertContains('debt_refund', $keys);
+        $this->assertNotContains('payos', $keys);
+    }
+
+    public function test_wallet_creation_is_idempotent_and_adjust_creates_a_missing_wallet(): void
+    {
+        $a = DriverWalletService::ensureWallet($this->driver->id);
+        $b = DriverWalletService::ensureWallet($this->driver->id);
+        $this->assertSame($a->id, $b->id);
+        $this->assertSame(1, DriverWallet::where('driver_id', $this->driver->id)->count());
+
+        $other = $this->user('driver');
+        DriverWalletService::adjust($other->id, 10000, 'credit', 'x', 'order_20_rain');
+        $this->assertSame(10000.0, DriverWallet::where('driver_id', $other->id)->first()->balance);
+    }
+
+    public function test_manual_adjustments_are_whole_dong_and_capped(): void
+    {
+        foreach ([999, DriverWalletService::ADJUST_MAX + 1] as $bad) {
+            try {
+                DriverWalletService::adminAdjust($this->driver->id, $bad, 'credit', 'Sai mức', $this->admin->id);
+                $this->fail('phải từ chối '.$bad);
+            } catch (\Exception $e) {
+                $this->assertStringContainsString('từ 1.000', $e->getMessage());
+            }
+        }
+        DriverWalletService::adminAdjust($this->driver->id, 12000.4, 'credit', 'Làm tròn', $this->admin->id);
+        $this->assertSame(12000.0, DriverWallet::where('driver_id', $this->driver->id)->first()->balance);
+    }
+
+    public function test_reconciliation_and_summary_never_leak_other_cities(): void
+    {
+        DriverWalletService::adjust($this->driver->id, 90000, 'credit', 'x', 'order_30_rain');
+        DB::table('driver_wallets')->where('driver_id', $this->driver->id)->update(['balance' => 1]); // lệch sổ cái
+
+        $this->assertSame(1, DriverWalletReport::reconciliation($this->city->id)['bad']);
+        $this->assertSame(0, DriverWalletReport::reconciliation(null)['total'], 'không có khu vực thì không có ví nào');
+        $this->assertSame(0, DriverWalletReport::summary(null)['activeCount']);
+    }
+
+    public function test_search_by_phone_and_manage_permission(): void
+    {
+        DriverWalletService::adjust($this->driver->id, 50000, 'credit', 'x', 'order_40_rain');
+        $mine = DriverWallet::where('driver_id', $this->driver->id)->first();
+        $otherDriver = $this->user('driver');
+        DriverWalletService::adjust($otherDriver->id, 50000, 'credit', 'x', 'order_41_rain');
+        $other = DriverWallet::where('driver_id', $otherDriver->id)->first();
+
+        Livewire::test(ListDriverWallets::class)->searchTable($this->driver->phone)
+            ->assertCanSeeTableRecords([$mine])->assertCanNotSeeTableRecords([$other]);
+
+        $this->assertTrue(\App\Filament\Resources\DriverWalletResource::canManage());
+        $this->actingAs($this->user('viewer'));
+        $this->assertFalse(\App\Filament\Resources\DriverWalletResource::canManage());
+    }
 }

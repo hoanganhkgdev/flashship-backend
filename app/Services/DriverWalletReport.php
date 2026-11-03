@@ -22,6 +22,8 @@ class DriverWalletReport
         'debt' => ['Thanh toán công nợ', 'debt\_%'],
         'referral' => ['Thưởng giới thiệu', 'referral\_%'],
         'refund_weekly' => ['Hoàn phí tuần', 'refund\_weekly\_%'],
+        // Phải đứng trước 'payos': tiền chuyển dư khi trả nợ qua QR được hoàn vào ví, không phải nạp ví.
+        'debt_refund' => ['Hoàn dư công nợ (QR)', 'payos\_debt\_excess\_%'],
         'payos' => ['Nạp qua PayOS', 'payos\_%'],
         'admin' => ['Admin điều chỉnh', 'admin\_adj\_%'],
     ];
@@ -51,23 +53,31 @@ class DriverWalletReport
         return 'other';
     }
 
+    /** Ví của tài xế trong khu vực. Không có khu vực thì không có ví nào (không bao giờ là "không lọc"). */
     private static function wallets(?int $cityId)
     {
         return DB::table('driver_wallets as w')->join('users as u', 'u.id', '=', 'w.driver_id')
-            ->when($cityId, fn ($q) => $q->where('u.city_id', $cityId));
+            ->where('u.city_id', (int) $cityId);
+    }
+
+    private static function transactions(?int $cityId)
+    {
+        return DB::table('driver_wallet_transactions as t')->join('driver_wallets as w', 'w.id', '=', 't.wallet_id')
+            ->join('users as u', 'u.id', '=', 'w.driver_id')->where('u.city_id', (int) $cityId);
     }
 
     public static function summary(?int $cityId): array
     {
         $byStatus = self::wallets($cityId)->selectRaw('u.status, COUNT(*) c, COALESCE(SUM(w.balance),0) s')->groupBy('u.status')->get()->keyBy('status');
 
-        $today = DB::table('driver_wallet_transactions as t')->join('driver_wallets as w', 'w.id', '=', 't.wallet_id')
-            ->join('users as u', 'u.id', '=', 'w.driver_id')->when($cityId, fn ($q) => $q->where('u.city_id', $cityId))
-            ->whereDate('t.created_at', now()->toDateString())
+        // Khoảng thời gian (dùng được index created_at), không bọc cột trong DATE().
+        $dayStart = now()->startOfDay();
+        $today = self::transactions($cityId)
+            ->where('t.created_at', '>=', $dayStart)->where('t.created_at', '<', $dayStart->copy()->addDay())
             ->selectRaw("COALESCE(SUM(CASE WHEN t.type='credit' THEN t.amount END),0) cin, COALESCE(SUM(CASE WHEN t.type='debit' THEN t.amount END),0) cout")->first();
 
         $pending = DB::table('withdraw_requests as r')->join('users as u', 'u.id', '=', 'r.driver_id')
-            ->when($cityId, fn ($q) => $q->where('u.city_id', $cityId))->where('r.status', 'pending')
+            ->where('u.city_id', (int) $cityId)->where('r.status', 'pending')
             ->selectRaw('COUNT(*) c, COALESCE(SUM(r.amount),0) s')->first();
 
         $recon = self::reconciliation($cityId);
@@ -82,18 +92,18 @@ class DriverWalletReport
         ];
     }
 
-    /** Số dư từng ví phải bằng tổng cộng − tổng trừ của giao dịch. */
+    /** Số dư từng ví phải bằng tổng cộng − tổng trừ của giao dịch. Chỉ ví lệch được đọc về (lọc ngay trong SQL). */
     public static function reconciliation(?int $cityId): array
     {
-        $rows = self::wallets($cityId)
+        $calc = "COALESCE(SUM(CASE WHEN t.type='credit' THEN t.amount ELSE -t.amount END),0)";
+        $bad = self::wallets($cityId)
             ->leftJoin('driver_wallet_transactions as t', 't.wallet_id', '=', 'w.id')
             ->groupBy('w.id', 'w.balance', 'w.driver_id')
-            ->selectRaw("w.id, w.driver_id, w.balance, COALESCE(SUM(CASE WHEN t.type='credit' THEN t.amount ELSE -t.amount END),0) calc")
-            ->get();
+            ->havingRaw("ABS(w.balance - {$calc}) > 0.5")
+            ->orderBy('w.driver_id')
+            ->get(['w.driver_id']);
 
-        $bad = $rows->filter(fn ($r) => abs($r->balance - $r->calc) > 0.5)->values();
-
-        return ['total' => $rows->count(), 'bad' => $bad->count(), 'sample' => $bad->take(5)->pluck('driver_id')->all()];
+        return ['total' => (int) self::wallets($cityId)->count(), 'bad' => $bad->count(), 'sample' => $bad->take(5)->pluck('driver_id')->all()];
     }
 
     /** Dòng tiền theo nguồn trong N ngày. */
@@ -101,8 +111,7 @@ class DriverWalletReport
     {
         $labels = self::categoryLabels();
 
-        return DB::table('driver_wallet_transactions as t')->join('driver_wallets as w', 'w.id', '=', 't.wallet_id')
-            ->join('users as u', 'u.id', '=', 'w.driver_id')->when($cityId, fn ($q) => $q->where('u.city_id', $cityId))
+        return self::transactions($cityId)
             ->where('t.created_at', '>=', now()->subDays($days))
             ->selectRaw(self::categorySql('t.reference')." k, COALESCE(SUM(CASE WHEN t.type='credit' THEN t.amount END),0) cin, COALESCE(SUM(CASE WHEN t.type='debit' THEN t.amount END),0) cout, COUNT(*) n")
             ->groupBy('k')->get()
@@ -112,9 +121,7 @@ class DriverWalletReport
 
     public static function recentAdminAdjustments(?int $cityId, int $limit = 8): Collection
     {
-        return DB::table('driver_wallet_transactions as t')->join('driver_wallets as w', 'w.id', '=', 't.wallet_id')
-            ->join('users as u', 'u.id', '=', 'w.driver_id')->leftJoin('users as a', 'a.id', '=', 't.performed_by')
-            ->when($cityId, fn ($q) => $q->where('u.city_id', $cityId))
+        return self::transactions($cityId)->leftJoin('users as a', 'a.id', '=', 't.performed_by')
             ->where('t.reference', 'like', 'admin\_adj\_%')->orderByDesc('t.id')->limit($limit)
             ->get(['t.type', 't.amount', 't.description', 't.created_at', 'u.name as driver', 'a.name as admin', 'w.driver_id']);
     }

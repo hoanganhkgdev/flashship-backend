@@ -6,6 +6,7 @@ use App\Filament\Resources\DriverWalletResource\Pages;
 use App\Filament\Resources\DriverWalletResource\RelationManagers;
 use App\Filament\Traits\RestrictToFinance;
 use App\Services\DriverWalletReport;
+use App\Support\AdminAccess;
 use Filament\Facades\Filament;
 use Filament\Forms;
 use Filament\Forms\Form;
@@ -24,10 +25,16 @@ class DriverWalletResource extends Resource
 {
     use RestrictToFinance;
 
-    // DriverWallet không có city_id trực tiếp — khu vực xác định qua driver_id -> users.city_id.
+    // DriverWallet không có city_id trực tiếp — khu vực xác định qua driver_id -> users.city_id (không có tenant thì không thấy ví nào).
     public static function scopeEloquentQueryToTenant(Builder $query, ?Model $tenant): Builder
     {
-        return $query->whereHas('driver', fn ($q) => $q->where('city_id', $tenant?->id));
+        return $query->whereHas('driver', fn ($q) => $q->where('city_id', (int) $tenant?->id));
+    }
+
+    /** Cộng/trừ ví là thao tác đổi tiền: cần quyền quản lý tài chính, không chỉ quyền xem. */
+    public static function canManage(): bool
+    {
+        return AdminAccess::allows(auth()->user(), AdminAccess::FINANCE_MANAGE);
     }
 
     protected static ?string $model = DriverWallet::class;
@@ -56,17 +63,20 @@ class DriverWalletResource extends Resource
 
     public static function getEloquentQuery(): Builder
     {
+        $dayStart = now()->startOfDay();
+        $dayEnd = $dayStart->copy()->addDay();
+
         return parent::getEloquentQuery()
             ->with(['driver.city', 'latestTransaction'])
             ->withSum([
                 'transactions as credit_today' => fn (Builder $query) => $query
                     ->where('type', 'credit')
-                    ->whereDate('created_at', now()->toDateString()),
+                    ->where('created_at', '>=', $dayStart)->where('created_at', '<', $dayEnd),
             ], 'amount')
             ->withSum([
                 'transactions as debit_today' => fn (Builder $query) => $query
                     ->where('type', 'debit')
-                    ->whereDate('created_at', now()->toDateString()),
+                    ->where('created_at', '>=', $dayStart)->where('created_at', '<', $dayEnd),
             ], 'amount')
             ->addSelect([
                 'pending_withdraw_amount' => DB::table('withdraw_requests')
@@ -85,15 +95,16 @@ class DriverWalletResource extends Resource
             ->label('Điều chỉnh ví')
             ->icon('heroicon-o-pencil-square')
             ->color('warning')
+            ->visible(fn () => self::canManage())
             ->modalHeading(fn (DriverWallet $record) => 'Điều chỉnh ví: '.$record->driver?->name)
             ->modalDescription(fn (DriverWallet $record) => 'Số dư hiện tại '.number_format($record->balance, 0, ',', '.').'₫. Thao tác được ghi lại cùng tên bạn.')
             ->form([
                 Forms\Components\Select::make('type')->label('Loại')->options(['credit' => 'Cộng tiền', 'debit' => 'Trừ tiền'])->required(),
-                Forms\Components\TextInput::make('amount')->label('Số tiền')->numeric()->minValue(1000)->required()->suffix('₫')->live(onBlur: true),
+                Forms\Components\TextInput::make('amount')->label('Số tiền')->integer()->minValue(1000)->maxValue(DriverWalletService::ADJUST_MAX)->required()->suffix('₫')->live(onBlur: true),
                 Forms\Components\TextInput::make('confirm_amount')
                     ->label('Nhập lại số tiền để xác nhận')
                     ->helperText('Số tiền từ '.number_format($above, 0, ',', '.').'₫ trở lên cần xác nhận lại.')
-                    ->numeric()->suffix('₫')
+                    ->integer()->suffix('₫')
                     ->visible(fn (Forms\Get $get) => (float) $get('amount') >= $above)
                     ->required(fn (Forms\Get $get) => (float) $get('amount') >= $above)
                     ->same('amount'),
@@ -124,7 +135,8 @@ class DriverWalletResource extends Resource
             ->columns([
                 Tables\Columns\TextColumn::make('driver.name')
                     ->label('Tài xế')
-                    ->searchable()
+                    ->searchable(query: fn (Builder $query, string $search): Builder => $query
+                        ->whereHas('driver', fn (Builder $q) => $q->where('name', 'like', "%{$search}%")->orWhere('phone', 'like', "%{$search}%")))
                     ->description(fn (DriverWallet $r) => collect([$r->driver?->phone, match ((int) $r->driver?->status) {
                         2 => 'Bị khóa', 0 => 'Chờ duyệt', default => null
                     }])->filter()->join(' · ')),
@@ -138,12 +150,14 @@ class DriverWalletResource extends Resource
                     ->sortable(),
 
                 Tables\Columns\TextColumn::make('credit_today')
+                    ->placeholder('—')
                     ->label('Vào hôm nay')
                     ->alignEnd()
                     ->formatStateUsing(fn ($state) => $state ? '+'.number_format((float) $state, 0, ',', '.').'₫' : '—')
                     ->color('success'),
 
                 Tables\Columns\TextColumn::make('debit_today')
+                    ->placeholder('—')
                     ->label('Ra hôm nay')
                     ->alignEnd()
                     ->formatStateUsing(fn ($state) => $state ? '−'.number_format((float) $state, 0, ',', '.').'₫' : '—')
@@ -174,7 +188,14 @@ class DriverWalletResource extends Resource
                 ])->icon('heroicon-m-ellipsis-horizontal')->label(''),
             ])
             ->recordUrl(fn (DriverWallet $record): string => static::getUrl('view', ['record' => $record]))
-            ->defaultSort('balance', 'desc')
+            // Nhiều ví cùng số dư (nhất là 0₫): thêm id để lật trang không lặp/sót ví.
+            ->defaultSort(fn (Builder $query): Builder => $query->orderByDesc('balance')->orderBy('driver_wallets.id'))
+            ->recordClasses(fn (DriverWallet $r) => match (true) {
+                (float) $r->balance < 0 => 'fs-wl-row--neg',
+                (int) $r->driver?->status === 1 && (float) $r->balance < self::lowThreshold() => 'fs-wl-row--low',
+                (int) $r->driver?->status === 2 && (float) $r->balance > 0 => 'fs-wl-row--locked',
+                default => null,
+            })
             ->defaultPaginationPageOption(25)
             ->paginationPageOptions([25, 50, 100]);
     }

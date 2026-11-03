@@ -9,6 +9,7 @@ use App\Filament\Resources\WithdrawRequestResource;
 use App\Services\DriverWalletReport;
 use Filament\Actions;
 use Filament\Resources\Pages\ViewRecord;
+use Modules\Driver\Services\DriverWalletService;
 use Illuminate\Support\Facades\DB;
 
 class ViewDriverWallet extends ViewRecord
@@ -52,7 +53,15 @@ class ViewDriverWallet extends ViewRecord
         $calc = (float) DB::table('driver_wallet_transactions')->where('wallet_id', $w->id)
             ->selectRaw("COALESCE(SUM(CASE WHEN type='credit' THEN amount ELSE -amount END),0) c")->value('c');
 
+        $overdue = $w->driver ? DriverWalletService::overdueDebt($w->driver) : 0.0;
+
         return [
+            'name' => $w->driver?->name,
+            'phone' => $w->driver?->phone,
+            'city' => $w->driver?->city?->name,
+            'overdueDebt' => $overdue,
+            'withdrawable' => max(0.0, (float) $w->balance - $overdue),
+            'transactions' => (int) DB::table('driver_wallet_transactions')->where('wallet_id', $w->id)->count(),
             'balance' => (float) $w->balance,
             'status' => (int) $w->driver?->status,
             'low' => (int) $w->driver?->status === 1 && $w->balance < DriverWalletResource::lowThreshold(),

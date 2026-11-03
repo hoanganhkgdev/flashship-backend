@@ -9,7 +9,6 @@ use Filament\Resources\RelationManagers\RelationManager;
 use Filament\Tables;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
-use Modules\Core\Models\User;
 
 class TransactionsRelationManager extends RelationManager
 {
@@ -25,6 +24,7 @@ class TransactionsRelationManager extends RelationManager
     public function table(Table $table): Table
     {
         return $table
+            ->modifyQueryUsing(fn ($query) => $query->with('performer'))
             ->columns([
                 Tables\Columns\TextColumn::make('type')
                     ->label('Loại')
@@ -53,7 +53,7 @@ class TransactionsRelationManager extends RelationManager
                             return null;
                         }
 
-                        return 'Bởi '.($record->performed_by ? (User::find($record->performed_by)?->name ?? 'Quản trị viên') : 'Quản trị viên (không rõ ai)');
+                        return 'Bởi '.($record->performed_by ? ($record->performer?->name ?? 'Quản trị viên') : 'Quản trị viên (không rõ ai)');
                     }),
 
                 Tables\Columns\TextColumn::make('reference')
@@ -86,7 +86,8 @@ class TransactionsRelationManager extends RelationManager
                         ->when($data['from'] ?? null, fn ($q, $date) => $q->whereDate('created_at', '>=', $date))
                         ->when($data['until'] ?? null, fn ($q, $date) => $q->whereDate('created_at', '<=', $date))),
             ])
-            ->defaultSort('created_at', 'desc')
+            // Một đơn hoàn thành cộng vài khoản cùng giây: thêm id để thứ tự cố định khi lật trang.
+            ->defaultSort(fn ($query) => $query->orderByDesc('created_at')->orderByDesc('id'))
             ->paginated([15, 30, 50]);
     }
 
