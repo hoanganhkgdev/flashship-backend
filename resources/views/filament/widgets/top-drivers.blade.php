@@ -1,15 +1,15 @@
 <x-filament-widgets::widget>
     @php $drivers = $this->getDrivers(); @endphp
-    <section class="fs-widget">
+    <section class="fs-widget" wire:poll.60s>
         <header class="fs-widget-header">
             <div>
                 <h2 class="fs-widget-title">Top tài xế hôm nay</h2>
-                <p class="fs-widget-description">Theo số đơn đã hoàn thành</p>
+                <p class="fs-widget-description">Theo số đơn đã hoàn thành, kèm thu nhập hôm nay</p>
             </div>
         </header>
 
         @if ($drivers->isEmpty())
-            <div class="fs-empty"><div>Chưa có đơn hoàn thành hôm nay</div></div>
+            <div class="fs-dash-empty"><x-heroicon-o-trophy /><span>Chưa có đơn hoàn thành hôm nay</span></div>
         @else
             <ol class="fs-rank">
                 @foreach ($drivers as $i => $d)

@@ -2,7 +2,6 @@
 
 namespace App\Filament\Support;
 
-use Filament\Facades\Filament;
 use Filament\Widgets\Widget;
 use Illuminate\Database\Eloquent\Builder;
 use Modules\Order\Models\Order;
@@ -13,9 +12,9 @@ use Modules\Order\Models\Order;
  */
 abstract class BreakdownWidget extends Widget
 {
-    protected static string $view = 'filament.widgets.breakdown';
+    use TenantCity;
 
-    protected static ?string $pollingInterval = '30s';
+    protected static string $view = 'filament.widgets.breakdown';
 
     protected static bool $isLazy = false;
 
@@ -35,8 +34,8 @@ abstract class BreakdownWidget extends Widget
     protected function todayOrders(): Builder
     {
         return Order::query()
-            ->when(Filament::getTenant()?->id, fn ($q, $cityId) => $q->where('city_id', $cityId))
-            ->whereBetween('created_at', [now()->startOfDay(), now()->endOfDay()]);
+            ->where('city_id', $this->cityId())
+            ->where('created_at', '>=', now()->startOfDay())->where('created_at', '<', now()->startOfDay()->addDay());
     }
 
     protected function getViewData(): array

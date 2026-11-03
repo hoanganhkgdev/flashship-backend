@@ -1,5 +1,5 @@
 <x-filament-widgets::widget>
-    <section class="fs-widget">
+    <section class="fs-widget" wire:poll.60s>
         <header class="fs-widget-header">
             <div>
                 <h2 class="fs-widget-title">{{ $title }}</h2>
@@ -9,7 +9,7 @@
         </header>
 
         @if (empty($rows))
-            <div class="fs-empty"><div>Chưa có đơn nào hôm nay</div></div>
+            <div class="fs-dash-empty"><x-heroicon-o-chart-bar /><span>Chưa có đơn nào hôm nay</span></div>
         @else
             <ul class="fs-bars">
                 @foreach ($rows as $row)

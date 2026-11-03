@@ -31,16 +31,17 @@ class DriverSupplyService
      */
     public function snapshotWithDrivers(?int $cityId): array
     {
-        return Cache::remember('driver_supply_v2:'.($cityId ?? 'all'), self::CACHE_TTL, fn () => $this->compute($cityId));
+        return Cache::remember('driver_supply_v3:'.(int) $cityId, self::CACHE_TTL, fn () => $this->compute((int) $cityId));
     }
 
-    private function compute(?int $cityId): array
+    /** Không có khu vực (0) thì không có tài xế nào, không bao giờ là "mọi khu vực". */
+    private function compute(int $cityId): array
     {
         $drivers = DB::table('users')
             ->where('user_type', 'driver')
             ->where('status', 1)
             ->where('is_online', true)
-            ->when($cityId, fn ($q) => $q->where('city_id', $cityId))
+            ->where('city_id', $cityId)
             ->get(['id', 'name', 'phone']);
 
         $ids = $drivers->pluck('id');

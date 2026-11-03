@@ -1,6 +1,6 @@
 <x-filament-widgets::widget>
     @php $reviews = $this->getReviews(); @endphp
-    <section class="fs-widget">
+    <section class="fs-widget" wire:poll.60s>
         <header class="fs-widget-header">
             <div>
                 <h2 class="fs-widget-title">Đánh giá thấp chờ xử lý</h2>
@@ -14,18 +14,18 @@
         </header>
 
         @if ($reviews->isEmpty())
-            <div class="fs-empty"><div>Đã xử lý hết đánh giá thấp</div></div>
+            <div class="fs-dash-empty"><x-heroicon-o-face-smile /><span>Đã xử lý hết đánh giá thấp</span></div>
         @else
             <ul class="fs-review-list">
                 @foreach ($reviews as $r)
                     <li>
-                        <a href="{{ $r['url'] }}" wire:navigate class="fs-review">
-                            <span class="fs-review__stars">{{ str_repeat('★', $r['rating']) }}<i>{{ str_repeat('★', 5 - $r['rating']) }}</i></span>
-                            <span class="fs-review__body">
-                                <b>{{ $r['driver'] }} <small>· {{ $r['code'] }}</small></b>
-                                <span>{{ $r['note'] ? \Illuminate\Support\Str::limit($r['note'], 90) : 'Không có nhận xét' }}</span>
+                        <a href="{{ $r['url'] }}" wire:navigate class="fs-review fs-dash-review">
+                            <span class="fs-dash-review__top">
+                                <span class="fs-review__stars" aria-label="{{ $r['rating'] }} sao">{{ str_repeat('★', $r['rating']) }}<i>{{ str_repeat('★', 5 - $r['rating']) }}</i></span>
+                                <small class="fs-review__when">{{ $r['when'] }}</small>
                             </span>
-                            <small class="fs-review__when">{{ $r['when'] }}</small>
+                            <b>{{ $r['driver'] }} <small>· {{ $r['code'] }}</small></b>
+                            <span class="fs-dash-review__note">{{ $r['note'] ?: 'Không có nhận xét' }}</span>
                         </a>
                     </li>
                 @endforeach

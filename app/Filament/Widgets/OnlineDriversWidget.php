@@ -2,15 +2,16 @@
 
 namespace App\Filament\Widgets;
 
+use App\Filament\Pages\DriverMapPage;
+use App\Filament\Support\TenantCity;
 use App\Services\DriverSupplyService;
-use Filament\Facades\Filament;
 use Filament\Widgets\Widget;
-use Illuminate\Support\Collection;
-use Modules\Core\Models\User;
 use Modules\Order\Models\Order;
 
 class OnlineDriversWidget extends Widget
 {
+    use TenantCity;
+
     public static function canView(): bool
     {
         return ! auth()->user()?->isCallCenter();
@@ -18,57 +19,20 @@ class OnlineDriversWidget extends Widget
 
     protected static string $view = 'filament.widgets.online-drivers';
 
-    protected static ?string $pollingInterval = '15s';
-
     protected int|string|array $columnSpan = ['default' => 12, 'xl' => 4];
 
     protected static bool $isLazy = false;
 
     protected static ?int $sort = 4;
 
-    /** Số tài xế hiển thị tối đa; phần còn lại dẫn sang trang Tài xế. */
-    public const DISPLAY_LIMIT = 24;
-
-    private function cityId(): ?int
-    {
-        return Filament::getTenant()?->id;
-    }
-
     protected function getViewData(): array
     {
         $cityId = $this->cityId();
-        $supply = app(DriverSupplyService::class)->snapshot($cityId);
-        $pending = Order::query()->when($cityId, fn ($q) => $q->where('city_id', $cityId))->where('status', 'pending')->count();
-        $totalDrivers = User::where('user_type', 'driver')->where('status', 1)
-            ->when($cityId, fn ($q) => $q->where('city_id', $cityId))->count();
 
-        return compact('supply', 'pending', 'totalDrivers');
-    }
-
-    public function getDrivers(): Collection
-    {
-        return User::where('user_type', 'driver')
-            ->where('is_online', true)
-            ->when($this->cityId(), fn ($q) => $q->where('city_id', $this->cityId()))
-            ->with('city')
-            ->orderBy('online_since')
-            ->limit(self::DISPLAY_LIMIT)
-            ->get(['id', 'name', 'phone', 'city_id', 'is_online', 'online_since', 'profile_photo_path']);
-    }
-
-    public function getTotalOnline(): int
-    {
-        return User::where('user_type', 'driver')
-            ->where('is_online', true)
-            ->when($this->cityId(), fn ($q) => $q->where('city_id', $this->cityId()))
-            ->count();
-    }
-
-    public function getTotalDrivers(): int
-    {
-        return User::where('user_type', 'driver')
-            ->where('status', 1)
-            ->when($this->cityId(), fn ($q) => $q->where('city_id', $this->cityId()))
-            ->count();
+        return [
+            'supply' => app(DriverSupplyService::class)->snapshot($cityId),
+            'pending' => Order::query()->where('city_id', $cityId)->where('status', 'pending')->count(),
+            'mapUrl' => DriverMapPage::canAccess() ? DriverMapPage::getUrl() : null,
+        ];
     }
 }

@@ -1,5 +1,5 @@
 <x-filament-widgets::widget>
-    <section class="fs-widget fs-dashboard-alerts">
+    <section class="fs-widget fs-dashboard-alerts" wire:poll.15s>
         <header class="fs-widget-header">
             <div>
                 <h2 class="fs-widget-title">Ưu tiên xử lý</h2>
@@ -14,15 +14,16 @@
 
         <div class="fs-alert-grid">
             @foreach ($alerts as $alert)
-                <a href="{{ $alert['url'] }}" wire:navigate class="fs-alert fs-alert--{{ $alert['level'] }}">
+                @php $tag = $alert['url'] ? 'a' : 'div'; @endphp
+                <{{ $tag }} @if ($alert['url']) href="{{ $alert['url'] }}" wire:navigate @endif class="fs-alert fs-alert--{{ $alert['level'] }}">
                     <span class="fs-alert__icon"><x-dynamic-component :component="$alert['icon']" class="h-5 w-5" /></span>
                     <span class="fs-alert__body">
                         <span class="fs-alert__label">{{ $alert['label'] }}</span>
                         <span class="fs-alert__detail">{{ $alert['detail'] }}</span>
                     </span>
                     <strong class="fs-alert__count">{{ number_format($alert['count'], 0, ',', '.') }}</strong>
-                    <x-heroicon-o-chevron-right class="fs-alert__arrow" />
-                </a>
+                    @if ($alert['url'])<x-heroicon-o-chevron-right class="fs-alert__arrow" />@endif
+                </{{ $tag }}>
             @endforeach
         </div>
     </section>

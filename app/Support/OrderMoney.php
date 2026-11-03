@@ -35,6 +35,12 @@ final class OrderMoney
         return 'CASE WHEN rain_bonus_eligible = 1 THEN COALESCE(rain_bonus_amount, '.$cityDefault.') ELSE 0 END';
     }
 
+    /** Thu nhập tài xế của một đơn = khách trả + công ty chi (khớp tiền completeOrder() cộng vào ví). */
+    public static function driverEarnings(int $rainDefault): string
+    {
+        return '('.self::COLLECTED.' + '.self::FREESHIP_COST.' + '.self::BONUS_COST.' + '.self::DISCOUNT_COST.' + '.self::rainCost($rainDefault).')';
+    }
+
     /** Tổng công ty chi cho tài xế ngoài tiền khách trả. */
     public static function platformCost(int $rainDefault): string
     {

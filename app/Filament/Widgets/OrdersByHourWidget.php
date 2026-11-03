@@ -2,12 +2,14 @@
 
 namespace App\Filament\Widgets;
 
-use Filament\Facades\Filament;
+use App\Filament\Support\TenantCity;
 use Filament\Widgets\ChartWidget;
 use Modules\Order\Models\Order;
 
 class OrdersByHourWidget extends ChartWidget
 {
+    use TenantCity;
+
     public static function canView(): bool
     {
         return ! auth()->user()?->isCallCenter();
@@ -15,7 +17,7 @@ class OrdersByHourWidget extends ChartWidget
 
     protected static ?string $heading = 'Đơn hàng theo giờ hôm nay';
 
-    protected static ?string $description = 'So sánh tổng đơn phát sinh và số đơn đã hoàn thành';
+    protected static ?string $description = 'Đơn khách đặt và đơn giao xong trong từng giờ';
 
     protected static ?string $pollingInterval = '60s';
 
@@ -25,30 +27,29 @@ class OrdersByHourWidget extends ChartWidget
 
     protected static bool $isLazy = false;
 
-    protected static ?int $sort = 3;
+    protected static ?int $sort = 5;
 
     protected function getData(): array
     {
-        $cityId = Filament::getTenant()?->id;
+        $cityId = $this->cityId();
+        $start = now()->startOfDay();
+        $end = $start->copy()->addDay();
 
-        $start = now()->startOfDay()->toDateTimeString();
-        $end = now()->endOfDay()->toDateTimeString();
-
-        // Đếm theo giờ ngay trong SQL thay vì tải toàn bộ đơn hôm nay vào bộ nhớ.
-        $rows = Order::query()
-            ->whereBetween('created_at', [$start, $end])
-            ->when($cityId, fn ($q) => $q->where('city_id', $cityId))
-            ->selectRaw("HOUR(created_at) AS h, COUNT(*) AS total, COALESCE(SUM(status = 'completed'), 0) AS completed")
-            ->groupBy('h')
-            ->get()
-            ->keyBy('h');
+        // Hai cột đếm hai việc khác nhau trong cùng một giờ: đơn được tạo, và đơn được giao xong (theo completed_at).
+        // Trước đây "Hoàn thành" là đơn TẠO trong giờ đó nay đã xong, nên giờ cao điểm giao hàng không thấy được.
+        $created = Order::query()->where('city_id', $cityId)->where('created_at', '>=', $start)->where('created_at', '<', $end)
+            ->selectRaw('HOUR(created_at) AS h, COUNT(*) AS c')->groupBy('h')->pluck('c', 'h');
+        $done = Order::query()->where('city_id', $cityId)->where('status', 'completed')
+            ->where('completed_at', '>=', $start)->where('completed_at', '<', $end)
+            ->selectRaw('HOUR(completed_at) AS h, COUNT(*) AS c')->groupBy('h')->pluck('c', 'h');
 
         $byHour = array_fill(0, 24, 0);
         $completed = array_fill(0, 24, 0);
-
-        foreach ($rows as $h => $row) {
-            $byHour[(int) $h] = (int) $row->total;
-            $completed[(int) $h] = (int) $row->completed;
+        foreach ($created as $h => $c) {
+            $byHour[(int) $h] = (int) $c;
+        }
+        foreach ($done as $h => $c) {
+            $completed[(int) $h] = (int) $c;
         }
 
         $currentHour = (int) now()->format('H');
@@ -57,7 +58,7 @@ class OrdersByHourWidget extends ChartWidget
         return [
             'datasets' => [
                 [
-                    'label' => 'Tổng đơn',
+                    'label' => 'Đơn đặt',
                     'data' => array_slice($byHour, 0, $currentHour + 1),
                     'backgroundColor' => 'rgba(249,115,22,0.7)',
                     'borderColor' => '#f97316',
@@ -65,7 +66,7 @@ class OrdersByHourWidget extends ChartWidget
                     'borderRadius' => 8,
                 ],
                 [
-                    'label' => 'Hoàn thành',
+                    'label' => 'Giao xong',
                     'data' => array_slice($completed, 0, $currentHour + 1),
                     'backgroundColor' => 'rgba(34,197,94,0.7)',
                     'borderColor' => '#22c55e',

@@ -220,7 +220,7 @@ class DriverEarningsPage extends Page
      */
     private function earningsSql(): string
     {
-        return '('.OrderMoney::COLLECTED.' + '.OrderMoney::FREESHIP_COST.' + '.OrderMoney::BONUS_COST.' + '.OrderMoney::DISCOUNT_COST.' + '.$this->rainSql().')';
+        return OrderMoney::driverEarnings(OperationalSettings::rainBonusAmount($this->cityId() ?: null));
     }
 
     /**

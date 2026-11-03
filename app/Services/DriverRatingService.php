@@ -37,8 +37,9 @@ class DriverRatingService
 
     private static function base(?int $cityId)
     {
+        // Không có khu vực thì không có đánh giá nào, không bao giờ là "mọi khu vực".
         return DB::table('orders')->whereNotNull('driver_rating')->where('rating_hidden', false)
-            ->when($cityId, fn ($q) => $q->where('city_id', $cityId));
+            ->where('city_id', (int) $cityId);
     }
 
     /** @return array{count:int,avg:float,rate:float,prevAvg:?float,prevCount:int,pending:int,dist:array<int,int>,days:int} */

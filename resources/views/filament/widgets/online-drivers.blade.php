@@ -6,11 +6,11 @@
         $pressure = $pending === 0 ? 'Ổn định' : ($ready >= $pending ? 'Đủ lực lượng' : 'Đang thiếu xe');
         $pressureClass = $pending > $ready ? 'danger' : 'ok';
     @endphp
-    <section class="fs-widget fs-supply">
+    <section class="fs-widget fs-supply" wire:poll.15s>
         <header class="fs-widget-header">
             <div>
                 <h2 class="fs-widget-title">Nguồn lực tài xế</h2>
-                <p class="fs-widget-description">Nguồn lực trực tuyến tại {{ \Filament\Facades\Filament::getTenant()?->name ?? 'tất cả khu vực' }}</p>
+                <p class="fs-widget-description">Nguồn lực trực tuyến tại {{ \Filament\Facades\Filament::getTenant()?->name ?? '—' }}</p>
             </div>
             <span class="fs-supply__state is-{{ $pressureClass }}">{{ $pressure }}</span>
         </header>
@@ -32,8 +32,10 @@
             <div><i class="red"></i><span>Mất kết nối</span><b>{{ $supply['dead'] }}</b></div>
         </div>
 
-        <a href="{{ \App\Filament\Pages\DriverMapPage::getUrl() }}" wire:navigate class="fs-widget-link">
-            Mở bản đồ điều phối <x-heroicon-o-arrow-right />
-        </a>
+        @if ($mapUrl)
+            <a href="{{ $mapUrl }}" wire:navigate class="fs-widget-link">
+                Mở bản đồ điều phối <x-heroicon-o-arrow-right />
+            </a>
+        @endif
     </section>
 </x-filament-widgets::widget>

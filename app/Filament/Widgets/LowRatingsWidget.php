@@ -4,7 +4,7 @@ namespace App\Filament\Widgets;
 
 use App\Filament\Resources\DriverRatingResource;
 use App\Services\DriverRatingService;
-use Filament\Facades\Filament;
+use App\Filament\Support\TenantCity;
 use Filament\Widgets\Widget;
 use Illuminate\Support\Collection;
 use Modules\Order\Models\Order;
@@ -12,7 +12,9 @@ use Modules\Order\Models\Order;
 /** Đánh giá 1–2 sao chưa xử lý, mới nhất trước, để xử lý khiếu nại sớm. */
 class LowRatingsWidget extends Widget
 {
-    private const LIMIT = 5;
+    use TenantCity;
+
+    private const LIMIT = 4;
 
     public static function canView(): bool
     {
@@ -21,23 +23,21 @@ class LowRatingsWidget extends Widget
 
     protected static string $view = 'filament.widgets.low-ratings';
 
-    protected static ?string $pollingInterval = '60s';
-
     protected static bool $isLazy = false;
 
-    protected int|string|array $columnSpan = 'full';
+    protected int|string|array $columnSpan = ['default' => 12, 'md' => 12, 'xl' => 4];
 
     protected static ?int $sort = 9;
 
     public function getPending(): int
     {
-        return DriverRatingService::pendingCount(Filament::getTenant()?->id);
+        return DriverRatingService::pendingCount($this->cityId());
     }
 
     public function getReviews(): Collection
     {
         return Order::query()
-            ->when(Filament::getTenant()?->id, fn ($q, $cityId) => $q->where('city_id', $cityId))
+            ->where('city_id', $this->cityId())
             ->where('driver_rating', '<=', 2)
             ->where('driver_rating', '>', 0)
             ->where('rating_hidden', false)
