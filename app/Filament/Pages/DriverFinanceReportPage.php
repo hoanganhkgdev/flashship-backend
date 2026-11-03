@@ -4,6 +4,7 @@ namespace App\Filament\Pages;
 
 use App\Filament\Pages\Concerns\BuildsReportSeries;
 use App\Support\AdminAccess;
+use App\Support\Csv;
 use App\Support\SimpleXlsxWriter;
 use Carbon\Carbon;
 use Filament\Facades\Filament;
@@ -32,7 +33,7 @@ class DriverFinanceReportPage extends Page
 
     private const PAGE_SIZE = 25;
 
-    private const SORTABLE = ['name', 'fee_due', 'penalty', 'other', 'total_due', 'total_paid', 'remaining', 'admin_paid', 'withdrawn'];
+    private const SORTABLE = ['name', 'fee_due', 'penalty', 'other', 'total_due', 'total_paid', 'waived', 'remaining', 'cod_remaining', 'admin_paid', 'withdrawn'];
 
     public string $mode = 'week';   // week | month
 
@@ -58,15 +59,37 @@ class DriverFinanceReportPage extends Page
         return AdminAccess::allows(auth()->user(), AdminAccess::FINANCE_VIEW);
     }
 
+    /** File Excel có tên, SĐT và công nợ từng tài xế: cần quyền xuất dữ liệu, không chỉ quyền xem. */
+    public function canExport(): bool
+    {
+        return AdminAccess::allows(auth()->user(), AdminAccess::EXPORT_DATA);
+    }
+
     public function mount(): void
     {
         $this->date = now()->startOfWeek()->toDateString();
     }
 
+    /**
+     * Thuộc tính public do trình duyệt gửi lên: chế độ, kỳ (chỉ kỳ có trong dropdown) và số dòng phải hợp lệ,
+     * nếu không ngày sai định dạng làm lỗi 500, kỳ tương lai/1970 mở ra ngoài dropdown, limit âm làm hỏng danh sách.
+     */
+    private function normalize(): void
+    {
+        if (! in_array($this->mode, ['week', 'month'], true)) {
+            $this->mode = 'week';
+        }
+        if (! array_key_exists($this->date, $this->periods)) {
+            $this->date = (string) array_key_first($this->periods);
+        }
+        $this->limit = max(self::PAGE_SIZE, min($this->limit, 5000));
+    }
+
     /** @return array{0: Carbon, 1: Carbon} */
     public function getRangeProperty(): array
     {
-        $anchor = Carbon::parse($this->date ?: now()->toDateString());
+        $this->normalize();
+        $anchor = Carbon::parse($this->date);
 
         return $this->mode === 'month'
             ? [$anchor->copy()->startOfMonth(), $anchor->copy()->endOfMonth()]
@@ -151,19 +174,22 @@ class DriverFinanceReportPage extends Page
     public function getReportData(): array
     {
         [$from, $to] = $this->range;
-        $driverIds = $this->driverIds();
 
-        $all = $this->driverRows($driverIds, $from, $to);
+        $all = $this->driverRows($from, $to);
         $totals = $this->totals($all);
         $visible = $this->filterAndSort($all);
+        $cash = $this->cashCollected($from, $to);
 
         return [
             'from' => $from, 'to' => $to,
             'totals' => $totals,
-            'overall' => $this->outstanding($driverIds),
-            'pending_withdraw' => $this->pendingWithdraw($driverIds),
-            'adjust' => $this->walletAdjustments($driverIds, $from, $to),
-            'chart' => $this->trend($driverIds, $from),
+            'cash' => $cash,
+            // Từ toàn bộ kỳ (không phụ thuộc bộ lọc, sắp xếp hay số dòng đang hiện).
+            'top_debtor' => collect($all)->where('remaining', '>', 0)->sortByDesc('remaining')->first(),
+            'overall' => $this->outstanding(),
+            'pending_withdraw' => $this->pendingWithdraw(),
+            'adjust' => $this->walletAdjustments($from, $to),
+            'chart' => $this->trend($from),
             'drivers' => array_slice($visible, 0, $this->limit),
             'visible_count' => count($visible),
             'has_more' => count($visible) > $this->limit,
@@ -172,19 +198,25 @@ class DriverFinanceReportPage extends Page
 
     public function export(): StreamedResponse
     {
+        abort_unless($this->canExport(), 403);
         [$from, $to] = $this->range;
-        $rows = $this->filterAndSort($this->driverRows($this->driverIds(), $from, $to));
-        $totals = $this->totals($this->driverRows($this->driverIds(), $from, $to));
+        // Một lần đọc cho cả dòng chi tiết lẫn dòng tổng: tổng luôn khớp các dòng trong cùng file.
+        $all = $this->driverRows($from, $to);
+        $rows = $this->filterAndSort($all);
+        $totals = $this->totals($all);
 
+        $cols = ['fee_due', 'penalty', 'other', 'total_due', 'total_paid', 'waived', 'remaining', 'cod_due', 'cod_remaining',
+            'score_bonus', 'order_paid', 'referral', 'admin_paid', 'withdrawn'];
         $data = [[
             'Mã TX', 'Tài xế', 'SĐT',
-            'Phí tuần (đ)', 'Phạt tuần (đ)', 'Khoản khác (đ)', 'Tổng phải thu (đ)', 'Đã thu (đ)', 'Còn nợ (đ)',
-            'Thưởng điểm (đ)', 'Bù giảm giá (đ)', 'Thưởng mưa (đ)', 'Đã rút (đ)',
+            'Phí (đ)', 'Phạt (đ)', 'Khoản khác (đ)', 'Phải thu gốc (đ)', 'Đã thu (đ)', 'Miễn giảm (đ)', 'Còn nợ (đ)',
+            'Thu hộ COD (đ)', 'COD còn giữ (đ)',
+            'Thưởng điểm (đ)', 'Bù theo đơn: freeship/bonus/voucher/mưa (đ)', 'Thưởng giới thiệu (đ)', 'Công ty đã chi (đ)', 'Đã rút (đ)',
         ]];
         foreach ($rows as $r) {
-            $data[] = [$r['id'], $r['name'], $r['phone'], $r['fee_due'], $r['penalty'], $r['other'], $r['total_due'], $r['total_paid'], $r['remaining'], $r['bonus'], $r['voucher'], $r['rain'], $r['withdrawn']];
+            $data[] = Csv::row(array_merge([$r['id'], $r['name'], $r['phone']], array_map(fn ($c) => $r[$c], $cols)));
         }
-        $data[] = ['', 'TỔNG CỘNG (toàn khu vực)', '', $totals['fee_due'], $totals['penalty'], $totals['other'], $totals['total_due'], $totals['total_paid'], $totals['remaining'], $totals['bonus'], $totals['voucher'], $totals['rain'], $totals['withdrawn']];
+        $data[] = array_merge(['', 'TỔNG CỘNG (toàn khu vực)', ''], array_map(fn ($c) => $totals[$c], $cols));
 
         $suffix = $this->mode === 'month' ? $from->format('Y-m') : $from->format('Y-m-d').'_'.$to->format('Y-m-d');
         $path = SimpleXlsxWriter::write($data, 'Thu phí tài xế');
@@ -198,80 +230,121 @@ class DriverFinanceReportPage extends Page
     }
 
     /** Kỳ của một khoản nợ: tuần của khoản phí, nếu không có thì ngày, rồi ngày tạo. */
-    private const DEBT_PERIOD_SQL = 'COALESCE(week_start, date, DATE(created_at))';
+    private const DEBT_PERIOD_SQL = 'COALESCE(dd.week_start, dd.date, DATE(dd.created_at))';
 
-    private function driverIds(): array
+    /** Phân loại theo loại nợ và mã tham chiếu (không theo chữ ghi chú). COD là tiền của khách tài xế giữ hộ, không phải phí. */
+    // debt_type có thể NULL ở dữ liệu cũ (từng có migration bỏ cột): coi như phí tuần, và không để NULL lọt khỏi mọi nhóm.
+    private const IS_COD = "COALESCE(dd.debt_type, 'weekly') = 'cod'";
+
+    // COALESCE: ref_id NULL (phí tuần) phải cho ra FALSE, không phải NULL — NOT NULL trong CASE sẽ loại luôn khoản phí.
+    private const IS_PENALTY = "(COALESCE(dd.ref_id, '') LIKE 'score\\_penalty%' OR COALESCE(dd.ref_id, '') LIKE 'shift\\_offline\\_%')";
+
+    private const IS_FEE = "(COALESCE(dd.debt_type, 'weekly') IN ('weekly', 'commission') AND (dd.ref_id IS NULL OR dd.ref_id LIKE 'daily\\_commission\\_%'))";
+
+    /** Số đã miễn của một khoản nợ (waive() hạ amount_due về số đã thu và ghi phần miễn vào nhật ký). */
+    private const WAIVED_SQL = 'COALESCE(wv.amount, 0)';
+
+    private function cityId(): int
     {
-        return DB::table('users')
-            ->where('user_type', 'driver')->where('status', '>=', 1)
-            ->when(Filament::getTenant()?->id, fn ($q, $id) => $q->where('city_id', $id))
-            ->pluck('id')->all();
+        return (int) (Filament::getTenant()?->getKey() ?? 0);
     }
 
-    private function driverRows(array $driverIds, Carbon $from, Carbon $to): array
+    /**
+     * Nợ của tài xế thuộc khu vực (theo khu vực hiện tại của tài xế: bảng nợ chưa lưu khu vực phát sinh). Không có
+     * tenant thì rỗng — không bao giờ "không lọc". Gồm cả tài khoản đã khóa/ngừng (status 0) vì nợ vẫn phải thu.
+     */
+    private function debtQuery()
     {
-        if (! $driverIds) {
-            return [];
-        }
+        return DB::table('driver_debts as dd')
+            ->join('users as u', 'u.id', '=', 'dd.driver_id')
+            ->where('u.user_type', 'driver')
+            ->where('u.city_id', $this->cityId())
+            ->leftJoinSub(
+                DB::table('driver_debt_logs')->where('action', 'waived')->groupBy('debt_id')->selectRaw('debt_id, SUM(amount) as amount'),
+                'wv', 'wv.debt_id', '=', 'dd.id'
+            );
+    }
+
+    private function periodDebts(Carbon $from, Carbon $to)
+    {
+        return $this->debtQuery()->whereRaw(self::DEBT_PERIOD_SQL.' BETWEEN ? AND ?', [$from->toDateString(), $to->toDateString()]);
+    }
+
+    private function walletQuery()
+    {
+        return DB::table('driver_wallet_transactions as t')
+            ->join('driver_wallets as w', 'w.id', '=', 't.wallet_id')
+            ->join('users as u', 'u.id', '=', 'w.driver_id')
+            ->where('u.city_id', $this->cityId());
+    }
+
+    private function driverRows(Carbon $from, Carbon $to): array
+    {
         $fromStr = $from->toDateString().' 00:00:00';
         $toStr = $to->toDateString().' 23:59:59';
+        $orig = '(dd.amount_due + '.self::WAIVED_SQL.')';
+        $notCod = 'NOT '.self::IS_COD;
 
-        $drivers = DB::table('users')->whereIn('id', $driverIds)->orderBy('name')->get(['id', 'name', 'phone']);
-
-        // Công nợ trong kỳ: phí tuần / phạt điểm / khoản khác. "Còn nợ" gộp tất cả để ra đúng số tiền phải thu.
-        $debts = DB::table('driver_debts')
-            ->whereIn('driver_id', $driverIds)
-            ->whereRaw(self::DEBT_PERIOD_SQL.' BETWEEN ? AND ?', [$from->toDateString(), $to->toDateString()])
-            ->groupBy('driver_id')
-            ->selectRaw("driver_id,
-                COALESCE(SUM(CASE WHEN ref_id IS NULL AND note LIKE 'Phí tuần%' THEN amount_due  ELSE 0 END), 0) as fee_due,
-                COALESCE(SUM(CASE WHEN ref_id LIKE 'score_penalty%' THEN amount_due ELSE 0 END), 0) as penalty,
-                COALESCE(SUM(amount_due), 0) as total_due,
-                COALESCE(SUM(amount_paid), 0) as total_paid,
-                COALESCE(SUM(GREATEST(amount_due - amount_paid, 0)), 0) as remaining")
+        // Phải thu gốc = đã thu + miễn giảm + còn nợ (miễn giảm tách riêng để không che mất khoản thất thu).
+        $debts = $this->periodDebts($from, $to)
+            ->groupBy('dd.driver_id')
+            ->selectRaw('dd.driver_id')
+            ->selectRaw("COALESCE(SUM(CASE WHEN $notCod AND ".self::IS_FEE." AND NOT ".self::IS_PENALTY." THEN $orig ELSE 0 END), 0) as fee_due")
+            ->selectRaw("COALESCE(SUM(CASE WHEN $notCod AND ".self::IS_PENALTY." THEN $orig ELSE 0 END), 0) as penalty")
+            ->selectRaw("COALESCE(SUM(CASE WHEN $notCod THEN $orig ELSE 0 END), 0) as total_due")
+            ->selectRaw("COALESCE(SUM(CASE WHEN $notCod THEN dd.amount_paid ELSE 0 END), 0) as total_paid")
+            ->selectRaw("COALESCE(SUM(CASE WHEN $notCod THEN ".self::WAIVED_SQL." ELSE 0 END), 0) as waived")
+            ->selectRaw("COALESCE(SUM(CASE WHEN $notCod THEN GREATEST(dd.amount_due - dd.amount_paid, 0) ELSE 0 END), 0) as remaining")
+            ->selectRaw('COALESCE(SUM(CASE WHEN '.self::IS_COD.' THEN dd.amount_due ELSE 0 END), 0) as cod_due')
+            ->selectRaw('COALESCE(SUM(CASE WHEN '.self::IS_COD.' THEN GREATEST(dd.amount_due - dd.amount_paid, 0) ELSE 0 END), 0) as cod_remaining')
             ->get()->keyBy('driver_id');
 
-        // Tiền công ty ghi có cho tài xế trong kỳ: thưởng điểm, bù giảm giá, thưởng mưa.
-        $paid = DB::table('driver_wallet_transactions as t')
-            ->join('driver_wallets as w', 'w.id', '=', 't.wallet_id')
-            ->whereIn('w.driver_id', $driverIds)->where('t.type', 'credit')
+        // Tiền công ty ghi có cho tài xế trong kỳ: mọi khoản theo đơn (freeship, bonus, voucher, mưa), thưởng điểm, thưởng giới thiệu.
+        // Điều chỉnh tay (admin_adj_) không tính — hiện riêng bên dưới.
+        $paid = $this->walletQuery()
+            ->where('t.type', 'credit')
             ->whereBetween('t.created_at', [$fromStr, $toStr])
-            ->where(fn ($q) => $q->where('t.reference', 'like', 'score\_bonus\_%')->orWhere('t.reference', 'like', 'order\_%\_discount')->orWhere('t.reference', 'like', 'order\_%\_rain'))
+            ->where(fn ($q) => $q->where('t.reference', 'like', 'order\_%')->orWhere('t.reference', 'like', 'score\_bonus\_%')->orWhere('t.reference', 'like', 'referral\_%'))
             ->groupBy('w.driver_id')
             ->selectRaw("w.driver_id,
-                COALESCE(SUM(CASE WHEN t.reference LIKE 'score\\_bonus\\_%' THEN t.amount ELSE 0 END), 0) as bonus,
-                COALESCE(SUM(CASE WHEN t.reference LIKE 'order\\_%\\_discount' THEN t.amount ELSE 0 END), 0) as voucher,
-                COALESCE(SUM(CASE WHEN t.reference LIKE 'order\\_%\\_rain' THEN t.amount ELSE 0 END), 0) as rain")
+                COALESCE(SUM(CASE WHEN t.reference LIKE 'score\\\\_bonus\\\\_%' THEN t.amount ELSE 0 END), 0) as score_bonus,
+                COALESCE(SUM(CASE WHEN t.reference LIKE 'order\\\\_%' THEN t.amount ELSE 0 END), 0) as order_paid,
+                COALESCE(SUM(CASE WHEN t.reference LIKE 'referral\\\\_%' THEN t.amount ELSE 0 END), 0) as referral")
             ->get()->keyBy('driver_id');
 
-        $withdrawals = DB::table('withdraw_requests')
-            ->whereIn('driver_id', $driverIds)->where('status', 'approved')
-            ->whereBetween(DB::raw('COALESCE(processed_at, updated_at)'), [$fromStr, $toStr])
-            ->groupBy('driver_id')->selectRaw('driver_id, COALESCE(SUM(amount), 0) as total')->pluck('total', 'driver_id');
+        $withdrawals = DB::table('withdraw_requests as wr')
+            ->join('users as u', 'u.id', '=', 'wr.driver_id')->where('u.city_id', $this->cityId())
+            ->where('wr.status', 'approved')
+            ->whereBetween(DB::raw('COALESCE(wr.processed_at, wr.updated_at)'), [$fromStr, $toStr])
+            ->groupBy('wr.driver_id')->selectRaw('wr.driver_id, COALESCE(SUM(wr.amount), 0) as total')->pluck('total', 'driver_id');
+
+        $ids = collect([$debts->keys(), $paid->keys(), $withdrawals->keys()])->flatten()->unique()->values()->all();
+        if (! $ids) {
+            return [];
+        }
+        $drivers = DB::table('users')->whereIn('id', $ids)->orderBy('name')->get(['id', 'name', 'phone']);
 
         $rows = [];
         foreach ($drivers as $d) {
             $debt = $debts->get($d->id);
             $pay = $paid->get($d->id);
-            $feeDue = (int) ($debt->fee_due ?? 0);
-            $penalty = (int) ($debt->penalty ?? 0);
-            $totalDue = (int) ($debt->total_due ?? 0);
-            $bonus = (int) ($pay->bonus ?? 0);
-            $voucher = (int) ($pay->voucher ?? 0);
-            $rain = (int) ($pay->rain ?? 0);
-            $withdrawn = (int) ($withdrawals[$d->id] ?? 0);
-            $totalPaid = (int) ($debt->total_paid ?? 0);
-
-            if (! $totalDue && ! $totalPaid && ! $bonus && ! $voucher && ! $rain && ! $withdrawn) {
-                continue;
-            }
+            $n = fn ($v) => (int) round((float) ($v ?? 0));
+            $feeDue = $n($debt->fee_due ?? 0);
+            $penalty = $n($debt->penalty ?? 0);
+            $totalDue = $n($debt->total_due ?? 0);
+            $score = $n($pay->score_bonus ?? 0);
+            $orderPaid = $n($pay->order_paid ?? 0);
+            $referral = $n($pay->referral ?? 0);
 
             $rows[] = [
                 'id' => $d->id, 'name' => (string) $d->name, 'phone' => (string) $d->phone,
                 'fee_due' => $feeDue, 'penalty' => $penalty, 'other' => max(0, $totalDue - $feeDue - $penalty),
-                'total_due' => $totalDue, 'total_paid' => $totalPaid, 'remaining' => (int) ($debt->remaining ?? 0),
-                'bonus' => $bonus, 'voucher' => $voucher, 'rain' => $rain, 'admin_paid' => $bonus + $voucher + $rain,
-                'withdrawn' => $withdrawn,
+                'total_due' => $totalDue, 'total_paid' => $n($debt->total_paid ?? 0), 'waived' => $n($debt->waived ?? 0),
+                'remaining' => $n($debt->remaining ?? 0),
+                'cod_due' => $n($debt->cod_due ?? 0), 'cod_remaining' => $n($debt->cod_remaining ?? 0),
+                'score_bonus' => $score, 'order_paid' => $orderPaid, 'referral' => $referral,
+                'admin_paid' => $score + $orderPaid + $referral,
+                'withdrawn' => $n($withdrawals[$d->id] ?? 0),
             ];
         }
 
@@ -284,61 +357,87 @@ class DriverFinanceReportPage extends Page
         $due = $sum('total_due');
 
         return [
-            'drivers' => count($rows),
+            // Chỉ tài xế có khoản phải thu trong kỳ (không tính người chỉ có rút tiền/được thưởng).
+            'drivers' => count(array_filter($rows, fn ($r) => $r['total_due'] > 0)),
             'debtors' => count(array_filter($rows, fn ($r) => $r['remaining'] > 0)),
             'fee_due' => $sum('fee_due'), 'penalty' => $sum('penalty'), 'other' => $sum('other'),
-            'total_due' => $due, 'total_paid' => $sum('total_paid'), 'remaining' => $sum('remaining'),
+            'total_due' => $due, 'total_paid' => $sum('total_paid'), 'waived' => $sum('waived'), 'remaining' => $sum('remaining'),
             'collect_rate' => $due > 0 ? round(min($sum('total_paid'), $due) / $due * 100, 1) : null,
-            'bonus' => $sum('bonus'), 'voucher' => $sum('voucher'), 'rain' => $sum('rain'), 'admin_paid' => $sum('admin_paid'),
+            'cod_due' => $sum('cod_due'), 'cod_remaining' => $sum('cod_remaining'),
+            'score_bonus' => $sum('score_bonus'), 'order_paid' => $sum('order_paid'), 'referral' => $sum('referral'),
+            'admin_paid' => $sum('admin_paid'),
             'withdrawn' => $sum('withdrawn'),
         ];
     }
 
-    /** Nợ chưa thu của MỌI kỳ (kể cả kỳ cũ không nằm trong khoảng đang xem). */
-    private function outstanding(array $driverIds): array
+    /**
+     * Tiền thật sự thu trong kỳ (kể cả nợ của kỳ trước), từ nhật ký thu nợ — để đối soát với tiền về tài khoản.
+     * Nhật ký chỉ có từ khi tính năng được thêm: kỳ bắt đầu trước lần thu đầu tiên có log thì đánh dấu chưa đủ dữ liệu.
+     */
+    private function cashCollected(Carbon $from, Carbon $to): array
     {
-        $row = $driverIds ? DB::table('driver_debts')->whereIn('driver_id', $driverIds)->whereColumn('amount_due', '>', 'amount_paid')
-            ->selectRaw('COALESCE(SUM(amount_due - amount_paid), 0) as amount, COUNT(*) as items, COUNT(DISTINCT driver_id) as drivers, MIN('.self::DEBT_PERIOD_SQL.') as oldest')->first() : null;
+        $paidActions = ['paid_payos', 'paid_wallet', 'paid_manual'];
+        $first = DB::table('driver_debt_logs')->whereIn('action', $paidActions)->min('created_at');
+        $amount = DB::table('driver_debt_logs as l')
+            ->join('driver_debts as dd', 'dd.id', '=', 'l.debt_id')
+            ->join('users as u', 'u.id', '=', 'dd.driver_id')
+            ->where('u.city_id', $this->cityId())
+            ->whereRaw('NOT '.self::IS_COD)
+            ->whereIn('l.action', $paidActions)
+            ->whereBetween('l.created_at', [$from->toDateString().' 00:00:00', $to->toDateString().' 23:59:59'])
+            ->sum('l.amount');
 
         return [
-            'amount' => (int) ($row->amount ?? 0), 'items' => (int) ($row->items ?? 0),
+            'amount' => (int) round((float) $amount),
+            'partial' => $first === null || Carbon::parse($first)->gt($from),
+            'since' => $first ? Carbon::parse($first) : null,
+        ];
+    }
+
+    /** Nợ chưa thu của MỌI kỳ (kể cả kỳ cũ không nằm trong khoảng đang xem), không gồm COD. */
+    private function outstanding(): array
+    {
+        $row = $this->debtQuery()->whereRaw('NOT '.self::IS_COD)->whereColumn('dd.amount_due', '>', 'dd.amount_paid')
+            ->selectRaw('COALESCE(SUM(dd.amount_due - dd.amount_paid), 0) as amount, COUNT(*) as items, COUNT(DISTINCT dd.driver_id) as drivers, MIN('.self::DEBT_PERIOD_SQL.') as oldest')->first();
+
+        return [
+            'amount' => (int) round((float) ($row->amount ?? 0)), 'items' => (int) ($row->items ?? 0),
             'drivers' => (int) ($row->drivers ?? 0), 'oldest' => ($row->oldest ?? null) ? Carbon::parse($row->oldest) : null,
         ];
     }
 
     /** Tiền tài xế đã yêu cầu rút nhưng chưa duyệt (mọi thời điểm) — việc đang chờ admin. */
-    private function pendingWithdraw(array $driverIds): array
+    private function pendingWithdraw(): array
     {
-        $row = $driverIds ? DB::table('withdraw_requests')->whereIn('driver_id', $driverIds)->where('status', 'pending')
-            ->selectRaw('COALESCE(SUM(amount), 0) as amount, COUNT(*) as items')->first() : null;
+        $row = DB::table('withdraw_requests as wr')->join('users as u', 'u.id', '=', 'wr.driver_id')
+            ->where('u.city_id', $this->cityId())->where('wr.status', 'pending')
+            ->selectRaw('COALESCE(SUM(wr.amount), 0) as amount, COUNT(*) as items')->first();
 
         return ['amount' => (int) ($row->amount ?? 0), 'items' => (int) ($row->items ?? 0)];
     }
 
-    /** Điều chỉnh ví thủ công của admin: chỉ hiển thị tham khảo, không tính vào "Admin đã chi". */
-    private function walletAdjustments(array $driverIds, Carbon $from, Carbon $to): array
+    /** Điều chỉnh ví thủ công của admin: chỉ hiển thị tham khảo, không tính vào "Công ty đã chi". */
+    private function walletAdjustments(Carbon $from, Carbon $to): array
     {
-        $rows = $driverIds ? DB::table('driver_wallet_transactions as t')
-            ->join('driver_wallets as w', 'w.id', '=', 't.wallet_id')
-            ->whereIn('w.driver_id', $driverIds)->where('t.reference', 'like', 'admin\_adj%')
+        $rows = $this->walletQuery()->where('t.reference', 'like', 'admin\_adj%')
             ->whereBetween('t.created_at', [$from->toDateString().' 00:00:00', $to->toDateString().' 23:59:59'])
-            ->groupBy('t.type')->selectRaw('t.type, COALESCE(SUM(t.amount), 0) as amount')->pluck('amount', 'type') : collect();
+            ->groupBy('t.type')->selectRaw('t.type, COALESCE(SUM(t.amount), 0) as amount')->pluck('amount', 'type');
 
         return ['credit' => (int) ($rows['credit'] ?? 0), 'debit' => (int) ($rows['debit'] ?? 0)];
     }
 
-    /** Xu hướng thu nợ: 8 kỳ gần nhất kết thúc ở kỳ đang xem. Cột = đã thu, nét đứt = phải thu, đường = còn nợ. */
-    private function trend(array $driverIds, Carbon $anchorFrom): array
+    /** Xu hướng thu phí: 8 kỳ gần nhất kết thúc ở kỳ đang xem. Cột = đã thu, nét đứt = phải thu gốc, đường = còn nợ. */
+    private function trend(Carbon $anchorFrom): array
     {
         $gran = $this->mode === 'month' ? 'month' : 'week';
         $start = ($gran === 'month' ? $anchorFrom->copy()->subMonthsNoOverflow(self::TREND_PERIODS - 1)->startOfMonth() : $anchorFrom->copy()->subWeeks(self::TREND_PERIODS - 1));
         $end = $this->range[1];
         $buckets = $this->buckets($start, $end, $gran);
 
-        $data = $driverIds ? DB::table('driver_debts')->whereIn('driver_id', $driverIds)
-            ->whereRaw(self::DEBT_PERIOD_SQL.' BETWEEN ? AND ?', [$start->toDateString(), $end->toDateString()])
-            ->selectRaw($this->bucketSql(self::DEBT_PERIOD_SQL, $gran).' as k, COALESCE(SUM(amount_due), 0) as due, COALESCE(SUM(amount_paid), 0) as paid, COALESCE(SUM(GREATEST(amount_due - amount_paid, 0)), 0) as remaining')
-            ->groupBy('k')->get()->keyBy(fn ($r) => (string) $r->k) : collect();
+        $data = $this->periodDebts($start, $end)->whereRaw('NOT '.self::IS_COD)
+            ->selectRaw($this->bucketSql(self::DEBT_PERIOD_SQL, $gran).' as k')
+            ->selectRaw('COALESCE(SUM(dd.amount_due + '.self::WAIVED_SQL.'), 0) as due, COALESCE(SUM(dd.amount_paid), 0) as paid, COALESCE(SUM(GREATEST(dd.amount_due - dd.amount_paid, 0)), 0) as remaining')
+            ->groupBy('k')->get()->keyBy(fn ($r) => (string) $r->k);
 
         $rows = [];
         foreach ($buckets as $key => $bucket) {
@@ -364,7 +463,8 @@ class DriverFinanceReportPage extends Page
             if ($this->debtStatus === 'outstanding' && $row['remaining'] <= 0) {
                 return false;
             }
-            if ($this->debtStatus === 'settled' && $row['remaining'] > 0) {
+            // "Đã hoàn tất" = có khoản phải thu trong kỳ và đã hết nợ (không gồm người chỉ có rút tiền/được thưởng).
+            if ($this->debtStatus === 'settled' && ($row['remaining'] > 0 || $row['total_due'] <= 0)) {
                 return false;
             }
 
