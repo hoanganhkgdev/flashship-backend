@@ -24,7 +24,7 @@ class ViewWithdrawRequest extends ViewRecord
 
     public function getSubheading(): ?string
     {
-        return ($this->record->driver?->name ?? 'Tài xế').' · '.number_format($this->record->amount, 0, ',', '.').'₫';
+        return null; // Tài xế và số tiền đã nằm trong thẻ đầu trang.
     }
 
     protected function getHeaderActions(): array
@@ -34,6 +34,7 @@ class ViewWithdrawRequest extends ViewRecord
 
         return [
             WithdrawRequestResource::approveAction(Actions\Action::make('approve'))->after($refresh),
+            WithdrawRequestResource::syncAction(Actions\Action::make('sync_payos'))->after($refresh),
             WithdrawRequestResource::rejectAction(Actions\Action::make('reject'))->after($refresh),
             Actions\Action::make('wallet')->label('Ví tài xế')->icon('heroicon-o-wallet')->color('gray')
                 ->visible((bool) $wallet)->url($wallet ? DriverWalletResource::getUrl('view', ['record' => $wallet]) : null),

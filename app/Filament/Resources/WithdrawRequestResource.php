@@ -5,6 +5,7 @@ namespace App\Filament\Resources;
 use App\Filament\Resources\WithdrawRequestResource\Pages;
 use App\Filament\Traits\RestrictToFinance;
 use App\Services\WithdrawService;
+use App\Support\AdminAccess;
 use Filament\Facades\Filament;
 use Filament\Forms;
 use Filament\Forms\Form;
@@ -22,10 +23,28 @@ class WithdrawRequestResource extends Resource
 {
     use RestrictToFinance;
 
-    // WithdrawRequest không có city_id trực tiếp — khu vực xác định qua driver_id -> users.city_id.
+    // WithdrawRequest không có city_id trực tiếp — khu vực xác định qua driver_id -> users.city_id (không có tenant thì không thấy gì).
     public static function scopeEloquentQueryToTenant(Builder $query, ?Model $tenant): Builder
     {
-        return $query->whereHas('driver', fn ($q) => $q->where('city_id', $tenant?->id));
+        return $query->whereHas('driver', fn ($q) => $q->where('city_id', (int) $tenant?->id));
+    }
+
+    /** Duyệt / từ chối là thao tác chuyển tiền: cần quyền quản lý tài chính, không chỉ quyền xem. */
+    public static function canManage(): bool
+    {
+        return AdminAccess::allows(auth()->user(), AdminAccess::FINANCE_MANAGE);
+    }
+
+    /** Nhãn trạng thái lệnh PayOS đang dở (null nếu không có). */
+    public static function payoutStateLabel(WithdrawRequest $r): ?string
+    {
+        return $r->status === 'pending' ? match ($r->payout_state) {
+            'sending' => 'Đang gửi PayOS',
+            'unknown' => 'PayOS chưa rõ kết quả',
+            'processing' => 'PayOS đang chuyển',
+            'failed' => 'PayOS không thực hiện',
+            default => null,
+        } : null;
     }
 
     protected static ?string $model = WithdrawRequest::class;
@@ -99,40 +118,70 @@ class WithdrawRequestResource extends Resource
     public static function approveAction($action)
     {
         return $action->label('Duyệt')->icon('heroicon-o-check-circle')->color('success')
-            ->visible(fn (WithdrawRequest $r) => $r->status === 'pending')
+            // PayOS đang chuyển thì chờ kết quả (nút Kiểm tra PayOS), không duyệt thêm lần nữa.
+            ->visible(fn (WithdrawRequest $r) => self::canManage() && $r->status === 'pending' && $r->payout_state !== 'processing')
             ->modalHeading('Duyệt yêu cầu rút tiền')
             ->modalDescription(function (WithdrawRequest $r) {
                 $bank = $r->bank_name ? $r->bank_name.' · '.$r->account_number.' · '.$r->account_name : 'chưa có bản lưu ngân hàng';
+                $balance = WithdrawService::payosBalance();
 
                 return 'Chuyển '.self::money($r->amount).' cho '.$r->driver?->name.' → '.$bank.'. Ví hiện tại '.self::money($r->driver?->wallet?->balance ?? 0).'.'
-                    .(self::nameMismatch($r) ? ' ⚠ Tên chủ tài khoản KHÔNG khớp tên tài xế, hãy kiểm tra kỹ.' : '');
+                    .($balance !== null ? ' Tài khoản chi PayOS còn '.self::money($balance).'.' : '')
+                    .(self::nameMismatch($r) ? ' ⚠ Tên chủ tài khoản KHÔNG khớp tên tài xế, hãy kiểm tra kỹ.' : '')
+                    .(WithdrawService::payosInFlight($r) ? ' ⚠ Lần gửi PayOS trước chưa rõ kết quả: chỉ được gửi lại qua PayOS (cùng mã lệnh, không chuyển hai lần).' : '');
             })
             ->form(function (WithdrawRequest $r) {
-                $canPayos = WithdrawService::payosConfigured() && $r->bank_code && $r->account_number && (int) $r->driver?->status === 1;
-                $options = ['manual' => 'Tôi đã tự chuyển khoản (nhập mã giao dịch)'] + ($canPayos ? ['payos' => 'Chuyển tự động qua PayOS'] : []);
+                $balance = WithdrawService::payosBalance();
+                $enough = $balance === null || $balance >= (int) round($r->amount);
+                $canPayos = WithdrawService::payosConfigured() && $r->bank_code && $r->account_number && (int) $r->driver?->status === 1 && $enough;
+                // Lệnh PayOS trước còn dở: chỉ được gửi lại PayOS, không được chuyển theo cách khác.
+                $options = WithdrawService::payosInFlight($r)
+                    ? ['payos' => 'Gửi lại qua PayOS (cùng mã lệnh)']
+                    : ($canPayos ? ['payos' => 'Chuyển tự động qua PayOS'] : []) + [
+                        'manual' => 'Tôi đã tự chuyển khoản (nhập mã giao dịch)',
+                        'cash' => 'Đã trả tiền mặt / trả ngoài hệ thống',
+                    ];
 
                 return [
-                    Forms\Components\Radio::make('method')->label('Cách chuyển tiền')->options($options)->default($canPayos ? 'payos' : 'manual')->required()->live(),
+                    Forms\Components\Radio::make('method')->label('Cách chuyển tiền')->options($options)->default(array_key_first($options))->required()->live()
+                        ->helperText(! $enough ? 'Tài khoản chi PayOS không đủ '.self::money($r->amount).' nên không chuyển tự động được.' : null),
                     Forms\Components\TextInput::make('tx_ref')->label('Mã giao dịch ngân hàng')->maxLength(100)
                         ->visible(fn (Forms\Get $get) => $get('method') === 'manual')
                         ->required(fn (Forms\Get $get) => $get('method') === 'manual'),
-                    Forms\Components\Textarea::make('note')->label('Ghi chú (tuỳ chọn)')->rows(2)->maxLength(300),
+                    Forms\Components\Textarea::make('note')->rows(2)->maxLength(300)
+                        ->label(fn (Forms\Get $get) => $get('method') === 'cash' ? 'Ai trả, trả lúc nào' : 'Ghi chú (tuỳ chọn)')
+                        ->placeholder(fn (Forms\Get $get) => $get('method') === 'cash' ? 'VD: Nam trả tiền mặt tại văn phòng 18/10' : null)
+                        ->required(fn (Forms\Get $get) => $get('method') === 'cash')
+                        ->minLength(fn (Forms\Get $get) => $get('method') === 'cash' ? 5 : null),
                 ];
             })
             ->action(function (WithdrawRequest $record, array $data): void {
-                $res = $data['method'] === 'payos'
-                    ? WithdrawService::approvePayos($record, $data['note'] ?? null, Auth::id())
-                    : WithdrawService::approveManual($record, (string) ($data['tx_ref'] ?? ''), $data['note'] ?? null, Auth::id());
-                Notification::make()->title($res['message'])->{$res['ok'] ? 'success' : 'danger'}()->send();
+                $res = match ($data['method']) {
+                    'payos' => WithdrawService::approvePayos($record, $data['note'] ?? null, Auth::id()),
+                    'cash' => WithdrawService::approveCash($record, (string) ($data['note'] ?? ''), Auth::id()),
+                    default => WithdrawService::approveManual($record, (string) ($data['tx_ref'] ?? ''), $data['note'] ?? null, Auth::id()),
+                };
+                Notification::make()->title($res['message'])->{$res['ok'] ? (($res['processing'] ?? false) ? 'info' : 'success') : 'danger'}()->send();
+            });
+    }
+
+    public static function syncAction($action)
+    {
+        return $action->label('Kiểm tra PayOS')->icon('heroicon-o-arrow-path')->color('info')
+            ->visible(fn (WithdrawRequest $r) => self::canManage() && WithdrawService::payosInFlight($r))
+            ->action(function (WithdrawRequest $record): void {
+                $res = WithdrawService::syncPayos($record, Auth::id());
+                Notification::make()->title($res['message'])->{$res['ok'] ? 'success' : 'warning'}()->send();
             });
     }
 
     public static function rejectAction($action)
     {
         return $action->label('Từ chối')->icon('heroicon-o-x-circle')->color('danger')
-            ->visible(fn (WithdrawRequest $r) => $r->status === 'pending')
+            // Lệnh PayOS còn dở thì không hoàn tiền: PayOS có thể đã chuyển.
+            ->visible(fn (WithdrawRequest $r) => self::canManage() && $r->status === 'pending' && ! WithdrawService::payosInFlight($r))
             ->modalHeading('Từ chối yêu cầu rút tiền')
-            ->modalDescription(fn (WithdrawRequest $r) => self::money($r->amount).' đang giữ sẽ được hoàn vào ví '.$r->driver?->name.'. Lý do được gửi đến tài xế. Nếu bạn ĐÃ chuyển khoản, hãy chọn "Duyệt", đừng từ chối.')
+            ->modalDescription(fn (WithdrawRequest $r) => self::money($r->amount).' đang giữ sẽ được hoàn vào ví '.$r->driver?->name.'. Lý do được gửi đến tài xế. Nếu tài xế ĐÃ được trả (chuyển khoản hoặc tiền mặt), hãy chọn "Duyệt", đừng từ chối.')
             ->form([
                 Forms\Components\Select::make('reason')->label('Lý do')->options(WithdrawService::REJECT_REASONS)->required()->live(),
                 Forms\Components\Textarea::make('note')->label('Giải thích thêm')->rows(2)->maxLength(300)
@@ -174,7 +223,9 @@ class WithdrawRequestResource extends Resource
                     ->label('Trạng thái')
                     ->badge()
                     ->formatStateUsing(fn ($state) => ['pending' => 'Chờ duyệt', 'approved' => 'Đã duyệt', 'rejected' => 'Từ chối'][$state] ?? $state)
-                    ->color(fn ($state) => ['pending' => 'warning', 'approved' => 'success', 'rejected' => 'danger'][$state] ?? 'gray'),
+                    ->color(fn ($state) => ['pending' => 'warning', 'approved' => 'success', 'rejected' => 'danger'][$state] ?? 'gray')
+                    ->description(fn (WithdrawRequest $r) => self::payoutStateLabel($r)
+                        ?? ($r->status === 'approved' ? ['payos' => 'PayOS', 'manual' => 'Chuyển khoản tay', 'cash' => 'Tiền mặt'][$r->payout_method] ?? null : null)),
 
                 Tables\Columns\TextColumn::make('created_at')
                     ->label('Tạo lúc')
@@ -207,9 +258,16 @@ class WithdrawRequestResource extends Resource
                 Tables\Actions\ActionGroup::make([
                     Tables\Actions\ViewAction::make()->label('Xem chi tiết')->icon('heroicon-o-eye'),
                     self::approveAction(Tables\Actions\Action::make('approve')),
+                    self::syncAction(Tables\Actions\Action::make('sync_payos')),
                     self::rejectAction(Tables\Actions\Action::make('reject')),
                 ])->icon('heroicon-m-ellipsis-horizontal')->label(''),
             ])
+            ->recordClasses(fn (WithdrawRequest $r) => match (true) {
+                WithdrawService::payosInFlight($r) => 'fs-wd-row--payos',
+                self::isStale($r) => 'fs-wd-row--stale',
+                $r->status !== 'pending' => 'fs-wd-row--done',
+                default => null,
+            })
             ->recordUrl(fn (WithdrawRequest $record): string => static::getUrl('view', ['record' => $record]))
             ->defaultSort('created_at', 'desc')
             ->defaultPaginationPageOption(25)

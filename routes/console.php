@@ -20,3 +20,6 @@ Schedule::call(fn () => app(\App\Services\NotificationCampaignService::class)->d
     ->everyMinute()
     ->name('notification-campaigns-dispatch-due')
     ->withoutOverlapping();
+
+// Mỗi 5 phút — hỏi PayOS kết quả lệnh chi rút tiền còn dở (đang xử lý / chưa rõ), duyệt và báo tài xế khi xong.
+Schedule::command('withdraw:sync-payos')->everyFiveMinutes()->withoutOverlapping();

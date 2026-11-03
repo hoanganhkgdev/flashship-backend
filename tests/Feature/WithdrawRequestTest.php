@@ -124,7 +124,7 @@ class WithdrawRequestTest extends TestCase
 
         \Illuminate\Support\Facades\Http::fake(['*' => \Illuminate\Support\Facades\Http::sequence()
             ->push(['code' => '99', 'desc' => 'Không đủ số dư'], 200)
-            ->push(['code' => '00', 'data' => []], 200)]);
+            ->push(['code' => '00', 'data' => ['id' => 'po_1', 'approvalState' => 'SUCCEEDED']], 200)]);
         $this->assertFalse(WithdrawService::approvePayos($req, null, $this->admin->id)['ok']);
         $req->refresh();
         $this->assertSame('pending', $req->status);
@@ -135,7 +135,10 @@ class WithdrawRequestTest extends TestCase
         $req->refresh();
         $this->assertSame('approved', $req->status);
         $this->assertSame('payos', $req->payout_method);
-        $this->assertSame('WD'.$req->id, $req->payout_reference);
+        // PayOS đã từ chối lần đầu (lệnh không được tạo) nên lần sau dùng mã tham chiếu mới.
+        $this->assertSame('WD'.$req->id.'-2', $req->payout_reference);
+        $this->assertSame('po_1', $req->payout_id);
+        $this->assertSame('succeeded', $req->payout_state);
         $this->assertNull($req->last_payout_error);
     }
 
@@ -176,5 +179,128 @@ class WithdrawRequestTest extends TestCase
         $this->assertSame('rejected', $req->fresh()->status);
 
         Livewire::test(ViewWithdrawRequest::class, ['record' => $req->id])->assertSuccessful()->assertSee('Tài khoản nhận');
+    }
+
+    private function payosOn(): void
+    {
+        config(['services.payos_payout.client_id' => 'x', 'services.payos_payout.api_key' => 'x', 'services.payos_payout.checksum_key' => 'x']);
+    }
+
+    public function test_payos_processing_waits_and_the_sync_approves_when_it_succeeds(): void
+    {
+        $this->payosOn();
+        $req = $this->request();
+        \Illuminate\Support\Facades\Http::fake(['*' => \Illuminate\Support\Facades\Http::sequence()
+            ->push(['code' => '00', 'data' => ['id' => 'po_9', 'approvalState' => 'PROCESSING']], 200)
+            ->push(['code' => '00', 'data' => ['payouts' => [['id' => 'po_9', 'referenceId' => 'WD'.$req->id, 'approvalState' => 'PROCESSING']]]], 200)
+            ->push(['code' => '00', 'data' => ['payouts' => [['id' => 'po_9', 'referenceId' => 'WD'.$req->id, 'approvalState' => 'SUCCEEDED']]]], 200)]);
+
+        $res = WithdrawService::approvePayos($req, null, $this->admin->id);
+        $this->assertTrue($res['ok']);
+        $this->assertTrue($res['processing']);
+        $req->refresh();
+        $this->assertSame('pending', $req->status, 'chưa coi là đã chuyển khi PayOS còn đang xử lý');
+        $this->assertSame('processing', $req->payout_state);
+        $this->assertFalse(WithdrawService::approvePayos($req, null, $this->admin->id)['ok'], 'không gửi lệnh thứ hai khi lệnh đầu đang chạy');
+
+        $this->travel(2)->minutes();
+        $this->artisan('withdraw:sync-payos')->assertSuccessful();
+        $this->assertSame('pending', $req->fresh()->status);
+        $this->artisan('withdraw:sync-payos')->assertSuccessful();
+        $req->refresh();
+        $this->assertSame('approved', $req->status);
+        $this->assertSame('payos', $req->payout_method);
+        $this->assertSame($this->admin->id, (int) $req->processed_by);
+    }
+
+    public function test_an_unanswered_payos_call_blocks_refunds_and_other_payouts_until_checked(): void
+    {
+        $this->payosOn();
+        $req = $this->request();
+        // Tạo lệnh (POST) thì mất kết nối; tra cứu (GET) thì PayOS trả danh sách rỗng = không có lệnh này.
+        \Illuminate\Support\Facades\Http::fake(fn ($request) => $request->method() === 'POST'
+            ? throw new \Illuminate\Http\Client\ConnectionException('timeout')
+            : \Illuminate\Support\Facades\Http::response(['code' => '00', 'data' => ['payouts' => []]], 200));
+
+        $res = WithdrawService::approvePayos($req, null, $this->admin->id);
+        $this->assertFalse($res['ok']);
+        $this->assertStringContainsString('KHÔNG chuyển tay', $res['message']);
+        $req->refresh();
+        $this->assertSame('unknown', $req->payout_state);
+        $wallet = (float) DriverWallet::where('driver_id', $this->driver->id)->value('balance');
+
+        // PayOS có thể đã chuyển: không được hoàn tiền vào ví hay ghi nhận đã trả cách khác.
+        $this->assertFalse(WithdrawService::reject($req, 'bad_bank', null, $this->admin->id)['ok']);
+        $this->assertFalse(WithdrawService::approveManual($req, 'FT123456', null, $this->admin->id)['ok']);
+        $this->assertFalse(WithdrawService::approveCash($req, 'Trả tiền mặt hôm nay', $this->admin->id)['ok']);
+        $this->assertSame('pending', $req->fresh()->status);
+        $this->assertSame($wallet, (float) DriverWallet::where('driver_id', $this->driver->id)->value('balance'), 'không hoàn tiền');
+
+        // Kiểm tra: PayOS không có lệnh này → tiền chưa đi → được từ chối như bình thường.
+        $this->assertTrue(WithdrawService::syncPayos($req, $this->admin->id)['ok']);
+        $this->assertSame('failed', $req->fresh()->payout_state);
+        $this->assertTrue(WithdrawService::reject($req->fresh(), 'bad_bank', null, $this->admin->id)['ok']);
+    }
+
+    public function test_retrying_an_unanswered_call_reuses_the_same_reference(): void
+    {
+        $this->payosOn();
+        $req = $this->request();
+        \Illuminate\Support\Facades\Http::fake(['*' => \Illuminate\Support\Facades\Http::sequence()
+            ->push('<html>502</html>', 502)
+            ->push(['code' => '00', 'data' => ['id' => 'po_5', 'approvalState' => 'SUCCEEDED']], 200)]);
+
+        WithdrawService::approvePayos($req, null, $this->admin->id);
+        $this->assertSame('unknown', $req->fresh()->payout_state, 'phản hồi không đọc được = chưa rõ');
+        $this->assertTrue(WithdrawService::approvePayos($req->fresh(), null, $this->admin->id)['ok']);
+        $this->assertSame('WD'.$req->id, $req->fresh()->payout_reference, 'gửi lại cùng mã: PayOS chống lặp, không chuyển hai lần');
+        \Illuminate\Support\Facades\Http::assertSent(fn ($r) => str_contains((string) $r->body(), 'Rut tien TX Nguyen Van An'));
+    }
+
+    public function test_cash_payment_is_an_approval_not_a_rejection(): void
+    {
+        $req = $this->request(150000);
+        $wallet = (float) DriverWallet::where('driver_id', $this->driver->id)->value('balance');
+
+        $this->assertFalse(WithdrawService::approveCash($req, 'ab', $this->admin->id)['ok']);
+        $this->assertTrue(WithdrawService::approveCash($req, 'Nam trả tiền mặt 18/10', $this->admin->id)['ok']);
+
+        $req->refresh();
+        $this->assertSame('approved', $req->status);
+        $this->assertSame('cash', $req->payout_method);
+        $this->assertSame('Nam trả tiền mặt 18/10', $req->admin_note);
+        $this->assertSame($wallet, (float) DriverWallet::where('driver_id', $this->driver->id)->value('balance'), 'không hoàn tiền vào ví');
+
+        Livewire::test(ListWithdrawRequests::class)->set('activeTab', 'all')->assertSuccessful();
+    }
+
+    public function test_finance_view_only_cannot_approve_and_no_city_shows_nothing(): void
+    {
+        $this->assertTrue(\App\Filament\Resources\WithdrawRequestResource::canManage());
+        $this->actingAs($this->user('viewer'));
+        $this->assertFalse(\App\Filament\Resources\WithdrawRequestResource::canManage());
+
+        $this->request();
+        $this->assertSame(1, WithdrawService::summary($this->city->id)['pendingCount']);
+        $this->assertSame(0, WithdrawService::summary(null)['pendingCount']);
+    }
+
+    public function test_approve_dialog_offers_cash_and_hides_reject_while_payos_is_unresolved(): void
+    {
+        $req = $this->request(150000);
+
+        Livewire::test(ViewWithdrawRequest::class, ['record' => $req->id])
+            ->mountAction('approve')
+            ->assertSee('Đã trả tiền mặt / trả ngoài hệ thống')
+            ->setActionData(['method' => 'cash', 'note' => 'Nam trả tiền mặt tại văn phòng'])
+            ->callMountedAction()
+            ->assertHasNoActionErrors();
+        $this->assertSame('cash', $req->fresh()->payout_method);
+
+        $other = $this->request(120000);
+        $other->update(['payout_state' => 'unknown', 'payout_reference' => 'WD'.$other->id]);
+        Livewire::test(ViewWithdrawRequest::class, ['record' => $other->id])
+            ->assertActionHidden('reject')
+            ->assertActionVisible('sync_payos');
     }
 }

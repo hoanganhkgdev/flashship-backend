@@ -43,6 +43,12 @@ class ListWithdrawRequests extends ListRecords
         return 1;
     }
 
+    /** Tab Chờ duyệt tự làm mới: yêu cầu mới và kết quả PayOS hiện ra không cần tải lại trang. */
+    public function table(\Filament\Tables\Table $table): \Filament\Tables\Table
+    {
+        return parent::table($table)->poll($this->activeTab === 'pending' ? '30s' : null);
+    }
+
     public function getTabs(): array
     {
         $base = fn () => WithdrawRequestResource::scopeEloquentQueryToTenant(WithdrawRequest::query(), Filament::getTenant());
