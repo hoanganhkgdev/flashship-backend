@@ -6,6 +6,7 @@ use Carbon\Carbon;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use App\Services\ShiftService;
 use Modules\Core\Models\Shift;
 use Modules\Core\Models\User;
 use Modules\Core\Services\FCMService;
@@ -47,6 +48,7 @@ class ShiftOfflineService
         }
 
         $shifts = Shift::whereIn('id', $rows->pluck('shift_id')->unique())->get()->keyBy('id');
+        $changes = ShiftService::lastEffectiveChange($shifts->keys()->all());
 
         foreach ($rows as $row) {
             $shift = $shifts[$row->shift_id];
@@ -58,8 +60,8 @@ class ShiftOfflineService
             [$start, $end] = $window;
             $shiftDate = $start->toDateString();
 
-            // Chỉ tính từ lúc tài xế đăng ký ca (đăng ký giữa ca không bị phạt ngược).
-            $from = $row->registered_at ? $start->max(Carbon::parse($row->registered_at)) : $start;
+            // Chỉ tính từ lúc tài xế đăng ký ca, và từ lần gần nhất ca được bật/đổi giờ (không phạt ngược).
+            $from = $this->countFrom($start, $row->registered_at, $changes[$shift->id] ?? null);
             if ($now->lessThanOrEqualTo($from)) {
                 continue;
             }
@@ -84,6 +86,14 @@ class ShiftOfflineService
         }
 
         return $penalized;
+    }
+
+    /** Mốc bắt đầu tính Offline: muộn nhất trong (đầu ca, lúc tài xế đăng ký, lần ca được bật/đổi giờ gần nhất). */
+    private function countFrom(Carbon $start, ?string $registeredAt, ?Carbon $lastChange): Carbon
+    {
+        $from = $registeredAt ? $start->max(Carbon::parse($registeredAt)) : $start;
+
+        return $lastChange ? $from->max($lastChange) : $from;
     }
 
     /** Giây Offline của tài xế trong cửa sổ [$from, min($now, $end)). */
@@ -116,6 +126,7 @@ class ShiftOfflineService
             ->join('shifts as s', 's.id', '=', 'su.shift_id')
             ->where('su.user_id', $driver->id)->where('s.is_active', true)
             ->get(['su.shift_id', 'su.created_at as registered_at']);
+        $changes = ShiftService::lastEffectiveChange($registered->pluck('shift_id')->all());
 
         foreach ($registered as $row) {
             $shift = Shift::find($row->shift_id);
@@ -124,7 +135,7 @@ class ShiftOfflineService
                 continue;
             }
             [$start, $end] = $window;
-            $from = $row->registered_at ? $start->max(Carbon::parse($row->registered_at)) : $start;
+            $from = $this->countFrom($start, $row->registered_at, $changes[$shift->id] ?? null);
             $shiftDate = $start->toDateString();
             $limit = OperationalSettings::shiftOfflineLimitMinutes($cityId) * 60;
             $offline = $this->offlineSeconds((int) $driver->id, $from, $end, $now);

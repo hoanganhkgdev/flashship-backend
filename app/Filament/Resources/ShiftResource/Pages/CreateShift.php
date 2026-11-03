@@ -4,6 +4,7 @@ namespace App\Filament\Resources\ShiftResource\Pages;
 
 use App\Filament\Resources\ShiftResource;
 use App\Services\ShiftService;
+use Filament\Facades\Filament;
 use Filament\Resources\Pages\CreateRecord;
 
 class CreateShift extends CreateRecord
@@ -17,7 +18,15 @@ class CreateShift extends CreateRecord
 
     public function getSubheading(): ?string
     {
-        return 'Tạo khung giờ mới cho khu vực hiện tại. Không được trùng giờ với ca đang kích hoạt.';
+        return 'Tạo khung giờ mới cho khu vực hiện tại. Các ca được phép chồng giờ nhau, nhưng một tài xế không đăng ký được hai ca chồng giờ.';
+    }
+
+    /** Mã ca chỉ là định danh nội bộ: tự sinh từ tên, không bắt admin nhập. */
+    protected function mutateFormDataBeforeCreate(array $data): array
+    {
+        $data['code'] = ShiftService::uniqueCode((int) Filament::getTenant()?->id, (string) $data['name']);
+
+        return $data;
     }
 
     protected function afterCreate(): void

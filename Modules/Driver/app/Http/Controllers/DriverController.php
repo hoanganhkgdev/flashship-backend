@@ -524,7 +524,8 @@ class DriverController extends Controller
         return response()->json([
             'success'           => true,
             'data'              => $shifts,
-            'current_shift_ids' => $user->registeredShifts()->pluck('shifts.id'),
+            // Chỉ ca đang bật: tài xế chỉ còn ca đã tắt được coi là chưa có ca để tự chọn lại.
+            'current_shift_ids' => $user->registeredShifts()->where('shifts.is_active', true)->pluck('shifts.id'),
             'current_shift_offline' => app(\Modules\Driver\Services\ShiftOfflineService::class)->status($user),
         ]);
     }
@@ -543,6 +544,13 @@ class DriverController extends Controller
             abort(response()->json([
                 'success' => false,
                 'message' => 'Có ca không thuộc khu vực của bạn',
+            ], 422));
+        }
+
+        if ($inactive = $shifts->first(fn ($s) => ! $s->is_active)) {
+            abort(response()->json([
+                'success' => false,
+                'message' => "Ca \"{$inactive->name}\" đã tắt, vui lòng chọn ca khác",
             ], 422));
         }
 
@@ -586,7 +594,7 @@ class DriverController extends Controller
 
         $registered = \DB::transaction(function () use ($user, $shiftIds) {
             User::where('id', $user->id)->lockForUpdate()->firstOrFail();
-            if ($user->registeredShifts()->exists()) return false;
+            if ($user->registeredShifts()->where('shifts.is_active', true)->exists()) return false;
             $user->registeredShifts()->sync($shiftIds);
             return true;
         });

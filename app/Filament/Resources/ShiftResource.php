@@ -40,7 +40,6 @@ class ShiftResource extends Resource
     public static function getEloquentQuery(): Builder
     {
         return parent::getEloquentQuery()
-            ->withCount('users')
             ->withCount([
                 'users as active_users_count' => fn (Builder $q) => $q->where('users.status', 1),
                 'users as locked_users_count' => fn (Builder $q) => $q->where('users.status', 2),
@@ -59,23 +58,15 @@ class ShiftResource extends Resource
                     Forms\Components\TextInput::make('name')
                         ->label('Tên ca')
                         ->required()
-                        ->placeholder('VD: Ca sáng'),
-
-                    Forms\Components\TextInput::make('code')
-                        ->label('Mã ca')
-                        ->required()
-                        ->alphaDash()
-                        ->helperText('VD: morning — không dấu, không khoảng trắng, duy nhất trong khu vực này')
-                        ->unique(
-                            ignoreRecord: true,
-                            modifyRuleUsing: fn ($rule) => $rule->where('city_id', Filament::getTenant()?->id),
-                        ),
+                        ->maxLength(60)
+                        ->placeholder('VD: Ca sáng')
+                        ->columnSpanFull(),
 
                     Forms\Components\TimePicker::make('start_time')
                         ->label('Bắt đầu')
                         ->seconds(false)
                         ->required()
-                        ->helperText('Giờ:phút, ví dụ 07:00. Các ca trong cùng khu vực được phép chồng giờ nhau (VD: ca sáng 07:00–16:00 và ca trưa 10:00–18:00).'),
+                        ->helperText('Giờ:phút, ví dụ 07:00. Các ca trong cùng khu vực được phép chồng giờ nhau (VD: ca sáng 07:00–16:00 và ca trưa 10:00–18:00), nhưng một tài xế không đăng ký được hai ca chồng giờ.'),
 
                     Forms\Components\TimePicker::make('end_time')
                         ->label('Kết thúc')
@@ -92,7 +83,7 @@ class ShiftResource extends Resource
                     Forms\Components\Toggle::make('is_active')
                         ->label('Kích hoạt')
                         ->live()
-                        ->helperText('Tắt ca sẽ ngừng cho tài xế đăng ký mới; các liên kết ca hiện có vẫn được giữ lại.')
+                        ->helperText('Tắt ca: ngừng cho tài xế đăng ký mới và ngừng tính phạt Offline cho ca này. Tài xế đã đăng ký vẫn được giữ lại nhưng cần được xếp sang ca khác.')
                         ->default(true)
                         ->inline(false),
                 ]),
@@ -104,14 +95,15 @@ class ShiftResource extends Resource
         return $table
             ->columns([
                 Tables\Columns\TextColumn::make('name')
-                    ->label('Tên ca')
+                    ->label('Ca')
                     ->searchable()
-                    ->description(fn (Shift $r) => 'Mã ca: '.$r->code),
+                    ->weight('semibold')
+                    ->description(fn (Shift $r) => $r->isNowInShift() && $r->is_active ? 'Đang chạy' : null),
 
                 Tables\Columns\TextColumn::make('schedule')
                     ->label('Khung giờ')
-                    ->state(fn (Shift $r) => substr($r->start_time, 0, 5).' → '.substr($r->end_time, 0, 5))
-                    ->description(fn (Shift $r) => self::scheduleDescription($r)),
+                    ->html()
+                    ->state(fn (Shift $r) => self::miniBar($r)),
 
                 Tables\Columns\TextColumn::make('active_users_count')
                     ->label('Tài xế hoạt động')
@@ -136,13 +128,25 @@ class ShiftResource extends Resource
                     self::editAction(Tables\Actions\Action::make('edit_time')),
                     self::toggleAction(Tables\Actions\Action::make('toggle')),
                     Tables\Actions\DeleteAction::make()
-                        ->visible(fn (Shift $r) => (int) $r->users_count === 0)
-                        ->modalDescription('Chỉ xóa được ca chưa có tài xế đăng ký.')
+                        ->visible(fn (Shift $r) => ShiftService::undeletableReason($r) === null)
+                        ->modalDescription('Chỉ xóa được ca chưa có tài xế đăng ký và chưa từng phạt/chấm điểm tài xế.')
                         ->after(fn (Shift $r) => ShiftService::log($r->id, 'deleted', auth()->id(), $r->name)),
                 ])->icon('heroicon-m-ellipsis-horizontal')->label(''),
             ])
             ->recordUrl(fn (Shift $r): string => static::getUrl('view', ['record' => $r]))
             ->paginated(false);
+    }
+
+    /** Thanh 24 giờ nhỏ: đoạn tô màu là khung giờ của ca (ca qua đêm tách làm hai), kèm chữ khung giờ. */
+    public static function miniBar(Shift $r): string
+    {
+        $bars = '';
+        foreach (ShiftService::segments($r->start_time, $r->end_time) as [$a, $b]) {
+            $bars .= '<i style="left:'.round($a / 14.4, 2).'%;width:'.round(($b - $a) / 14.4, 2).'%"></i>';
+        }
+
+        return '<span class="fs-shift-mini'.($r->is_active ? '' : ' is-off').'"><span class="fs-shift-mini__bar">'.$bars.'</span>'
+            .'<small><b>'.substr($r->start_time, 0, 5).' → '.substr($r->end_time, 0, 5).'</b> · '.e(self::scheduleDescription($r)).'</small></span>';
     }
 
     public static function editAction($action)
@@ -161,18 +165,18 @@ class ShiftResource extends Resource
             ->modalHeading(fn (Shift $r) => ($r->is_active ? 'Tắt ' : 'Bật ').$r->name)
             ->modalDescription(function (Shift $r) {
                 if (! $r->is_active) {
-                    return 'Ca sẽ được mở lại cho tài xế đăng ký.';
+                    return 'Ca sẽ được mở lại cho tài xế đăng ký. Thời gian vắng chỉ tính từ lúc bật ca, không phạt ngược về đầu ca.';
                 }
                 $n = $r->users()->where('users.status', 1)->count();
 
-                return 'Tắt ca sẽ ngừng cho tài xế đăng ký mới. Hiện có '.$n.' tài xế hoạt động đang đăng ký ca này.';
+                return 'Tắt ca sẽ ngừng cho tài xế đăng ký mới và ngừng phạt Offline cho ca này. Hiện có '.$n.' tài xế hoạt động đang đăng ký, họ cần được xếp sang ca khác.';
             })
             ->action(function (Shift $record): void {
                 if ($record->is_active) {
                     $n = ShiftService::deactivate($record, auth()->id());
                     Notification::make()->warning()->title('Đã tắt ca ('.$n.' tài xế hoạt động bị ảnh hưởng)')->send();
                 } elseif ($err = ShiftService::activate($record, auth()->id())) {
-                    Notification::make()->danger()->title($err)->send();
+                    Notification::make()->danger()->title('Chưa bật được ca')->body($err)->persistent()->send();
                 } else {
                     Notification::make()->success()->title('Đã bật ca')->send();
                 }
@@ -203,12 +207,12 @@ class ShiftResource extends Resource
                 $query->where(function (Builder $sameDay) use ($time) {
                     $sameDay->whereColumn('end_time', '>', 'start_time')
                         ->where('start_time', '<=', $time)
-                        ->where('end_time', '>=', $time);
+                        ->where('end_time', '>', $time);
                 })->orWhere(function (Builder $overnight) use ($time) {
                     $overnight->whereColumn('end_time', '<=', 'start_time')
                         ->where(function (Builder $range) use ($time) {
                             $range->where('start_time', '<=', $time)
-                                ->orWhere('end_time', '>=', $time);
+                                ->orWhere('end_time', '>', $time);
                         });
                 });
             });

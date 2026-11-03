@@ -8,7 +8,7 @@ class ShiftLog extends Model
 {
     public $timestamps = false;
 
-    protected $fillable = ['shift_id', 'action', 'performed_by', 'detail'];
+    protected $fillable = ['shift_id', 'action', 'performed_by', 'detail', 'created_at'];
 
     protected $casts = ['created_at' => 'datetime'];
 }

@@ -230,6 +230,12 @@ class DriverResource extends Resource
                     ->multiple()
                     ->searchable()
                     ->preload()
+                    ->rule(fn () => function (string $attribute, $value, \Closure $fail) {
+                        $shifts = \Modules\Core\Models\Shift::whereIn('id', (array) $value)->get();
+                        if ($pair = \App\Services\ShiftService::firstOverlap($shifts)) {
+                            $fail('Ca "'.$pair[0]->name.'" và "'.$pair[1]->name.'" trùng giờ nhau, một tài xế không đăng ký được cả hai.');
+                        }
+                    })
                     ->helperText('Gán trực tiếp ca làm việc cho tài xế — bỏ qua luồng gửi yêu cầu đổi ca chờ duyệt. Chỉ hiện ca đang kích hoạt của thành phố đã chọn ở trên.'),
             ]),
 
