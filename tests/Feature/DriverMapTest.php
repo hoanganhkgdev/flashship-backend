@@ -158,4 +158,50 @@ class DriverMapTest extends TestCase
         $page->mountAction('assign', ['order' => $order->id, 'driver' => $suspended->id])
             ->assertActionDataSet(['driver_id' => null]);
     }
+
+    public function test_the_browser_cannot_switch_the_city_filter(): void
+    {
+        $other = City::create(['name' => 'Tỉnh khác', 'slug' => 'tk-'.uniqid(), 'is_active' => true]);
+        $stranger = $this->user('driver', ['is_online' => true, 'city_id' => $other->id]);
+
+        $page = Livewire::test(DriverMapPage::class);
+        try {
+            $page->set('fixedCityId', $other->id);
+            $this->fail('fixedCityId phải bị khóa');
+        } catch (\Livewire\Features\SupportLockedProperties\CannotUpdateLockedPropertyException) {
+        }
+
+        $page->call('loadDriversMeta');
+        $this->assertArrayNotHasKey($stranger->id, $page->get('driversMeta'), 'vẫn chỉ tài xế của khu vực đang đứng');
+    }
+
+    public function test_a_driver_still_carrying_an_order_in_another_city_is_busy(): void
+    {
+        $other = City::create(['name' => 'Khu cũ', 'slug' => 'kc-'.uniqid(), 'is_active' => true]);
+        $driver = $this->user('driver', ['is_online' => true]);
+        $this->order(['status' => 'processing', 'delivery_man_id' => $driver->id, 'city_id' => $other->id]);
+
+        $meta = Livewire::test(DriverMapPage::class)->get('driversMeta');
+
+        $this->assertTrue($meta[$driver->id]['busy']);
+    }
+
+    public function test_pending_total_counts_beyond_the_listed_orders(): void
+    {
+        for ($i = 0; $i < 52; $i++) {
+            $this->order();
+        }
+
+        $page = Livewire::test(DriverMapPage::class);
+
+        $this->assertCount(50, $page->get('ordersMeta'));
+        $this->assertSame(52, $page->get('pendingTotal'));
+    }
+
+    public function test_polling_is_not_tied_to_a_hidden_element_visibility(): void
+    {
+        Livewire::test(DriverMapPage::class)
+            ->assertSeeHtml('wire:poll.15s="loadDriversMeta"')
+            ->assertDontSeeHtml('wire:poll.15s.visible');
+    }
 }

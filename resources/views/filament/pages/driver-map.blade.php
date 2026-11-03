@@ -1,48 +1,57 @@
-<x-filament-panels::page>
-
-<header class="fs-page-header">
-    <div>
-        <p class="fs-page-header__eyebrow">Trung tâm điều phối</p>
-        <h1 class="fs-page-header__title">Bản đồ tài xế trực tiếp</h1>
-        <p class="fs-page-header__description">Theo dõi lực lượng, đơn chờ và chọn tài xế gần điểm lấy.</p>
-    </div>
-    <div class="dm-head-status"><i></i><span>GPS đang cập nhật</span><small>Tự làm mới trạng thái mỗi 15 giây</small></div>
-</header>
+<x-filament-panels::page class="fs-driver-map">
 
 <style>
-    .dm-stats { display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:10px; margin-bottom:12px; }
-    .dm-stat { display:flex; align-items:center; gap:10px; padding:12px 14px; border:1px solid #e5e7eb; border-radius:13px; background:#fff; text-align:left; cursor:pointer; transition:.15s; }
-    .dm-stat:hover { border-color:#fed7aa; }
-    .dm-stat.active { border-color:#f97316; box-shadow:0 0 0 3px rgba(249,115,22,.12); }
-    .dm-stat i { width:10px; height:10px; flex:none; border-radius:50%; }
-    .dm-stat div { min-width:0; }
-    .dm-stat strong { display:block; color:#0f172a; font-size:var(--fs-lg); font-weight:650; line-height:1; }
-    .dm-stat span { color:#64748b; font-size:var(--fs-xs); }
-    .dm-layout { display:grid; grid-template-columns:minmax(300px,31%) minmax(0,1fr); min-height:680px; overflow:hidden; border:1px solid #e5e7eb; border-radius:16px; background:#fff; box-shadow:0 10px 30px rgba(15,23,42,.05); }
-    .dm-sidebar { display:flex; min-width:0; min-height:0; flex-direction:column; border-right:1px solid #e5e7eb; background:#f8fafc; }
-    .dm-tabs { display:grid; grid-template-columns:1fr 1fr; border-bottom:1px solid #e5e7eb; }
-    .dm-tab { padding:10px 8px; border-bottom:2px solid transparent; color:#64748b; font-size:var(--fs-sm); font-weight:650; cursor:pointer; }
-    .dm-tab.active { border-bottom-color:#f97316; color:#c2410c; }
+
+    /* ── Bản đồ tài xế: một thanh trên cùng, bản đồ chiếm phần màn hình còn lại ── */
+    .fs-driver-map { --dm-bg:#fff; --dm-soft:#f7f8fa; --dm-line:#e5e7eb; --dm-ink:#0f172a; --dm-muted:#64748b; --dm-faint:#94a3b8; }
+    .fi-main:has(.fs-driver-map) { padding-block:.5rem; }
+    .fs-driver-map > section { padding-block:.35rem; row-gap:0; }
+    .fs-driver-map > section > div > .grid { row-gap:0; }
+
+    .dm-bar { display:flex; align-items:center; flex-wrap:wrap; gap:10px 16px; margin-bottom:10px; }
+    .dm-bar__title { display:flex; align-items:center; gap:10px; margin-right:auto; min-width:0; }
+    .dm-bar__title h1 { color:var(--dm-ink); font-size:var(--fs-lg); font-weight:750; letter-spacing:-.02em; line-height:1.2; white-space:nowrap; }
+    .dm-live { display:inline-flex; align-items:center; gap:6px; padding:3px 9px; border:1px solid #d1fae5; border-radius:999px; background:#f0fdf4; color:#15803d; font-size:var(--fs-xs); font-weight:600; white-space:nowrap; }
+    .dm-live i { width:7px; height:7px; border-radius:50%; background:#22c55e; animation:dm-pulse 1.8s ease-in-out infinite; }
+    @keyframes dm-pulse { 50% { opacity:.35; } }
+
+    /* 6 số liệu = nút lọc (bấm "Online" để xem tất cả) */
+    .dm-stats { display:flex; flex-wrap:wrap; gap:4px; padding:3px; border:1px solid var(--dm-line); border-radius:12px; background:var(--dm-bg); }
+    .dm-stat { position:relative; display:inline-flex; align-items:center; gap:7px; padding:5px 11px; border:0; border-radius:9px; background:transparent; color:var(--dm-muted); font-size:var(--fs-xs); cursor:pointer; transition:background .15s,color .15s; }
+    .dm-stat:hover { background:var(--dm-soft); color:var(--dm-ink); }
+    .dm-stat i { width:8px; height:8px; flex:none; border-radius:50%; }
+    .dm-stat div { display:flex; align-items:baseline; gap:6px; }
+    .dm-stat strong { color:var(--dm-ink); font-size:var(--fs-base); font-weight:750; font-variant-numeric:tabular-nums; line-height:1.2; }
+    .dm-stat span { white-space:nowrap; }
+    .dm-stat.active { background:#fff7ed; color:#c2410c; box-shadow:inset 0 0 0 1px #fed7aa; }
+    .dm-stat[data-stat="orders"] { margin-left:6px; }
+    .dm-stat[data-stat="orders"]::before { content:''; position:absolute; left:-5px; top:20%; bottom:20%; width:1px; background:var(--dm-line); }
+
+    /* Khung: cột trái + bản đồ. Chiều cao do fitMapHeight() (JS) đặt cho #driver-map-wrapper. */
+    .dm-layout { display:grid; grid-template-columns:clamp(300px,26%,370px) minmax(0,1fr); grid-template-rows:minmax(0,1fr); height:calc(100dvh - 140px); min-height:420px; /* fitMapHeight() đo lại chính xác */ overflow:hidden; border:1px solid var(--dm-line); border-radius:14px; background:var(--dm-bg); box-shadow:0 4px 18px rgba(15,23,42,.05); }
+    .dm-sidebar { display:flex; min-width:0; min-height:0; flex-direction:column; border-right:1px solid var(--dm-line); background:var(--dm-soft); }
+    .dm-tabs { display:grid; grid-template-columns:1fr 1fr; gap:4px; padding:6px; border-bottom:1px solid var(--dm-line); background:var(--dm-bg); }
+    .dm-tab { padding:7px 8px; border:0; border-radius:8px; color:var(--dm-muted); font-size:var(--fs-sm); font-weight:650; cursor:pointer; }
+    .dm-tab.active { background:#fff7ed; color:#c2410c; box-shadow:inset 0 0 0 1px #fed7aa; }
     .dm-tab b { margin-left:4px; padding:1px 7px; border-radius:999px; background:#fee2e2; color:#b91c1c; font-size:var(--fs-xs); }
-    .dm-tools { display:grid; gap:8px; padding:12px; border-bottom:1px solid #e5e7eb; }
-    .dm-search { width:100%; padding:9px 11px; border:1px solid #dbe2ea; border-radius:10px; background:#fff; color:#0f172a; font-size:var(--fs-sm); outline:none; }
+    .dm-tools { padding:8px; border-bottom:1px solid var(--dm-line); }
+    .dm-search { width:100%; height:36px; padding:7px 11px; border:1px solid var(--dm-line); border-radius:9px; background:var(--dm-bg); color:var(--dm-ink); font-size:var(--fs-sm); outline:none; }
     .dm-search:focus { border-color:#f97316; box-shadow:0 0 0 3px rgba(249,115,22,.12); }
-    .dm-filters { display:flex; flex-wrap:wrap; gap:5px; }
-    .dm-filter { flex:none; padding:5px 9px; border:1px solid #e2e8f0; border-radius:999px; background:#fff; color:#64748b; font-size:var(--fs-xs); cursor:pointer; }
-    .dm-filter.active { border-color:#fed7aa; background:#fff7ed; color:#c2410c; }
-    .dm-list { flex:1; min-height:0; overflow-y:auto; padding:6px; }
-    .dm-empty { padding:30px 12px; color:#94a3b8; font-size:var(--fs-sm); text-align:center; }
-    .dm-driver { display:grid; grid-template-columns:40px minmax(0,1fr); gap:10px; width:100%; padding:9px; border:1px solid transparent; border-radius:11px; text-align:left; transition:.15s; }
-    .dm-driver:hover,.dm-driver.active { border-color:#fed7aa; background:#fff; }
-    .dm-avatar { position:relative; width:40px; height:40px; overflow:hidden; border:2px solid var(--dm-color); border-radius:50%; background:#e2e8f0; }
+    .dm-list { flex:1; min-height:0; overflow-y:auto; padding:6px; scrollbar-width:thin; scrollbar-color:#cbd5e1 transparent; }
+    .dm-empty { padding:30px 12px; color:var(--dm-faint); font-size:var(--fs-sm); text-align:center; }
+
+    .dm-driver { display:grid; grid-template-columns:36px minmax(0,1fr); gap:9px; width:100%; margin-bottom:2px; padding:7px 8px; border:1px solid transparent; border-radius:10px; text-align:left; transition:background .15s,border-color .15s; }
+    .dm-driver:hover,.dm-driver.active { border-color:#fed7aa; background:var(--dm-bg); box-shadow:0 2px 8px rgba(15,23,42,.05); }
+    .dm-avatar { position:relative; width:36px; height:36px; overflow:hidden; border:2px solid var(--dm-color); border-radius:50%; background:#e2e8f0; }
     .dm-avatar img { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }
-    .dm-avatar > span { display:grid; width:100%; height:100%; place-items:center; color:#64748b; font-weight:700; }
+    .dm-avatar > span { display:grid; width:100%; height:100%; place-items:center; color:var(--dm-muted); font-size:var(--fs-xs); font-weight:700; }
     .dm-driver__top { display:flex; min-width:0; align-items:center; justify-content:space-between; gap:6px; }
-    .dm-driver__name { overflow:hidden; color:#0f172a; font-size:var(--fs-sm); font-weight:600; text-overflow:ellipsis; white-space:nowrap; }
-    .dm-driver__ago { flex:none; color:#94a3b8; font-size:var(--fs-xs); }
-    .dm-driver__meta { display:flex; align-items:center; justify-content:space-between; gap:6px; margin-top:4px; color:#64748b; font-size:var(--fs-xs); }
-    .dm-status { color:var(--dm-color); }
-    .dm-order { display:grid; gap:6px; width:100%; margin-bottom:6px; padding:10px; border:1px solid #e2e8f0; border-left:3px solid #ef4444; border-radius:11px; background:#fff; text-align:left; cursor:pointer; transition:.15s; }
+    .dm-driver__name { overflow:hidden; color:var(--dm-ink); font-size:var(--fs-sm); font-weight:650; text-overflow:ellipsis; white-space:nowrap; }
+    .dm-driver__ago { flex:none; color:var(--dm-faint); font-size:var(--fs-xs); }
+    .dm-driver__meta { display:flex; align-items:center; justify-content:space-between; gap:6px; margin-top:2px; color:var(--dm-muted); font-size:var(--fs-xs); }
+    .dm-status { color:var(--dm-color); font-weight:600; }
+
+    .dm-order { display:grid; gap:6px; width:100%; margin-bottom:6px; padding:9px 10px; border:1px solid var(--dm-line); border-left:3px solid #ef4444; border-radius:10px; background:var(--dm-bg); text-align:left; cursor:pointer; transition:border-color .15s,box-shadow .15s; }
     .dm-order:hover,.dm-order.active { border-color:#fed7aa; border-left-color:#ef4444; }
     .dm-order.active { box-shadow:0 0 0 2px rgba(249,115,22,.15); }
     .dm-order__top { display:flex; align-items:center; gap:6px; }
@@ -50,32 +59,38 @@
     .dm-order__top em { margin-left:auto; color:#dc2626; font-size:var(--fs-xs); font-style:normal; font-weight:700; }
     .dm-tag { padding:1px 7px; border-radius:999px; background:#fee2e2; color:#b91c1c; font-size:var(--fs-xs); font-weight:700; }
     .dm-tag.soft { background:#fef3c7; color:#b45309; }
-    .dm-order__addr { color:#475569; font-size:var(--fs-xs); line-height:1.35; }
-    .dm-order__note { overflow:hidden; padding:1px 7px; border-left:2px solid #14b8a6; border-radius:4px; background:rgba(20,184,166,.1); color:#0f766e; font-size:var(--fs-xs); text-overflow:ellipsis; white-space:nowrap; }
+    .dm-order__addr { padding:5px 8px; border-radius:7px; background:var(--dm-soft); color:#475569; font-size:var(--fs-xs); line-height:1.5; }
+    .dm-order__note { overflow:hidden; padding:2px 8px; border-left:2px solid #14b8a6; border-radius:4px; background:rgba(20,184,166,.1); color:#0f766e; font-size:var(--fs-xs); text-overflow:ellipsis; white-space:nowrap; }
     .dm-order__acts { display:flex; flex-wrap:wrap; gap:6px; }
-    .dm-btn { padding:4px 10px; border:1px solid #e2e8f0; border-radius:8px; background:#fff; color:#334155; font-size:var(--fs-xs); font-weight:600; cursor:pointer; text-decoration:none; }
-    .dm-btn.primary { border-color:#0ea5e9; background:#0ea5e9; color:#fff; }
+    .dm-btn { padding:4px 10px; border:1px solid var(--dm-line); border-radius:8px; background:var(--dm-bg); color:#334155; font-size:var(--fs-xs); font-weight:600; cursor:pointer; text-decoration:none; }
+    .dm-btn.primary { border-color:#f97316; background:#f97316; color:#fff; }
     .dm-near { display:grid; gap:4px; margin-top:2px; padding-top:8px; border-top:1px dashed #cbd5e1; }
-    .dm-near__title { color:#64748b; font-size:var(--fs-xs); font-weight:700; }
+    .dm-near__title { color:var(--dm-muted); font-size:var(--fs-xs); font-weight:700; }
     .dm-near__row { display:grid; grid-template-columns:minmax(0,1fr) auto auto; align-items:center; gap:8px; padding:4px 0; font-size:var(--fs-xs); }
-    .dm-near__row strong { overflow:hidden; color:#0f172a; text-overflow:ellipsis; white-space:nowrap; }
-    .dm-near__row span { color:#64748b; white-space:nowrap; }
-    .dm-near__note { color:#94a3b8; font-size:var(--fs-xs); }
-    #driver-map-wrapper { position:relative; width:100%; min-height:680px; }
-    #driver-map { position: absolute; inset: 0; width: 100%; height: 100%; }
-    #driver-map-counter { position:absolute; top:12px; left:12px; z-index:5; background:#fff; border-radius:999px; padding:6px 14px; font-size:12.5px; font-weight:600; color:#374151; box-shadow:0 1px 4px rgba(0,0,0,0.18); }
-    .dm-map-actions { position:absolute; top:12px; right:56px; z-index:5; display:flex; gap:6px; }
-    .dm-map-action { padding:7px 10px; border:none; border-radius:9px; background:#fff; color:#475569; box-shadow:0 1px 5px rgba(0,0,0,.18); font-size:var(--fs-xs); cursor:pointer; }
-    .dark .dm-stat,.dark .dm-layout,.dark .dm-driver:hover,.dark .dm-driver.active,.dark .dm-search,.dark .dm-filter,.dark .dm-order,.dark .dm-btn { border-color:#293142; background:#171b25; }
-    .dark .dm-order { border-left-color:#ef4444; }
-    .dark .dm-sidebar { border-color:#293142; background:#121620; }
-    .dark .dm-tools,.dark .dm-tabs,.dark .dm-near { border-color:#293142; }
-    .dark .dm-stat strong,.dark .dm-driver__name,.dark .dm-search,.dark .dm-near__row strong,.dark .dm-btn { color:#f8fafc; }
-    .dark .dm-btn.primary { border-color:#0ea5e9; background:#0ea5e9; color:#fff; }
+    .dm-near__row strong { overflow:hidden; color:var(--dm-ink); text-overflow:ellipsis; white-space:nowrap; }
+    .dm-near__row span { color:var(--dm-muted); white-space:nowrap; }
+    .dm-near__note { color:var(--dm-faint); font-size:var(--fs-xs); }
+
+    /* Bản đồ và các lớp nổi */
+    #driver-map-wrapper { position:relative; width:100%; min-height:0; }
+    #driver-map { position:absolute; inset:0; width:100%; height:100%; }
+    #driver-map-counter { position:absolute; top:10px; left:10px; z-index:5; padding:6px 12px; border:1px solid rgba(255,255,255,.8); border-radius:999px; background:#fff; color:#374151; font-size:var(--fs-xs); font-weight:650; box-shadow:0 4px 14px rgba(15,23,42,.15); }
+    .dm-map-actions { position:absolute; top:10px; right:52px; z-index:5; display:flex; gap:6px; }
+    .dm-map-action { padding:6px 10px; border:1px solid rgba(255,255,255,.8); border-radius:8px; background:#fff; color:#475569; font-size:var(--fs-xs); font-weight:600; cursor:pointer; box-shadow:0 4px 14px rgba(15,23,42,.15); }
+    .dm-map-legend { position:absolute; z-index:5; bottom:24px; left:10px; display:flex; align-items:center; gap:10px; padding:6px 10px; border:1px solid rgba(255,255,255,.85); border-radius:9px; background:rgba(255,255,255,.94); box-shadow:0 4px 14px rgba(15,23,42,.14); color:var(--dm-muted); font-size:var(--fs-xs); pointer-events:none; }
+    .dm-map-legend span { display:inline-flex; align-items:center; gap:4px; }
+    .dm-map-legend i { width:8px; height:8px; border-radius:50%; }
+
+    /* Dark mode */
+    .dark .fs-driver-map { --dm-bg:#171b25; --dm-soft:#121620; --dm-line:#293142; --dm-ink:#f1f5f9; --dm-muted:#94a3b8; --dm-faint:#64748b; }
+    .dark .dm-live { border-color:#14532d; background:#11251b; color:#86efac; }
+    .dark .dm-stat.active,.dark .dm-tab.active { background:#431407; color:#fdba74; box-shadow:inset 0 0 0 1px #9a3412; }
     .dark .dm-order__addr { color:#cbd5e1; }
-    .dark .dm-tab.active,.dark .dm-filter.active { color:#fdba74; }
     .dark .dm-order__note { color:#5eead4; }
-    .dark #driver-map-counter,.dark .dm-map-action { background:#1f2937; color:#e5e7eb; }
+    .dark .dm-btn { color:#e2e8f0; }
+    .dark .dm-btn.primary { color:#fff; }
+    .dark #driver-map-counter,.dark .dm-map-action { border-color:#334155; background:#1f2937; color:#e5e7eb; }
+    .dark .dm-map-legend { border-color:#334155; background:rgba(23,27,37,.94); color:#cbd5e1; }
 
     /* Google Maps giới hạn chiều cao popup: cho cuộn để không cắt nội dung ở đáy. */
     .gm-style-iw-c:has(.dm-popup) { padding:0 !important; border-radius:16px !important; }
@@ -148,103 +163,201 @@
     .dark .dm-popup-stop__contact a { color:#93c5fd; }
     .dark .dm-popup-order__note { background:#382c15; color:#fde68a; }
     .dark .dm-popup-order__link { color:#fdba74; }
-    @media(max-width:1100px){.dm-stats{grid-template-columns:repeat(3,minmax(0,1fr))}}
-    @media(max-width:900px){.dm-stats{grid-template-columns:repeat(2,minmax(0,1fr))}.dm-layout{display:flex; min-height:auto; flex-direction:column}.dm-sidebar{max-height:340px; border-right:none; border-bottom:1px solid #e5e7eb}.dm-list{min-height:220px}#driver-map-wrapper{min-height:55vh}}
 
-    /* ── Bản đồ điều phối compact ─────────────────────────────────────── */
-    .fs-page-header:has(.dm-head-status) { display:flex; align-items:center; justify-content:space-between; gap:1rem; margin-bottom:.65rem; }
-    .fs-page-header:has(.dm-head-status) .fs-page-header__eyebrow { margin-bottom:.1rem; font-size:9px; }
-    .fs-page-header:has(.dm-head-status) .fs-page-header__title { font-size:var(--fs-xl); }
-    .fs-page-header:has(.dm-head-status) .fs-page-header__description { margin-top:.15rem; font-size:var(--fs-xs); }
-    .dm-head-status { display:grid; grid-template-columns:auto auto; align-items:center; gap:0 .45rem; padding:.5rem .7rem; border:1px solid #d1fae5; border-radius:.75rem; background:#f0fdf4; }
-    .dm-head-status > i { grid-row:1 / span 2; width:.5rem; height:.5rem; border-radius:50%; background:#22c55e; box-shadow:0 0 0 4px rgba(34,197,94,.13); }
-    .dm-head-status span { color:#166534; font-size:10.5px; font-weight:800; }
-    .dm-head-status small { color:#65a30d; font-size:9px; }
+    @media(max-width:1180px){ .dm-stat span { display:none; } .dm-stat { padding:5px 9px; } }
+    @media(max-width:900px){ .dm-layout { display:flex; flex-direction:column; height:auto; } .dm-sidebar { max-height:340px; border-right:0; border-bottom:1px solid var(--dm-line); } .dm-list { min-height:200px; } #driver-map-wrapper { min-height:55vh; } .dm-stat span { display:inline; } }
 
-    .dm-stats { gap:7px; margin-bottom:8px; }
-    .dm-stat { position:relative; min-height:58px; gap:9px; padding:9px 11px; overflow:hidden; border-radius:10px; box-shadow:0 1px 2px rgba(15,23,42,.025); }
-    .dm-stat::before { content:''; position:absolute; inset:0 auto 0 0; width:3px; background:#94a3b8; }
-    .dm-stat[data-stat="all"]::before { background:#22c55e; }
-    .dm-stat[data-stat="free"]::before { background:#16a34a; }
-    .dm-stat[data-stat="busy"]::before { background:#3b82f6; }
-    .dm-stat[data-stat="stale"]::before { background:#f59e0b; }
-    .dm-stat[data-stat="lost"]::before { background:#ef4444; }
-    .dm-stat[data-stat="orders"]::before { background:#f97316; }
-    .dm-stat i { width:8px; height:8px; box-shadow:0 0 0 4px color-mix(in srgb,currentColor 10%,transparent); }
-    .dm-stat strong { font-size:17px; font-weight:800; letter-spacing:-.035em; }
-    .dm-stat span { font-size:10px; white-space:nowrap; }
-    .dm-stat.active { border-color:#fdba74; background:#fffaf5; box-shadow:0 0 0 2px rgba(249,115,22,.1); }
+    /* ── Visual refresh: giữ nguyên layout, tăng độ rõ cho màn điều phối ────── */
+    .fs-driver-map {
+        --dm-accent:#f97316;
+        --dm-accent-deep:#c2410c;
+        --dm-shadow:0 18px 44px rgba(15,23,42,.09);
+    }
+    .fi-main:has(.fs-driver-map) {
+        background:
+            radial-gradient(circle at 96% 0,rgba(249,115,22,.075),transparent 23rem),
+            linear-gradient(180deg,#fbfcfe,#f8fafc 32rem);
+    }
+    .dm-bar {
+        gap:10px 18px;
+        margin-bottom:12px;
+        padding:9px 10px;
+        border:1px solid var(--dm-line);
+        border-radius:15px;
+        background:rgba(255,255,255,.86);
+        box-shadow:0 5px 18px rgba(15,23,42,.045);
+        backdrop-filter:blur(10px);
+    }
+    .dm-bar__title { padding-inline:2px; }
+    .dm-bar__title h1 { display:flex; align-items:center; gap:9px; font-size:18px; letter-spacing:-.035em; }
+    .dm-bar__title h1::before {
+        content:'';
+        width:26px;
+        height:26px;
+        flex:none;
+        background:linear-gradient(135deg,#fb923c,#ea580c);
+        box-shadow:0 6px 14px rgba(234,88,12,.22);
+        -webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 2a8 8 0 0 0-8 8c0 5 8 12 8 12s8-7 8-12a8 8 0 0 0-8-8Zm0 11a3 3 0 1 1 0-6 3 3 0 0 1 0 6Z'/%3E%3C/svg%3E") center/22px no-repeat;
+        mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 2a8 8 0 0 0-8 8c0 5 8 12 8 12s8-7 8-12a8 8 0 0 0-8-8Zm0 11a3 3 0 1 1 0-6 3 3 0 0 1 0 6Z'/%3E%3C/svg%3E") center/22px no-repeat;
+    }
+    .dm-live { min-height:27px; border-color:#bbf7d0; background:linear-gradient(135deg,#f0fdf4,#ecfdf5); box-shadow:inset 0 1px 0 #fff,0 3px 9px rgba(22,163,74,.07); }
+    .dm-live i { box-shadow:0 0 0 4px rgba(34,197,94,.13); }
 
-    .dm-layout { grid-template-columns:clamp(320px,28%,390px) minmax(0,1fr); height:calc(100vh - 225px); min-height:520px; border-radius:13px; box-shadow:0 8px 24px rgba(15,23,42,.055); }
-    .dm-sidebar { background:#f7f8fa; }
-    .dm-tabs { gap:4px; padding:6px; background:#fff; }
-    .dm-tab { padding:8px; border:0; border-radius:8px; font-size:11px; }
-    .dm-tab.active { background:#fff7ed; color:#c2410c; box-shadow:inset 0 0 0 1px #fed7aa; }
-    .dm-tab b { padding:1px 6px; font-size:9px; }
-    .dm-tools { gap:7px; padding:9px; }
-    .dm-search { height:36px; padding:7px 10px; border-radius:9px; font-size:11px; }
-    .dm-filters { flex-wrap:nowrap; gap:4px; overflow-x:auto; padding-bottom:1px; scrollbar-width:none; }
-    .dm-filters::-webkit-scrollbar { display:none; }
-    .dm-filter { padding:4px 7px; font-size:9.5px; white-space:nowrap; }
-    .dm-list { padding:7px; scrollbar-width:thin; scrollbar-color:#cbd5e1 transparent; }
-    .dm-driver { grid-template-columns:34px minmax(0,1fr); gap:8px; margin-bottom:3px; padding:7px; border-radius:9px; }
-    .dm-avatar { width:34px; height:34px; border-width:2px; }
-    .dm-avatar > span { font-size:11px; }
-    .dm-driver__name { font-size:11px; font-weight:700; }
-    .dm-driver__ago,.dm-driver__meta { font-size:9.5px; }
-    .dm-driver:hover,.dm-driver.active { box-shadow:0 2px 8px rgba(15,23,42,.05); }
+    .dm-stats { gap:5px; padding:4px; border-color:#dfe5ec; background:#f8fafc; box-shadow:inset 0 1px 2px rgba(15,23,42,.025); }
+    .dm-stat { --stat-color:#94a3b8; min-height:38px; padding:6px 10px; overflow:hidden; border:1px solid transparent; background:transparent; }
+    .dm-stat[data-stat="all"] { --stat-color:#22c55e; }
+    .dm-stat[data-stat="free"] { --stat-color:#16a34a; }
+    .dm-stat[data-stat="busy"] { --stat-color:#3b82f6; }
+    .dm-stat[data-stat="stale"] { --stat-color:#f59e0b; }
+    .dm-stat[data-stat="lost"] { --stat-color:#ef4444; }
+    .dm-stat[data-stat="orders"] { --stat-color:#f97316; }
+    .dm-stat i { box-shadow:0 0 0 4px color-mix(in srgb,var(--stat-color) 13%,transparent); }
+    .dm-stat strong { font-size:14px; letter-spacing:-.025em; }
+    .dm-stat:hover { border-color:#e2e8f0; background:#fff; }
+    .dm-stat.active { border-color:color-mix(in srgb,var(--stat-color) 28%,#e2e8f0); background:#fff; color:var(--dm-ink); box-shadow:0 3px 9px rgba(15,23,42,.06); }
+    .dm-stat.active strong { color:var(--stat-color); }
+    .dm-stat[data-stat="orders"]::before { background:#cbd5e1; }
 
-    .dm-order { gap:5px; margin-bottom:6px; padding:9px; border-radius:9px; }
-    .dm-order__top b { font-size:11.5px; }
-    .dm-order__top em,.dm-order__addr,.dm-order__note,.dm-btn,.dm-near__title,.dm-near__row,.dm-near__note { font-size:9.5px; }
-    .dm-order__addr { padding:5px 7px; border-radius:6px; background:#f8fafc; line-height:1.5; }
-    .dm-btn { padding:4px 8px; border-radius:7px; }
-    .dm-btn.primary { border-color:#f97316; background:#f97316; }
+    .dm-layout { border-color:#dce3ea; border-radius:17px; box-shadow:var(--dm-shadow); }
+    .dm-sidebar { border-color:#dce3ea; background:linear-gradient(180deg,#f8fafc,#f4f7fa); }
+    .dm-tabs { position:relative; z-index:2; gap:5px; padding:7px; background:rgba(255,255,255,.94); box-shadow:0 3px 10px rgba(15,23,42,.035); }
+    .dm-tab { min-height:36px; transition:background .18s ease,color .18s ease,box-shadow .18s ease; }
+    .dm-tab:hover { background:#f8fafc; color:var(--dm-ink); }
+    .dm-tab.active { background:linear-gradient(135deg,#fff7ed,#ffedd5); box-shadow:inset 0 0 0 1px #fed7aa,0 2px 6px rgba(194,65,12,.07); }
+    .dm-tab b { min-width:21px; text-align:center; }
+    .dm-tools { padding:9px; background:rgba(248,250,252,.88); }
+    .dm-search {
+        height:38px;
+        padding:8px 12px 8px 36px;
+        border-color:#dce3ea;
+        border-radius:10px;
+        background-color:#fff;
+        background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='m20 20-4-4'/%3E%3C/svg%3E");
+        background-position:12px center;
+        background-repeat:no-repeat;
+        background-size:15px;
+        box-shadow:0 2px 7px rgba(15,23,42,.035);
+        transition:border-color .18s ease,box-shadow .18s ease;
+    }
+    .dm-search:focus { background-color:#fff; box-shadow:0 0 0 3px rgba(249,115,22,.1),0 4px 10px rgba(15,23,42,.05); }
+    .dm-list { padding:8px; }
+    .dm-empty { margin:8px; border:1px dashed #cbd5e1; border-radius:12px; background:rgba(255,255,255,.6); }
 
-    #driver-map-wrapper { min-height:0; }
-    #driver-map-counter { top:10px; left:10px; padding:6px 11px; border:1px solid rgba(255,255,255,.8); font-size:10px; box-shadow:0 4px 14px rgba(15,23,42,.15); }
-    .dm-map-actions { top:10px; right:52px; }
-    .dm-map-action { padding:6px 9px; border:1px solid rgba(255,255,255,.8); border-radius:8px; font-size:10px; box-shadow:0 4px 14px rgba(15,23,42,.15); }
-    .dm-map-legend { position:absolute; z-index:5; bottom:18px; left:12px; display:flex; align-items:center; gap:9px; padding:6px 9px; border:1px solid rgba(255,255,255,.85); border-radius:9px; background:rgba(255,255,255,.94); box-shadow:0 4px 14px rgba(15,23,42,.14); color:#64748b; font-size:9.5px; pointer-events:none; }
-    .dm-map-legend span { display:inline-flex; align-items:center; gap:4px; }
-    .dm-map-legend i { width:7px; height:7px; border-radius:50%; }
+    .dm-driver {
+        position:relative;
+        grid-template-columns:38px minmax(0,1fr);
+        gap:10px;
+        margin-bottom:5px;
+        padding:9px 10px;
+        overflow:hidden;
+        border-color:rgba(226,232,240,.8);
+        background:rgba(255,255,255,.78);
+        box-shadow:0 2px 7px rgba(15,23,42,.025);
+        cursor:pointer;
+        transition:transform .18s ease,background .18s ease,border-color .18s ease,box-shadow .18s ease;
+    }
+    .dm-driver::before { content:''; position:absolute; inset:0 auto 0 0; width:3px; background:var(--dm-color); opacity:.82; }
+    .dm-driver:hover,.dm-driver.active { border-color:color-mix(in srgb,var(--dm-color) 32%,#e2e8f0); background:#fff; box-shadow:0 7px 18px rgba(15,23,42,.075); transform:translateY(-1px); }
+    .dm-driver.active { box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--dm-color) 25%,transparent),0 7px 18px rgba(15,23,42,.075); }
+    .dm-avatar { width:38px; height:38px; border-width:2px; border-radius:11px; background:color-mix(in srgb,var(--dm-color) 9%,#f1f5f9); box-shadow:0 3px 8px rgba(15,23,42,.08); }
+    .dm-driver__name { font-size:12px; font-weight:720; }
+    .dm-driver__ago { padding:2px 6px; border-radius:999px; background:#f1f5f9; font-size:9px; }
+    .dm-driver__meta { margin-top:4px; font-size:10px; }
+    .dm-status { display:inline-flex; align-items:center; gap:5px; }
+    .dm-status::before { content:''; width:6px; height:6px; flex:none; border-radius:50%; background:currentColor; box-shadow:0 0 0 3px color-mix(in srgb,currentColor 12%,transparent); }
 
-    .dark .dm-head-status { border-color:#14532d; background:#11251b; }.dark .dm-head-status span { color:#86efac; }.dark .dm-head-status small { color:#65a30d; }
-    .dark .dm-tabs { background:#171b25; }.dark .dm-tab.active { background:#431407; box-shadow:inset 0 0 0 1px #9a3412; }
-    .dark .dm-order__addr { background:#111620; }.dark .dm-map-legend { border-color:#334155; background:rgba(23,27,37,.94); color:#cbd5e1; }
+    .dm-order { margin-bottom:8px; padding:11px; border-left-width:4px; border-radius:12px; box-shadow:0 3px 10px rgba(15,23,42,.04); transition:transform .18s ease,border-color .18s ease,box-shadow .18s ease; }
+    .dm-order:hover,.dm-order.active { box-shadow:0 8px 20px rgba(15,23,42,.08); transform:translateY(-1px); }
+    .dm-order__top b { font-size:12px; }
+    .dm-order__addr { border:1px solid #edf0f4; background:#f8fafc; line-height:1.55; }
+    .dm-order__acts { align-items:center; }
+    .dm-btn { min-height:29px; border-radius:8px; transition:transform .15s ease,box-shadow .15s ease; }
+    .dm-btn:hover { transform:translateY(-1px); box-shadow:0 4px 9px rgba(15,23,42,.08); }
+    .dm-btn.primary { border-color:#ea580c; background:linear-gradient(135deg,#fb923c,#ea580c); box-shadow:0 4px 9px rgba(234,88,12,.16); }
 
-    @media(max-width:1100px){.dm-layout{grid-template-columns:320px minmax(0,1fr)}.dm-stat span{white-space:normal}}
-    @media(max-width:900px){.fs-page-header:has(.dm-head-status){align-items:flex-start}.dm-head-status{display:none}.dm-layout{height:auto;min-height:0}.dm-sidebar{max-height:380px}.dm-stats{grid-template-columns:repeat(3,minmax(0,1fr))}#driver-map-wrapper{min-height:58vh}}
-    @media(max-width:600px){.dm-stats{grid-template-columns:repeat(2,minmax(0,1fr))}}
+    #driver-map-wrapper { background:#e8edf3; }
+    #driver-map-counter,.dm-map-action,.dm-map-legend { backdrop-filter:blur(10px); }
+    #driver-map-counter { top:12px; left:12px; min-height:32px; border-color:rgba(255,255,255,.9); background:rgba(255,255,255,.9); box-shadow:0 8px 24px rgba(15,23,42,.14); }
+    .dm-map-actions { top:12px; right:54px; }
+    .dm-map-action { min-height:32px; border-color:rgba(255,255,255,.9); border-radius:10px; background:rgba(255,255,255,.9); box-shadow:0 8px 24px rgba(15,23,42,.14); transition:transform .15s ease,box-shadow .15s ease; }
+    .dm-map-action:hover { transform:translateY(-1px); box-shadow:0 10px 28px rgba(15,23,42,.18); }
+    .dm-map-legend { bottom:18px; left:12px; gap:12px; padding:7px 11px; border-radius:11px; background:rgba(255,255,255,.9); box-shadow:0 8px 24px rgba(15,23,42,.13); }
+    .dm-map-legend i { box-shadow:0 0 0 3px rgba(255,255,255,.8); }
+
+    .gm-style-iw-c:has(.dm-popup) { box-shadow:0 18px 48px rgba(15,23,42,.22) !important; }
+    .dm-popup__head { background:linear-gradient(135deg,#fffaf5,#fff 58%); }
+    .dm-popup__avatar { border-radius:12px; box-shadow:0 5px 14px color-mix(in srgb,var(--dm-color) 18%,transparent); }
+    .dm-popup__action { transition:background .15s ease,border-color .15s ease; }
+    .dm-popup__action:hover { border-color:#fed7aa; background:#fff7ed; }
+    .dm-popup-order { box-shadow:0 3px 10px rgba(15,23,42,.035); }
+
+    .dark .fi-main:has(.fs-driver-map) { background:radial-gradient(circle at 96% 0,rgba(249,115,22,.08),transparent 23rem),#111827; }
+    .dark .dm-bar { border-color:var(--dm-line); background:rgba(23,27,37,.9); }
+    .dark .dm-stats,.dark .dm-tools { border-color:var(--dm-line); background:#121620; }
+    .dark .dm-stat:hover,.dark .dm-stat.active { border-color:#3b4658; background:#202735; }
+    .dark .dm-tabs { background:rgba(23,27,37,.96); }
+    .dark .dm-tab:hover { background:#202735; }
+    .dark .dm-search { border-color:var(--dm-line); background-color:#171b25; color:#f1f5f9; }
+    .dark .dm-empty { border-color:#334155; background:rgba(23,27,37,.6); }
+    .dark .dm-driver { border-color:#293142; background:rgba(23,27,37,.78); }
+    .dark .dm-driver:hover,.dark .dm-driver.active { background:#202735; }
+    .dark .dm-driver__ago { background:#111620; }
+    .dark .dm-order__addr { border-color:#293142; background:#111620; }
+    .dark .dm-popup__head { background:linear-gradient(135deg,#2a211d,#171b25 60%); }
+
+    @media(max-width:1180px) {
+        .dm-bar { align-items:flex-start; }
+        .dm-bar__title { width:100%; }
+        .dm-stats { width:100%; }
+        .dm-stat { flex:1; justify-content:center; }
+    }
+    @media(max-width:900px) {
+        .fi-main:has(.fs-driver-map) { background:#f8fafc; }
+        .dm-bar { padding:9px; }
+        .dm-stats { flex-wrap:nowrap; justify-content:flex-start; overflow-x:auto; scrollbar-width:none; }
+        .dm-stats::-webkit-scrollbar { display:none; }
+        .dm-stat { flex:none; }
+        .dm-stat span { display:inline; }
+        .dm-layout { border-radius:15px; }
+        .dm-sidebar { max-height:360px; }
+        .dm-map-legend { max-width:calc(100% - 24px); overflow-x:auto; }
+        .dark .fi-main:has(.fs-driver-map) { background:#111827; }
+    }
+    @media(max-width:560px) {
+        .dm-bar__title { align-items:flex-start; flex-wrap:wrap; }
+        .dm-bar__title h1 { width:100%; }
+        .dm-live { margin-left:35px; }
+        .dm-map-legend { gap:9px; font-size:9px; }
+    }
 </style>
 
-{{-- Làm mới trạng thái đang đi đơn / đơn chờ mỗi 15s — vị trí GPS đã realtime qua Firebase riêng. --}}
-<div wire:poll.15s.visible="loadDriversMeta" style="display:none"></div>
+{{-- Làm mới trạng thái đang đi đơn / đơn chờ mỗi 15s — vị trí GPS đã realtime qua Firebase riêng.
+     Không dùng .visible: phần tử display:none luôn bị coi là ngoài màn hình nên poll không bao giờ chạy. --}}
+<div wire:poll.15s="loadDriversMeta" style="display:none"></div>
 
 <div wire:ignore>
-    <div class="dm-stats">
-        <button type="button" class="dm-stat" data-stat="all"><i style="background:#22c55e"></i><div><strong id="dm-stat-online">0</strong><span>Đang online</span></div></button>
-        <button type="button" class="dm-stat" data-stat="free"><i style="background:#16a34a"></i><div><strong id="dm-stat-free">0</strong><span>Đang rảnh</span></div></button>
-        <button type="button" class="dm-stat" data-stat="busy"><i style="background:#3b82f6"></i><div><strong id="dm-stat-busy">0</strong><span>Đang giao đơn</span></div></button>
-        <button type="button" class="dm-stat" data-stat="stale" title="Có GPS nhưng quá 3 phút chưa cập nhật"><i style="background:#f59e0b"></i><div><strong id="dm-stat-stale">0</strong><span>GPS chậm</span></div></button>
-        <button type="button" class="dm-stat" data-stat="lost" title="Bật online trong hệ thống nhưng không có vị trí trên Firebase"><i style="background:#ef4444"></i><div><strong id="dm-stat-lost">0</strong><span>Mất kết nối</span></div></button>
-        <button type="button" class="dm-stat" data-stat="orders"><i style="background:#f97316"></i><div><strong id="dm-stat-orders">{{ count($ordersMeta) }}</strong><span>Đơn đang chờ</span></div></button>
+    <div class="dm-bar">
+        <div class="dm-bar__title">
+            <h1>Bản đồ tài xế</h1>
+            <span class="dm-live" title="Vị trí GPS cập nhật trực tiếp; trạng thái đơn tự làm mới mỗi 15 giây"><i></i>GPS trực tiếp</span>
+        </div>
+        <div class="dm-stats" role="group" aria-label="Lọc tài xế theo trạng thái">
+            <button type="button" class="dm-stat" data-stat="all"><i style="background:#22c55e"></i><div><strong id="dm-stat-online">0</strong><span>Online</span></div></button>
+            <button type="button" class="dm-stat" data-stat="free"><i style="background:#16a34a"></i><div><strong id="dm-stat-free">0</strong><span>Đang rảnh</span></div></button>
+            <button type="button" class="dm-stat" data-stat="busy"><i style="background:#3b82f6"></i><div><strong id="dm-stat-busy">0</strong><span>Đang giao</span></div></button>
+            <button type="button" class="dm-stat" data-stat="stale" title="Có GPS nhưng quá 3 phút chưa cập nhật"><i style="background:#f59e0b"></i><div><strong id="dm-stat-stale">0</strong><span>GPS chậm</span></div></button>
+            <button type="button" class="dm-stat" data-stat="lost" title="Bật online trong hệ thống nhưng không có vị trí trên Firebase"><i style="background:#ef4444"></i><div><strong id="dm-stat-lost">0</strong><span>Mất kết nối</span></div></button>
+            <button type="button" class="dm-stat" data-stat="orders"><i style="background:#f97316"></i><div><strong id="dm-stat-orders">{{ $pendingTotal }}</strong><span>Đơn chờ</span></div></button>
+        </div>
     </div>
     <div class="dm-layout">
         <aside class="dm-sidebar">
             <div class="dm-tabs">
                 <button type="button" class="dm-tab active" data-tab="drivers">Tài xế</button>
-                <button type="button" class="dm-tab" data-tab="orders">Đơn chờ <b id="dm-tab-orders">{{ count($ordersMeta) }}</b></button>
+                <button type="button" class="dm-tab" data-tab="orders">Đơn chờ <b id="dm-tab-orders">{{ $pendingTotal }}</b></button>
             </div>
             <div id="dm-tools" class="dm-tools">
                 <input id="dm-search" class="dm-search" type="search" placeholder="Tìm tên hoặc số điện thoại...">
-                <div class="dm-filters">
-                    <button class="dm-filter active" data-filter="all">Tất cả</button>
-                    <button class="dm-filter" data-filter="free">Đang rảnh</button>
-                    <button class="dm-filter" data-filter="busy">Đang giao</button>
-                    <button class="dm-filter" data-filter="stale">GPS chậm</button>
-                    <button class="dm-filter" data-filter="lost">Mất kết nối</button>
-                </div>
             </div>
             <div id="dm-driver-list" class="dm-list"><div class="dm-empty">Đang tải vị trí tài xế...</div></div>
             <div id="dm-order-list" class="dm-list" style="display:none"></div>
@@ -265,6 +378,7 @@
         firebase:    {!! json_encode($this->getFirebaseConfig()) !!},
         driversMeta: {!! json_encode($driversMeta) !!},
         ordersMeta:  {!! json_encode($ordersMeta) !!},
+        ordersTotal: {{ (int) $pendingTotal }},
         wireId:      {!! json_encode($this->getId()) !!},
         center:      { lat: {{ $cities[0]['lat'] ?? 10.0125 }}, lng: {{ $cities[0]['lng'] ?? 105.0809 }} },
     };
@@ -272,6 +386,8 @@
     var COLORS = { free: '#22c55e', busy: '#3b82f6', stale: '#f59e0b', lost: '#ef4444' };
     var LABELS = { free: 'Đang rảnh', busy: 'Đang giao đơn', stale: 'GPS chậm', lost: 'Mất kết nối' };
     var STALE_MS = 180000;
+    // GPS im quá lâu thì vị trí không còn dùng được: coi như mất kết nối (nếu hệ thống vẫn online) thay vì "GPS chậm" mãi mãi.
+    var LOST_MS = 900000;
     var DARK_STYLE = [
         { elementType: 'geometry', stylers: [{ color: '#1d2433' }] },
         { elementType: 'labels.text.fill', stylers: [{ color: '#94a3b8' }] },
@@ -295,6 +411,7 @@
         var rtdbGps = {};
         var dbMeta = cfg.driversMeta || {};
         var ordersMeta = cfg.ordersMeta || [];
+        var ordersTotal = cfg.ordersTotal || ordersMeta.length; // tổng thật; ordersMeta chỉ gồm các đơn chờ lâu nhất
         var activeFilter = 'all', searchTerm = '', tab = 'drivers', selectedOrder = null, selectedDriver = null, fitted = false;
 
         var $ = function (id) { return document.getElementById(id); };
@@ -368,11 +485,21 @@
         window.addEventListener('keydown', onPreviewKeydown, true);
         window.addEventListener('scroll', onPreviewScroll, true);
         window.addEventListener('resize', hideOrderPreview);
-        function escapeHtml(v) { var d = document.createElement('div'); d.textContent = v == null ? '' : String(v); return d.innerHTML; }
+        // Escape cả nháy: kết quả còn được chèn vào thuộc tính (title, href, src) — thiếu nháy là ghi chú đơn chạy được script.
+        function escapeHtml(v) {
+            return (v == null ? '' : String(v)).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+        }
         function initial(meta, id) { var n = (meta && meta.name || '').trim(); return n ? n.charAt(0).toUpperCase() : '#'; }
         function isDark() { return document.documentElement.classList.contains('dark'); }
 
         // updated_at của Firebase là mili-giây
+        // 45 phút · 1g04 · 12 ngày — như trang Đơn hàng
+        function waitLabel(min) {
+            min = Math.max(0, Math.floor(Number(min) || 0));
+            if (min >= 1440) return Math.floor(min / 1440) + ' ngày';
+            if (min >= 60) return Math.floor(min / 60) + 'g' + String(min % 60).padStart(2, '0');
+            return min + ' phút';
+        }
         function formatAgo(ms) {
             if (!ms) return 'Chưa rõ';
             var m = Math.max(0, Math.round((Date.now() - ms) / 60000));
@@ -390,8 +517,12 @@
         /** free | busy | stale (có GPS) · lost (bật online nhưng không có GPS) · null (offline). */
         function classify(id) {
             var meta = dbMeta[id] || {}, gps = rtdbGps[id];
+            // Hệ thống (MySQL) đã tắt online thì không tính, dù cờ trên Firebase còn sót.
+            if (meta.is_online === false) return null;
             if (gps && gps.is_online === true) {
-                if (!gps.updated_at || (Date.now() - gps.updated_at) > STALE_MS) return 'stale';
+                var age = gps.updated_at ? Date.now() - gps.updated_at : Infinity;
+                if (age > LOST_MS) return meta.is_online === true ? 'lost' : null;
+                if (age > STALE_MS) return 'stale';
                 return meta.busy === true ? 'busy' : 'free';
             }
             return meta.is_online === true ? 'lost' : null;
@@ -408,10 +539,12 @@
         themeObserver = new MutationObserver(function () { map.setOptions({ styles: isDark() ? DARK_STYLE : LIGHT_STYLE }); });
         themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
 
+        // Cả khung (cột trái + bản đồ) cao đúng phần màn hình còn lại: danh sách dài cuộn trong cột, không kéo dài trang.
         function fitMapHeight() {
-            var w = $('driver-map-wrapper'); if (!w) return;
+            var w = document.querySelector('.dm-layout'); if (!w) return;
+            if (window.innerWidth <= 900) { w.style.removeProperty('height'); return; }
             var top = w.getBoundingClientRect().top + window.scrollY;
-            w.style.height = Math.max(400, window.innerHeight - top - 24) + 'px';
+            w.style.height = Math.max(420, window.innerHeight - top - 16) + 'px';
         }
         fitMapHeight();
         window.addEventListener('resize', fitMapHeight);
@@ -492,7 +625,7 @@
                         'onmouseenter="if(window.matchMedia(\'(hover: hover)\').matches)_dmPreviewOrder(' + args + ',false)" onmouseleave="_dmHideOrderPreview()" ' +
                         'onfocus="if(this.matches(\':focus-visible\'))_dmPreviewOrder(' + args + ',false)" onblur="_dmHideOrderPreview()" onclick="_dmPreviewOrder(' + args + ',true)">' +
                         '<b>#' + escapeHtml(order.code) + '</b><span class="dm-popup-order__status' + (order.status === 'processing' ? ' picked' : '') + '">' + escapeHtml(order.status_label) + '</span></button>';
-                }).join('') + '</div>' : '<div class="dm-popup__empty">Tài xế chưa có đơn đang nhận.</div>') +
+                }).join('') + '</div>' : '<div class="dm-popup__empty">' + (meta.orders_elsewhere ? 'Đang giao ' + Number(meta.orders_elsewhere) + ' đơn ở khu vực khác.' : 'Tài xế chưa có đơn đang nhận.') + '</div>') +
                 '<div class="dm-popup__foot"><span>GPS · ' + escapeHtml(formatAgo(gps && gps.updated_at)) + '</span>' +
                 (meta.url ? '<a href="' + escapeHtml(meta.url) + '">Hồ sơ tài xế →</a>' : '') + '</div></div>';
         }
@@ -525,10 +658,18 @@
             if (selectedOrder) renderOrderList();
         }
 
+        // Mỗi lần một tài xế (ở bất kỳ khu vực nào) gửi GPS, Firebase đẩy cả node: gom về tối đa 1 lần vẽ/giây,
+        // để danh sách không bị dựng lại liên tục dưới con trỏ.
+        var renderTimer = null;
+        function scheduleRender() {
+            if (renderTimer) return;
+            renderTimer = setTimeout(function () { renderTimer = null; renderMarkers(); }, 1000);
+        }
+
         // ── Đơn chờ ──────────────────────────────────────────────────────────
         function orderInfo(o) {
             return '<div style="font-family:inherit;min-width:200px"><b>#' + escapeHtml(o.code) + '</b><br><span style="font-size:12px">' + escapeHtml(o.address || '—') + '</span><br>' +
-                '<span style="font-size:12px;color:#dc2626">Chờ ' + o.minutes + ' phút' + ' · chưa ai nhận' + '</span><br>' +
+                '<span style="font-size:12px;color:#dc2626">Chờ ' + waitLabel(o.minutes) + ' · chưa ai nhận' + '</span><br>' +
                 '<button type="button" onclick="_dmSelectOrder(' + o.id + ',true)" style="margin-top:6px;padding:4px 10px;border-radius:8px;background:#0ea5e9;color:#fff;font-size:12px;border:0;cursor:pointer">Xem tài xế gần nhất</button></div>';
         }
         function renderOrderMarkers() {
@@ -565,7 +706,9 @@
         function renderOrderList() {
             var list = $('dm-order-list'); if (!list) return;
             if (!ordersMeta.length) { list.innerHTML = '<div class="dm-empty">Không có đơn nào đang chờ tài xế.</div>'; return; }
-            list.innerHTML = ordersMeta.map(function (o) {
+            var more = ordersTotal > ordersMeta.length
+                ? '<div class="dm-near__note" style="padding:6px 10px">Đang hiện ' + ordersMeta.length + ' đơn chờ lâu nhất trên tổng ' + ordersTotal + ' đơn — xem đủ ở trang Đơn hàng.</div>' : '';
+            list.innerHTML = more + ordersMeta.map(function (o) {
                 var active = selectedOrder === o.id, near = '';
                 if (active) {
                     var n = nearestDrivers(o);
@@ -577,7 +720,7 @@
                         '<div class="dm-near__note">Khoảng cách là đường chim bay, chỉ để ước lượng.</div></div>';
                 }
                 return '<div class="dm-order' + (active ? ' active' : '') + '" data-order-id="' + o.id + '" role="button" tabindex="0">' +
-                    '<div class="dm-order__top"><b>#' + escapeHtml(o.code) + '</b>' + '<em>Chờ ' + o.minutes + ' phút</em></div>' +
+                    '<div class="dm-order__top"><b>#' + escapeHtml(o.code) + '</b>' + '<em>Chờ ' + waitLabel(o.minutes) + '</em></div>' +
                     '<div class="dm-order__addr">↑ ' + escapeHtml(o.address || '—') + '<br>↓ ' + escapeHtml(o.delivery || '—') + '</div>' +
                     (o.note ? '<div class="dm-order__note" title="' + escapeHtml(o.note) + '">Ghi chú: ' + escapeHtml(o.note) + '</div>' : '') +
                     '<div class="dm-order__acts"><button type="button" class="dm-btn primary" onclick="event.stopPropagation();_dmAssign(' + o.id + ')">Gán tài xế</button><a class="dm-btn" href="' + escapeHtml(o.url) + '" onclick="event.stopPropagation()">Mở đơn</a><span class="dm-near__note" style="align-self:center">' + Number(o.fee).toLocaleString('vi-VN') + 'đ</span></div>' +
@@ -597,15 +740,17 @@
             if (pan) { map.panTo({ lat: o.lat, lng: o.lng }); if (map.getZoom() < 14) map.setZoom(14); }
             setTab('orders');
             renderOrderList();
-            if (eligible[id] === undefined && window.Livewire && cfg.wireId) {
-                // Lọc gợi ý theo đúng điều kiện của hộp thoại gán; lỗi mạng thì giữ nguyên gợi ý theo vị trí
-                Promise.resolve(window.Livewire.find(cfg.wireId).call('eligibleDriverIds', id)).then(function (ids) {
-                    eligible[id] = Array.isArray(ids) ? ids.map(Number) : null;
-                    if (selectedOrder === id) renderOrderList();
-                }).catch(function () { eligible[id] = null; if (selectedOrder === id) renderOrderList(); });
-            }
+            if (eligible[id] === undefined) fetchEligible(id);
             var el = document.querySelector('.dm-order[data-order-id="' + id + '"]');
             if (el && el.scrollIntoView) el.scrollIntoView({ block: 'nearest' });
+        }
+        // Lọc gợi ý theo đúng điều kiện của hộp thoại gán; lỗi mạng thì giữ nguyên gợi ý theo vị trí
+        function fetchEligible(id) {
+            if (!(window.Livewire && cfg.wireId)) return;
+            Promise.resolve(window.Livewire.find(cfg.wireId).call('eligibleDriverIds', id)).then(function (ids) {
+                eligible[id] = Array.isArray(ids) ? ids.map(Number) : null;
+                if (selectedOrder === id) renderOrderList();
+            }).catch(function () { eligible[id] = null; if (selectedOrder === id) renderOrderList(); });
         }
         function clearSelection() { selectedOrder = null; if (circle) { circle.setMap(null); circle = null; } }
 
@@ -627,7 +772,7 @@
                 rows.push({ id: id, meta: dbMeta[id] || {}, gps: rtdbGps[id], state: state });
             });
             var online = counts.free + counts.busy + counts.stale;
-            var set = { 'dm-stat-online': online, 'dm-stat-free': counts.free, 'dm-stat-busy': counts.busy, 'dm-stat-stale': counts.stale, 'dm-stat-lost': counts.lost, 'dm-stat-orders': ordersMeta.length, 'dm-tab-orders': ordersMeta.length };
+            var set = { 'dm-stat-online': online, 'dm-stat-free': counts.free, 'dm-stat-busy': counts.busy, 'dm-stat-stale': counts.stale, 'dm-stat-lost': counts.lost, 'dm-stat-orders': ordersTotal, 'dm-tab-orders': ordersTotal };
             Object.keys(set).forEach(function (k) { var el = $(k); if (el) el.textContent = set[k]; });
             var counter = $('driver-map-counter');
             if (counter) counter.textContent = online + ' đang online' + (counts.lost ? ' · ' + counts.lost + ' mất kết nối' : '');
@@ -648,7 +793,7 @@
                 var color = COLORS[r.state];
                 var ago = r.gps && r.gps.updated_at ? formatAgo(r.gps.updated_at) : (r.state === 'lost' ? 'Chưa có vị trí' : '');
                 var order = r.meta.active_order_code ? ' · #' + escapeHtml(r.meta.active_order_code) : '';
-                return '<button type="button" class="dm-driver" data-driver-id="' + r.id + '" style="--dm-color:' + color + '">' +
+                return '<button type="button" class="dm-driver' + (r.id === selectedDriver ? ' active' : '') + '" data-driver-id="' + r.id + '" style="--dm-color:' + color + '">' +
                     '<span class="dm-avatar"><span>' + escapeHtml(initial(r.meta, r.id)) + '</span>' + (r.meta.avatar ? '<img src="' + escapeHtml(r.meta.avatar) + '" alt="" onerror="this.remove()">' : '') + '</span>' +
                     '<span><span class="dm-driver__top"><span class="dm-driver__name">' + escapeHtml(r.meta.name || ('#' + r.id)) + '</span><span class="dm-driver__ago">' + escapeHtml(ago) + '</span></span>' +
                     '<span class="dm-driver__meta"><span class="dm-status">' + LABELS[r.state] + order + '</span><span>' + escapeHtml(r.meta.phone || '—') + '</span></span></span></button>';
@@ -696,6 +841,9 @@
 
         // ── Dữ liệu ──────────────────────────────────────────────────────────
         function onMeta(e) {
+            // Trạng thái tài xế vừa làm mới (online, đủ đơn, nghỉ phép...): bỏ danh sách đủ điều kiện cũ, hỏi lại cho đơn đang chọn.
+            eligible = {};
+            if (selectedOrder) fetchEligible(selectedOrder);
             dbMeta = e.detail.meta || {}; renderMarkers();
             if (selectedDriver !== null) {
                 if (dbMeta[selectedDriver]) {
@@ -723,6 +871,7 @@
         }
         function onOrders(e) {
             ordersMeta = e.detail.orders || [];
+            ordersTotal = e.detail.total != null ? e.detail.total : ordersMeta.length;
             if (selectedOrder && !ordersMeta.some(function (o) { return o.id === selectedOrder; })) clearSelection();
             renderOrderMarkers(); renderDriverList(); if (tab === 'orders') renderOrderList();
         }
@@ -737,7 +886,7 @@
                 var id = parseInt(key.replace('driver_', ''), 10), v = raw[key];
                 if (!isNaN(id) && v && v.lat && v.lng) next[id] = { lat: v.lat, lng: v.lng, updated_at: v.updated_at, is_online: v.is_online };
             });
-            rtdbGps = next; renderMarkers();
+            rtdbGps = next; scheduleRender();
         };
         locRef.on('value', locHandler, function (err) { console.error('[DriverMap] Firebase read failed:', err); });
 
@@ -754,6 +903,7 @@
             window.removeEventListener('ordersUpdated', onOrders);
             window.removeEventListener('resize', fitMapHeight);
             if (themeObserver) themeObserver.disconnect();
+            if (renderTimer) clearTimeout(renderTimer);
             window._dmTeardown = null;
         };
     }

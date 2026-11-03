@@ -10,14 +10,15 @@ use Filament\Facades\Filament;
 use Filament\Pages\Page;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use Livewire\Attributes\Locked;
 use Modules\Order\Models\Order;
 
 class DriverMapPage extends Page
 {
     // Cho cả call_center xem — cần để hỗ trợ điều phối/CSKH theo dõi tài xế
-    // trực tiếp. An toàn vì đã tự lọc đúng khu vực mình qua $fixedCityId
-    // (tenant Filament theo city_id, xem User::getTenants()) + allIds phía
-    // client chỉ lấy từ dbMeta đã lọc khu vực, không đọc thẳng toàn bộ RTDB.
+    // trực tiếp. Dữ liệu MySQL lọc theo khu vực tenant lấy ở server (cityId()),
+    // không theo giá trị trình duyệt gửi lên. Lưu ý: vị trí GPS vẫn đọc thẳng
+    // node "locations" của Firebase (mọi khu vực) — phía client chỉ vẽ id có trong dbMeta.
     public static function canAccess(): bool
     {
         return AdminAccess::allows(auth()->user(), AdminAccess::OPERATIONS_VIEW);
@@ -46,17 +47,33 @@ class DriverMapPage extends Page
 
     public array $driversMeta = [];
 
-    /** Đơn đang chờ tài xế có toạ độ điểm lấy, để hiện lên bản đồ. */
+    /** Đơn đang chờ tài xế có toạ độ điểm lấy, để hiện lên bản đồ (tối đa PENDING_LIMIT đơn chờ lâu nhất). */
     public array $ordersMeta = [];
 
-    public ?int $fixedCityId = null; // khu vực (tenant) đang đứng
+    /** Tổng số đơn đang chờ có toạ độ — có thể lớn hơn số đơn trong $ordersMeta. */
+    public int $pendingTotal = 0;
+
+    private const PENDING_LIMIT = 50;
+
+    /** Khu vực (tenant) đang đứng — chỉ để hiển thị; mọi truy vấn dùng cityId() lấy từ server. */
+    #[Locked]
+    public ?int $fixedCityId = null;
+
+    /**
+     * Khu vực của request hiện tại, luôn lấy từ tenant Filament ở server. Không có tenant thì trả 0 để
+     * mọi truy vấn ra rỗng — không bao giờ "không lọc" (lộ tài xế, SĐT, đơn của mọi khu vực).
+     */
+    private function cityId(): int
+    {
+        return (int) (Filament::getTenant()?->getKey() ?? 0);
+    }
 
     public function mount(): void
     {
-        $this->fixedCityId = Filament::getTenant()?->id;
+        $this->fixedCityId = $this->cityId() ?: null;
 
         $this->cities = DB::table('cities')
-            ->when($this->fixedCityId, fn ($q) => $q->where('id', $this->fixedCityId))
+            ->where('id', $this->cityId())
             ->orderBy('name')
             ->get(['id', 'name', 'lat', 'lng'])
             ->map(fn ($c) => ['id' => $c->id, 'name' => $c->name, 'lat' => (float) $c->lat, 'lng' => (float) $c->lng])
@@ -67,30 +84,35 @@ class DriverMapPage extends Page
 
     public function loadDriversMeta(): void
     {
-        $query = DB::table('users')
+        $drivers = DB::table('users')
             ->where('user_type', 'driver')
             ->where('status', 1)
-            ->select('id', 'name', 'phone', 'city_id', 'profile_photo_path', 'is_online');
-
-        // city_manager chỉ thấy tài xế khu vực mình
-        if ($this->fixedCityId) {
-            $query->where('city_id', $this->fixedCityId);
-        }
+            ->where('city_id', $this->cityId())
+            ->get(['id', 'name', 'phone', 'city_id', 'profile_photo_path', 'is_online']);
+        $ids = $drivers->pluck('id')->all();
 
         // Đang đi đơn = có ít nhất 1 đơn ở trạng thái đang xử lý — cùng danh
         // sách trạng thái "active" dùng chung trong OrderService.
         $activeOrders = DB::table('orders')
             ->whereIn('status', ['assigned', 'processing'])
-            ->whereIn('delivery_man_id', (clone $query)->pluck('id'))
-            ->when($this->fixedCityId, fn ($q) => $q->where('city_id', $this->fixedCityId))
+            ->whereIn('delivery_man_id', $ids)
+            ->where('city_id', $this->cityId())
             ->orderByDesc('id')
             ->get(['id', 'code', 'status', 'delivery_man_id', 'pickup_address', 'delivery_address',
                 'sender_name', 'receiver_name', 'pickup_phone', 'delivery_phone', 'shipping_fee', 'cod_amount', 'order_note'])
             ->groupBy('delivery_man_id');
+        // Tài xế vừa đổi khu vực mà còn đơn ở khu cũ vẫn là đang bận — chỉ đếm, không đưa chi tiết
+        // (tên, SĐT, địa chỉ khách) của khu vực khác ra trang này.
+        $elsewhere = DB::table('orders')
+            ->whereIn('status', ['assigned', 'processing'])
+            ->whereIn('delivery_man_id', $ids)
+            ->where('city_id', '!=', $this->cityId())
+            ->groupBy('delivery_man_id')
+            ->pluck(DB::raw('COUNT(*)'), 'delivery_man_id');
 
         $shiftNames = DB::table('shift_user as su')
             ->join('shifts as s', 's.id', '=', 'su.shift_id')
-            ->whereIn('su.user_id', (clone $query)->pluck('id'))
+            ->whereIn('su.user_id', $ids)
             ->get(['su.user_id', 's.name'])
             ->groupBy('user_id')
             ->map(fn ($rows) => $rows->pluck('name')->implode(', '));
@@ -99,7 +121,7 @@ class DriverMapPage extends Page
         // đọc thẳng Firebase RTDB phía client (driver-map.blade.php), không
         // còn nguồn nào từ MySQL nữa.
         $meta = [];
-        foreach ($query->get() as $d) {
+        foreach ($drivers as $d) {
             $driverOrders = $activeOrders->get($d->id, collect());
             $activeOrder = $driverOrders->first();
             $meta[$d->id] = [
@@ -109,7 +131,8 @@ class DriverMapPage extends Page
                 'is_online' => (bool) $d->is_online, // theo hệ thống: để phát hiện "bật online nhưng mất GPS"
                 'url' => DriverResource::getUrl('view', ['record' => $d->id]),
                 'order_url' => $activeOrder ? OrderResource::getUrl('view', ['record' => $activeOrder->id]) : null,
-                'busy' => (bool) $activeOrder,
+                'busy' => $activeOrder !== null || isset($elsewhere[$d->id]),
+                'orders_elsewhere' => (int) ($elsewhere[$d->id] ?? 0),
                 'active_order_id' => $activeOrder?->id,
                 'active_order_code' => $activeOrder?->code,
                 'active_order_status' => $activeOrder?->status,
@@ -139,7 +162,8 @@ class DriverMapPage extends Page
         $this->dispatch('metaUpdated', meta: $meta);
 
         $this->ordersMeta = $this->pendingOrdersMeta();
-        $this->dispatch('ordersUpdated', orders: $this->ordersMeta);
+        $this->pendingTotal = $this->pendingQuery()->count();
+        $this->dispatch('ordersUpdated', orders: $this->ordersMeta, total: $this->pendingTotal);
     }
 
     /**
@@ -150,11 +174,8 @@ class DriverMapPage extends Page
      */
     public function pendingOrdersMeta(): array
     {
-        return Order::query()
-            ->where('status', 'pending')
-            ->whereNotNull('pickup_lat')->whereNotNull('pickup_lng')
-            ->when($this->fixedCityId, fn ($q) => $q->where('city_id', $this->fixedCityId))
-            ->orderBy('created_at')->limit(50)
+        return $this->pendingQuery()
+            ->orderBy('created_at')->limit(self::PENDING_LIMIT)
             ->get(['id', 'code', 'pickup_address', 'delivery_address', 'order_note', 'shipping_fee', 'pickup_lat', 'pickup_lng', 'created_at'])
             ->map(fn (Order $o) => [
                 'id' => $o->id, 'code' => $o->code, 'address' => $o->pickup_address, 'delivery' => $o->delivery_address,
@@ -165,10 +186,18 @@ class DriverMapPage extends Page
             ])->all();
     }
 
+    private function pendingQuery()
+    {
+        return Order::query()
+            ->where('status', 'pending')
+            ->whereNotNull('pickup_lat')->whereNotNull('pickup_lng')
+            ->where('city_id', $this->cityId());
+    }
+
     /** Tài xế thật sự gán được cho đơn này — để gợi ý trên bản đồ không đưa ra người bị loại khỏi hộp thoại gán. */
     public function eligibleDriverIds(int $orderId): array
     {
-        $order = Order::where('city_id', $this->fixedCityId)->find($orderId);
+        $order = Order::where('city_id', $this->cityId())->find($orderId);
 
         return $order ? array_map('intval', array_keys(OrderResource::manualAssignmentDriverOptions($order))) : [];
     }
@@ -190,7 +219,7 @@ class DriverMapPage extends Page
     /** Gán tay tài xế cho đơn đang chờ ngay từ bản đồ. */
     public function assignAction(): Action
     {
-        $order = fn (array $a) => Order::where('city_id', $this->fixedCityId)->find($a['order'] ?? 0);
+        $order = fn (array $a) => Order::where('city_id', $this->cityId())->find($a['order'] ?? 0);
 
         return Action::make('assign')
             ->label('Gán tài xế')
