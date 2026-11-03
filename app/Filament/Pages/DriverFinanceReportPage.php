@@ -250,15 +250,18 @@ class DriverFinanceReportPage extends Page
     }
 
     /**
-     * Nợ của tài xế thuộc khu vực (theo khu vực hiện tại của tài xế: bảng nợ chưa lưu khu vực phát sinh). Không có
-     * tenant thì rỗng — không bao giờ "không lọc". Gồm cả tài khoản đã khóa/ngừng (status 0) vì nợ vẫn phải thu.
+     * Nợ phát sinh ở khu vực (driver_debts.city_id — tài xế đổi khu vực thì nợ cũ vẫn thuộc khu vực cũ). Khoản chưa có
+     * city_id thì dựa vào khu vực hiện tại của tài xế. Không có tenant thì rỗng — không bao giờ "không lọc".
+     * Gồm cả tài khoản đã khóa/ngừng (status 0) vì nợ vẫn phải thu.
      */
     private function debtQuery()
     {
+        $city = $this->cityId();
+
         return DB::table('driver_debts as dd')
             ->join('users as u', 'u.id', '=', 'dd.driver_id')
             ->where('u.user_type', 'driver')
-            ->where('u.city_id', $this->cityId())
+            ->where(fn ($q) => $q->where('dd.city_id', $city)->orWhere(fn ($q) => $q->whereNull('dd.city_id')->where('u.city_id', $city)))
             ->leftJoinSub(
                 DB::table('driver_debt_logs')->where('action', 'waived')->groupBy('debt_id')->selectRaw('debt_id, SUM(amount) as amount'),
                 'wv', 'wv.debt_id', '=', 'dd.id'
@@ -378,10 +381,11 @@ class DriverFinanceReportPage extends Page
     {
         $paidActions = ['paid_payos', 'paid_wallet', 'paid_manual'];
         $first = DB::table('driver_debt_logs')->whereIn('action', $paidActions)->min('created_at');
+        $city = $this->cityId();
         $amount = DB::table('driver_debt_logs as l')
             ->join('driver_debts as dd', 'dd.id', '=', 'l.debt_id')
             ->join('users as u', 'u.id', '=', 'dd.driver_id')
-            ->where('u.city_id', $this->cityId())
+            ->where(fn ($q) => $q->where('dd.city_id', $city)->orWhere(fn ($q) => $q->whereNull('dd.city_id')->where('u.city_id', $city)))
             ->whereRaw('NOT '.self::IS_COD)
             ->whereIn('l.action', $paidActions)
             ->whereBetween('l.created_at', [$from->toDateString().' 00:00:00', $to->toDateString().' 23:59:59'])

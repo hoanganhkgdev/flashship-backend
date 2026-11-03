@@ -176,11 +176,12 @@ class ShiftOfflineService
             return false;
         }
         try {
-            DB::transaction(function () use ($driverId, $shift, $shiftDate, $offlineSeconds, $amount, $limitMinutes) {
+            DB::transaction(function () use ($driverId, $shift, $shiftDate, $offlineSeconds, $amount, $limitMinutes, $cityId) {
                 $now = now();
                 $minutes = (int) floor($offlineSeconds / 60);
                 $debtId = DB::table('driver_debts')->insertGetId([
                     'driver_id' => $driverId,
+                    'city_id' => $cityId, // khu vực phát sinh, không đi theo tài xế khi đổi khu vực
                     'status' => 'pending',
                     'amount_due' => $amount,
                     'amount_paid' => 0,

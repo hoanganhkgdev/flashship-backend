@@ -54,7 +54,9 @@ class DriverDebtService
 
         $debt = DB::transaction(function () use ($driverId, $type, $amount, $reason, $by, $weekStart, $weekEnd) {
             $debt = DriverDebt::create([
-                'driver_id' => $driverId, 'debt_type' => $type, 'status' => 'pending',
+                // Khu vực phát sinh = khu vực của tài xế lúc tạo; giữ nguyên nếu sau này tài xế đổi khu vực.
+                'driver_id' => $driverId, 'city_id' => DB::table('users')->where('id', $driverId)->value('city_id'),
+                'debt_type' => $type, 'status' => 'pending',
                 'amount_due' => $amount, 'amount_paid' => 0, 'date' => now()->toDateString(), 'note' => $reason,
                 'week_start' => $weekStart, 'week_end' => $weekEnd,
             ]);

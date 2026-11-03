@@ -61,6 +61,7 @@ class GenerateDailyCommissionCommand extends Command
 
                 $rows[] = [
                     'driver_id'   => $row->driver_id,
+                    'city_id'     => $city->id,
                     'debt_type'   => 'commission',
                     'status'      => 'pending',
                     'amount_due'  => $amount,

@@ -62,6 +62,7 @@ class GenerateWeeklyFeesCommand extends Command
 
                 $rows[] = [
                     'driver_id'   => $driverId,
+                    'city_id'     => $city->id,
                     'status'      => 'pending',
                     'amount_due'  => $city->weekly_fee,
                     'amount_paid' => 0,

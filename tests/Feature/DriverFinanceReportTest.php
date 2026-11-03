@@ -157,4 +157,26 @@ class DriverFinanceReportTest extends TestCase
 
         $this->assertStringContainsString("'=HYPERLINK", html_entity_decode($content, ENT_QUOTES | ENT_XML1));
     }
+
+    public function test_debts_stay_with_the_city_they_were_issued_in(): void
+    {
+        $other = City::create(['name' => 'Khu mới', 'slug' => 'km-'.uniqid(), 'is_active' => true]);
+        $moved = $this->user('driver', ['name' => 'Đã chuyển đi']);
+        $this->debt($moved, ['amount_due' => 120000, 'city_id' => $this->city->id]);
+        $moved->update(['city_id' => $other->id]);
+
+        $this->assertSame(120000, $this->report()['totals']['total_due'], 'nợ phát sinh ở đây vẫn thuộc khu vực này');
+
+        Filament::setTenant($other);
+        $this->assertSame(0, $this->report()['totals']['total_due'], 'khu vực mới không nhận nợ cũ');
+    }
+
+    public function test_manually_created_debts_record_the_drivers_city(): void
+    {
+        $driver = $this->user('driver');
+        $result = \App\Services\DriverDebtService::create($driver->id, 'weekly', 50000, 'Thu bổ sung tay', null);
+
+        $this->assertTrue($result['ok']);
+        $this->assertSame($this->city->id, (int) DB::table('driver_debts')->where('driver_id', $driver->id)->value('city_id'));
+    }
 }
