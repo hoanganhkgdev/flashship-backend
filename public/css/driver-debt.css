@@ -1,0 +1,139 @@
+/* Trang Công nợ tài xế (danh sách + chi tiết). Tự đủ biến màu, không phụ thuộc CSS của các trang báo cáo. */
+.fs-debt, .fi-resource-driver-debts {
+    --db-surface: #fff;
+    --db-soft: #f8fafc;
+    --db-border: #e5eaf0;
+    --db-ink: #182338;
+    --db-muted: #718096;
+    --db-red: #dc2626;
+    --db-green: #16a34a;
+    --db-amber: #d97706;
+    --db-blue: #2563eb;
+    --db-shadow: 0 1px 2px rgb(15 23 42 / 4%);
+}
+.fs-debt {
+    display: grid;
+    gap: 14px;
+    color: var(--db-ink);
+}
+.dark .fs-debt, .dark .fi-resource-driver-debts { --db-surface:#171e2b; --db-soft:#1d2737; --db-border:#2b3749; --db-ink:#eef2f8; --db-muted:#a0aec0; --db-red:#f87171; --db-green:#4ade80; --db-amber:#fbbf24; --db-blue:#60a5fa; }
+
+/* ── Thẻ KPI ─────────────────────────────────────────────────────────────── */
+.fs-debt__kpis { display:grid; grid-template-columns:1.4fr repeat(3,minmax(0,1fr)); gap:14px; }
+.fs-debt__kpi { position:relative; display:flex; flex-direction:column; gap:6px; min-width:0; min-height:138px; padding:16px 18px; overflow:hidden; border:1px solid var(--db-border); border-radius:15px; background:var(--db-surface); box-shadow:var(--db-shadow); }
+.fs-debt__kpi::after { content:''; position:absolute; inset:0 0 auto; height:3px; background:linear-gradient(90deg,var(--db-accent,transparent),transparent 80%); }
+.fs-debt__kpi--red { --db-accent:var(--db-red); }
+.fs-debt__kpi--amber { --db-accent:var(--db-amber); }
+.fs-debt__kpi--gray { --db-accent:#94a3b8; }
+.fs-debt__kpi-head { display:flex; align-items:center; justify-content:space-between; gap:10px; color:var(--db-muted); font-size:12px; font-weight:600; }
+.fs-debt__kpi-head svg { width:30px; height:30px; flex:none; padding:7px; border-radius:9px; background:color-mix(in srgb,var(--db-accent,var(--db-muted)) 11%,transparent); color:var(--db-accent,var(--db-muted)); }
+.fs-debt__kpi strong { font-size:clamp(21px,1.8vw,27px); font-weight:750; letter-spacing:-.035em; line-height:1.15; overflow-wrap:anywhere; }
+.fs-debt__kpi strong.is-alert { color:var(--db-red); }
+.fs-debt__kpi strong em { margin-left:4px; color:var(--db-muted); font-size:14px; font-style:normal; font-weight:500; letter-spacing:0; }
+.fs-debt__kpi > small { margin-top:auto; color:var(--db-muted); font-size:12px; line-height:1.45; }
+
+.fs-debt__kpi--hero { border-color:#4c1d24; background:linear-gradient(130deg,#3b1219 0%,#6b1f2a 100%); color:#fff; box-shadow:0 12px 28px rgb(127 29 29 / 18%); }
+.fs-debt__kpi--hero::before { content:''; position:absolute; top:-70px; right:-45px; width:170px; height:170px; border-radius:50%; border:32px solid rgb(255 255 255 / 5%); }
+.fs-debt__kpi--hero::after { display:none; }
+.fs-debt__kpi--hero .fs-debt__kpi-head { color:#fecaca; }
+.fs-debt__kpi--hero .fs-debt__kpi-head svg { background:rgb(255 255 255 / 12%); color:#fecaca; }
+.fs-debt__kpi--hero strong { color:#fff; font-size:clamp(26px,2.4vw,34px); }
+.fs-debt__kpi--hero > small { color:#fca5a5; }
+.fs-debt__meter { display:block; height:6px; overflow:hidden; border-radius:999px; background:var(--db-soft); }
+.fs-debt__meter i { display:block; height:100%; border-radius:inherit; background:var(--db-green); }
+.fs-debt__kpi--hero .fs-debt__meter { margin-top:auto; background:rgb(255 255 255 / 14%); }
+.fs-debt__kpi--hero .fs-debt__meter i { background:#86efac; }
+.fs-debt__kpi--hero .fs-debt__meter + small { margin-top:0; }
+
+/* ── Tài xế bị chặn ─────────────────────────────────────────────────────── */
+.fs-debt__card { padding:16px 18px; border:1px solid var(--db-border); border-radius:15px; background:var(--db-surface); box-shadow:var(--db-shadow); }
+.fs-debt__card-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-bottom:12px; }
+.fs-debt__card-head h2 { display:flex; align-items:center; gap:8px; font-size:15px; font-weight:700; }
+.fs-debt__card-head p { margin-top:2px; color:var(--db-muted); font-size:12px; }
+.fs-debt__count { padding:1px 8px; border-radius:999px; background:color-mix(in srgb,var(--db-red) 12%,transparent); color:var(--db-red); font-size:12px; font-weight:700; }
+.fs-debt__blocked { display:grid; grid-template-columns:repeat(auto-fill,minmax(230px,1fr)); gap:10px; }
+.fs-debt__driver { display:grid; grid-template-columns:auto minmax(0,1fr) auto; align-items:center; gap:4px 10px; padding:10px 12px; border:1px solid var(--db-border); border-left:3px solid var(--db-red); border-radius:11px; background:var(--db-soft); transition:border-color .15s, background .15s; }
+.fs-debt__driver:hover { border-color:color-mix(in srgb,var(--db-red) 45%,var(--db-border)); background:var(--db-surface); }
+.fs-debt__avatar { display:grid; place-items:center; width:32px; height:32px; border-radius:50%; background:color-mix(in srgb,var(--db-red) 12%,var(--db-surface)); color:var(--db-red); font-size:12px; font-weight:750; }
+.fs-debt__driver-main { min-width:0; }
+.fs-debt__driver-main b { display:block; overflow:hidden; color:var(--db-ink); font-size:13px; text-overflow:ellipsis; white-space:nowrap; }
+.fs-debt__driver-main small { display:block; color:var(--db-muted); font-size:11px; }
+.fs-debt__driver-amount { color:var(--db-red); font-size:14px; font-weight:750; text-align:right; }
+.fs-debt__driver-wallet { grid-column:2 / -1; font-size:11px; font-weight:600; }
+.fs-debt__driver-wallet.is-ok { color:var(--db-green); }
+.fs-debt__driver-wallet.is-short { color:var(--db-muted); }
+
+/* ── Bảng danh sách (bảng Filament của trang Công nợ) ──────────────────── */
+.fi-resource-driver-debts .fi-ta-row.fs-debt-row--overdue > td:first-child { box-shadow:inset 3px 0 #ef4444; }
+.fi-resource-driver-debts .fi-ta-row.fs-debt-row--paid { opacity:.8; }
+.fs-debt-recon { display:grid; justify-items:end; gap:4px; min-width:150px; }
+.fs-debt-recon b { font-size:14px; font-weight:700; }
+.fs-debt-recon .fs-debt__meter { width:100%; max-width:150px; height:5px; }
+.fs-debt-recon small { color:var(--db-muted); font-size:11px; white-space:nowrap; }
+.fs-debt-recon small em { color:var(--db-red); font-style:normal; font-weight:650; }
+.fs-debt-kind { display:inline-flex; align-items:center; gap:5px; font-size:12px; color:var(--db-muted); }
+.fs-debt-kind i { width:7px; height:7px; border-radius:2px; background:var(--kind,#94a3b8); }
+.fs-debt-recon .fs-debt__meter { background:color-mix(in srgb,var(--db-muted) 16%,transparent); }
+
+/* ── Trang chi tiết ─────────────────────────────────────────────────────── */
+.fs-debt__alert { display:flex; align-items:flex-start; gap:10px; padding:11px 14px; border:1px solid color-mix(in srgb,var(--db-red) 35%,transparent); border-radius:12px; background:color-mix(in srgb,var(--db-red) 7%,var(--db-surface)); color:var(--db-red); font-size:13px; }
+.fs-debt__alert svg { flex:none; width:18px; height:18px; margin-top:1px; }
+.fs-debt__alert span { color:var(--db-ink); }
+
+.fs-debt__summary { display:grid; grid-template-columns:minmax(0,1.6fr) minmax(260px,1fr); gap:0; overflow:hidden; padding:0; }
+.fs-debt__summary-main { display:grid; gap:12px; padding:20px 22px; }
+.fs-debt__tags { display:flex; flex-wrap:wrap; align-items:center; gap:8px; color:var(--db-muted); font-size:12px; }
+.fs-debt__pill { padding:2px 10px; border-radius:999px; font-size:12px; font-weight:700; }
+.fs-debt__pill--danger { background:color-mix(in srgb,var(--db-red) 12%,transparent); color:var(--db-red); }
+.fs-debt__pill--warning { background:color-mix(in srgb,var(--db-amber) 14%,transparent); color:var(--db-amber); }
+.fs-debt__pill--success { background:color-mix(in srgb,var(--db-green) 12%,transparent); color:var(--db-green); }
+.fs-debt__pill--gray { background:var(--db-soft); color:var(--db-muted); }
+.fs-debt__remaining span { display:block; color:var(--db-muted); font-size:12px; font-weight:600; }
+.fs-debt__remaining strong { font-size:clamp(28px,3vw,38px); font-weight:780; letter-spacing:-.04em; line-height:1.15; }
+.fs-debt__remaining strong.is-alert { color:var(--db-red); }
+.fs-debt__remaining strong.is-done { color:var(--db-green); }
+.fs-debt__progress .fs-debt__meter { height:8px; }
+.fs-debt__meter--stack { display:flex; }
+.fs-debt__meter--stack i { flex:none; border-radius:0; }
+.fs-debt__meter--stack i.is-waived { background:#8b5cf6; }
+.fs-debt__legend { display:flex; flex-wrap:wrap; gap:6px 18px; margin-top:8px; font-size:12px; color:var(--db-muted); }
+.fs-debt__legend b { color:var(--db-ink); font-weight:700; }
+.fs-debt__legend i { display:inline-block; width:8px; height:8px; margin-right:5px; border-radius:2px; vertical-align:0; }
+
+.fs-debt__who { display:grid; align-content:start; gap:10px; padding:20px 22px; border-left:1px solid var(--db-border); background:var(--db-soft); }
+.fs-debt__who-head { display:flex; align-items:center; gap:10px; }
+.fs-debt__who-head .fs-debt__avatar { width:40px; height:40px; font-size:14px; background:color-mix(in srgb,var(--db-blue) 12%,var(--db-surface)); color:var(--db-blue); }
+.fs-debt__who-head b { display:block; font-size:14px; }
+.fs-debt__who-head small { color:var(--db-muted); font-size:12px; }
+.fs-debt__facts { display:grid; gap:0; margin:0; }
+.fs-debt__facts div { display:flex; justify-content:space-between; gap:12px; padding:7px 0; border-top:1px solid var(--db-border); font-size:13px; }
+.fs-debt__facts dt { color:var(--db-muted); }
+.fs-debt__facts dd { margin:0; font-weight:650; text-align:right; }
+.fs-debt__facts dd.is-ok { color:var(--db-green); }
+.fs-debt__facts dd.is-alert { color:var(--db-red); }
+
+
+.fs-debt__timeline { position:relative; display:grid; margin:0; padding:0; list-style:none; }
+.fs-debt__timeline li { position:relative; display:grid; grid-template-columns:24px minmax(0,1fr) auto; gap:2px 10px; padding:0 0 16px; }
+.fs-debt__timeline li:not(:last-child)::before { content:''; position:absolute; top:22px; bottom:2px; left:11px; width:2px; background:var(--db-border); }
+.fs-debt__dot { display:grid; place-items:center; width:24px; height:24px; border-radius:50%; background:color-mix(in srgb,var(--tone) 14%,var(--db-surface)); color:var(--tone); }
+.fs-debt__dot svg { width:13px; height:13px; }
+.fs-debt__timeline b { font-size:13px; font-weight:650; }
+.fs-debt__timeline .fs-debt__amt { font-size:13px; font-weight:700; color:var(--tone); text-align:right; white-space:nowrap; }
+.fs-debt__timeline small { grid-column:2 / -1; color:var(--db-muted); font-size:12px; line-height:1.5; }
+.fs-debt__timeline q { grid-column:2 / -1; display:block; margin-top:2px; padding:6px 10px; border-radius:8px; background:var(--db-soft); color:var(--db-ink); font-size:12px; quotes:none; }
+.fs-debt__empty { color:var(--db-muted); font-size:13px; }
+.fs-debt__note { margin-top:10px; padding:10px 12px; border-radius:10px; background:var(--db-soft); font-size:13px; line-height:1.5; }
+.fs-debt__note span { display:block; margin-bottom:2px; color:var(--db-muted); font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.03em; }
+
+@media (max-width:1180px) {
+    .fs-debt__kpis { grid-template-columns:repeat(2,minmax(0,1fr)); }
+}
+@media (max-width:900px) {
+    .fs-debt__summary { grid-template-columns:minmax(0,1fr); }
+    .fs-debt__who { border-left:0; border-top:1px solid var(--db-border); }
+}
+@media (max-width:560px) {
+    .fs-debt__kpis { grid-template-columns:minmax(0,1fr); }
+    .fs-debt__kpi { min-height:0; }
+}
