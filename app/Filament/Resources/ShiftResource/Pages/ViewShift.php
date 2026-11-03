@@ -23,7 +23,7 @@ class ViewShift extends ViewRecord
 
     public function getSubheading(): ?string
     {
-        return substr($this->record->start_time, 0, 5).' → '.substr($this->record->end_time, 0, 5).' · '.ShiftResource::scheduleDescription($this->record);
+        return null;
     }
 
     protected function getHeaderActions(): array
@@ -60,6 +60,7 @@ class ViewShift extends ViewRecord
         $names = User::whereIn('id', $logs->pluck('performed_by')->filter()->unique())->pluck('name', 'id');
 
         return $logs->map(fn ($l) => [
+            'action' => $l->action,
             'label' => $labels[$l->action] ?? $l->action,
             'who' => $l->performed_by ? ($names[$l->performed_by] ?? 'Quản trị viên') : 'Hệ thống',
             'detail' => $l->detail,

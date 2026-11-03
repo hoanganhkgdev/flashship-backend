@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\ShiftResource\Widgets;
 
+use App\Filament\Resources\DriverResource;
 use App\Filament\Resources\DriverShiftChangeRequestResource;
 use App\Services\ShiftService;
 use Filament\Facades\Filament;
@@ -24,6 +25,9 @@ class ShiftCoverageWidget extends Widget
             's' => ShiftService::summary($cityId),
             'overload' => ShiftService::OVERLOAD_PER_DRIVER,
             'changesUrl' => DriverShiftChangeRequestResource::getUrl('index'),
+            'unassigned' => ShiftService::driversWithoutActiveShift($cityId)
+                ->map(fn ($d) => (array) $d + ['url' => DriverResource::getUrl('edit', ['record' => $d->id])]),
+            'nowMinute' => now()->hour * 60 + now()->minute,
         ];
     }
 }
