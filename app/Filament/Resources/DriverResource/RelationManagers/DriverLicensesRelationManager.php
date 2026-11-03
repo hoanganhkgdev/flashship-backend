@@ -2,6 +2,8 @@
 
 namespace App\Filament\Resources\DriverResource\RelationManagers;
 
+use App\Services\DriverAccountService;
+use App\Support\KycFile;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Notifications\Notification;
@@ -34,9 +36,10 @@ class DriverLicensesRelationManager extends RelationManager
     {
         return $table
             ->columns([
+                // Ảnh giấy tờ không có đường dẫn công khai: hiển thị qua đường dẫn có chữ ký, hết hạn.
                 Tables\Columns\ImageColumn::make('image_path')
                     ->label('Hình')
-                    ->disk('public')
+                    ->state(fn (DriverLicense $record) => KycFile::url($record->image_path))
                     ->height(56)
                     ->width(80)
                     ->extraImgAttributes(['style' => 'object-fit:cover;border-radius:6px;cursor:pointer']),
@@ -57,6 +60,14 @@ class DriverLicensesRelationManager extends RelationManager
                         default => 'gray',
                     }),
 
+                Tables\Columns\TextColumn::make('reviewed_at')
+                    ->label('Xét duyệt')
+                    ->placeholder('—')
+                    ->state(fn (DriverLicense $record) => $record->reviewed_at
+                        ? ($record->reviewer?->name ?? 'Quản trị viên').' · '.$record->reviewed_at->format('d/m/Y H:i')
+                        : null)
+                    ->description(fn (DriverLicense $record) => $record->status === 'rejected' && $record->rejection_reason ? 'Lý do: '.$record->rejection_reason : null),
+
                 Tables\Columns\TextColumn::make('created_at')
                     ->label('Tải lên lúc')
                     ->dateTime('d/m/Y H:i')
@@ -73,7 +84,7 @@ class DriverLicensesRelationManager extends RelationManager
                     ->modalWidth('2xl')
                     ->modalContent(fn (DriverLicense $record): HtmlString => new HtmlString(
                         '<div style="text-align:center;padding:8px 0 16px">'
-                        .'<img src="'.($record->image_path ? asset('storage/'.$record->image_path) : '').'"'
+                        .'<img src="'.e((string) KycFile::url($record->image_path)).'"'
                         .' style="max-width:100%;max-height:480px;border-radius:10px;object-fit:contain;border:1px solid #e5e7eb">'
                         .'</div>'
                     ))
@@ -112,6 +123,8 @@ class DriverLicensesRelationManager extends RelationManager
                                 'rejection_reason' => $data['status'] === 'rejected'
                                     ? ($data['rejection_reason'] ?? null)
                                     : null,
+                                'reviewed_by' => auth()->id(),
+                                'reviewed_at' => now(),
                             ]);
 
                             return true;
@@ -121,12 +134,14 @@ class DriverLicensesRelationManager extends RelationManager
 
                             return;
                         }
+                        DriverAccountService::notifyDocumentReviewed($record->user_id, 'bằng lái', $data['status'], $data['rejection_reason'] ?? null);
                         Notification::make()
                             ->title($data['status'] === 'approved' ? 'Đã duyệt bằng lái' : 'Đã từ chối bằng lái')
                             ->color($data['status'] === 'approved' ? 'success' : 'warning')
                             ->send();
                     }),
             ])
+            ->modifyQueryUsing(fn ($query) => $query->with('reviewer:id,name'))
             ->defaultSort('created_at', 'desc');
     }
 }

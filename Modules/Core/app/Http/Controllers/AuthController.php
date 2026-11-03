@@ -269,7 +269,7 @@ class AuthController extends Controller
         $license = $user->driverLicenses->sortByDesc('id')->first();
         if ($license) {
             $data['license_status'] = $license->status;
-            $data['license_image_url'] = $license->image_path ? url('storage/' . $license->image_path) : null;
+            $data['license_image_url'] = \App\Support\KycFile::url($license->image_path);
         }
         if ($user->profile_photo_path) {
             $data['profile_photo_url'] = url('storage/' . $user->profile_photo_path);

@@ -13,7 +13,11 @@ class DriverStatusLog extends Model
 
     protected $casts = ['created_at' => 'datetime'];
 
-    public const ACTION_LABELS = ['approved' => 'Duyệt tài khoản', 'locked' => 'Khóa tài khoản', 'unlocked' => 'Mở khóa tài khoản'];
+    /** Khóa ngắn (cột action tối đa 12 ký tự). */
+    public const ACTION_LABELS = [
+        'approved' => 'Duyệt tài khoản', 'locked' => 'Khóa tài khoản', 'unlocked' => 'Mở khóa tài khoản',
+        'city_change' => 'Đổi khu vực', 'phone_change' => 'Đổi số điện thoại', 'debt_on' => 'Bật công nợ', 'debt_off' => 'Tắt công nợ',
+    ];
 
     public function performer()
     {

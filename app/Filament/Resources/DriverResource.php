@@ -90,33 +90,29 @@ class DriverResource extends Resource
 
     /**
      * Cấu hình dùng chung cho nút Xóa tài xế (bảng + trang hồ sơ).
-     * Xóa cứng, kể cả tài xế đã có lịch sử: kéo theo ví, công nợ, lịch sử điểm, ca;
-     * đơn cũ mất tham chiếu tài xế (nullOnDelete). Chỉ chặn khi tài xế đang giữ đơn.
+     * Xóa cứng, kể cả tài xế đã có lịch sử đơn (đơn cũ mất tham chiếu tài xế). Nhưng chặn khi còn tiền hoặc nghĩa vụ
+     * chưa xong (DriverAccountService::deleteBlockers): ví, công nợ, yêu cầu rút bị xóa theo và mất dấu vết.
      */
     public static function configureDeleteAction(Tables\Actions\DeleteAction|DeleteAction $action): void
     {
+        $service = app(DriverAccountService::class);
+
         $action
             ->modalHeading('Xóa tài xế')
-            ->modalDescription(function (User $record): string {
+            ->modalDescription(function (User $record) use ($service): string {
+                if ($blockers = $service->deleteBlockers($record)) {
+                    return 'Chưa xóa được: tài xế '.implode(', ', $blockers).'. Hãy xử lý xong (thu nợ, chuyển hoặc điều chỉnh ví, duyệt/từ chối yêu cầu rút) rồi xóa, hoặc dùng Khóa.';
+                }
                 $orders = Order::where('delivery_man_id', $record->id)->count();
-                $balance = (int) DB::table('driver_wallets')->where('driver_id', $record->id)->value('balance');
-                $debts = DB::table('driver_debts')->where('driver_id', $record->id)->count();
 
-                $warning = $orders > 0 || $balance !== 0 || $debts > 0
-                    ? "Tài xế này có {$orders} đơn, số dư ví ".number_format($balance, 0, ',', '.')."₫, {$debts} khoản công nợ — tất cả sẽ mất. "
-                    : '';
-
-                return $warning.'Xóa vĩnh viễn tài khoản tài xế cùng ví, công nợ, lịch sử điểm và ca làm việc. Các đơn cũ sẽ không còn thông tin tài xế. Không thể khôi phục. Nếu chỉ muốn ngừng cho làm việc, hãy dùng Khóa.';
+                return ($orders ? "Tài xế này có {$orders} đơn; các đơn vẫn còn nhưng không còn thông tin tài xế. " : '')
+                    .'Xóa vĩnh viễn tài khoản tài xế cùng lịch sử ví, công nợ, điểm và ca làm việc. Không thể khôi phục. Nếu chỉ muốn ngừng cho làm việc, hãy dùng Khóa.';
             })
-            ->before(function (User $record, $action) {
-                $busy = Order::where('delivery_man_id', $record->id)
-                    ->whereIn('status', ['assigned', 'processing'])
-                    ->first(['id', 'code']);
-
-                if ($busy) {
+            ->before(function (User $record, $action) use ($service) {
+                if ($blockers = $service->deleteBlockers($record)) {
                     Notification::make()
-                        ->title("Không thể xóa: tài xế đang giữ đơn #{$busy->code}")
-                        ->body('Hãy hoàn tất hoặc điều phối lại đơn trước khi xóa tài xế.')
+                        ->title('Không thể xóa: tài xế '.implode(', ', $blockers))
+                        ->body('Hãy xử lý xong các khoản này trước khi xóa, hoặc dùng Khóa.')
                         ->danger()->send();
                     $action->cancel();
                 }
@@ -170,12 +166,18 @@ class DriverResource extends Resource
             Forms\Components\Section::make('Thông tin cá nhân')->schema([
                 Forms\Components\TextInput::make('name')
                     ->label('Họ tên')
-                    ->required(),
+                    ->required()
+                    ->maxLength(100),
 
+                // Số điện thoại là tên đăng nhập, duy nhất trong nhóm tài xế (khóa (phone, user_type)). Kiểm tra trước
+                // để báo lỗi trên form thay vì trang lỗi 500. Đổi số được ghi vào lịch sử tài khoản.
                 Forms\Components\TextInput::make('phone')
                     ->label('Số điện thoại')
                     ->tel()
-                    ->required(),
+                    ->required()
+                    ->maxLength(20)
+                    ->unique(ignoreRecord: true, modifyRuleUsing: fn ($rule) => $rule->where('user_type', 'driver'))
+                    ->validationMessages(['unique' => 'Số điện thoại này đã thuộc về tài xế khác.']),
 
                 Forms\Components\TextInput::make('cccd')
                     ->label('CCCD / CMND'),
@@ -196,7 +198,9 @@ class DriverResource extends Resource
                         ->label('Loại phương tiện'),
                     Forms\Components\TextInput::make('license_plate')
                         ->label('Biển số xe')
-                        ->extraInputAttributes(['style' => 'text-transform: uppercase']),
+                        ->maxLength(20)
+                        ->extraInputAttributes(['style' => 'text-transform: uppercase'])
+                        ->dehydrateStateUsing(fn (?string $state) => $state === null ? null : (mb_strtoupper(trim($state)) ?: null)),
                 ])->columns(2),
 
             Forms\Components\Section::make('Giới thiệu shop')
@@ -214,7 +218,7 @@ class DriverResource extends Resource
                 ->schema([
                     Forms\Components\Toggle::make('debt_enabled')
                         ->label('Bật công nợ cho tài xế này')
-                        ->helperText('Tắt: không tạo phí tuần / phạt Offline mới và không chặn tài xế vì nợ quá hạn. Công nợ đã có được giữ nguyên. Công tắc theo khu vực vẫn có hiệu lực song song.'),
+                        ->helperText('Tắt: không tạo phí tuần / phạt Offline mới và không chặn tài xế vì nợ quá hạn. Công nợ đã có được giữ nguyên. Công tắc theo khu vực vẫn có hiệu lực song song. Thay đổi được ghi vào lịch sử tài khoản.'),
                 ]),
 
             Forms\Components\Section::make('Ca làm việc')->icon('heroicon-o-calendar-days')->schema([
@@ -236,7 +240,7 @@ class DriverResource extends Resource
                             $fail('Ca "'.$pair[0]->name.'" và "'.$pair[1]->name.'" trùng giờ nhau, một tài xế không đăng ký được cả hai.');
                         }
                     })
-                    ->helperText('Gán trực tiếp ca làm việc cho tài xế — bỏ qua luồng gửi yêu cầu đổi ca chờ duyệt. Chỉ hiện ca đang kích hoạt của thành phố đã chọn ở trên.'),
+                    ->helperText('Gán trực tiếp ca làm việc cho tài xế — bỏ qua luồng gửi yêu cầu đổi ca chờ duyệt. Chỉ hiện ca đang kích hoạt của thành phố đã chọn ở trên. Đổi thành phố thì các ca của thành phố cũ được tự gỡ khi lưu.'),
             ]),
 
         ]);
@@ -251,7 +255,7 @@ class DriverResource extends Resource
                 .($record->last_lock_reason ? ' · '.Str::limit($record->last_lock_reason, 26) : ''),
             default => $record->active_orders_count > 0
                 ? $record->active_orders_count.' đơn đang chạy'
-                : ($record->is_online ? 'Cờ online' : 'Offline'),
+                    : ($record->is_online ? 'Đang bật online' : 'Offline'),
         };
     }
 
@@ -265,7 +269,7 @@ class DriverResource extends Resource
                     ->label('')
                     ->disk('public')
                     ->circular()
-                    ->defaultImageUrl(fn () => 'https://ui-avatars.com/api/?name=Driver&background=random')
+                    ->defaultImageUrl(asset('images/driver-avatar.svg'))
                     ->width(36)->height(36),
 
                 Tables\Columns\TextColumn::make('name')
@@ -293,14 +297,17 @@ class DriverResource extends Resource
                     ->html(),
 
                 Tables\Columns\TextColumn::make('completed_orders_count')
-                    ->label('Đơn hoàn thành')
+                    ->label('Hoàn thành')
+                    ->tooltip('Tổng đơn hoàn thành · trong 30 ngày qua')
                     ->numeric()
                     ->sortable()
-                    ->description(fn (User $record): string => number_format((int) $record->orders_30d).' trong 30 ngày'),
+                    ->description(fn (User $record): string => '30 ngày: '.number_format((int) $record->orders_30d)),
 
                 Tables\Columns\TextColumn::make('registered_shifts')
                     ->label('Ca đăng ký')
-                    ->state(fn (User $record): string => Str::limit($record->registeredShifts->pluck('name')->implode(', ') ?: 'Chưa đăng ký ca', 30)),
+                    ->state(fn (User $record): string => $record->registeredShifts->pluck('name')->implode(', ') ?: 'Chưa đăng ký ca')
+                    ->color(fn (User $record) => $record->registeredShifts->isEmpty() ? 'gray' : null)
+                    ->wrap(),
 
                 Tables\Columns\TextColumn::make('created_at')
                     ->label('Ngày đăng ký')
@@ -333,10 +340,11 @@ class DriverResource extends Resource
                     ->preload(),
             ])
             ->actions([
-                Tables\Actions\ViewAction::make()->label('')->tooltip('Xem hồ sơ'),
-
+                // Bấm vào dòng đã mở hồ sơ; nút Duyệt thu gọn thành biểu tượng để bảng không tràn ngang.
                 Tables\Actions\Action::make('approve')
                     ->label('Duyệt')
+                    ->iconButton()
+                    ->tooltip('Duyệt tài xế')
                     ->icon('heroicon-o-check-circle')
                     ->color('success')
                     ->visible(fn (User $record) => $record->status == 0)
@@ -379,7 +387,7 @@ class DriverResource extends Resource
                         ])
                         ->action(function (User $record, array $data) use ($service) {
                             $result = $service->unlock($record, $data['reason'] ?? null, auth()->id());
-                            Notification::make()->title($result['message'])->success()->send();
+                            Notification::make()->title($result['message'])->{$result['ok'] ? 'success' : 'danger'}()->send();
                         }),
 
                     tap(Tables\Actions\DeleteAction::make()->label('Xóa'), fn ($a) => static::configureDeleteAction($a)),
@@ -408,6 +416,11 @@ class DriverResource extends Resource
                 ]),
             ])
             ->defaultSort('created_at', 'desc')
+            ->recordClasses(fn (User $record) => match ((int) $record->status) {
+                0 => 'fs-drv-row--pending',
+                2 => 'fs-drv-row--locked',
+                default => null,
+            })
             ->recordUrl(fn (User $record): string => static::getUrl('view', ['record' => $record]))
             ->defaultPaginationPageOption(25)
             ->paginationPageOptions([25, 50, 100])

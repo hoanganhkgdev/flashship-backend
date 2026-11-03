@@ -57,23 +57,56 @@ class DeleteDriverActionTest extends TestCase
             'pickup_address' => 'a', 'delivery_address' => 'b', 'service_type' => 'delivery',
         ]);
 
-        // Tài xế đã có đơn thì nút Xóa bị ẩn: chỉ được khóa để giữ lịch sử.
-        Livewire::test(ListDrivers::class)
-            ->assertTableActionHidden('delete', $driver);
+        Livewire::test(ListDrivers::class)->callTableAction('delete', $driver);
 
         $this->assertNotNull(User::find($driver->id));
     }
 
-    public function test_driver_with_only_completed_orders_cannot_be_deleted_either(): void
+    public function test_driver_with_only_completed_orders_can_be_deleted(): void
     {
+        // Quyết định 24/10: tài xế đã có lịch sử đơn vẫn xóa được; đơn cũ còn nhưng mất thông tin tài xế.
         $driver = $this->makeUser('driver');
-        Order::create([
+        $order = Order::create([
             'code' => 'DEL'.uniqid(), 'status' => 'completed', 'delivery_man_id' => $driver->id,
             'pickup_address' => 'a', 'delivery_address' => 'b', 'service_type' => 'delivery',
         ]);
 
-        Livewire::test(ListDrivers::class)->assertTableActionHidden('delete', $driver);
+        Livewire::test(ListDrivers::class)->callTableAction('delete', $driver)->assertHasNoTableActionErrors();
 
-        $this->assertNotNull(User::find($driver->id));
+        $this->assertNull(User::find($driver->id));
+        $this->assertNull($order->fresh()->delivery_man_id);
+    }
+
+    public function test_money_left_in_wallet_debt_or_pending_withdrawal_blocks_deletion(): void
+    {
+        $withMoney = $this->makeUser('driver');
+        \Modules\Driver\Services\DriverWalletService::adjust($withMoney->id, 50000, 'credit', 'x', 'order_1_rain');
+
+        $withDebt = $this->makeUser('driver');
+        DB::table('driver_debts')->insert(['driver_id' => $withDebt->id, 'debt_type' => 'weekly', 'status' => 'overdue', 'amount_due' => 100000,
+            'amount_paid' => 0, 'note' => 'Phí tuần', 'created_at' => now(), 'updated_at' => now()]);
+
+        $withWithdraw = $this->makeUser('driver');
+        DB::table('withdraw_requests')->insert(['driver_id' => $withWithdraw->id, 'amount' => 200000, 'status' => 'pending',
+            'created_at' => now(), 'updated_at' => now()]);
+
+        foreach ([$withMoney, $withDebt, $withWithdraw] as $driver) {
+            Livewire::test(ListDrivers::class)->callTableAction('delete', $driver);
+            $this->assertNotNull(User::find($driver->id), 'không được xóa khi còn tiền / nợ / yêu cầu rút');
+        }
+
+        $blockers = app(\App\Services\DriverAccountService::class)->deleteBlockers($withMoney);
+        $this->assertSame(['ví còn 50.000₫'], $blockers);
+    }
+
+    public function test_paid_debts_and_a_zero_wallet_do_not_block_deletion(): void
+    {
+        $driver = $this->makeUser('driver');
+        \Modules\Driver\Services\DriverWalletService::adjust($driver->id, 50000, 'credit', 'x', 'order_2_rain');
+        \Modules\Driver\Services\DriverWalletService::adjust($driver->id, 50000, 'debit', 'x', 'withdraw_hold_2');
+        DB::table('driver_debts')->insert(['driver_id' => $driver->id, 'debt_type' => 'weekly', 'status' => 'paid', 'amount_due' => 100000,
+            'amount_paid' => 100000, 'note' => 'Phí tuần', 'created_at' => now(), 'updated_at' => now()]);
+
+        $this->assertSame([], app(\App\Services\DriverAccountService::class)->deleteBlockers($driver));
     }
 }

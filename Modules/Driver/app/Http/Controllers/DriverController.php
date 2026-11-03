@@ -39,7 +39,7 @@ class DriverController extends Controller
         $license = $user->driverLicenses->sortByDesc('id')->first();
         if ($license) {
             $data['license_status']            = $license->status;
-            $data['license_image_url']         = $license->image_path ? url('storage/' . $license->image_path) : null;
+            $data['license_image_url']         = \App\Support\KycFile::url($license->image_path);
             $data['license_rejection_reason']  = $license->status === 'rejected' ? $license->rejection_reason : null;
         }
         if ($user->profile_photo_path) {
@@ -47,7 +47,7 @@ class DriverController extends Controller
         }
         $cccd = $user->driverCccdImages->sortByDesc('id')->first();
         $data['cccd_image_status']            = $cccd?->status;
-        $data['cccd_image_url']               = $cccd?->image_path ? url('storage/' . $cccd->image_path) : null;
+        $data['cccd_image_url']               = \App\Support\KycFile::url($cccd?->image_path);
         $data['cccd_image_rejection_reason']  = $cccd?->status === 'rejected' ? $cccd->rejection_reason : null;
         $data['name_locked']          = (bool) $user->name_updated_at;
         $avatarCooldown               = $user->avatar_updated_at && $user->avatar_updated_at->diffInDays(now()) < 30;
@@ -415,7 +415,7 @@ class DriverController extends Controller
         ]);
 
         $user = $request->user();
-        $path = $request->file('image')->store('driver-licenses', 'public');
+        $path = \App\Support\KycFile::store($request->file('image'), 'driver-licenses');
         $oldPath = null;
 
         try {
@@ -447,16 +447,16 @@ class DriverController extends Controller
                 }
             });
         } catch (\Throwable $e) {
-            Storage::disk('public')->delete($path);
+            \App\Support\KycFile::delete($path);
             throw $e;
         }
 
-        if ($oldPath && $oldPath !== $path) Storage::disk('public')->delete($oldPath);
+        if ($oldPath && $oldPath !== $path) \App\Support\KycFile::delete($oldPath);
 
         return response()->json([
             'success'   => true,
             'message'   => 'Tải lên thành công, đang chờ xét duyệt',
-            'image_url' => url('storage/' . $path),
+            'image_url' => \App\Support\KycFile::url($path),
         ]);
     }
 
@@ -467,7 +467,7 @@ class DriverController extends Controller
         ]);
 
         $user = $request->user();
-        $path = $request->file('image')->store('driver-cccd', 'public');
+        $path = \App\Support\KycFile::store($request->file('image'), 'driver-cccd');
         $oldPath = null;
 
         try {
@@ -499,16 +499,16 @@ class DriverController extends Controller
                 }
             });
         } catch (\Throwable $e) {
-            Storage::disk('public')->delete($path);
+            \App\Support\KycFile::delete($path);
             throw $e;
         }
 
-        if ($oldPath && $oldPath !== $path) Storage::disk('public')->delete($oldPath);
+        if ($oldPath && $oldPath !== $path) \App\Support\KycFile::delete($oldPath);
 
         return response()->json([
             'success'   => true,
             'message'   => 'Tải lên thành công, đang chờ xét duyệt',
-            'image_url' => url('storage/' . $path),
+            'image_url' => \App\Support\KycFile::url($path),
         ]);
     }
 

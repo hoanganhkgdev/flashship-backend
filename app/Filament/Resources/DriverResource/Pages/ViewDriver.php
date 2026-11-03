@@ -6,6 +6,8 @@ use App\Filament\Resources\DriverResource;
 use App\Filament\Resources\OrderResource;
 use App\Models\DriverStatusLog;
 use App\Services\DriverAccountService;
+use App\Support\OrderMoney;
+use Modules\Core\Services\OperationalSettings;
 use Carbon\Carbon;
 use Filament\Actions;
 use Filament\Forms;
@@ -36,7 +38,7 @@ class ViewDriver extends ViewRecord
 
     public function getSubheading(): ?string
     {
-        return 'Hồ sơ tài xế · '.$this->record->phone.' · '.($this->record->city?->name ?? 'Chưa có khu vực');
+        return null; // Số điện thoại và khu vực đã nằm trong thẻ hồ sơ.
     }
 
     private function service(): DriverAccountService
@@ -86,7 +88,7 @@ class ViewDriver extends ViewRecord
                 ->form([Forms\Components\Textarea::make('reason')->label('Ghi chú (tuỳ chọn)')->maxLength(500)->rows(2)])
                 ->action(function (array $data): void {
                     $result = $this->service()->unlock($this->record, $data['reason'] ?? null, auth()->id());
-                    Notification::make()->title($result['message'])->success()->send();
+                    Notification::make()->title($result['message'])->{$result['ok'] ? 'success' : 'danger'}()->send();
                     $this->record->refresh();
                 }),
 
@@ -108,20 +110,15 @@ class ViewDriver extends ViewRecord
         $orders = DB::table('orders')->where('delivery_man_id', $id)->where('created_at', '>=', $since)
             ->selectRaw("COUNT(*) as total, COALESCE(SUM(status = 'completed'), 0) as completed, COALESCE(SUM(status = 'cancelled'), 0) as cancelled")->first();
 
-        $fees = (int) DB::table('orders')->where('delivery_man_id', $id)->where('status', 'completed')->where('completed_at', '>=', $since)
-            ->sum(DB::raw('shipping_fee + bonus_fee')); // phụ phí đêm đã nằm trong shipping_fee
-
-        // Thưởng mưa và bù giảm giá đã ghi có vào ví cũng là thu nhập (cùng cách tính với trang Thu nhập tài xế).
-        $credits = (int) DB::table('driver_wallet_transactions as t')->join('driver_wallets as w', 'w.id', '=', 't.wallet_id')
-            ->where('w.driver_id', $id)->where('t.type', 'credit')->where('t.created_at', '>=', $since)
-            ->where(fn ($q) => $q->where('t.reference', 'like', 'order\_%\_rain')->orWhere('t.reference', 'like', 'order\_%\_discount'))
-            ->sum('t.amount');
+        // Cùng công thức với trang Thu nhập tài xế (khách trả + công ty chi: freeship, thưởng, bù giảm giá, thưởng mưa).
+        $earnings = (int) DB::table('orders')->where('delivery_man_id', $id)->where('status', 'completed')->where('completed_at', '>=', $since)
+            ->sum(DB::raw(OrderMoney::driverEarnings(OperationalSettings::rainBonusAmount($this->record->city_id))));
 
         return [
             'completed' => (int) $orders->completed, 'total' => (int) $orders->total,
             'cancel_rate' => $orders->total ? (int) round($orders->cancelled / $orders->total * 100) : 0,
             'cancelled' => (int) $orders->cancelled,
-            'earnings' => $fees + $credits,
+            'earnings' => $earnings,
             'lifetime' => (int) $this->record->completed_orders_count,
         ];
     }
