@@ -44,7 +44,7 @@ class OrderController extends Controller
 
     public function myOrders(Request $request): JsonResponse
     {
-        $data = $this->orderService->getDriverOrders($request->user());
+        $data = $this->orderService->getDriverOrders($request->user(), $request->boolean('active_only'));
         return response()->json(['success' => true, 'data' => $data]);
     }
 
@@ -121,8 +121,10 @@ class OrderController extends Controller
             foreach ($stops as $index => &$stop) {
                 if ((int) $stop['seq'] === $seq) {
                     if (($stop['delivered_at'] ?? null) !== null) {
-                        $error = ['status' => 400, 'message' => 'Điểm này đã được giao rồi'];
-                        return;
+                        // Bấm lại (mạng chập, hoặc lần trước đã lưu điểm nhưng hoàn thành đơn lỗi):
+                        // không báo lỗi, đi tiếp để hoàn thành đơn nếu đã giao hết.
+                        $found = true;
+                        break;
                     }
                     $hasUndeliveredBefore = collect(array_slice($stops, 0, $index))
                         ->contains(fn ($previous) => ($previous['delivered_at'] ?? null) === null);

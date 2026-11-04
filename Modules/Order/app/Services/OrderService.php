@@ -146,12 +146,18 @@ class OrderService
             ->decrement('used_count');
     }
 
-    public function getDriverOrders(User $user): array
+    public function getDriverOrders(User $user, bool $activeOnly = false): array
     {
         $assigned = Order::with('city')
             ->where('delivery_man_id', $user->id)
             ->whereIn('status', ['assigned', 'processing'])
             ->orderByDesc('id')->get();
+
+        // App mới gọi API này rất thường xuyên và chỉ cần đơn đang chạy (lịch sử lấy ở /orders/completed).
+        // Bản app cũ (trước 08/2026) vẫn đọc 'completed' ở đây nên mặc định giữ nguyên.
+        if ($activeOnly) {
+            return ['assigned' => $assigned->map(fn ($o) => $this->formatOrderForDriver($o))->values()->all()];
+        }
 
         $completed = Order::with('city')
             ->where('delivery_man_id', $user->id)
@@ -205,11 +211,26 @@ class OrderService
             'rain_bonus_amount'   => $order->rain_bonus_eligible ? ($order->rain_bonus_amount ?? OperationalSettings::rainBonusAmount($order->city_id)) : 0,
             'discount_amount'  => (int) ($order->discount_amount ?? 0),
             'voucher_code'     => $order->voucher_code ?? null,
+            'is_freeship'      => (bool) $order->is_freeship,
+            // Freeship do tổng đài bật (không voucher): khách KHÔNG trả phí ship, công ty trả nguyên phí cho tài xế
+            // khi hoàn thành — cùng điều kiện với completeOrder() và OrderMoney::PLATFORM_FREESHIP.
+            'platform_freeship' => self::isPlatformFreeship($order),
             'payment_method'   => $order->payment_method ?? 'prepaid',
             'cod_amount'       => (int) ($order->cod_amount ?? 0),
             'created_at'       => $order->created_at?->toIso8601String(),
             'completed_at'     => $order->completed_at?->toIso8601String(),
         ];
+    }
+
+    public static function isPlatformFreeship(Order $order): bool
+    {
+        return (bool) $order->is_freeship && empty($order->voucher_code) && (float) ($order->discount_amount ?? 0) <= 0;
+    }
+
+    /** Biểu thức SQL thu nhập tài xế/đơn — đúng số tiền completeOrder() cộng (khách trả + công ty chi). */
+    private function earningsSql(?int $cityId): string
+    {
+        return \App\Support\OrderMoney::driverEarnings(OperationalSettings::rainBonusAmount($cityId));
     }
 
     public function getDashboardStats(User $user): array
@@ -220,7 +241,7 @@ class OrderService
         $todayRow = Order::where('delivery_man_id', $user->id)
             ->where('status', 'completed')
             ->whereDate('completed_at', $today)
-            ->selectRaw('COUNT(*) as cnt, COALESCE(SUM(shipping_fee + bonus_fee), 0) as earnings')
+            ->selectRaw('COUNT(*) as cnt, COALESCE(SUM('.$this->earningsSql($user->city_id).'), 0) as earnings')
             ->first();
 
         $monthCount = Order::where('delivery_man_id', $user->id)
@@ -249,19 +270,37 @@ class OrderService
         // Flow vận hành: assigned → processing → completed.
         $allowed = ['assigned' => 'processing'];
 
-        if ((int) $order->delivery_man_id !== (int) $user->id) {
-            return ['success' => false, 'message' => 'Bạn không có quyền cập nhật đơn này.', 'status' => 403];
-        }
+        // Khoá + đọc lại trong transaction: $order nạp lúc bắt đầu request có thể đã cũ — admin vừa huỷ thì
+        // không được ghi đè đơn đã huỷ thành "đang giao".
+        $result = DB::transaction(function () use ($order, $user, $status, $allowed) {
+            $fresh = Order::whereKey($order->id)->lockForUpdate()->first();
+            if (! $fresh || (int) $fresh->delivery_man_id !== (int) $user->id) {
+                return ['success' => false, 'message' => 'Đơn này không còn là của bạn.', 'code' => 'not_yours', 'status' => 403];
+            }
+            if ($fresh->status === 'cancelled') {
+                return ['success' => false, 'message' => 'Đơn hàng đã bị hủy.', 'code' => 'cancelled', 'status' => 409];
+            }
+            // Gửi lại sau khi lần trước đã thành công (mạng chập): trả thành công, không lặp thông báo.
+            if ($fresh->status === $status) {
+                return ['success' => true, 'message' => 'Đơn đã ở trạng thái này.', 'status' => 200, 'repeat' => true];
+            }
+            if (! isset($allowed[$fresh->status]) || $allowed[$fresh->status] !== $status) {
+                return ['success' => false, 'message' => "Không thể chuyển từ {$fresh->status} sang {$status}.", 'code' => 'invalid_transition', 'status' => 400];
+            }
+            $fresh->update(['status' => $status]);
 
-        if (!isset($allowed[$order->status]) || $allowed[$order->status] !== $status) {
-            return ['success' => false, 'message' => "Không thể chuyển từ {$order->status} sang {$status}.", 'status' => 400];
-        }
+            return ['success' => true, 'order' => $fresh];
+        });
 
-        $order->update(['status' => $status]);
+        if (! $result['success'] || ! empty($result['repeat'])) {
+            unset($result['repeat']);
+
+            return $result;
+        }
+        $order = $result['order'];
         OrderTimeline::record($order, 'picked_up', 'Tài xế đã lấy hàng', $user->id);
 
         RTDBService::updateOrderStatus($order->code, $status);
-        RTDBService::pingOrderMarket((int) $order->city_id);
 
         $customer = User::find($order->sender_platform_id);
         if ($customer?->fcm_token) {
@@ -403,7 +442,6 @@ class OrderService
         Log::info("✅ Order #{$order->id} completed by driver #{$user->id}");
 
         RTDBService::clearOrder($order->code);
-        RTDBService::pingOrderMarket((int) $order->city_id);
         $customer = User::find($order->sender_platform_id);
         if ($customer?->fcm_token) {
             FCMService::getInstance()->sendOrderStatusUpdate($customer->fcm_token, $order->code, 'completed');
@@ -498,7 +536,7 @@ class OrderService
     private function buildDailyEarnings(int $driverId, Carbon $start, Carbon $end, int $days): array
     {
         $data = DB::table('orders')
-            ->selectRaw('DATE(completed_at) as date, SUM(shipping_fee) as shipping, SUM(bonus_fee) as bonus')
+            ->selectRaw('DATE(completed_at) as date, SUM(shipping_fee) as shipping, SUM(bonus_fee) as bonus, SUM('.$this->earningsSql($this->driverCityId($driverId)).') as earnings')
             ->where('delivery_man_id', $driverId)->where('status', 'completed')
             ->whereBetween('completed_at', [$start, $end])
             ->groupBy('date')->get()->keyBy('date');
@@ -509,13 +547,19 @@ class OrderService
             $row      = $data->get($day);
             $result[] = [
                 'date'     => $day,
-                'total'    => (float) (($row->shipping ?? 0) + ($row->bonus ?? 0)),
+                // total = đúng tiền vào ví (gồm bù voucher, freeship tổng đài, thưởng mưa).
+                'total'    => (float) ($row->earnings ?? 0),
                 'shipping' => (float) ($row->shipping ?? 0),
                 'bonus'    => (float) ($row->bonus ?? 0),
             ];
         }
 
         return $result;
+    }
+
+    private function driverCityId(int $driverId): ?int
+    {
+        return DB::table('users')->where('id', $driverId)->value('city_id');
     }
 
     public function getRecentOrders(int $driverId): array
@@ -545,7 +589,7 @@ class OrderService
         $row = Order::where('delivery_man_id', $driverId)
             ->where('status', 'completed')
             ->whereBetween('completed_at', [$start, $end])
-            ->selectRaw('COUNT(*) as orders, SUM(shipping_fee + bonus_fee) as total')
+            ->selectRaw('COUNT(*) as orders, SUM('.$this->earningsSql($this->driverCityId($driverId)).') as total')
             ->first();
 
         return [
