@@ -216,6 +216,20 @@ class DriverMapPage extends Page
         ];
     }
 
+    /**
+     * Firebase Rules chỉ cho token có claim admin đọc cả nhánh `locations` (vị trí mọi tài xế).
+     * Trang đã kiểm quyền OPERATIONS_VIEW ở canAccess(); token chỉ dùng để đăng nhập (hạn 1 giờ),
+     * sau đó Firebase tự gia hạn phiên trong trình duyệt.
+     *
+     * @return array{uid: string, token: ?string}
+     */
+    public function getFirebaseAuth(): array
+    {
+        $uid = 'admin_'.auth()->id();
+
+        return ['uid' => $uid, 'token' => \Modules\Core\Services\RTDBService::createCustomAuthToken($uid, ['admin' => true])];
+    }
+
     /** Gán tay tài xế cho đơn đang chờ ngay từ bản đồ. */
     public function assignAction(): Action
     {

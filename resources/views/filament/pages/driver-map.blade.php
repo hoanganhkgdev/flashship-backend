@@ -376,6 +376,7 @@
 (function () {
     var cfg = {
         firebase:    {!! json_encode($this->getFirebaseConfig()) !!},
+        firebaseAuth: {!! json_encode($this->getFirebaseAuth()) !!},
         driversMeta: {!! json_encode($driversMeta) !!},
         ordersMeta:  {!! json_encode($ordersMeta) !!},
         ordersTotal: {{ (int) $pendingTotal }},
@@ -879,7 +880,7 @@
         window.addEventListener('ordersUpdated', onOrders);
 
         if (!firebase.apps.length) firebase.initializeApp(cfg.firebase);
-        locRef = firebase.database().ref('locations');
+        var tornDown = false;
         locHandler = function (snap) {
             var raw = snap.val() || {}, next = {};
             Object.keys(raw).forEach(function (key) {
@@ -888,7 +889,18 @@
             });
             rtdbGps = next; scheduleRender();
         };
-        locRef.on('value', locHandler, function (err) { console.error('[DriverMap] Firebase read failed:', err); });
+        // Rules chỉ cho tài khoản admin đọc vị trí mọi tài xế: đăng nhập Firebase trước rồi mới nghe.
+        var startLocations = function () {
+            if (tornDown) return;
+            locRef = firebase.database().ref('locations');
+            locRef.on('value', locHandler, function (err) { console.error('[DriverMap] Firebase read failed:', err); });
+        };
+        var fbUser = firebase.auth().currentUser;
+        if (fbUser && fbUser.uid === cfg.firebaseAuth.uid) startLocations();
+        else if (cfg.firebaseAuth.token) {
+            firebase.auth().signInWithCustomToken(cfg.firebaseAuth.token).then(startLocations)
+                .catch(function (err) { console.error('[DriverMap] Firebase sign-in failed:', err); startLocations(); });
+        } else startLocations();
 
         renderMarkers(); renderOrderMarkers();
 
@@ -898,7 +910,8 @@
             window.removeEventListener('scroll', onPreviewScroll, true);
             window.removeEventListener('resize', hideOrderPreview);
             delete window._dmPreviewOrder; delete window._dmHideOrderPreview;
-            try { locRef.off('value', locHandler); } catch (e) {}
+            tornDown = true;
+            try { if (locRef) locRef.off('value', locHandler); } catch (e) {}
             window.removeEventListener('metaUpdated', onMeta);
             window.removeEventListener('ordersUpdated', onOrders);
             window.removeEventListener('resize', fitMapHeight);
@@ -909,18 +922,26 @@
     }
 
     function whenReady() {
-        if (window.firebase && firebase.database && window.google && window.google.maps) { init(); return; }
+        if (window.firebase && firebase.database && firebase.auth && window.google && window.google.maps) { init(); return; }
         setTimeout(whenReady, 100);
     }
     function loadScript(src, cb) {
         var s = document.createElement('script'); s.src = src; s.onload = cb; document.head.appendChild(s);
     }
-    if (window.firebase && firebase.database) whenReady();
-    else if (window._dmFirebaseLoading) whenReady();
+    var AUTH_JS = 'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js';
+    if (window.firebase && firebase.database && firebase.auth) whenReady();
+    else if (window._dmFirebaseLoading || window._dmAuthLoading) whenReady();
+    else if (window.firebase && firebase.database) {
+        // Tab đã nạp Firebase từ bản trang cũ (chưa có auth): nạp thêm auth.
+        window._dmAuthLoading = true;
+        loadScript(AUTH_JS, whenReady);
+    }
     else {
         window._dmFirebaseLoading = true;
         loadScript('https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js', function () {
-            loadScript('https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js', whenReady);
+            loadScript('https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js', function () {
+                loadScript(AUTH_JS, whenReady);
+            });
         });
     }
 })();
