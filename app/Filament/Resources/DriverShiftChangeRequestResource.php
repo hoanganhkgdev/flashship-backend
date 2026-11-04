@@ -30,7 +30,7 @@ class DriverShiftChangeRequestResource extends Resource
     // DriverShiftChangeRequest không có city_id trực tiếp — khu vực xác định qua driver_id -> users.city_id.
     public static function scopeEloquentQueryToTenant(Builder $query, ?Model $tenant): Builder
     {
-        return $query->whereHas('driver', fn ($q) => $q->where('city_id', $tenant?->id));
+        return $query->whereHas('driver', fn ($q) => $q->where('city_id', (int) $tenant?->id));
     }
 
     protected static ?string $model = DriverShiftChangeRequest::class;
@@ -73,7 +73,11 @@ class DriverShiftChangeRequestResource extends Resource
 
     public static function getEloquentQuery(): Builder
     {
-        return parent::getEloquentQuery()->with(['driver.city', 'driver.registeredShifts', 'processor']);
+        // recent_30d tính một lần cho cả trang (cờ "gửi nhiều lần"), thay vì một truy vấn đếm cho mỗi dòng.
+        return parent::getEloquentQuery()->with(['driver.city', 'driver.registeredShifts', 'processor'])
+            ->addSelect(['recent_30d' => DriverShiftChangeRequest::query()->from('driver_shift_change_requests as x')
+                ->selectRaw('COUNT(*)')->whereColumn('x.driver_id', 'driver_shift_change_requests.driver_id')
+                ->where('x.created_at', '>=', now()->subDays(30))]);
     }
 
     public static function shiftSummary(Collection $shifts): string
@@ -122,9 +126,23 @@ class DriverShiftChangeRequestResource extends Resource
                     return $line.($i['warn'] ? ' ⚠ '.$i['warn'] : '');
                 })->implode('; ');
 
-                return $r->driver?->name.' đổi từ '.self::shiftSummary($r->driver?->registeredShifts ?? collect()).' sang '.self::shiftSummary(ShiftChangeService::requestedShifts($r)).'. Tác động: '.$impact.'.';
+                $note = ShiftChangeService::canApproveNow($r)['note'];
+
+                return $r->driver?->name.' đổi từ '.self::shiftSummary($r->driver?->registeredShifts ?? collect()).' sang '.self::shiftSummary(ShiftChangeService::requestedShifts($r)).'. Tác động: '.$impact.'.'
+                    .($note ? ' ⓘ '.$note : '');
             })
             ->action(fn (DriverShiftChangeRequest $record) => self::notify(ShiftChangeService::approve($record, Auth::id())));
+    }
+
+    /** Từ chối nhanh yêu cầu không còn hợp lệ (tài xế khóa, ca đã tắt, đổi khu vực...), lý do điền sẵn và gửi cho tài xế. */
+    public static function rejectInvalidAction($action)
+    {
+        return $action->label('Từ chối vì không hợp lệ')->icon('heroicon-o-no-symbol')->color('danger')
+            ->visible(fn (DriverShiftChangeRequest $r) => $r->status === 'pending' && ShiftChangeService::invalidReason($r) !== null)
+            ->requiresConfirmation()
+            ->modalHeading('Từ chối yêu cầu không còn hợp lệ')
+            ->modalDescription(fn (DriverShiftChangeRequest $r) => 'Lý do gửi đến tài xế: "Yêu cầu không còn hợp lệ: '.ShiftChangeService::invalidReason($r).'".')
+            ->action(fn (DriverShiftChangeRequest $record) => self::notify(ShiftChangeService::reject($record, 'invalid', ShiftChangeService::invalidReason($record), Auth::id())));
     }
 
     public static function rejectAction($action)
@@ -163,8 +181,9 @@ class DriverShiftChangeRequestResource extends Resource
                     ->state(function (DriverShiftChangeRequest $r) {
                         $flags = collect(ShiftChangeService::flags($r))->map(fn ($f) => '<span class="fs-order-pill fs-order-pill--'.$f['level'].'">'.e($f['label']).'</span>');
                         $can = $r->status === 'pending' ? ShiftChangeService::canApproveNow($r) : null;
+                        $hint = $can ? ($can['ok'] ? ($can['note'] ?? $can['reason']) : 'Không hợp lệ: '.$can['reason']) : null;
 
-                        return $flags->implode(' ').($can ? '<br><small>'.e($can['reason']).'</small>' : '');
+                        return $flags->implode(' ').($hint ? '<br><small>'.e($hint).'</small>' : '');
                     }),
 
                 Tables\Columns\TextColumn::make('status')
@@ -200,9 +219,17 @@ class DriverShiftChangeRequestResource extends Resource
                 Tables\Actions\ActionGroup::make([
                     Tables\Actions\ViewAction::make()->label('Xem chi tiết')->icon('heroicon-o-eye'),
                     self::approveAction(Tables\Actions\Action::make('approve')),
+                    self::rejectInvalidAction(Tables\Actions\Action::make('reject_invalid')),
                     self::rejectAction(Tables\Actions\Action::make('reject')),
                 ])->icon('heroicon-m-ellipsis-horizontal')->label(''),
             ])
+            ->recordClasses(function (DriverShiftChangeRequest $r) {
+                if ($r->status !== 'pending') {
+                    return 'fs-chg-row--done';
+                }
+
+                return ShiftChangeService::canApproveNow($r)['ok'] ? 'fs-chg-row--ready' : 'fs-chg-row--invalid';
+            })
             ->recordUrl(fn (DriverShiftChangeRequest $record): string => static::getUrl('view', ['record' => $record]))
             ->defaultPaginationPageOption(25)
             ->paginationPageOptions([25, 50, 100]);

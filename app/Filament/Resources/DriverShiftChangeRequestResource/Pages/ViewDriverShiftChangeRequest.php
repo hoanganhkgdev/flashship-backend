@@ -22,7 +22,7 @@ class ViewDriverShiftChangeRequest extends ViewRecord
 
     public function getSubheading(): ?string
     {
-        return ($this->record->driver?->name ?? 'Tài xế').' · '.($this->record->driver?->phone ?? '—');
+        return null; // Tài xế đã nằm trong thẻ đầu trang.
     }
 
     protected function getHeaderActions(): array
@@ -31,6 +31,7 @@ class ViewDriverShiftChangeRequest extends ViewRecord
 
         return [
             DriverShiftChangeRequestResource::approveAction(Actions\Action::make('approve'))->after($refresh),
+            DriverShiftChangeRequestResource::rejectInvalidAction(Actions\Action::make('reject_invalid'))->after($refresh),
             DriverShiftChangeRequestResource::rejectAction(Actions\Action::make('reject'))->after($refresh),
             Actions\Action::make('driver')->label('Hồ sơ tài xế')->icon('heroicon-o-user')->color('gray')
                 ->url(DriverResource::getUrl('view', ['record' => $this->record->driver_id])),

@@ -18,6 +18,7 @@ class ShiftChangeService
         'no_capacity' => 'Ca đề nghị không còn đủ chỗ',
         'restricted' => 'Tài khoản đang bị hạn chế',
         'too_many' => 'Gửi yêu cầu quá nhiều lần',
+        'invalid' => 'Yêu cầu không còn hợp lệ',
         'other' => 'Lý do khác',
     ];
 
@@ -40,12 +41,21 @@ class ShiftChangeService
         return $b > $a ? ($m >= $a && $m < $b) : ($m >= $a || $m < $b);
     }
 
+    /** Ca đề nghị theo từng yêu cầu, nhớ trong một lần xử lý: một dòng bảng hỏi nhiều lần mà chỉ đọc DB một lần. */
+    private static array $requested = [];
+
     /** @return Collection<int, Shift> */
     public static function requestedShifts(DriverShiftChangeRequest $r): Collection
     {
         $ids = array_values(array_unique(array_map('intval', $r->shift_ids ?? [])));
+        $key = $r->id.':'.implode(',', $ids);
 
-        return Shift::whereIn('id', $ids)->get()->sortBy('start_time')->values();
+        return self::$requested[$key] ??= Shift::whereIn('id', $ids)->get()->sortBy('start_time')->values();
+    }
+
+    public static function forgetCache(): void
+    {
+        self::$requested = [];
     }
 
     private static function currentShifts(DriverShiftChangeRequest $r): Collection
@@ -80,45 +90,33 @@ class ShiftChangeService
             $shifts->contains(fn (Shift $s) => ! $s->is_active) => 'Có ca đã tắt',
             $shifts->contains(fn (Shift $s) => (int) $s->city_id !== (int) $driver->city_id) => 'Ca không thuộc khu vực tài xế',
             self::overlapAny($shifts) => 'Các ca đề nghị bị trùng giờ',
+            // Trùng đúng ca đang đăng ký: duyệt cũng không thay đổi gì.
+            self::currentShifts($r)->pluck('id')->sort()->values()->all() === $shifts->pluck('id')->sort()->values()->all() => 'Trùng đúng ca đang đăng ký',
             default => null,
         };
     }
 
-    /** Thời điểm sớm nhất (trong 24 giờ tới) mà cả ca cũ lẫn ca mới đều không đang diễn ra. */
-    public static function earliestApproval(DriverShiftChangeRequest $r): array
-    {
-        $now = now();
-        $all = self::currentShifts($r)->concat(self::requestedShifts($r));
-        $online = (bool) $r->driver?->is_online;
-
-        for ($i = 0; $i <= 1440; $i++) {
-            $t = $now->copy()->addMinutes($i)->startOfMinute();
-            if (! $all->contains(fn (Shift $s) => self::running($s, $t))) {
-                return ['at' => $i === 0 ? null : $t, 'now' => $i === 0 && ! $online, 'online' => $online];
-            }
-        }
-
-        return ['at' => null, 'now' => false, 'online' => $online];
-    }
-
-    /** Có duyệt được ngay bây giờ không (kèm lý do nếu không). */
+    /**
+     * Có duyệt được ngay không. Trước đây phải chờ cả ca cũ lẫn ca mới đều không chạy và tài xế offline: với lịch ca
+     * hiện tại chỉ còn 00:00–07:00 nên gần như không duyệt được. Phạt Offline giờ tính từ lúc tài xế được gán ca
+     * (ShiftOfflineService) và chấm điểm theo ca đã ngừng, nên đổi ca giữa chừng không còn tính sai gì.
+     *
+     * @return array{ok:bool,reason:string,note:?string}
+     */
     public static function canApproveNow(DriverShiftChangeRequest $r): array
     {
         if ($r->status !== 'pending') {
-            return ['ok' => false, 'reason' => 'Yêu cầu đã được xử lý'];
+            return ['ok' => false, 'reason' => 'Yêu cầu đã được xử lý', 'note' => null];
         }
         if ($why = self::invalidReason($r)) {
-            return ['ok' => false, 'reason' => $why];
+            return ['ok' => false, 'reason' => $why, 'note' => null];
         }
-        $e = self::earliestApproval($r);
-        if ($e['online']) {
-            return ['ok' => false, 'reason' => 'Tài xế đang online, chờ tài xế offline'];
-        }
-        if (! $e['now']) {
-            return ['ok' => false, 'reason' => $e['at'] ? 'Duyệt được từ '.$e['at']->format('H:i').($e['at']->isTomorrow() ? ' ngày mai' : '') : 'Chưa có thời điểm phù hợp trong 24 giờ tới'];
-        }
+        $running = self::requestedShifts($r)->filter(fn (Shift $s) => self::running($s, now()));
+        $added = $running->reject(fn (Shift $s) => self::currentShifts($r)->contains('id', $s->id));
 
-        return ['ok' => true, 'reason' => 'Có thể duyệt ngay'];
+        return ['ok' => true, 'reason' => 'Có thể duyệt ngay', 'note' => $added->isNotEmpty()
+            ? 'Ca '.$added->pluck('name')->implode(', ').' đang chạy: thời gian vắng của tài xế trong ca được tính từ lúc duyệt.'
+            : null];
     }
 
     /** @return array<int, array{key:string,label:string,level:string}> */
@@ -134,7 +132,8 @@ class ShiftChangeService
         if ($cur && $cur === $req) {
             $flags[] = ['key' => 'same', 'label' => 'Trùng ca đang đăng ký', 'level' => 'warning'];
         }
-        $recent = DriverShiftChangeRequest::where('driver_id', $r->driver_id)->where('created_at', '>=', now()->subDays(30))->count();
+        // Bảng đã tính sẵn recent_30d cho cả trang (DriverShiftChangeRequestResource::getEloquentQuery).
+        $recent = $r->recent_30d ?? DriverShiftChangeRequest::where('driver_id', $r->driver_id)->where('created_at', '>=', now()->subDays(30))->count();
         if ($recent >= self::FREQUENT_AT) {
             $flags[] = ['key' => 'frequent', 'label' => 'Gửi '.$recent.' yêu cầu/30 ngày', 'level' => 'warning'];
         }
@@ -183,12 +182,9 @@ class ShiftChangeService
             }
             $locked->load(['driver' => fn ($q) => $q->lockForUpdate(), 'driver.registeredShifts']);
 
+            self::forgetCache();
             if (self::invalidReason($locked)) {
                 return 'invalid';
-            }
-            $e = self::earliestApproval($locked);
-            if ($e['online'] || ! $e['now']) {
-                return 'active_shift';
             }
 
             $ids = self::requestedShifts($locked)->pluck('id')->all();
@@ -201,7 +197,6 @@ class ShiftChangeService
         if ($result !== 'approved') {
             return ['ok' => false, 'message' => match ($result) {
                 'handled' => 'Yêu cầu đã được người khác xử lý.',
-                'active_shift' => 'Chưa đổi được: tài xế đang online hoặc ca cũ/ca mới đang diễn ra.',
                 default => 'Yêu cầu không còn hợp lệ (tài xế khóa, ca đã tắt, trùng giờ...).',
             }];
         }
@@ -257,11 +252,12 @@ class ShiftChangeService
 
     public static function summary(?int $cityId): array
     {
+        // Không có khu vực thì không có yêu cầu nào, không bao giờ là "mọi khu vực".
         $base = fn () => DB::table('driver_shift_change_requests as r')->join('users as u', 'u.id', '=', 'r.driver_id')
-            ->when($cityId, fn ($q) => $q->where('u.city_id', $cityId));
+            ->where('u.city_id', (int) $cityId);
 
         $pending = DriverShiftChangeRequest::with(['driver.registeredShifts', 'driver.city'])->where('status', 'pending')
-            ->whereHas('driver', fn ($q) => $q->when($cityId, fn ($d) => $d->where('city_id', $cityId)))->orderBy('created_at')->get();
+            ->whereHas('driver', fn ($q) => $q->where('city_id', (int) $cityId))->orderBy('created_at')->get();
 
         $done = $base()->where('r.processed_at', '>=', now()->subDays(30))->selectRaw("SUM(r.status='approved') a, SUM(r.status='rejected') x")->first();
         $processed = (int) $done->a + (int) $done->x;
@@ -272,6 +268,7 @@ class ShiftChangeService
             'stale' => $pending->filter(fn ($r) => $r->created_at->diffInHours(now()) >= self::STALE_HOURS)->count(),
             'approvableNow' => $pending->filter(fn ($r) => self::canApproveNow($r)['ok'])->count(),
             'locked' => $pending->filter(fn ($r) => (int) $r->driver?->status !== 1)->count(),
+            'invalid' => $pending->filter(fn ($r) => self::invalidReason($r) !== null)->count(),
             'approveRate' => $processed ? (int) round($done->a / $processed * 100) : null,
             'processed' => $processed,
         ];

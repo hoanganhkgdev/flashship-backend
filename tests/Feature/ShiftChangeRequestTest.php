@@ -88,16 +88,24 @@ class ShiftChangeRequestTest extends TestCase
         $this->assertFalse(ShiftChangeService::approve($r->fresh(), $this->admin->id)['ok'], 'không duyệt lần hai');
     }
 
-    public function test_cannot_approve_while_old_or_new_shift_is_running_and_reports_when_it_can(): void
+    public function test_can_approve_during_a_running_shift_and_offline_time_counts_from_approval(): void
     {
-        $r = $this->request([$this->evening], null, [$this->morning]);
+        // Trước đây phải chờ tới 00:00–07:00 và tài xế offline mới duyệt được.
+        $r = $this->request([$this->morning, $this->evening], null, [$this->morning]);
+        DB::table('users')->where('id', $r->driver_id)->update(['is_online' => true]);
+        Carbon::setTestNow(Carbon::today()->setTime(19, 0)); // ca tối (ca mới) đang chạy
 
-        Carbon::setTestNow(Carbon::today()->setTime(9, 0)); // ca sáng (ca cũ) đang chạy
-        $can = ShiftChangeService::canApproveNow($r);
-        $this->assertFalse($can['ok']);
-        $this->assertStringContainsString('13:00', $can['reason']);
-        $this->assertFalse(ShiftChangeService::approve($r, $this->admin->id)['ok']);
-        $this->assertSame('pending', $r->fresh()->status);
+        $can = ShiftChangeService::canApproveNow($r->fresh()->load('driver.registeredShifts'));
+        $this->assertTrue($can['ok']);
+        $this->assertStringContainsString('tính từ lúc duyệt', (string) $can['note']);
+
+        $this->assertTrue(ShiftChangeService::approve($r, $this->admin->id)['ok']);
+        $registered = DB::table('shift_user')->where('user_id', $r->driver_id)->where('shift_id', $this->evening->id)->value('created_at');
+        $this->assertSame(now()->toDateTimeString(), Carbon::parse($registered)->toDateTimeString(), 'ca mới được tính từ lúc duyệt');
+
+        $driver = User::find($r->driver_id);
+        $status = app(\Modules\Driver\Services\ShiftOfflineService::class)->status($driver, now()->addMinutes(20));
+        $this->assertLessThanOrEqual(20 * 60, $status['offline_seconds'], 'không tính vắng từ 18:00');
     }
 
     public function test_locked_driver_requests_cannot_be_approved_and_are_flagged(): void
@@ -170,5 +178,37 @@ class ShiftChangeRequestTest extends TestCase
         Livewire::test(ListDriverShiftChangeRequests::class)
             ->callTableAction('approve', $r)->assertHasNoTableActionErrors();
         $this->assertSame('approved', $r->fresh()->status);
+    }
+
+    public function test_requests_identical_to_current_shifts_are_invalid_and_can_be_rejected_quickly(): void
+    {
+        $same = $this->request([$this->morning], null, [$this->morning]);
+        $this->assertSame('Trùng đúng ca đang đăng ký', ShiftChangeService::invalidReason($same));
+        $this->assertFalse(ShiftChangeService::canApproveNow($same)['ok']);
+
+        $this->evening->update(['is_active' => false]);
+        $off = $this->request([$this->evening]);
+        Livewire::test(ListDriverShiftChangeRequests::class)
+            ->assertTableActionVisible('reject_invalid', $off)
+            ->callTableAction('reject_invalid', $off);
+        $off->refresh();
+        $this->assertSame('rejected', $off->status);
+        $this->assertSame('invalid', $off->reject_reason);
+        $this->assertStringContainsString('Có ca đã tắt', $off->admin_note);
+
+        $ok = $this->request([$this->afternoon], null, [$this->morning]);
+        Livewire::test(ListDriverShiftChangeRequests::class)->assertTableActionHidden('reject_invalid', $ok);
+    }
+
+    public function test_summary_is_scoped_to_the_city_and_counts_invalid_requests(): void
+    {
+        $this->request([$this->evening], $this->user('driver', 2));
+        $this->request([$this->evening]);
+
+        $s = ShiftChangeService::summary($this->city->id);
+        $this->assertSame(2, $s['pending']);
+        $this->assertSame(1, $s['invalid']);
+        $this->assertSame(1, $s['approvableNow']);
+        $this->assertSame(0, ShiftChangeService::summary(null)['pending']);
     }
 }
