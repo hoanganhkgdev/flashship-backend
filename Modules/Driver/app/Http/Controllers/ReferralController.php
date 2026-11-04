@@ -26,8 +26,10 @@ class ReferralController extends Controller
                 'code' => $driver->referral_code,
                 'reward_amount' => OperationalSettings::referralRewardAmount($driver->city_id),
                 'required_orders' => OperationalSettings::referralMinOrders($driver->city_id),
-                'total_referred' => $referrals->count(),
-                'total_rewarded' => (int) $referrals->where('status', DriverReferral::REWARDED)->sum('reward_amount'),
+                // Tổng tính trên TOÀN BỘ lượt giới thiệu (danh sách bên dưới chỉ hiện 100 lượt mới nhất).
+                'total_referred' => DriverReferral::where('driver_id', $driver->id)->count(),
+                'total_rewarded' => (int) DriverReferral::where('driver_id', $driver->id)
+                    ->where('status', DriverReferral::REWARDED)->sum('reward_amount'),
                 'shops' => $referrals->map(fn (DriverReferral $r) => [
                     'shop_name' => $r->shop?->name,
                     'status' => $r->status,
