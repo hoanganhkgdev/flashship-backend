@@ -58,6 +58,12 @@ class ListDrivers extends ListRecords
                 ->modifyQueryUsing(fn ($query) => $query->where('status', 2))
                 ->badge($count(2) ?: null)
                 ->badgeColor('danger'),
+            // Tài xế tự yêu cầu xoá trong app (bắt buộc theo Google Play / App Store): cần admin xử lý.
+            'delete_requested' => Tab::make('Yêu cầu xoá')
+                ->icon('heroicon-m-user-minus')
+                ->modifyQueryUsing(fn ($query) => $query->whereNotNull('delete_requested_at')->orderBy('delete_requested_at'))
+                ->badge(User::where('user_type', 'driver')->where('city_id', Filament::getTenant()?->id)->whereNotNull('delete_requested_at')->count() ?: null)
+                ->badgeColor('danger'),
         ];
     }
 }

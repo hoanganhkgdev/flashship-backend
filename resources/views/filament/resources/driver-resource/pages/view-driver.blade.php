@@ -30,6 +30,17 @@
     @endphp
 
     <div class="fs-drv">
+        @if ($driver->delete_requested_at)
+            @php $deleteBlockers = app(\App\Services\DriverAccountService::class)->deleteBlockers($driver); @endphp
+            <div class="fs-drv__notice is-red" role="status">
+                <x-heroicon-o-user-minus />
+                <span>
+                    <b>Tài xế yêu cầu xoá tài khoản từ {{ $driver->delete_requested_at->format('H:i d/m/Y') }}</b> ({{ $driver->delete_requested_at->diffForHumans() }}).
+                    {{ $deleteBlockers ? 'Chưa xoá được: tài xế '.implode(', ', $deleteBlockers).'.' : 'Không còn vướng gì: có thể xoá tài khoản (nút Xoá ở góc trên).' }}
+                    Tài xế có thể tự huỷ yêu cầu trong app.
+                </span>
+            </div>
+        @endif
         @if ($approval)
             <div class="fs-drv__notice" role="status">
                 <x-heroicon-o-clock />

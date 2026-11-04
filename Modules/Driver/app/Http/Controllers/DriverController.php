@@ -49,7 +49,11 @@ class DriverController extends Controller
         $data['cccd_image_status']            = $cccd?->status;
         $data['cccd_image_url']               = \App\Support\KycFile::url($cccd?->image_path);
         $data['cccd_image_rejection_reason']  = $cccd?->status === 'rejected' ? $cccd->rejection_reason : null;
-        $data['name_locked']          = (bool) $user->name_updated_at;
+        $kycApproved = $user->driverCccdImages->contains(fn ($c) => $c->status === DriverCccdImage::STATUS_APPROVED);
+        $data['name_locked']          = (bool) $user->name_updated_at || $kycApproved;
+        $data['name_locked_reason']   = $kycApproved
+            ? 'CCCD đã xác minh, muốn sửa tên vui lòng liên hệ tổng đài.'
+            : ($user->name_updated_at ? 'Tên chỉ được thay đổi một lần.' : null);
         // App khoá nút nhận đơn khi đang chạy đủ số đơn tối đa của khu vực.
         $data['max_active_orders']    = \Modules\Core\Services\OperationalSettings::maxActiveOrdersPerDriver($user->city_id);
         $avatarCooldown               = $user->avatar_updated_at && $user->avatar_updated_at->diffInDays(now()) < 30;
@@ -222,24 +226,12 @@ class DriverController extends Controller
      * Endpoint này chỉ còn giữ lại để không phá app cũ đang gọi, và lưu log
      * đối chiếu.
      */
+    /**
+     * API cũ (vị trí giờ ghi thẳng Firebase). Không còn app nào gọi; giữ trả thành công cho bản app rất cũ
+     * nhưng không ghi gì — trước đây nhận toạ độ tuỳ ý và ghi vào log vị trí.
+     */
     public function updateLocation(Request $request): JsonResponse
     {
-        $data = $request->validate([
-            'latitude'  => 'required|numeric',
-            'longitude' => 'required|numeric',
-            'bearing'   => 'nullable|numeric',
-        ]);
-
-        $driver = $request->user();
-
-        DriverLocationLog::create([
-            'driver_id' => $driver->id,
-            'latitude'  => $data['latitude'],
-            'longitude' => $data['longitude'],
-            'bearing'   => $data['bearing'] ?? $driver->bearing,
-            'source'    => 'api',
-        ]);
-
         return response()->json(['success' => true]);
     }
 
@@ -309,8 +301,14 @@ class DriverController extends Controller
             DB::transaction(function () use ($user, &$data, &$oldAvatar) {
                 $locked = User::whereKey($user->id)->lockForUpdate()->firstOrFail();
                 if (isset($data['name']) && $data['name'] !== $locked->name) {
+                    // Tên đã đối chiếu CCCD (và dùng để so tên chủ tài khoản khi rút tiền): CCCD duyệt rồi thì chỉ
+                    // tổng đài sửa được, tài xế không tự đổi.
+                    if (DriverCccdImage::where('user_id', $locked->id)->where('status', DriverCccdImage::STATUS_APPROVED)->exists()) {
+                        abort(response()->json(['success' => false, 'code' => 'name_locked_kyc', 'message' => 'CCCD đã được xác minh nên không tự đổi tên được. Vui lòng liên hệ tổng đài.'], 403));
+                    }
                     if ($locked->name_updated_at) abort(response()->json(['success' => false, 'message' => 'Tên chỉ được thay đổi một lần.'], 403));
                     $data['name_updated_at'] = now();
+                    \App\Models\DriverStatusLog::create(['driver_id' => $locked->id, 'action' => 'name_change', 'reason' => $locked->name.' → '.$data['name'], 'performed_by' => $locked->id, 'created_at' => now()]);
                 } else {
                     unset($data['name']);
                 }
@@ -460,6 +458,8 @@ class DriverController extends Controller
                         'image_path' => $path,
                         'status' => DriverLicense::STATUS_PENDING,
                         'rejection_reason' => null,
+                        'reviewed_by' => null,
+                        'reviewed_at' => null,
                     ]);
                     DriverLicense::where('user_id', $user->id)
                         ->where('id', '!=', $document->id)
@@ -512,6 +512,9 @@ class DriverController extends Controller
                         'image_path' => $path,
                         'status' => DriverCccdImage::STATUS_PENDING,
                         'rejection_reason' => null,
+                        // Hồ sơ mới chưa ai duyệt — không giữ người/giờ duyệt của lần trước.
+                        'reviewed_by' => null,
+                        'reviewed_at' => null,
                     ]);
                     DriverCccdImage::where('user_id', $user->id)
                         ->where('id', '!=', $document->id)
@@ -819,6 +822,8 @@ class DriverController extends Controller
         }
 
         RTDBService::removeDriverLocation($user->id);
+        \App\Models\DriverStatusLog::create(['driver_id' => $user->id, 'action' => 'delete_req', 'performed_by' => $user->id, 'created_at' => now()]);
+        app(\App\Services\DriverAccountService::class)->notifyAdminsDeleteRequest($user->fresh());
 
         return response()->json(['success' => true, 'message' => 'Đã gửi yêu cầu xóa tài khoản. Bạn có thể hủy yêu cầu trong thời gian chờ xử lý.']);
     }
@@ -833,6 +838,7 @@ class DriverController extends Controller
             return true;
         });
         if (!$cancelled) return response()->json(['success' => false, 'message' => 'Không có yêu cầu xóa tài khoản'], 422);
+        \App\Models\DriverStatusLog::create(['driver_id' => $user->id, 'action' => 'delete_undo', 'performed_by' => $user->id, 'created_at' => now()]);
         return response()->json(['success' => true, 'message' => 'Đã hủy yêu cầu xóa tài khoản']);
     }
 

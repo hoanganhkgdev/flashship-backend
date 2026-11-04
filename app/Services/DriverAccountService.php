@@ -205,6 +205,32 @@ class DriverAccountService
         }
     }
 
+    /**
+     * Báo admin (chuông thông báo trong trang quản trị) khi tài xế yêu cầu xoá tài khoản — trước đây yêu cầu chỉ
+     * được ghi vào DB, không trang nào hiển thị nên không ai xử lý.
+     */
+    public function notifyAdminsDeleteRequest(User $driver): void
+    {
+        try {
+            $city = $driver->city;
+            $admins = User::whereIn('user_type', \App\Support\AdminAccess::adminTypes())->where('status', 1)->get()
+                ->filter(fn (User $u) => \App\Support\AdminAccess::allows($u, \App\Support\AdminAccess::OPERATIONS_MANAGE)
+                    && (! $city || $u->canAccessTenant($city)));
+            if ($admins->isEmpty()) {
+                return;
+            }
+            $url = $city ? \App\Filament\Resources\DriverResource::getUrl('view', ['record' => $driver->id], tenant: $city) : null;
+            \Filament\Notifications\Notification::make()
+                ->title('Yêu cầu xoá tài khoản: '.$driver->name)
+                ->body(($driver->phone ?? '').($city ? ' · '.$city->name : '').'. Kiểm tra và xoá hoặc liên hệ tài xế.')
+                ->icon('heroicon-o-user-minus')->warning()
+                ->actions($url ? [\Filament\Notifications\Actions\Action::make('view')->label('Mở hồ sơ')->url($url)] : [])
+                ->sendToDatabase($admins);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('[DriverAccount] notify delete request failed', ['driver' => $driver->id, 'error' => $e->getMessage()]);
+        }
+    }
+
     /** Có được xóa hẳn không? Tài xế đã có đơn, ví hoặc công nợ thì chỉ nên khóa để giữ lịch sử tài chính. */
     public function hasHistory(User $driver): bool
     {

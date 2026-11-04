@@ -50,6 +50,12 @@ final class AdminAccess
         return in_array('*', $grants, true) || in_array($permission, $grants, true);
     }
 
+    /** @return list<string> các user_type là tài khoản quản trị */
+    public static function adminTypes(): array
+    {
+        return array_keys(self::MATRIX);
+    }
+
     public static function isAdminType(?User $user): bool
     {
         return $user !== null && array_key_exists($user->user_type, self::MATRIX);
