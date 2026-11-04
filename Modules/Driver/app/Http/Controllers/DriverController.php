@@ -402,23 +402,31 @@ class DriverController extends Controller
             'bank_code'      => ['required', 'string', 'max:50', Rule::exists('bank_lists', 'code')->where('is_active', true)],
             'account_number' => ['required', 'string', 'max:50', 'regex:/^[0-9]+$/'],
             'account_name'   => 'required|string|max:255',
+            // App mới luôn gửi mật khẩu hiện tại (người cầm máy đang đăng nhập không đổi được STK để rút tiền).
+            // Bản app cũ chưa gửi: vẫn cho đổi, nhưng mọi lần đổi đều được ghi lịch sử + báo tài xế + cảnh báo khi duyệt rút.
+            'password'       => 'sometimes|required|string',
         ]);
 
         $user = $request->user();
+        if (array_key_exists('password', $data) && ! \Illuminate\Support\Facades\Hash::check($data['password'], $user->password)) {
+            return response()->json(['success' => false, 'code' => 'wrong_password', 'message' => 'Mật khẩu không đúng.'], 422);
+        }
+
         $bankName = DB::table('bank_lists')->where('code', $data['bank_code'])->value('name');
-        DB::transaction(function () use ($user, $data, $bankName) {
+        $new = [
+            'bank_code' => $data['bank_code'],
+            'bank_name' => $bankName,
+            'account_number' => $data['account_number'],
+            'account_name' => mb_strtoupper(trim($data['account_name'])),
+        ];
+        $old = null;
+        DB::transaction(function () use ($user, $new, &$old) {
             User::whereKey($user->id)->lockForUpdate()->firstOrFail();
-            Bank::updateOrCreate(
-                ['user_id' => $user->id],
-                [
-                    'user_id' => $user->id,
-                    'bank_code' => $data['bank_code'],
-                    'bank_name' => $bankName,
-                    'account_number' => $data['account_number'],
-                    'account_name' => mb_strtoupper(trim($data['account_name'])),
-                ],
-            );
+            $current = Bank::where('user_id', $user->id)->lockForUpdate()->first();
+            $old = $current?->only(['bank_code', 'bank_name', 'account_number', 'account_name']);
+            Bank::updateOrCreate(['user_id' => $user->id], ['user_id' => $user->id] + $new);
         });
+        \App\Services\DriverBankService::recordChange($user->id, $old, $new, $user->id);
 
         return response()->json(['success' => true, 'message' => 'Cập nhật tài khoản ngân hàng thành công']);
     }

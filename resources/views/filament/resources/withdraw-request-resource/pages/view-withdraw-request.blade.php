@@ -17,6 +17,7 @@
         $methods = ['payos' => 'PayOS', 'manual' => 'Chuyển khoản tay', 'cash' => 'Tiền mặt'];
         $overdue = $driver ? \Modules\Driver\Services\DriverWalletService::overdueDebt($driver) : 0;
         $balance = (float) ($driver?->wallet?->balance ?? 0);
+        $bankChangedAt = \App\Services\DriverBankService::changedBefore($r);
     @endphp
 
     <div class="fs-wd">
@@ -25,11 +26,12 @@
                 <x-heroicon-o-arrow-path />
                 <span><b>{{ $stateLabel }}</b> (lệnh {{ $r->payout_reference }}). PayOS có thể đã chuyển tiền nên không chuyển tay hay từ chối cho tới khi có kết quả. Hệ thống tự kiểm tra mỗi 5 phút, hoặc bấm "Kiểm tra PayOS".</span>
             </div>
-        @elseif ($r->status === 'pending' && ($mismatch || $stale || (int) $driver?->status !== 1 || $r->last_payout_error))
-            <div @class(['fs-wd__notice', 'is-red' => $mismatch || (int) $driver?->status !== 1]) role="status">
+        @elseif ($r->status === 'pending' && ($mismatch || $stale || (int) $driver?->status !== 1 || $r->last_payout_error || $bankChangedAt))
+            <div @class(['fs-wd__notice', 'is-red' => $mismatch || (int) $driver?->status !== 1 || $bankChangedAt]) role="status">
                 <x-heroicon-o-exclamation-triangle />
                 <span>
                     @if ($stale)<b>{{ $res::waitLabel($r) }} — đã quá hạn.</b>@endif
+                    @if ($bankChangedAt)<b>Số tài khoản vừa đổi lúc {{ $bankChangedAt->format('H:i d/m') }}</b>, {{ $bankChangedAt->diffForHumans($r->created_at, true) }} trước khi tạo yêu cầu. Gọi xác nhận với tài xế trước khi chuyển. @endif
                     @if ($mismatch) Tên chủ tài khoản ({{ $r->account_name }}) không khớp tên tài xế ({{ $driver?->name }}). @endif
                     @if ((int) $driver?->status !== 1) Tài khoản tài xế đang tạm ngưng: không chuyển tự động được. @endif
                     @if ($r->last_payout_error) Lần gửi PayOS gần nhất ({{ $r->last_payout_attempt_at?->format('H:i d/m') }}) không thành công: {{ $r->last_payout_error }} @endif

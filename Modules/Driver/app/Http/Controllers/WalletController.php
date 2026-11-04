@@ -28,6 +28,13 @@ class WalletController extends Controller
                 // Giới hạn mỗi lần rút, để app kiểm tra trước khi gửi (khớp validate ở withdraw()).
                 'min_withdraw' => \Modules\Core\Services\OperationalSettings::minWithdrawAmount($user->city_id),
                 'max_withdraw' => DriverWalletService::MAX_WITHDRAW,
+                // Tài khoản nhận tiền rút — app ví không phải gọi thêm /driver/profile chỉ để lấy phần này.
+                'bank' => ($bank = \Modules\Driver\Models\Bank::where('user_id', $user->id)->first()) ? [
+                    'bank_code' => $bank->bank_code,
+                    'bank_name' => $bank->bank_name,
+                    'account_number' => $bank->account_number,
+                    'account_name' => $bank->account_name,
+                ] : null,
             ],
         ]);
     }
@@ -131,7 +138,13 @@ class WalletController extends Controller
             // Số dư thật (đọc có khoá trong adjust()) không đủ — vd 2 request
             // rút tiền gần như đồng thời, request thứ 2 chỉ phát hiện ra khi
             // đã khoá được dòng ví, sau khi request thứ 1 đã trừ tiền xong.
-            return response()->json(['success' => false, 'message' => 'Số dư không đủ'], 400);
+            if (str_starts_with($e->getMessage(), 'Số dư không đủ')) {
+                return response()->json(['success' => false, 'code' => 'insufficient_balance', 'message' => 'Số dư không đủ'], 400);
+            }
+            // Lỗi khác (DB, hệ thống): không báo nhầm "số dư không đủ"; transaction đã rollback, chưa trừ tiền.
+            report($e);
+
+            return response()->json(['success' => false, 'message' => 'Hệ thống đang bận, chưa tạo được yêu cầu rút. Vui lòng thử lại.'], 500);
         }
 
         return response()->json(['success' => true, 'message' => 'Yêu cầu rút tiền đã được gửi']);
@@ -139,7 +152,27 @@ class WalletController extends Controller
 
     public function withdrawRequests(Request $request): JsonResponse
     {
-        $requests = WithdrawRequest::where('driver_id', $request->user()->id)->latest()->paginate(20);
-        return response()->json(['success' => true, 'data' => $requests->items(), 'meta' => ['has_more' => $requests->hasMorePages()]]);
+        $requests = WithdrawRequest::where('driver_id', $request->user()->id)->latest()->latest('id')->paginate(20);
+
+        // Chỉ những gì tài xế cần biết; không trả trường nội bộ (mã lệnh PayOS, người duyệt, lỗi chuyển khoản...).
+        return response()->json([
+            'success' => true,
+            'data' => collect($requests->items())->map(fn (WithdrawRequest $r) => [
+                'id' => $r->id,
+                'amount' => (int) $r->amount,
+                'status' => $r->status,
+                // Đang chuyển qua PayOS: vẫn là pending nhưng tài xế nên biết tiền đang trên đường.
+                'in_progress' => $r->status === 'pending' && \App\Services\WithdrawService::payosInFlight($r),
+                'bank_name' => $r->bank_name,
+                'account_number' => \App\Services\DriverBankService::mask($r->account_number),
+                // admin_note = nhãn lý do + ghi chú của admin (reject_reason chỉ là mã).
+                'reject_reason' => $r->status === 'rejected'
+                    ? ($r->admin_note ?: (\App\Services\WithdrawService::REJECT_REASONS[$r->reject_reason] ?? null))
+                    : null,
+                'created_at' => $r->created_at?->toIso8601String(),
+                'processed_at' => $r->processed_at?->toIso8601String(),
+            ])->values(),
+            'meta' => ['has_more' => $requests->hasMorePages()],
+        ]);
     }
 }

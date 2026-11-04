@@ -128,6 +128,7 @@ class WithdrawRequestResource extends Resource
                 return 'Chuyển '.self::money($r->amount).' cho '.$r->driver?->name.' → '.$bank.'. Ví hiện tại '.self::money($r->driver?->wallet?->balance ?? 0).'.'
                     .($balance !== null ? ' Tài khoản chi PayOS còn '.self::money($balance).'.' : '')
                     .(self::nameMismatch($r) ? ' ⚠ Tên chủ tài khoản KHÔNG khớp tên tài xế, hãy kiểm tra kỹ.' : '')
+                    .(($at = \App\Services\DriverBankService::changedBefore($r)) ? ' ⚠ Số tài khoản vừa đổi lúc '.$at->format('H:i d/m').', hãy gọi xác nhận với tài xế.' : '')
                     .(WithdrawService::payosInFlight($r) ? ' ⚠ Lần gửi PayOS trước chưa rõ kết quả: chỉ được gửi lại qua PayOS (cùng mã lệnh, không chuyển hai lần).' : '');
             })
             ->form(function (WithdrawRequest $r) {
@@ -216,8 +217,12 @@ class WithdrawRequestResource extends Resource
                     ->label('Tài khoản nhận')
                     ->placeholder('Chưa có ngân hàng')
                     ->searchable(['bank_name', 'account_number', 'account_name'])
-                    ->description(fn (WithdrawRequest $r) => collect([$r->account_number, $r->account_name ? ($r->account_name.(self::nameMismatch($r) ? ' ⚠ tên lệch' : '')) : null])->filter()->join(' · '))
-                    ->color(fn (WithdrawRequest $r) => self::nameMismatch($r) ? 'warning' : null),
+                    ->description(fn (WithdrawRequest $r) => collect([
+                        $r->account_number,
+                        $r->account_name ? ($r->account_name.(self::nameMismatch($r) ? ' ⚠ tên lệch' : '')) : null,
+                        $r->status === 'pending' && \App\Services\DriverBankService::changedBefore($r) ? '⚠ STK mới đổi' : null,
+                    ])->filter()->join(' · '))
+                    ->color(fn (WithdrawRequest $r) => self::nameMismatch($r) || ($r->status === 'pending' && \App\Services\DriverBankService::changedBefore($r)) ? 'warning' : null),
 
                 Tables\Columns\TextColumn::make('status')
                     ->label('Trạng thái')
