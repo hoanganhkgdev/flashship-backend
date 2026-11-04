@@ -24,7 +24,7 @@ class ViewDriverLeaveRequest extends ViewRecord
 
     public function getSubheading(): ?string
     {
-        return ($this->record->driver?->name ?? 'Tài xế').' · '.($this->record->driver?->phone ?? '—');
+        return null; // Tài xế đã nằm trong thẻ đầu trang.
     }
 
     protected function getHeaderActions(): array
@@ -55,11 +55,13 @@ class ViewDriverLeaveRequest extends ViewRecord
             'ordersBefore' => (clone $orders)->where('completed_at', '<=', $l->created_at)->count(),
             'history' => DriverLeaveRequest::where('driver_id', $l->driver_id)->where('leave_date', '>=', today()->subDays(90))->orderByDesc('leave_date')->get(),
             'logs' => $logs->map(fn ($g) => [
+                'action' => $g->action,
                 'label' => match ($g->action) {
                     'requested' => 'Tài xế xin nghỉ',
                     'approved' => 'Duyệt nghỉ',
                     'rejected' => 'Từ chối',
-                    'cancelled' => 'Hủy phiếu nghỉ',
+                    'cancelled' => 'Hủy ngày nghỉ',
+                    'withdrawn' => 'Rút yêu cầu nghỉ',
                     default => 'Ghi nhận nghỉ',
                 },
                 'who' => $g->performed_by ? ($names[$g->performed_by] ?? 'Quản trị viên') : 'Hệ thống',

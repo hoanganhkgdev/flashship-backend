@@ -20,7 +20,7 @@ use Modules\Order\Models\Order;
  *
  * Admin ghi nghỉ → có hiệu lực ngay. Tài xế tự xin trên app → `pending`, chỉ
  * có hiệu lực khi admin duyệt; bị từ chối thì tài xế vẫn phải đi làm theo ca.
- * Mọi nơi chặn online/nhận đơn/miễn chấm ca chỉ tính phiếu `approved`.
+ * Mọi nơi chặn online/nhận đơn/miễn phạt Offline chỉ tính phiếu `approved`.
  */
 class DriverLeaveService
 {
@@ -66,6 +66,17 @@ class DriverLeaveService
             for ($i = 0; $i < $days; $i++) {
                 $date = $from->copy()->addDays($i);
                 $existing = DriverLeaveRequest::where('driver_id', $driverId)->whereDate('leave_date', $date)->lockForUpdate()->first();
+                // Admin ghi nhận ngày tài xế đã tự xin (đang chờ): duyệt luôn phiếu đó. Trước đây bị bỏ qua kèm câu
+                // "đã được ghi nhận nghỉ" trong khi phiếu vẫn chờ, tài xế vẫn phải đi làm.
+                if ($existing && $existing->isPending() && $status === DriverLeaveRequest::APPROVED) {
+                    $existing->update(['status' => DriverLeaveRequest::APPROVED, 'reviewed_by' => $by, 'reviewed_at' => now(), 'reject_reason' => null]);
+                    DriverLeaveLog::create(['driver_id' => $driverId, 'leave_date' => $date->toDateString(), 'action' => 'approved', 'performed_by' => $by, 'note' => trim($note)]);
+                    $first ??= $existing;
+                    $todayCreated = $todayCreated || $date->isToday();
+                    $created++;
+
+                    continue;
+                }
                 // Phiếu bị từ chối được xin lại/ghi lại trên chính bản ghi cũ (khóa unique driver_id + leave_date).
                 if ($existing && ! $existing->isRejected()) {
                     $skipped++;
@@ -153,7 +164,7 @@ class DriverLeaveService
         return ['ok' => true, 'message' => 'Đã duyệt nghỉ ngày '.$leave->leave_date->format('d/m').'.'];
     }
 
-    /** Từ chối yêu cầu nghỉ: tài xế vẫn phải đi làm, ca vẫn chấm điểm bình thường. */
+    /** Từ chối yêu cầu nghỉ: tài xế vẫn phải đi làm, vẫn bị tính phạt Offline như thường. */
     public static function reject(DriverLeaveRequest $leave, string $reason, ?int $by): array
     {
         if (mb_strlen(trim($reason)) < 3) {
@@ -196,8 +207,10 @@ class DriverLeaveService
         }
 
         $wasPending = $leave->isPending();
-        DB::transaction(function () use ($leave, $reason, $by) {
-            DriverLeaveLog::create(['driver_id' => $leave->driver_id, 'leave_date' => $leave->leave_date->toDateString(), 'action' => 'cancelled', 'performed_by' => $by, 'note' => trim($reason)]);
+        DB::transaction(function () use ($leave, $reason, $by, $wasPending) {
+            // "cancelled" = hủy ngày nghỉ ĐÃ DUYỆT (tài xế đang được miễn phạt Offline: ShiftOfflineService tính lại từ lúc
+            // này); "withdrawn" = rút yêu cầu chưa duyệt (chưa từng được miễn, không đổi gì).
+            DriverLeaveLog::create(['driver_id' => $leave->driver_id, 'leave_date' => $leave->leave_date->toDateString(), 'action' => $wasPending ? 'withdrawn' : 'cancelled', 'performed_by' => $by, 'note' => trim($reason)]);
             $leave->delete();
         });
         if ($wasPending) {
@@ -213,7 +226,7 @@ class DriverLeaveService
         return ['ok' => true, 'message' => 'Đã hủy phiếu nghỉ.'];
     }
 
-    /** Tài xế có nghỉ (đã duyệt) đúng ngày này không — dùng chung cho mọi nơi chặn online/nhận đơn/chấm ca. */
+    /** Tài xế có nghỉ (đã duyệt) đúng ngày này không — dùng chung cho mọi nơi chặn online/nhận đơn/phạt Offline. */
     public static function isOnLeave(int $driverId, Carbon|string $date): bool
     {
         return DriverLeaveRequest::approved()->where('driver_id', $driverId)->whereDate('leave_date', $date)->exists();
@@ -312,7 +325,8 @@ class DriverLeaveService
 
     public static function summary(?int $cityId): array
     {
-        $all = fn () => DB::table('driver_leave_requests as l')->join('users as u', 'u.id', '=', 'l.driver_id')->when($cityId, fn ($x) => $x->where('u.city_id', $cityId));
+        // Không có khu vực thì không có phiếu nào, không bao giờ là "mọi khu vực".
+        $all = fn () => DB::table('driver_leave_requests as l')->join('users as u', 'u.id', '=', 'l.driver_id')->where('u.city_id', (int) $cityId);
         $q = fn () => $all()->where('l.status', DriverLeaveRequest::APPROVED);
 
         $frequent = $q()->where('l.leave_date', '>=', today()->subDays(30))->where('l.leave_date', '<=', today())
@@ -324,6 +338,8 @@ class DriverLeaveService
             'week' => $q()->whereBetween('l.leave_date', [today()->toDateString(), today()->addDays(6)->toDateString()])->count(),
             'frequent' => $frequent,
             'pending' => $all()->where('l.status', DriverLeaveRequest::PENDING)->whereDate('l.leave_date', '>=', today())->count(),
+            // Yêu cầu chờ duyệt mà ngày đã qua: không có hiệu lực, chỉ cần dọn (Từ chối).
+            'expired' => $all()->where('l.status', DriverLeaveRequest::PENDING)->whereDate('l.leave_date', '<', today())->count(),
         ];
     }
 

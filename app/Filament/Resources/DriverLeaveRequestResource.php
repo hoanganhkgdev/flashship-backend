@@ -30,7 +30,7 @@ class DriverLeaveRequestResource extends Resource
     // DriverLeaveRequest không có city_id trực tiếp — khu vực xác định qua driver_id -> users.city_id.
     public static function scopeEloquentQueryToTenant(Builder $query, ?Model $tenant): Builder
     {
-        return $query->whereHas('driver', fn ($q) => $q->where('city_id', $tenant?->id));
+        return $query->whereHas('driver', fn ($q) => $q->where('city_id', (int) $tenant?->id));
     }
 
     protected static ?string $model = DriverLeaveRequest::class;
@@ -84,7 +84,7 @@ class DriverLeaveRequestResource extends Resource
     {
         return $form->schema([
             Forms\Components\Section::make('Ghi nhận nghỉ phép')
-                ->description('Admin ghi nhận là có hiệu lực ngay (không cần duyệt). Trong ngày nghỉ tài xế không bật được online, không nhận đơn và được miễn chấm điểm cuối ca.')
+                ->description('Admin ghi nhận là có hiệu lực ngay (không cần duyệt); ngày tài xế đã tự xin thì được duyệt luôn. Trong ngày nghỉ tài xế không bật được online, không nhận đơn và không bị tính phạt Offline.')
                 ->icon('heroicon-o-calendar-days')
                 ->columns(2)
                 ->schema([
@@ -155,7 +155,7 @@ class DriverLeaveRequestResource extends Resource
                         : ($r->reviewed_at && $r->reviewer && $r->reviewed_by !== $r->created_by ? $r->reviewer->name.' · '.$r->reviewed_at->format('d/m H:i') : null)),
 
                 Tables\Columns\TextColumn::make('affected_shifts')
-                    ->label('Ca được miễn chấm')
+                    ->label('Ca được miễn phạt Offline')
                     ->state(fn (DriverLeaveRequest $r) => $r->driver?->registeredShifts?->sortBy('start_time')->pluck('name')->implode(', ') ?: 'Chưa đăng ký ca'),
 
                 Tables\Columns\TextColumn::make('flags')
@@ -210,6 +210,13 @@ class DriverLeaveRequestResource extends Resource
                         $records->map(fn (DriverLeaveRequest $r) => DriverLeaveService::reject($r, $data['reason'], auth()->id())), 'từ chối'))
                     ->deselectRecordsAfterCompletion(),
             ])
+            ->recordClasses(fn (DriverLeaveRequest $r) => match (true) {
+                $r->isPending() && $r->leave_date->lt(today()) => 'fs-lv-row--expired',
+                $r->isPending() => 'fs-lv-row--pending',
+                $r->isApproved() && $r->leave_date->isToday() => 'fs-lv-row--today',
+                $r->leave_date->lt(today()) => 'fs-lv-row--past',
+                default => null,
+            })
             ->recordUrl(fn (DriverLeaveRequest $record): string => static::getUrl('view', ['record' => $record]))
             ->defaultPaginationPageOption(25)
             ->paginationPageOptions([25, 50, 100]);
@@ -220,7 +227,7 @@ class DriverLeaveRequestResource extends Resource
         return $action->label(fn (DriverLeaveRequest $r) => $r->isPending() ? 'Hủy yêu cầu' : 'Hủy phiếu nghỉ')->icon('heroicon-o-x-circle')->color('gray')
             ->visible(fn (DriverLeaveRequest $r) => ! $r->leave_date->lt(today()) && ! $r->isRejected())
             ->modalHeading('Hủy phiếu nghỉ')
-            ->modalDescription(fn (DriverLeaveRequest $r) => 'Hủy sẽ cho '.$r->driver?->name.' bật online và nhận đơn trở lại'.($r->leave_date->isToday() ? ' ngay hôm nay' : '').', và ngày này bị chấm điểm ca bình thường. Việc hủy được ghi nhật ký.')
+            ->modalDescription(fn (DriverLeaveRequest $r) => 'Hủy sẽ cho '.$r->driver?->name.' bật online và nhận đơn trở lại'.($r->leave_date->isToday() ? ' ngay hôm nay. Phạt Offline chỉ tính từ lúc hủy, không tính khoảng đã nghỉ' : '').'. Việc hủy được ghi nhật ký.')
             ->form([Forms\Components\Textarea::make('reason')->label('Lý do hủy')->required()->minLength(3)->maxLength(250)->rows(2)])
             ->action(function (DriverLeaveRequest $record, array $data): void {
                 $res = DriverLeaveService::cancel($record, $data['reason'], auth()->id());
@@ -234,7 +241,7 @@ class DriverLeaveRequestResource extends Resource
             ->visible(fn (DriverLeaveRequest $r) => $r->isPending() && ! $r->leave_date->lt(today()))
             ->requiresConfirmation()
             ->modalHeading(fn (DriverLeaveRequest $r) => 'Duyệt nghỉ ngày '.$r->leave_date->format('d/m/Y'))
-            ->modalDescription(fn (DriverLeaveRequest $r) => $r->driver?->name.' sẽ không bật được online, không nhận đơn và được miễn chấm ca trong ngày này'.($r->leave_date->isToday() ? ' — tắt online ngay bây giờ' : '').'.')
+            ->modalDescription(fn (DriverLeaveRequest $r) => $r->driver?->name.' sẽ không bật được online, không nhận đơn và không bị tính phạt Offline trong ngày này'.($r->leave_date->isToday() ? ' — tắt online ngay bây giờ' : '').'.')
             ->modalSubmitActionLabel('Duyệt')
             ->action(function (DriverLeaveRequest $record): void {
                 $res = DriverLeaveService::approve($record, auth()->id());

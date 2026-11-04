@@ -326,4 +326,70 @@ class DriverLeaveTest extends TestCase
         Livewire::test(ViewDriverLeaveRequest::class, ['record' => $b->id])->assertSuccessful()
             ->assertSee('Từ chối')->assertSee('Ca đó thiếu người');
     }
+
+    private function shiftFor(User $driver, string $start, string $end): Shift
+    {
+        $shift = Shift::create(['city_id' => $this->city->id, 'code' => 'lv'.uniqid(), 'name' => 'Ca '.$start, 'start_time' => $start, 'end_time' => $end, 'is_active' => true]);
+        $shift->users()->attach($driver->id);
+        DB::table('shift_user')->where('shift_id', $shift->id)->where('user_id', $driver->id)->update(['created_at' => now()->subDays(5)]);
+
+        return $shift;
+    }
+
+    public function test_cancelling_todays_approved_leave_mid_shift_does_not_penalize_backwards(): void
+    {
+        $this->travelTo(today()->setTime(6, 0));
+        $this->shiftFor($this->driver, '07:00', '13:00');
+        DriverLeaveService::create($this->driver->id, today(), null, 'Bị ốm', $this->admin->id);
+        $leave = DriverLeaveRequest::where('driver_id', $this->driver->id)->sole();
+        $service = app(\Modules\Driver\Services\ShiftOfflineService::class);
+
+        $this->travelTo(today()->setTime(10, 0));
+        $this->assertSame(0, $service->check(), 'đang nghỉ: không phạt');
+        $this->assertTrue(DriverLeaveService::cancel($leave, 'Khỏe lại, đi làm', $this->admin->id)['ok']);
+
+        $this->travelTo(today()->setTime(10, 20));
+        $this->assertSame(0, $service->check(), 'trước đây bị coi là vắng từ 07:00 và bị phạt ngay');
+        $this->travelTo(today()->setTime(10, 31));
+        $this->assertSame(1, $service->check(), 'vắng quá 30 phút kể từ lúc hủy thì vẫn phạt');
+    }
+
+    public function test_withdrawing_a_pending_request_mid_shift_does_not_forgive_earlier_absence(): void
+    {
+        // Yêu cầu chưa duyệt thì tài xế chưa từng được miễn: rút yêu cầu không được xóa khoảng đã vắng.
+        $this->travelTo(today()->setTime(6, 0));
+        $this->shiftFor($this->driver, '07:00', '13:00');
+        DriverLeaveService::create($this->driver->id, today(), null, 'Xin nghỉ', $this->driver->id, needsApproval: true);
+        $leave = DriverLeaveRequest::where('driver_id', $this->driver->id)->sole();
+
+        $this->travelTo(today()->setTime(9, 0));
+        $this->assertTrue(DriverLeaveService::cancel($leave, 'Tài xế tự hủy trên ứng dụng', $this->driver->id)['ok']);
+        $this->assertSame('withdrawn', DB::table('driver_leave_logs')->where('driver_id', $this->driver->id)->latest('id')->value('action'));
+        $this->assertSame(1, app(\Modules\Driver\Services\ShiftOfflineService::class)->check());
+    }
+
+    public function test_admin_recording_a_requested_day_approves_it(): void
+    {
+        DriverLeaveService::create($this->driver->id, today()->addDay(), today()->addDays(2), 'Về quê', $this->driver->id, needsApproval: true);
+        $this->assertSame(2, DriverLeaveRequest::where('driver_id', $this->driver->id)->where('status', 'pending')->count());
+
+        $r = DriverLeaveService::create($this->driver->id, today()->addDay(), today()->addDays(3), 'Về quê (đã gọi xác nhận)', $this->admin->id);
+        $this->assertTrue($r['ok']);
+        $this->assertSame([3, 0], [$r['created'], $r['skipped']], '2 ngày đang chờ được duyệt luôn + 1 ngày mới');
+        $this->assertSame(3, DriverLeaveRequest::where('driver_id', $this->driver->id)->where('status', 'approved')->count());
+        $this->assertSame($this->admin->id, (int) DriverLeaveRequest::where('driver_id', $this->driver->id)->whereDate('leave_date', today()->addDay())->value('reviewed_by'));
+    }
+
+    public function test_summary_is_scoped_and_counts_expired_requests(): void
+    {
+        DriverLeaveRequest::create(['driver_id' => $this->driver->id, 'leave_date' => today()->subDays(2), 'note' => 'cũ', 'status' => 'pending', 'created_by' => $this->driver->id]);
+        DriverLeaveService::create($this->driver->id, today(), null, 'Bị ốm', $this->admin->id);
+
+        $s = DriverLeaveService::summary($this->city->id);
+        $this->assertSame(1, $s['today']);
+        $this->assertSame(1, $s['expired']);
+        $this->assertSame(0, DriverLeaveService::summary(null)['today']);
+
+        Livewire::test(ListDriverLeaveRequests::class)->assertSuccessful()->assertSee('đã qua ngày mà chưa được duyệt');
+    }
 }

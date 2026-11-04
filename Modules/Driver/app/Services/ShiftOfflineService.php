@@ -49,6 +49,7 @@ class ShiftOfflineService
 
         $shifts = Shift::whereIn('id', $rows->pluck('shift_id')->unique())->get()->keyBy('id');
         $changes = ShiftService::lastEffectiveChange($shifts->keys()->all());
+        $leaveCancels = $this->leaveCancelledAt($rows->pluck('user_id')->unique()->all(), $now);
 
         foreach ($rows as $row) {
             $shift = $shifts[$row->shift_id];
@@ -60,8 +61,8 @@ class ShiftOfflineService
             [$start, $end] = $window;
             $shiftDate = $start->toDateString();
 
-            // Chỉ tính từ lúc tài xế đăng ký ca, và từ lần gần nhất ca được bật/đổi giờ (không phạt ngược).
-            $from = $this->countFrom($start, $row->registered_at, $changes[$shift->id] ?? null);
+            // Chỉ tính từ lúc tài xế đăng ký ca, từ lần gần nhất ca được bật/đổi giờ, và từ lúc ngày nghỉ bị hủy (không phạt ngược).
+            $from = $this->countFrom($start, $row->registered_at, $changes[$shift->id] ?? null, $leaveCancels[$row->user_id.'|'.$start->toDateString()] ?? null);
             if ($now->lessThanOrEqualTo($from)) {
                 continue;
             }
@@ -88,12 +89,34 @@ class ShiftOfflineService
         return $penalized;
     }
 
-    /** Mốc bắt đầu tính Offline: muộn nhất trong (đầu ca, lúc tài xế đăng ký, lần ca được bật/đổi giờ gần nhất). */
-    private function countFrom(Carbon $start, ?string $registeredAt, ?Carbon $lastChange): Carbon
+    /**
+     * Mốc bắt đầu tính Offline: muộn nhất trong (đầu ca, lúc tài xế đăng ký, lần ca được bật/đổi giờ gần nhất, lúc ngày
+     * nghỉ của ca bị hủy). Ngày nghỉ bị hủy giữa ca thì khoảng đang được nghỉ không bị tính là vắng.
+     */
+    private function countFrom(Carbon $start, ?string $registeredAt, ?Carbon $lastChange, ?Carbon $leaveCancelled = null): Carbon
     {
         $from = $registeredAt ? $start->max(Carbon::parse($registeredAt)) : $start;
+        $from = $lastChange ? $from->max($lastChange) : $from;
 
-        return $lastChange ? $from->max($lastChange) : $from;
+        return $leaveCancelled ? $from->max($leaveCancelled) : $from;
+    }
+
+    /**
+     * Lần hủy ngày nghỉ gần nhất của từng tài xế cho hôm nay và hôm qua (ca qua đêm tính theo ngày bắt đầu).
+     *
+     * @param  array<int, int>  $driverIds
+     * @return \Illuminate\Support\Collection<string, Carbon> "driverId|Y-m-d" => lúc hủy
+     */
+    private function leaveCancelledAt(array $driverIds, Carbon $now): \Illuminate\Support\Collection
+    {
+        if ($driverIds === []) {
+            return collect();
+        }
+
+        return DB::table('driver_leave_logs')->whereIn('driver_id', $driverIds)->where('action', 'cancelled')
+            ->whereBetween('leave_date', [$now->copy()->subDay()->toDateString(), $now->toDateString()])
+            ->groupBy('driver_id', 'leave_date')->selectRaw('driver_id, leave_date, MAX(created_at) at')->get()
+            ->mapWithKeys(fn ($r) => [$r->driver_id.'|'.Carbon::parse($r->leave_date)->toDateString() => Carbon::parse($r->at)]);
     }
 
     /** Giây Offline của tài xế trong cửa sổ [$from, min($now, $end)). */
@@ -127,6 +150,7 @@ class ShiftOfflineService
             ->where('su.user_id', $driver->id)->where('s.is_active', true)
             ->get(['su.shift_id', 'su.created_at as registered_at']);
         $changes = ShiftService::lastEffectiveChange($registered->pluck('shift_id')->all());
+        $leaveCancels = $this->leaveCancelledAt([(int) $driver->id], $now);
 
         foreach ($registered as $row) {
             $shift = Shift::find($row->shift_id);
@@ -135,7 +159,7 @@ class ShiftOfflineService
                 continue;
             }
             [$start, $end] = $window;
-            $from = $this->countFrom($start, $row->registered_at, $changes[$shift->id] ?? null);
+            $from = $this->countFrom($start, $row->registered_at, $changes[$shift->id] ?? null, $leaveCancels[$driver->id.'|'.$start->toDateString()] ?? null);
             $shiftDate = $start->toDateString();
             $limit = OperationalSettings::shiftOfflineLimitMinutes($cityId) * 60;
             $offline = $this->offlineSeconds((int) $driver->id, $from, $end, $now);

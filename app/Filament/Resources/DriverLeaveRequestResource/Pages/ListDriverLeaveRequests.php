@@ -55,6 +55,12 @@ class ListDriverLeaveRequests extends ListRecords
         return 1;
     }
 
+    /** Tab Chờ duyệt tự làm mới: yêu cầu mới hiện ra không cần tải lại trang. */
+    public function table(\Filament\Tables\Table $table): \Filament\Tables\Table
+    {
+        return parent::table($table)->poll($this->activeTab === 'pending' ? '30s' : null);
+    }
+
     public function getTabs(): array
     {
         $query = fn () => DriverLeaveRequestResource::scopeEloquentQueryToTenant(
