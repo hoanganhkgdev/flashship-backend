@@ -50,6 +50,10 @@ class FCMService
             }
             try {
                 return $fn(self::$instance);
+            } catch (\Kreait\Firebase\Exception\Messaging\NotFound|\Kreait\Firebase\Exception\Messaging\InvalidMessage $e) {
+                // Token không còn tồn tại / sai định dạng: gửi lại vô ích (trước đây vẫn thử 3 lần, mỗi lần
+                // xin lại OAuth). Chỉ thử lại với lỗi mạng/xác thực/máy chủ.
+                throw $e;
             } catch (\Throwable $e) {
                 $last = $e;
             }
@@ -141,6 +145,7 @@ class FCMService
                 $report = $this->sendWithRetry(fn (self $fcm) => $fcm->messaging->sendAll($messages));
                 $sent   += $report->successes()->count();
                 $failed += $report->failures()->count();
+                self::forgetTokens([...$report->unknownTokens(), ...$report->invalidTokens()]);
             } catch (\Throwable $e) {
                 Log::error('[FCM] Broadcast batch failed: ' . $e->getMessage());
                 $failed += count($batch);
@@ -183,6 +188,20 @@ class FCMService
         ]);
     }
 
+    /** Xoá token FCM không còn hợp lệ khỏi mọi tài khoản đang giữ nó. */
+    private static function forgetTokens(array $tokens): void
+    {
+        $tokens = array_values(array_unique(array_filter($tokens)));
+        if (! $tokens) {
+            return;
+        }
+        try {
+            \Illuminate\Support\Facades\DB::table('users')->whereIn('fcm_token', $tokens)->update(['fcm_token' => null]);
+        } catch (\Throwable $e) {
+            Log::warning('[FCM] forgetTokens failed: '.$e->getMessage());
+        }
+    }
+
     private function send(string $token, array $payload): void
     {
         RTDBService::offload(new FcmSendJob($token, $payload), 'fcm', fn () => $this->deliver($token, $payload));
@@ -221,6 +240,11 @@ class FCMService
                 );
 
             $this->sendWithRetry(fn (self $fcm) => $fcm->messaging->send($message));
+        } catch (\Kreait\Firebase\Exception\Messaging\NotFound $e) {
+            // Máy đã gỡ app / token hết hạn: bỏ token để lần sau không gửi vào chỗ chết. (InvalidMessage có thể do
+            // chính nội dung tin sai nên KHÔNG xoá token — rơi xuống nhánh ghi log lỗi bên dưới.)
+            self::forgetTokens([$token]);
+            Log::info('[FCM] Token không còn hợp lệ, đã bỏ', ['token' => substr($token, 0, 20).'...', 'reason' => $e->getMessage()]);
         } catch (\Throwable $e) {
             $prev = $e->getPrevious();
             Log::error('[FCM] Send failed: ' . $e->getMessage(), [
