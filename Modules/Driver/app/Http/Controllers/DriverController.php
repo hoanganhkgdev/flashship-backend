@@ -113,6 +113,15 @@ class DriverController extends Controller
                 if (\App\Services\DriverLeaveService::isOnLeave($locked->id, today())) {
                     return ['error' => ['message' => 'Bạn đang được duyệt nghỉ phép hôm nay nên không thể bật online.', 'status' => 403]];
                 }
+                // Cùng điều kiện app kiểm tra (current_shift_ids): phải có ca đang kích hoạt. Kiểm cả ở server
+                // để bản app cũ / gọi thẳng API không bật Online khi chưa đăng ký ca.
+                if (! $locked->registeredShifts()->where('shifts.is_active', true)->exists()) {
+                    return ['error' => [
+                        'message' => 'Bạn cần đăng ký ca làm việc trước khi bật Online.',
+                        'code' => 'no_shift',
+                        'status' => 403,
+                    ]];
+                }
                 $approved = DriverCccdImage::where('user_id', $locked->id)
                     ->where('status', 'approved')
                     ->exists();
@@ -182,7 +191,11 @@ class DriverController extends Controller
         /** @var User $user */
         $user = $result['user'];
 
-        RTDBService::setDriverOnlineStatus($user->id, (bool) $user->is_online);
+        // Offline: xoá hẳn node vị trí (app cũng xoá). Trước đây ghi is_online=false vào node đúng lúc app xoá
+        // node — lệnh nào tới sau thắng, có khi tạo lại node "mồ côi" chỉ còn is_online.
+        $user->is_online
+            ? RTDBService::setDriverOnlineStatus($user->id, true)
+            : RTDBService::removeDriverLocation($user->id);
 
         return response()->json([
             'success'      => true,

@@ -3,6 +3,7 @@ namespace Modules\Customer\Http\Controllers;
 
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Modules\Driver\Services\DriverLocationService;
 use Modules\Order\Models\Order;
@@ -34,17 +35,23 @@ class NearbyDriversController extends Controller
             ->pluck('id')
             ->all();
 
-        $locations = app(DriverLocationService::class)->freshLocationsFor($candidateIds);
+        // Mỗi khách mở màn đặt xe đều gọi API này; đọc cả nhánh vị trí Firebase mỗi lần là thừa — giữ 5 giây.
+        sort($candidateIds);
+        $locations = Cache::remember('nearby_drivers:'.md5(implode(',', $candidateIds)), 5,
+            fn () => app(DriverLocationService::class)->freshLocationsFor($candidateIds));
 
+        // Chỉ đủ để vẽ "xe gần bạn": không trả mã tài xế, toạ độ làm tròn ~110 m. Trước đây trả mã + toạ độ
+        // chính xác cho mọi khách với toạ độ tuỳ ý → dò được vị trí từng tài xế đang rảnh.
         $drivers = collect($locations)
             ->filter(fn($loc) => $this->haversineKm($loc['lat'], $loc['lng'], $lat, $lng) <= $radius)
-            ->map(fn($loc, $id) => [
-                'id'      => $id,
-                'lat'     => $loc['lat'],
-                'lng'     => $loc['lng'],
-                'bearing' => $loc['bearing'] ?? 0,
-            ])
-            ->values();
+            ->shuffle()
+            ->values()
+            ->map(fn($loc, $i) => [
+                'id'      => $i + 1,
+                'lat'     => round($loc['lat'], 3),
+                'lng'     => round($loc['lng'], 3),
+                'bearing' => (int) round(($loc['bearing'] ?? 0) / 45) * 45,
+            ]);
 
         return response()->json(['data' => $drivers]);
     }
