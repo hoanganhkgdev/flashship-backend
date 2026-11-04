@@ -115,7 +115,7 @@ class DriverController extends Controller
                 }
                 // Cùng điều kiện app kiểm tra (current_shift_ids): phải có ca đang kích hoạt. Kiểm cả ở server
                 // để bản app cũ / gọi thẳng API không bật Online khi chưa đăng ký ca.
-                if (! $locked->registeredShifts()->where('shifts.is_active', true)->exists()) {
+                if (! \App\Services\ShiftService::activeRegistered($locked)->exists()) {
                     return ['error' => [
                         'message' => 'Bạn cần đăng ký ca làm việc trước khi bật Online.',
                         'code' => 'no_shift',
@@ -547,8 +547,8 @@ class DriverController extends Controller
         return response()->json([
             'success'           => true,
             'data'              => $shifts,
-            // Chỉ ca đang bật: tài xế chỉ còn ca đã tắt được coi là chưa có ca để tự chọn lại.
-            'current_shift_ids' => $user->registeredShifts()->where('shifts.is_active', true)->pluck('shifts.id'),
+            // Chỉ ca đang bật và cùng khu vực: tài xế chỉ còn ca đã tắt / ca khu vực cũ được coi là chưa có ca để tự chọn lại.
+            'current_shift_ids' => \App\Services\ShiftService::activeRegistered($user)->pluck('shifts.id'),
             'current_shift_offline' => app(\Modules\Driver\Services\ShiftOfflineService::class)->status($user),
         ]);
     }
@@ -577,34 +577,14 @@ class DriverController extends Controller
             ], 422));
         }
 
-        // Biểu diễn ca trên vòng 24h thành 1-2 đoạn phút. Ca qua đêm
-        // 22:00-06:00 thành [22:00,24:00) + [00:00,06:00), nhờ vậy phát hiện
-        // đúng nó trùng ca 05:00-10:00. Hai ca sát mép vẫn không coi là trùng.
-        $segments = function ($shift): array {
-            [$startHour, $startMinute] = array_map('intval', explode(':', $shift->start_time));
-            [$endHour, $endMinute] = array_map('intval', explode(':', $shift->end_time));
-            $start = $startHour * 60 + $startMinute;
-            $end = $endHour * 60 + $endMinute;
-            if ($end > $start) return [[$start, $end]];
-            return [[$start, 1440], [0, $end]];
-        };
-
-        foreach ($shifts as $i => $a) {
-            foreach ($shifts as $j => $b) {
-                if ($i >= $j) continue;
-
-                $overlaps = collect($segments($a))->contains(function ($aPart) use ($segments, $b) {
-                    return collect($segments($b))->contains(
-                        fn ($bPart) => $aPart[0] < $bPart[1] && $bPart[0] < $aPart[1]
-                    );
-                });
-                if ($overlaps) {
-                    abort(response()->json([
-                        'success' => false,
-                        'message' => "Ca \"{$a->name}\" và \"{$b->name}\" bị trùng giờ nhau",
-                    ], 422));
-                }
-            }
+        // Ca qua đêm (22:00-06:00) được tách đoạn trên vòng 24h nên vẫn phát hiện trùng ca 05:00-10:00;
+        // hai ca sát mép không coi là trùng.
+        if ($pair = \App\Services\ShiftService::firstOverlap($shifts)) {
+            [$a, $b] = $pair;
+            abort(response()->json([
+                'success' => false,
+                'message' => "Ca \"{$a->name}\" và \"{$b->name}\" bị trùng giờ nhau",
+            ], 422));
         }
 
         return $data['shift_ids'];
@@ -617,7 +597,7 @@ class DriverController extends Controller
 
         $registered = \DB::transaction(function () use ($user, $shiftIds) {
             User::where('id', $user->id)->lockForUpdate()->firstOrFail();
-            if ($user->registeredShifts()->where('shifts.is_active', true)->exists()) return false;
+            if (\App\Services\ShiftService::activeRegistered($user)->exists()) return false;
             $user->registeredShifts()->sync($shiftIds);
             return true;
         });
@@ -665,6 +645,15 @@ class DriverController extends Controller
 
             $shiftIds = $this->validateShiftSelection($request, $user);
 
+            $current = \App\Services\ShiftService::activeRegistered($user)->pluck('shifts.id')->map(fn ($id) => (int) $id)->sort()->values()->all();
+            $requested = collect($shiftIds)->map(fn ($id) => (int) $id)->sort()->values()->all();
+            if ($current === $requested) {
+                return ['status' => 422, 'body' => [
+                    'success' => false,
+                    'message' => 'Ca bạn chọn giống hệt ca đang làm, không cần gửi yêu cầu đổi.',
+                ]];
+            }
+
             \Modules\Driver\Models\DriverShiftChangeRequest::create([
                 'driver_id' => $user->id,
                 'shift_ids' => $shiftIds,
@@ -687,9 +676,17 @@ class DriverController extends Controller
         $latest = \Modules\Driver\Models\DriverShiftChangeRequest::where('driver_id', $user->id)
             ->latest()->first();
 
+        // Chỉ trường app cần — không trả người duyệt hay trường nội bộ.
         return response()->json([
             'success' => true,
-            'data'    => $latest,
+            'data'    => $latest ? [
+                'id' => $latest->id,
+                'shift_ids' => $latest->shift_ids,
+                'status' => $latest->status,
+                'admin_note' => $latest->admin_note,
+                'processed_at' => $latest->processed_at?->toIso8601String(),
+                'created_at' => $latest->created_at?->toIso8601String(),
+            ] : null,
         ]);
     }
 

@@ -26,6 +26,9 @@ class DriverLeaveService
 {
     public const MAX_DAYS = 14;
 
+    /** Xin nghỉ trước tối đa bấy nhiêu ngày (ngày bắt đầu). */
+    public const MAX_AHEAD_DAYS = 60;
+
     /** Từ ngần này lượt nghỉ trong 30 ngày thì bị gắn cờ "nghỉ nhiều". */
     public const FREQUENT_AT = 4;
 
@@ -43,6 +46,9 @@ class DriverLeaveService
         }
         if ($from->lt(today()) || $to->lt($from)) {
             return $fail('Ngày nghỉ phải từ hôm nay trở đi và ngày kết thúc không trước ngày bắt đầu.');
+        }
+        if ($from->gt(today()->addDays(self::MAX_AHEAD_DAYS))) {
+            return $fail('Chỉ xin nghỉ trước tối đa '.self::MAX_AHEAD_DAYS.' ngày.');
         }
         $days = (int) $from->diffInDays($to) + 1;
         if ($days > self::MAX_DAYS) {
@@ -221,7 +227,10 @@ class DriverLeaveService
 
             return ['ok' => true, 'message' => 'Đã rút yêu cầu nghỉ.'];
         }
-        self::notify($leave->driver_id, 'Đã hủy ngày nghỉ', 'Ngày nghỉ '.$leave->leave_date->format('d/m').' đã được hủy: '.trim($reason).'.');
+        // Tài xế tự hủy thì đã biết; chỉ báo khi admin hủy hộ.
+        if ($by !== $leave->driver_id) {
+            self::notify($leave->driver_id, 'Đã hủy ngày nghỉ', 'Ngày nghỉ '.$leave->leave_date->format('d/m').' đã được hủy: '.trim($reason).'.');
+        }
 
         return ['ok' => true, 'message' => 'Đã hủy phiếu nghỉ.'];
     }

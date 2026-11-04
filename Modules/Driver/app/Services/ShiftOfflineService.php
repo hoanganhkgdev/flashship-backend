@@ -148,6 +148,9 @@ class ShiftOfflineService
         $registered = DB::table('shift_user as su')
             ->join('shifts as s', 's.id', '=', 'su.shift_id')
             ->where('su.user_id', $driver->id)->where('s.is_active', true)
+            // Cùng điều kiện với check() (cron phạt): chỉ ca cùng khu vực — không hiện đồng hồ/cảnh báo phạt
+            // cho ca khu vực cũ mà cron không bao giờ tính.
+            ->where('s.city_id', $cityId)
             ->get(['su.shift_id', 'su.created_at as registered_at']);
         $changes = ShiftService::lastEffectiveChange($registered->pluck('shift_id')->all());
         $leaveCancels = $this->leaveCancelledAt([(int) $driver->id], $now);

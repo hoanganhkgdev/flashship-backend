@@ -47,6 +47,18 @@ class ShiftService
         return false;
     }
 
+    /**
+     * Ca tài xế "đang có": đã đăng ký, đang bật VÀ cùng khu vực hiện tại của tài xế. Cron phạt Offline chỉ xét
+     * những ca này, nên mọi nơi khác (điều kiện bật Online, danh sách ca của app, đồng hồ Offline, "đã đăng ký
+     * rồi") phải dùng đúng định nghĩa này — tài xế đổi khu vực còn dính ca cũ coi như chưa có ca.
+     */
+    public static function activeRegistered(\Modules\Core\Models\User $driver)
+    {
+        return $driver->registeredShifts()
+            ->where('shifts.is_active', true)
+            ->where('shifts.city_id', (int) $driver->city_id);
+    }
+
     /** Cặp ca trùng giờ đầu tiên trong danh sách (mỗi phần tử có name, start_time, end_time), null nếu không có. */
     public static function firstOverlap(iterable $shifts): ?array
     {
