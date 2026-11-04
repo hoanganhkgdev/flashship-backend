@@ -124,9 +124,29 @@ a.fs-drv__kpi:hover { border-color:color-mix(in srgb,var(--dv-accent,var(--dv-mu
 }
 @media (max-width:900px) { .fs-drv__grid { grid-template-columns:minmax(0,1fr); } }
 @media (max-width:560px) {
-    .fs-drv__kpis, .fs-drv__facts { grid-template-columns:minmax(0,1fr); }
-    .fs-drv__kpi { min-height:0; }
-    .fs-drv__who { align-items:flex-start; }
+    .fs-drv { gap:10px; }
+    .fs-drv__kpis { grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+    .fs-drv__kpi { min-height:112px; padding:13px 14px; border-radius:13px; }
+    .fs-drv__kpi--hero { grid-column:1 / -1; min-height:120px; }
+    .fs-drv__kpis > .fs-drv__kpi:last-child { grid-column:1 / -1; }
+    .fs-drv__kpi-head { align-items:flex-start; gap:6px; line-height:1.35; }
+    .fs-drv__kpi-head svg { width:27px; height:27px; padding:6px; }
+    .fs-drv__kpi strong { font-size:22px; }
+    .fs-drv__kpi > small { font-size:11px; line-height:1.4; }
+    .fs-drv__notice { padding:10px 12px; font-size:12px; }
+
+    .fs-drv__card { padding:14px; border-radius:13px; }
+    .fs-drv__card-head { flex-direction:column; }
+    .fs-drv__who { align-items:flex-start; gap:12px; padding:16px 14px; }
+    .fs-drv__avatar { width:56px; height:56px; font-size:20px; }
+    .fs-drv__who h2 { font-size:17px; }
+    .fs-drv__facts { grid-template-columns:minmax(0,1fr); padding:8px 14px 12px; }
+    .fs-drv__facts div:nth-last-child(-n+2) { border-bottom:1px solid var(--dv-border); }
+    .fs-drv__facts div:last-child { border-bottom:0; }
+    .fs-drv__order { grid-template-columns:minmax(0,1fr); }
+    .fs-drv__order-route { grid-column:1; }
+    .fs-drv__order-money { grid-column:1; grid-row:auto; display:flex; justify-content:space-between; padding-top:4px; }
+    .fs-drv__rows div { align-items:flex-start; }
 }
 
 /* Bảng cố định chiều rộng: cột co theo khung và chữ xuống dòng, không đẩy nút thao tác ra ngoài (kể cả màn 1280px).
@@ -141,3 +161,38 @@ a.fs-drv__kpi:hover { border-color:color-mix(in srgb,var(--dv-accent,var(--dv-mu
 .fi-resource-list-records-page.fi-resource-drivers .fi-ta-table :is(th, td):last-child { width:84px; }
 .fi-resource-list-records-page.fi-resource-drivers .fi-ta-table td :is(.fi-ta-text, .fi-ta-text-item, .fi-ta-text-description) { min-width:0; white-space:normal; overflow-wrap:anywhere; }
 .fi-resource-list-records-page.fi-resource-drivers .fi-ta-table th { white-space:normal; }
+
+/* Mobile: chỉ giữ những thông tin cần thao tác. Các cột nghiệp vụ chi tiết được
+   Filament ẩn theo breakpoint trong DriverResource, nhờ vậy không còn bóp 7 cột vào màn hình hẹp. */
+@media (max-width:767px) {
+    .fi-resource-list-records-page.fi-resource-drivers .fi-header { gap:10px; }
+    .fi-resource-list-records-page.fi-resource-drivers .fi-header-heading { font-size:1.35rem; line-height:1.3; }
+    .fi-resource-list-records-page.fi-resource-drivers .fi-header-subheading { font-size:12px; line-height:1.5; }
+    .fi-resource-list-records-page.fi-resource-drivers .fi-tabs { width:100%; margin-inline:0; padding:6px; }
+    .fi-resource-list-records-page.fi-resource-drivers .fi-tabs-item { padding:7px 9px; font-size:12px; }
+
+    .fi-resource-list-records-page.fi-resource-drivers .fi-ta-header { padding:12px; }
+    .fi-resource-list-records-page.fi-resource-drivers .fi-ta-header-toolbar { flex-wrap:wrap; gap:8px; padding:10px 12px; }
+    .fi-resource-list-records-page.fi-resource-drivers .fi-ta-search-field { width:100%; min-width:0; }
+    .fi-resource-list-records-page.fi-resource-drivers .fi-ta-content { overflow-x:hidden; }
+    .fi-resource-list-records-page.fi-resource-drivers .fi-ta-table { min-width:0; table-layout:fixed; }
+    .fi-resource-list-records-page.fi-resource-drivers .fi-ta-table :is(th,td) { padding-block:10px; padding-inline:5px; }
+    .fi-resource-list-records-page.fi-resource-drivers .fi-ta-table :is(th,td):nth-child(1) { width:34px; }
+    .fi-resource-list-records-page.fi-resource-drivers .fi-ta-table :is(th,td):nth-child(2) { width:48px !important; }
+    .fi-resource-list-records-page.fi-resource-drivers .fi-ta-table :is(th,td):nth-child(3) { width:auto; }
+    .fi-resource-list-records-page.fi-resource-drivers .fi-ta-table :is(th,td):nth-child(4) { width:98px; }
+    .fi-resource-list-records-page.fi-resource-drivers .fi-ta-table :is(th,td):last-child { width:66px; }
+    .fi-resource-list-records-page.fi-resource-drivers .fi-ta-table .fi-ta-text-item { font-size:12px; line-height:1.35; }
+    .fi-resource-list-records-page.fi-resource-drivers .fi-ta-table .fi-ta-text-description { margin-top:3px; font-size:10px; line-height:1.35; }
+    .fi-resource-list-records-page.fi-resource-drivers .fi-ta-table .fi-badge { max-width:100%; padding-inline:6px; font-size:10px; white-space:normal; text-align:center; }
+    .fi-resource-list-records-page.fi-resource-drivers .fi-ta-actions { gap:2px; }
+    .fi-resource-list-records-page.fi-resource-drivers .fi-ta-actions .fi-icon-btn { width:28px; height:28px; }
+    .fi-resource-list-records-page.fi-resource-drivers .fi-ta-footer { padding-inline:12px; }
+}
+
+@media (max-width:390px) {
+    .fs-drv__kpis { grid-template-columns:minmax(0,1fr); }
+    .fs-drv__kpi--hero { grid-column:auto; }
+    .fi-resource-list-records-page.fi-resource-drivers .fi-ta-table :is(th,td):nth-child(2) { display:none; }
+    .fi-resource-list-records-page.fi-resource-drivers .fi-ta-table :is(th,td):nth-child(4) { width:92px; }
+}

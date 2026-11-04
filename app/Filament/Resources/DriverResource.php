@@ -295,20 +295,23 @@ class DriverResource extends Resource
                 Tables\Columns\TextColumn::make('document_summary')
                     ->label('Hồ sơ xác minh')
                     ->state(fn (User $record): string => self::documentSummary($record))
-                    ->html(),
+                    ->html()
+                    ->visibleFrom('md'),
 
                 Tables\Columns\TextColumn::make('completed_orders_count')
                     ->label('Hoàn thành')
                     ->tooltip('Tổng đơn hoàn thành · trong 30 ngày qua')
                     ->numeric()
                     ->sortable()
-                    ->description(fn (User $record): string => '30 ngày: '.number_format((int) $record->orders_30d)),
+                    ->description(fn (User $record): string => '30 ngày: '.number_format((int) $record->orders_30d))
+                    ->visibleFrom('md'),
 
                 Tables\Columns\TextColumn::make('registered_shifts')
                     ->label('Ca đăng ký')
                     ->state(fn (User $record): string => $record->registeredShifts->pluck('name')->implode(', ') ?: 'Chưa đăng ký ca')
                     ->color(fn (User $record) => $record->registeredShifts->isEmpty() ? 'gray' : null)
-                    ->wrap(),
+                    ->wrap()
+                    ->visibleFrom('lg'),
 
                 Tables\Columns\TextColumn::make('created_at')
                     ->label('Ngày đăng ký')
