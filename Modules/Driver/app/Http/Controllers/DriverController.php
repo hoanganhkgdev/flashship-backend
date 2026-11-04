@@ -50,6 +50,8 @@ class DriverController extends Controller
         $data['cccd_image_url']               = \App\Support\KycFile::url($cccd?->image_path);
         $data['cccd_image_rejection_reason']  = $cccd?->status === 'rejected' ? $cccd->rejection_reason : null;
         $data['name_locked']          = (bool) $user->name_updated_at;
+        // App khoá nút nhận đơn khi đang chạy đủ số đơn tối đa của khu vực.
+        $data['max_active_orders']    = \Modules\Core\Services\OperationalSettings::maxActiveOrdersPerDriver($user->city_id);
         $avatarCooldown               = $user->avatar_updated_at && $user->avatar_updated_at->diffInDays(now()) < 30;
         $data['avatar_locked']        = $avatarCooldown;
         $data['avatar_next_update_at'] = $avatarCooldown

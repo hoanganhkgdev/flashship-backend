@@ -225,6 +225,7 @@ class DriverAccountService
         $driver->tokens()->delete();
         RTDBService::removeDriverLocation($driver->id);
         RTDBService::setAccountLocked($driver->id, true);
+        RTDBService::revokeDriverSessions($driver->id);
     }
 
     protected function afterUnlock(User $driver): void

@@ -13,6 +13,19 @@ class City extends Model
     {
         // Khu vực mới có ngay bộ cấu hình vận hành riêng, độc lập với khu vực khác.
         static::created(fn (City $city) => \Modules\Core\Services\OperationalSettings::initializeCity($city->id));
+
+        // Thưởng mưa nằm trong dữ liệu từng đơn trên danh sách đơn mới (Firebase). Bật/tắt mưa từ bất kỳ đâu
+        // (nút điều khiển, lệnh tự tắt, trang khu vực) phải đẩy lại ngay, không chờ lượt đồng bộ 5 phút.
+        static::updated(function (City $city) {
+            if (! $city->wasChanged('is_rain_mode')) {
+                return;
+            }
+            try {
+                app(\Modules\Order\Services\OrderMarketService::class)->syncCity($city->id);
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::warning('[RainMode] Không đồng bộ được danh sách đơn', ['city' => $city->id, 'error' => $e->getMessage()]);
+            }
+        });
     }
 
     public function scopeActive(Builder $q): Builder { return $q->where('is_active', true); }

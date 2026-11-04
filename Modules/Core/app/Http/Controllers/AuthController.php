@@ -83,7 +83,7 @@ class AuthController extends Controller
         $firebaseToken = null;
         if ($deviceId) {
             RTDBService::writeSessionDevice($user->id, $deviceId);
-            $firebaseToken = RTDBService::createCustomAuthToken("driver_{$user->id}_{$deviceId}");
+            $firebaseToken = RTDBService::createDriverAuthToken($user, $deviceId);
         }
 
         return response()->json([
@@ -173,7 +173,7 @@ class AuthController extends Controller
             // Phiên chờ xóa chỉ được xem hồ sơ/hủy yêu cầu, không cấp quyền
             // Firebase để app tiếp tục ghi GPS trực tiếp ngoài API.
             if (!$user->delete_requested_at) {
-                $firebaseToken = RTDBService::createCustomAuthToken("driver_{$user->id}_{$deviceId}");
+                $firebaseToken = RTDBService::createDriverAuthToken($user, $deviceId);
             }
         }
 
@@ -249,9 +249,7 @@ class AuthController extends Controller
             ], 401);
         }
 
-        $firebaseToken = RTDBService::createCustomAuthToken(
-            "driver_{$request->user()->id}_{$data['device_id']}"
-        );
+        $firebaseToken = RTDBService::createDriverAuthToken($request->user(), $data['device_id']);
 
         return response()->json([
             'success' => true,
@@ -273,6 +271,9 @@ class AuthController extends Controller
         }
         if ($user->profile_photo_path) {
             $data['profile_photo_url'] = url('storage/' . $user->profile_photo_path);
+        }
+        if ($user->user_type === 'driver') {
+            $data['max_active_orders'] = \Modules\Core\Services\OperationalSettings::maxActiveOrdersPerDriver($user->city_id);
         }
         return $data;
     }

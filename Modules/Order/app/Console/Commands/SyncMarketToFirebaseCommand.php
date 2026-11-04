@@ -3,8 +3,6 @@
 namespace Modules\Order\Console\Commands;
 
 use Illuminate\Console\Command;
-use Modules\Core\Services\RTDBService;
-use Modules\Order\Models\OrderMarketListing;
 use Modules\Order\Services\OrderMarketService;
 
 class SyncMarketToFirebaseCommand extends Command
@@ -15,26 +13,16 @@ class SyncMarketToFirebaseCommand extends Command
 
     public function handle(OrderMarketService $market): int
     {
-        $listings = OrderMarketListing::with('order')
-            ->where('status', 'open')
-            ->whereHas('order', fn ($orders) => $orders->where('status', 'pending'))
-            ->get()
-            ->groupBy('city_id');
-
-        // Thành phố có listing đang mở + mọi thành phố khác để xoá đơn mồ côi trên Firebase.
-        $cityIds = \Modules\Core\Models\City::pluck('id')->merge($listings->keys())->unique();
-        if ($this->option('city')) {
-            $cityIds = collect([(int) $this->option('city')]);
-        }
+        // Mọi thành phố (kể cả không còn đơn mở) để xoá đơn mồ côi trên Firebase.
+        $cityIds = $this->option('city')
+            ? collect([(int) $this->option('city')])
+            : \Modules\Core\Models\City::pluck('id');
 
         $total = 0;
         foreach ($cityIds as $cityId) {
-            $payloads = [];
-            foreach ($listings->get($cityId, collect()) as $listing) {
-                $payloads[(string) $listing->order_id] = $market->payloadFor($listing->order, $listing);
-            }
-            if (RTDBService::replaceMarketOrders((int) $cityId, $payloads)) {
-                $total += count($payloads);
+            // Lưới an toàn chạy 5 phút/lần: không ping revision, tránh đánh thức mọi máy khi không có gì đổi.
+            if ($market->syncCity((int) $cityId, ping: false)) {
+                $total += $market->openCount((int) $cityId);
             } else {
                 $this->warn("Không ghi được Firebase cho thành phố {$cityId}.");
             }

@@ -119,9 +119,10 @@ class OrderMarketService
     }
 
     /** Dữ liệu một đơn trên danh sách đơn mới — dùng chung cho API và nhánh Firebase. */
-    public function payloadFor(Order $o, OrderMarketListing $listing): array
+    public function payloadFor(Order $o, OrderMarketListing $listing, ?bool $isRainMode = null): array
     {
-        $isRainMode = (bool) DB::table('cities')->where('id', $o->city_id)->value('is_rain_mode');
+        // Nơi dựng nhiều đơn cùng khu vực (đồng bộ, danh sách) truyền sẵn trạng thái mưa: 1 truy vấn thay vì 1/đơn.
+        $isRainMode ??= (bool) DB::table('cities')->where('id', $o->city_id)->value('is_rain_mode');
 
         return [
             'id' => $o->id, 'code' => $o->code, 'service_type' => $o->service_type,
@@ -164,6 +165,37 @@ class OrderMarketService
         );
     }
 
+    /**
+     * Ghi lại toàn bộ danh sách đơn của một khu vực lên Firebase từ MySQL. Gọi sau khi đổi thứ ảnh hưởng mọi
+     * đơn (bật/tắt mưa), và bởi lệnh market:sync-firebase để sửa lệch.
+     */
+    public function syncCity(int $cityId, bool $ping = true): bool
+    {
+        $isRainMode = (bool) DB::table('cities')->where('id', $cityId)->value('is_rain_mode');
+        $payloads = [];
+        OrderMarketListing::with('order')
+            ->where('city_id', $cityId)->where('status', 'open')
+            ->whereHas('order', fn ($orders) => $orders->where('status', 'pending'))
+            ->get()
+            ->each(function (OrderMarketListing $listing) use (&$payloads, $isRainMode) {
+                $payloads[(string) $listing->order_id] = $this->payloadFor($listing->order, $listing, $isRainMode);
+            });
+
+        $ok = RTDBService::replaceMarketOrders($cityId, $payloads);
+        if ($ok && $ping) {
+            RTDBService::pingOrderMarket($cityId);
+        }
+
+        return $ok;
+    }
+
+    /** Số đơn đang mở của khu vực (để lệnh đồng bộ báo cáo). */
+    public function openCount(int $cityId): int
+    {
+        return OrderMarketListing::where('city_id', $cityId)->where('status', 'open')
+            ->whereHas('order', fn ($orders) => $orders->where('status', 'pending'))->count();
+    }
+
     public function listForDriver(User $driver): array
     {
         if (! $this->baseEligible($driver)) {
@@ -178,6 +210,7 @@ class OrderMarketService
         }
         // GPS chỉ dùng để hiện khoảng cách tới điểm lấy; không còn giới hạn bán kính.
         $location = $this->locations->freshLocationsFor([$driver->id])[$driver->id] ?? null;
+        $isRainMode = (bool) DB::table('cities')->where('id', $driver->city_id)->value('is_rain_mode');
 
         return OrderMarketListing::with('order')
             ->where('city_id', $driver->city_id)->where('status', 'open')
@@ -187,7 +220,7 @@ class OrderMarketService
             ->when(! $driver->has_car_license, fn ($query) => $query->whereHas(
                 'order', fn ($orders) => $orders->where('service_type', '!=', 'car')
             ))
-            ->latest('opened_at')->get()->map(function (OrderMarketListing $listing) use ($location) {
+            ->latest('opened_at')->get()->map(function (OrderMarketListing $listing) use ($location, $isRainMode) {
                 $o = $listing->order;
                 if (! $o || $o->status !== 'pending') {
                     return null;
@@ -198,7 +231,7 @@ class OrderMarketService
 
                 // Đơn không hết hạn; vẫn gửi expires_at lùi dần (luôn còn 1 giờ) để các
                 // bản app tài xế cũ — vốn ẩn đơn khi hết hạn — tiếp tục hiện đơn.
-                return array_merge($this->payloadFor($o, $listing), [
+                return array_merge($this->payloadFor($o, $listing, $isRainMode), [
                     'pickup_distance_km' => $km !== null ? round($km, 1) : null,
                     'expires_at' => now()->addHour()->toIso8601String(),
                 ]);
@@ -228,10 +261,8 @@ class OrderMarketService
             if ($fresh->status !== 'pending' || ! $listing || $listing->status !== 'open') {
                 return ['state' => 'taken'];
             }
-            if (! $this->baseEligible($lockedDriver)
-                || (int) $fresh->city_id !== (int) $lockedDriver->city_id
-                || ($fresh->service_type === 'car' && ! $lockedDriver->has_car_license)) {
-                return ['state' => 'ineligible'];
+            if ($reason = $this->ineligibleReason($lockedDriver, $fresh)) {
+                return ['state' => 'ineligible', 'reason' => $reason];
             }
             $active = Order::where('delivery_man_id', $driver->id)->whereIn('status', ['assigned', 'processing'])->lockForUpdate()->get();
             // Cho nhận thêm khi đang cầm đơn, miễn chưa đủ số đơn active tối đa.
@@ -254,13 +285,17 @@ class OrderMarketService
         });
 
         if ($result['state'] !== 'claimed' && $result['state'] !== 'already_claimed') {
+            if ($result['state'] === 'ineligible') {
+                [$code, $message] = $result['reason'];
+
+                return $this->error($message, 403, $code);
+            }
             $message = match ($result['state']) {
                 'taken' => 'Đơn này vừa được tài xế khác nhận.',
-                'busy' => 'Bạn đã nhận đủ số đơn tối đa nên chưa thể nhận thêm đơn tự chọn.',
-                default => 'Bạn không còn đủ điều kiện nhận đơn này.',
+                default => 'Bạn đã nhận đủ số đơn tối đa nên chưa thể nhận thêm đơn tự chọn.',
             };
 
-            return $this->error($message, $result['state'] === 'ineligible' ? 403 : 409);
+            return $this->error($message, 409, $result['state']);
         }
 
         /** @var Order $claimedOrder */
@@ -312,7 +347,8 @@ class OrderMarketService
 
     private function alreadyClaimedBy(Order $order, User $driver): bool
     {
-        return $order->status === 'assigned'
+        // Gồm processing: tài xế nhận xong và đã lấy hàng, rồi app gửi lại yêu cầu nhận (mạng chập) vẫn là thành công.
+        return in_array($order->status, ['assigned', 'processing'], true)
             && (int) $order->delivery_man_id === (int) $driver->id
             && $order->driver_order_role === 'market';
     }
@@ -342,18 +378,40 @@ class OrderMarketService
 
     private function baseEligible(User $driver): bool
     {
-        if ($driver->user_type !== 'driver' || ! $driver->is_online || (int) $driver->status !== 1) {
-            return false;
-        }
-        if ($driver->debtApplies() && $driver->debts()->where('status', 'overdue')->exists()) {
-            return false;
-        }
-
-        return ! \App\Services\DriverLeaveService::isOnLeave($driver->id, today());
+        return $this->ineligibleReason($driver) === null;
     }
 
-    private function error(string $message, int $status): array
+    /**
+     * Lý do tài xế không được nhận đơn (null = được), để app báo đúng việc cần làm.
+     *
+     * @return array{0: string, 1: string}|null [code, message]
+     */
+    private function ineligibleReason(User $driver, ?Order $order = null): ?array
     {
-        return ['success' => false, 'message' => $message, 'status' => $status];
+        if ($driver->user_type !== 'driver' || (int) $driver->status !== 1) {
+            return ['account_inactive', 'Tài khoản chưa hoạt động hoặc đang bị khoá nên không nhận được đơn.'];
+        }
+        if (! $driver->is_online) {
+            return ['offline', 'Bạn đang Offline. Bật Online để nhận đơn.'];
+        }
+        if ($driver->debtApplies() && $driver->debts()->where('status', 'overdue')->exists()) {
+            return ['debt_overdue', 'Bạn còn công nợ quá hạn. Thanh toán để tiếp tục nhận đơn.'];
+        }
+        if (\App\Services\DriverLeaveService::isOnLeave($driver->id, today())) {
+            return ['on_leave', 'Hôm nay bạn đang nghỉ phép nên không nhận được đơn.'];
+        }
+        if ($order && (int) $order->city_id !== (int) $driver->city_id) {
+            return ['wrong_city', 'Đơn này thuộc khu vực khác.'];
+        }
+        if ($order && $order->service_type === 'car' && ! $driver->has_car_license) {
+            return ['no_car_license', 'Đơn ô tô chỉ dành cho tài xế có bằng lái ô tô đã được duyệt.'];
+        }
+
+        return null;
+    }
+
+    private function error(string $message, int $status, ?string $code = null): array
+    {
+        return array_filter(['success' => false, 'message' => $message, 'code' => $code, 'status' => $status], fn ($v) => $v !== null);
     }
 }

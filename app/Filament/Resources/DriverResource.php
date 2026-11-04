@@ -121,6 +121,7 @@ class DriverResource extends Resource
                 $record->tokens()->delete();
                 RTDBService::removeDriverLocation($record->id);
                 RTDBService::setAccountLocked($record->id, true);
+                RTDBService::revokeDriverSessions($record->id);
             })
             ->successNotificationTitle('Đã xóa tài xế');
     }

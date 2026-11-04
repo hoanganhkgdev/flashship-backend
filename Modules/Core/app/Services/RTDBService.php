@@ -50,8 +50,21 @@ class RTDBService
      */
     public static function httpOptions(): HttpClientOptions
     {
+        $guzzle = ['force_ip_resolve' => 'v4'];
+        // Chạy test: KHÔNG được gọi Firebase thật. Máy dev dùng chung file service
+        // account với production → test từng ghi rác (khu vực, tài xế, phiên thiết bị)
+        // lên RTDB production. Chặn ở tầng HTTP nên áp dụng cho RTDB, FCM và Auth;
+        // ký custom token không cần mạng nên vẫn chạy.
+        if (app()->runningUnitTests()) {
+            $guzzle['handler'] = \GuzzleHttp\HandlerStack::create(
+                fn ($request) => \GuzzleHttp\Promise\Create::rejectionFor(
+                    new \GuzzleHttp\Exception\ConnectException('Firebase bị tắt khi chạy test', $request)
+                )
+            );
+        }
+
         return HttpClientOptions::default()
-            ->withGuzzleConfigOptions(['force_ip_resolve' => 'v4'])
+            ->withGuzzleConfigOptions($guzzle)
             ->withConnectTimeout(3)
             ->withReadTimeout(8)
             ->withTimeout(10);
@@ -303,10 +316,40 @@ class RTDBService
      * khi đang chạy nền, không nhận được tín hiệu logout kịp thời qua
      * listener thường — xem điều tra tài xế #405/#414).
      */
-    public static function createCustomAuthToken(string $uid): ?string
+    /**
+     * Token Firebase cho app tài xế. Claims (dạng chuỗi để Rules ghép path):
+     * - driver_id: Rules đọc dispatch/driver_X (thiết bị của phiên, cờ khoá);
+     * - city_id: Rules chỉ cho đọc danh sách đơn của đúng khu vực.
+     */
+    public static function createDriverAuthToken(\Modules\Core\Models\User $driver, string $deviceId): ?string
+    {
+        return self::createCustomAuthToken("driver_{$driver->id}_{$deviceId}", [
+            'driver_id' => (string) $driver->id,
+            'city_id' => (string) (int) $driver->city_id,
+        ]);
+    }
+
+    /**
+     * Thu hồi phiên Firebase của tài xế (khoá/xoá tài khoản): app không gia hạn
+     * được token nữa. Token đang dùng vẫn sống tối đa 1 giờ — Rules chặn ngay
+     * bằng cờ account_locked với token có claims.
+     */
+    public static function revokeDriverSessions(int $driverId): void
     {
         try {
-            return self::factory()->createAuth()->createCustomToken($uid)->toString();
+            $deviceId = self::getSessionDevice($driverId);
+            if ($deviceId) {
+                self::factory()->createAuth()->revokeRefreshTokens("driver_{$driverId}_{$deviceId}");
+            }
+        } catch (\Throwable $e) {
+            Log::warning('[RTDB] revokeDriverSessions failed', ['driver' => $driverId, 'error' => $e->getMessage()]);
+        }
+    }
+
+    public static function createCustomAuthToken(string $uid, array $claims = []): ?string
+    {
+        try {
+            return self::factory()->createAuth()->createCustomToken($uid, $claims)->toString();
         } catch (\Throwable $e) {
             Log::error('[RTDB] createCustomAuthToken failed: ' . $e->getMessage());
             return null;
