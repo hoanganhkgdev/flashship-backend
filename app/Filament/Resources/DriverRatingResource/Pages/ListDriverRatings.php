@@ -42,6 +42,12 @@ class ListDriverRatings extends ListRecords
         return 'pending';
     }
 
+    /** Tab Cần xử lý tự làm mới: đánh giá thấp mới hiện ra không cần tải lại trang. */
+    public function table(\Filament\Tables\Table $table): \Filament\Tables\Table
+    {
+        return parent::table($table)->poll($this->activeTab === 'pending' ? '60s' : null);
+    }
+
     public function getTabs(): array
     {
         $low = DriverRatingService::LOW;

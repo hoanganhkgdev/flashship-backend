@@ -15,24 +15,72 @@ class DriverRatingService
     /** Tài xế phải có ít nhất bấy nhiêu lượt đánh giá mới được xếp vào danh sách cần chú ý. */
     public const MIN_REVIEWS = 2;
 
+    public const LOG_ENTITY = 'driver_rating';
+
+    public const LOG_LABELS = ['handled' => 'Đã xử lý', 'hidden' => 'Ẩn khỏi thống kê', 'unhidden' => 'Hiện lại'];
+
     public static function needsAction(Order $o): bool
     {
         return $o->driver_rating !== null && $o->driver_rating <= self::LOW && ! $o->rating_handled_at && ! $o->rating_hidden;
     }
 
-    public static function handle(Order $o, string $note, ?int $by): void
+    private static function log(int $orderId, string $action, ?int $by, ?string $detail): void
     {
-        $o->update(['rating_handled_at' => now(), 'rating_handled_by' => $by, 'rating_handle_note' => $note]);
+        DB::table('config_logs')->insert(['entity' => self::LOG_ENTITY, 'entity_id' => $orderId, 'action' => $action, 'performed_by' => $by, 'detail' => $detail, 'created_at' => now()]);
     }
 
-    public static function hide(Order $o, string $reason, ?int $by): void
+    /** Ghi kết quả xử lý. Chỉ khi vẫn cần xử lý: hai người cùng bấm thì ghi chú sau không đè ghi chú trước. */
+    public static function handle(Order $o, string $note, ?int $by): bool
     {
-        $o->update(['rating_hidden' => true, 'rating_handled_at' => now(), 'rating_handled_by' => $by, 'rating_handle_note' => 'Ẩn khỏi thống kê: '.$reason]);
+        $ok = Order::whereKey($o->id)->whereNull('rating_handled_at')->where('rating_hidden', false)
+            ->update(['rating_handled_at' => now(), 'rating_handled_by' => $by, 'rating_handle_note' => $note]) > 0;
+        if ($ok) {
+            self::log($o->id, 'handled', $by, $note);
+        }
+
+        return $ok;
     }
 
-    public static function unhide(Order $o): void
+    /**
+     * Ẩn khỏi thống kê (điểm trung bình trang này và app tài xế). Không đụng tới phần xử lý: ghi chú xử lý cũ còn nguyên.
+     * Ai ẩn, lúc nào, vì sao nằm trong nhật ký.
+     */
+    public static function hide(Order $o, string $reason, ?int $by): bool
     {
-        $o->update(['rating_hidden' => false, 'rating_handled_at' => null, 'rating_handled_by' => null, 'rating_handle_note' => null]);
+        $ok = Order::whereKey($o->id)->where('rating_hidden', false)->update(['rating_hidden' => true]) > 0;
+        if ($ok) {
+            self::log($o->id, 'hidden', $by, $reason);
+        }
+
+        return $ok;
+    }
+
+    public static function unhide(Order $o, ?int $by = null): bool
+    {
+        $ok = Order::whereKey($o->id)->where('rating_hidden', true)->update(['rating_hidden' => false]) > 0;
+        if ($ok) {
+            self::log($o->id, 'unhidden', $by, null);
+        }
+
+        return $ok;
+    }
+
+    /** Nhật ký xử lý / ẩn / hiện lại của một đánh giá, mới nhất trước. */
+    public static function logs(int $orderId): Collection
+    {
+        return DB::table('config_logs as l')->leftJoin('users as u', 'u.id', '=', 'l.performed_by')
+            ->where('l.entity', self::LOG_ENTITY)->where('l.entity_id', $orderId)->orderByDesc('l.id')
+            ->get(['l.action', 'l.detail', 'l.created_at', 'u.name as by']);
+    }
+
+    /** Tài xế của đánh giá: còn tài khoản, đã bị xóa nhưng có bản lưu tên, hoặc không rõ (xóa trước khi có bản lưu). */
+    public static function driverLabel(Order $o): array
+    {
+        if ($o->driver) {
+            return ['name' => $o->driver->name, 'phone' => $o->driver->phone, 'deleted' => false];
+        }
+
+        return ['name' => $o->driver_name ?: 'Tài xế đã bị xóa', 'phone' => $o->driver_phone, 'deleted' => true];
     }
 
     private static function base(?int $cityId)
@@ -54,7 +102,7 @@ class DriverRatingService
             ->selectRaw('COUNT(*) c, AVG(driver_rating) a')->first();
 
         $completed = DB::table('orders')->where('status', 'completed')->where('completed_at', '>=', $from)
-            ->when($cityId, fn ($q) => $q->where('city_id', $cityId))->count();
+            ->where('city_id', (int) $cityId)->count();
 
         $dist = self::base($cityId)->where('completed_at', '>=', $from)
             ->selectRaw('driver_rating r, COUNT(*) c')->groupBy('driver_rating')->pluck('c', 'r');

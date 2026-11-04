@@ -113,4 +113,75 @@ class DriverRatingTest extends TestCase
         Livewire::test(ListDriverRatings::class)->assertTableActionDoesNotExist('delete_rating');
         Livewire::test(ViewDriverRating::class, ['record' => $o->id])->assertSuccessful()->assertSee('giao chậm');
     }
+
+    public function test_hiding_keeps_the_handling_record_and_every_step_is_logged(): void
+    {
+        $admin = auth()->id();
+        $bad = $this->rated(1, 'tệ');
+
+        $this->assertTrue(DriverRatingService::handle($bad, 'Đã gọi tài xế, nhắc giao đúng giờ', $admin));
+        $this->assertFalse(DriverRatingService::handle($bad->fresh(), 'Ghi chú thứ hai', $admin), 'không đè ghi chú xử lý trước');
+
+        $this->assertTrue(DriverRatingService::hide($bad->fresh(), 'Khách nhầm đơn', $admin));
+        $bad->refresh();
+        $this->assertTrue($bad->rating_hidden);
+        $this->assertSame('Đã gọi tài xế, nhắc giao đúng giờ', $bad->rating_handle_note, 'ẩn không ghi đè ghi chú xử lý');
+
+        $this->assertTrue(DriverRatingService::unhide($bad, $admin));
+        $bad->refresh();
+        $this->assertFalse($bad->rating_hidden);
+        $this->assertNotNull($bad->rating_handled_at, 'hiện lại không xóa phần xử lý');
+        $this->assertSame(0, DriverRatingService::pendingCount($this->city->id), 'đã xử lý thì không cần xử lý lại');
+
+        $logs = DriverRatingService::logs($bad->id);
+        $this->assertSame(['unhidden', 'hidden', 'handled'], $logs->pluck('action')->all());
+        $this->assertSame('Khách nhầm đơn', $logs->firstWhere('action', 'hidden')->detail);
+        $this->assertNotNull($logs->first()->by);
+    }
+
+    public function test_a_hidden_rating_cannot_be_marked_handled(): void
+    {
+        $bad = $this->rated(2);
+        DriverRatingService::hide($bad, 'Spam', auth()->id());
+        $this->assertFalse(DriverRatingService::handle($bad->fresh(), 'xử lý', auth()->id()));
+    }
+
+    public function test_deleting_a_driver_keeps_their_name_on_old_orders(): void
+    {
+        $driver = $this->user('driver');
+        $driver->update(['name' => 'Tài Xế Cũ', 'phone' => '0911222333']);
+        $order = $this->rated(1, 'chậm', $driver->id);
+
+        $driver->delete();
+        $order->refresh();
+        $this->assertNull($order->delivery_man_id);
+        $this->assertSame('Tài Xế Cũ', $order->driver_name);
+        $this->assertSame('0911222333', $order->driver_phone);
+
+        $label = DriverRatingService::driverLabel($order);
+        $this->assertTrue($label['deleted']);
+        $this->assertSame('Tài Xế Cũ', $label['name']);
+
+        // Đơn của tài xế bị xóa trước khi có bản lưu: ghi rõ, không phải "chưa gán tài xế".
+        $old = $this->rated(1, null, null);
+        DB::table('orders')->where('id', $old->id)->update(['delivery_man_id' => null]);
+        $this->assertSame('Tài xế đã bị xóa', DriverRatingService::driverLabel($old->fresh())['name']);
+
+        Livewire::test(ListDriverRatings::class)->set('activeTab', 'all')->searchTable('Tài Xế Cũ')
+            ->assertCanSeeTableRecords([$order])->assertCanNotSeeTableRecords([$old]);
+        Livewire::test(ViewDriverRating::class, ['record' => $order->id])->assertSuccessful()->assertSee('Tài Xế Cũ')->assertSee('tài khoản đã bị xóa');
+    }
+
+    public function test_rating_rate_only_counts_this_city(): void
+    {
+        $other = City::create(['name' => 'Khác', 'slug' => 'k-'.uniqid(), 'is_active' => true]);
+        $this->rated(5);
+        Order::create([
+            'code' => 'RX'.uniqid(), 'status' => 'completed', 'delivery_man_id' => $this->driver->id, 'city_id' => $other->id,
+            'pickup_address' => 'a', 'delivery_address' => 'b', 'service_type' => 'delivery', 'completed_at' => now(),
+        ]);
+
+        $this->assertSame(100.0, DriverRatingService::summary($this->city->id)['rate']);
+        $this->assertSame(0, DriverRatingService::summary(null)['count']);
+    }
 }

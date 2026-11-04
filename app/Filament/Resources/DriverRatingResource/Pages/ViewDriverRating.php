@@ -24,7 +24,7 @@ class ViewDriverRating extends ViewRecord
 
     public function getSubheading(): ?string
     {
-        return ($this->record->driver?->name ?? 'Đơn chưa gán tài xế').' · '.$this->record->driver_rating.'/5 sao';
+        return null; // Tài xế và số sao đã nằm trong thẻ đầu trang.
     }
 
     protected function getHeaderActions(): array
@@ -50,6 +50,11 @@ class ViewDriverRating extends ViewRecord
         return Order::query()->where('delivery_man_id', $this->record->delivery_man_id)
             ->whereNotNull('driver_rating')->where('rating_hidden', false)->whereKeyNot($this->record->id)
             ->latest('rated_at')->limit(6)->get(['id', 'code', 'driver_rating', 'driver_rating_note', 'rated_at']);
+    }
+
+    public function getLogs(): Collection
+    {
+        return \App\Services\DriverRatingService::logs($this->record->id);
     }
 
     public function getHandler(): ?User

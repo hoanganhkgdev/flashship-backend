@@ -117,8 +117,9 @@ class DriverRatingResource extends Resource
             ->modalDescription('Ghi lại bạn đã làm gì (gọi tài xế, nhắc nhở, khiếu nại không đúng...).')
             ->form([Forms\Components\Textarea::make('note')->label('Ghi chú xử lý')->required()->minLength(3)->maxLength(500)->rows(2)])
             ->action(function (Order $record, array $data): void {
-                DriverRatingService::handle($record, $data['note'], auth()->id());
-                Notification::make()->success()->title('Đã đánh dấu xử lý')->send();
+                DriverRatingService::handle($record, $data['note'], auth()->id())
+                    ? Notification::make()->success()->title('Đã đánh dấu xử lý')->send()
+                    : Notification::make()->warning()->title('Đánh giá này đã được xử lý hoặc đã bị ẩn')->send();
             });
     }
 
@@ -127,11 +128,12 @@ class DriverRatingResource extends Resource
         return $action->label('Ẩn khỏi thống kê')->icon('heroicon-o-eye-slash')->color('gray')
             ->visible(fn (Order $r) => ! $r->rating_hidden)
             ->modalHeading('Ẩn đánh giá khỏi thống kê')
-            ->modalDescription('Đánh giá không tính vào điểm trung bình và app tài xế, nhưng nội dung vẫn được giữ lại.')
+            ->modalDescription('Đánh giá không tính vào điểm trung bình (trang này và app tài xế) nhưng nội dung và phần xử lý vẫn được giữ lại. Ai ẩn và vì sao được ghi vào nhật ký.')
             ->form([Forms\Components\Textarea::make('reason')->label('Lý do ẩn')->required()->minLength(3)->maxLength(500)->rows(2)])
             ->action(function (Order $record, array $data): void {
-                DriverRatingService::hide($record, $data['reason'], auth()->id());
-                Notification::make()->success()->title('Đã ẩn đánh giá khỏi thống kê')->send();
+                DriverRatingService::hide($record, $data['reason'], auth()->id())
+                    ? Notification::make()->success()->title('Đã ẩn đánh giá khỏi thống kê')->send()
+                    : Notification::make()->warning()->title('Đánh giá này đã bị ẩn trước đó')->send();
             });
     }
 
@@ -140,8 +142,9 @@ class DriverRatingResource extends Resource
         return $action->label('Hiện lại')->icon('heroicon-o-eye')->color('info')
             ->visible(fn (Order $r) => (bool) $r->rating_hidden)
             ->requiresConfirmation()
+            ->modalDescription('Đánh giá được tính lại vào điểm trung bình của tài xế. Việc hiện lại được ghi vào nhật ký.')
             ->action(function (Order $record): void {
-                DriverRatingService::unhide($record);
+                DriverRatingService::unhide($record, auth()->id());
                 Notification::make()->success()->title('Đã tính lại đánh giá vào thống kê')->send();
             });
     }
@@ -163,11 +166,17 @@ class DriverRatingResource extends Resource
                     ->tooltip(fn (Order $r) => $r->driver_rating_note)
                     ->searchable(),
 
-                Tables\Columns\TextColumn::make('driver.name')
+                // Tài xế đã bị xóa: hiện tên đã lưu lúc xóa (orders.driver_name), xóa trước khi có bản lưu thì ghi rõ.
+                Tables\Columns\TextColumn::make('driver_label')
                     ->label('Tài xế')
-                    ->description(fn (Order $r): ?string => $r->driver?->phone)
-                    ->searchable()
-                    ->placeholder('Đơn chưa gán tài xế'),
+                    ->state(fn (Order $r) => DriverRatingService::driverLabel($r)['name'])
+                    ->color(fn (Order $r) => DriverRatingService::driverLabel($r)['deleted'] ? 'gray' : null)
+                    ->description(fn (Order $r): ?string => ($l = DriverRatingService::driverLabel($r))['deleted']
+                        ? trim(($l['phone'] ?: '').' · đã xóa tài khoản', ' ·')
+                        : $l['phone'])
+                    ->searchable(query: fn (Builder $query, string $search): Builder => $query->where(fn (Builder $q) => $q
+                        ->whereHas('driver', fn (Builder $d) => $d->where('name', 'like', "%{$search}%")->orWhere('phone', 'like', "%{$search}%"))
+                        ->orWhere('driver_name', 'like', "%{$search}%")->orWhere('driver_phone', 'like', "%{$search}%"))),
 
                 Tables\Columns\TextColumn::make('code')
                     ->label('Đơn')
@@ -225,6 +234,11 @@ class DriverRatingResource extends Resource
                 ])->icon('heroicon-m-ellipsis-horizontal')->label(''),
             ])
             ->bulkActions([])
+            ->recordClasses(fn (Order $r) => match (true) {
+                DriverRatingService::needsAction($r) => 'fs-rate-row--pending',
+                (bool) $r->rating_hidden => 'fs-rate-row--hidden',
+                default => null,
+            })
             ->recordUrl(fn (Order $record): string => static::getUrl('view', ['record' => $record]))
             ->defaultSort('rated_at', 'desc')
             ->defaultPaginationPageOption(25)

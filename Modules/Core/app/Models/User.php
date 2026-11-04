@@ -100,6 +100,15 @@ class User extends Authenticatable implements FilamentUser, HasDefaultTenant, Ha
                 $user->referral_code = ReferralService::generateUniqueCode();
             }
         });
+
+        // Xóa tài xế thì delivery_man_id của đơn cũ bị đặt NULL: ghi tên + SĐT vào đơn trước, để lịch sử đơn,
+        // đánh giá và thu nhập vẫn biết ai đã giao. Chỉ ghi những đơn chưa có bản lưu.
+        static::deleting(function (User $user) {
+            if ($user->user_type === 'driver') {
+                \Illuminate\Support\Facades\DB::table('orders')->where('delivery_man_id', $user->id)->whereNull('driver_name')
+                    ->update(['driver_name' => mb_substr((string) $user->name, 0, 100), 'driver_phone' => mb_substr((string) $user->phone, 0, 20)]);
+            }
+        });
     }
 
     protected function casts(): array
