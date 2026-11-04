@@ -46,5 +46,14 @@ class AppServiceProvider extends ServiceProvider
         RateLimiter::for('api', function (Request $request) {
             return Limit::perMinute(120)->by($request->user()?->id ?: $request->ip());
         });
+        // API xác thực tài xế chưa đăng nhập: 20/phút/IP (mạng di động dùng chung IP nên không để quá chặt).
+        RateLimiter::for('driver-auth', function (Request $request) {
+            return Limit::perMinute(20)->by('driver-auth:'.$request->ip())
+                ->response(fn () => response()->json([
+                    'success' => false,
+                    'code' => 'too_many_requests',
+                    'message' => 'Bạn thao tác quá nhanh, vui lòng thử lại sau ít phút.',
+                ], 429));
+        });
     }
 }

@@ -6,6 +6,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Routing\Controller;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Validation\ValidationException;
 use Modules\Core\Models\User;
 use Modules\Core\Services\FirebasePhoneVerifier;
@@ -13,6 +14,11 @@ use Modules\Core\Services\RTDBService;
 
 class AuthController extends Controller
 {
+    /** Sai mật khẩu bấy nhiêu lần thì khoá đăng nhập tài khoản đó trong LOGIN_LOCK_SECONDS. */
+    private const LOGIN_MAX_ATTEMPTS = 5;
+
+    private const LOGIN_LOCK_SECONDS = 900;
+
     /**
      * Kiểm tra số điện thoại TRƯỚC khi app xin Firebase gửi SMS — tránh tốn tiền
      * SMS cho số đã đăng ký (register) hoặc chưa có tài khoản (forgot_password).
@@ -24,7 +30,7 @@ class AuthController extends Controller
             'purpose' => 'required|in:register,forgot_password',
         ]);
 
-        $exists = User::where('phone', $data['phone'])->where('user_type', 'driver')->exists();
+        $exists = User::where('phone', FirebasePhoneVerifier::normalize($data['phone']))->where('user_type', 'driver')->exists();
 
         if ($data['purpose'] === 'register' && $exists) {
             return response()->json(['success' => false, 'message' => 'Số điện thoại đã được đăng ký. Vui lòng đăng nhập hoặc dùng Quên mật khẩu.'], 422);
@@ -46,9 +52,13 @@ class AuthController extends Controller
             'city_id'   => 'required|integer|exists:cities,id',
             'fcm_token' => 'nullable|string',
             'device_id' => 'required|string|max:191',
+            // Chỉ ảnh, lưu vào thư mục công khai: không nhận HTML/SVG… (chạy được trên tên miền app).
+            'avatar'    => 'nullable|file|image|mimes:jpg,jpeg,png,webp|max:5120',
         ]);
+        // Lưu và tìm theo một dạng duy nhất (0xxxxxxxxx): "84912…" và "0912…" là cùng một số.
+        $data['phone'] = FirebasePhoneVerifier::normalize($data['phone']);
 
-        if (FirebasePhoneVerifier::verifiedPhone($data['id_token']) !== FirebasePhoneVerifier::normalize($data['phone'])) {
+        if (FirebasePhoneVerifier::verifiedPhone($data['id_token']) !== $data['phone']) {
             return response()->json(['success' => false, 'message' => 'Xác minh số điện thoại không hợp lệ hoặc đã hết hạn'], 422);
         }
 
@@ -100,8 +110,9 @@ class AuthController extends Controller
             'id_token' => 'required|string',
             'password' => 'required|string|min:6|confirmed',
         ]);
+        $data['phone'] = FirebasePhoneVerifier::normalize($data['phone']);
 
-        if (FirebasePhoneVerifier::verifiedPhone($data['id_token']) !== FirebasePhoneVerifier::normalize($data['phone'])) {
+        if (FirebasePhoneVerifier::verifiedPhone($data['id_token']) !== $data['phone']) {
             return response()->json(['success' => false, 'message' => 'Xác minh số điện thoại không hợp lệ hoặc đã hết hạn'], 422);
         }
 
@@ -115,6 +126,11 @@ class AuthController extends Controller
         $user->tokens()->delete();
         $this->forceDriverOffline($user);
         RTDBService::removeDriverLocation($user->id);
+        // Máy đang đăng nhập (có thể là người lạ — lý do đặt lại mật khẩu) phải thoát thật: xoá token API chưa
+        // đủ vì phiên Firebase vẫn ghi được GPS. Thu hồi phiên Firebase rồi đổi thiết bị giữ phiên → app máy đó
+        // nhận tín hiệu và tự đăng xuất; Rules từ chối ghi.
+        RTDBService::revokeDriverSessions($user->id);
+        RTDBService::writeSessionDevice($user->id, 'reset-'.\Illuminate\Support\Str::random(12));
 
         return response()->json(['success' => true, 'message' => 'Đặt lại mật khẩu thành công']);
     }
@@ -129,11 +145,27 @@ class AuthController extends Controller
         ]);
 
         $field = filter_var($data['login'], FILTER_VALIDATE_EMAIL) ? 'email' : 'phone';
-        $user  = User::where($field, $data['login'])->where('user_type', 'driver')->first();
+        $login = $field === 'phone' ? FirebasePhoneVerifier::normalize($data['login']) : mb_strtolower(trim($data['login']));
+
+        // Giới hạn đoán mật khẩu THEO TÀI KHOẢN (giới hạn chung theo IP không đủ: đổi IP là đoán tiếp).
+        $limitKey = 'driver-login:'.$field.':'.$login;
+        if (RateLimiter::tooManyAttempts($limitKey, self::LOGIN_MAX_ATTEMPTS)) {
+            $minutes = max(1, (int) ceil(RateLimiter::availableIn($limitKey) / 60));
+
+            return response()->json([
+                'success' => false,
+                'code' => 'too_many_attempts',
+                'message' => "Nhập sai quá nhiều lần. Vui lòng thử lại sau {$minutes} phút hoặc dùng Quên mật khẩu.",
+            ], 429);
+        }
+
+        $user  = User::where($field, $login)->where('user_type', 'driver')->first();
 
         if (!$user || !Hash::check($data['password'], $user->password)) {
+            RateLimiter::hit($limitKey, self::LOGIN_LOCK_SECONDS);
             throw ValidationException::withMessages(['login' => ['Tài khoản hoặc mật khẩu không đúng']]);
         }
+        RateLimiter::clear($limitKey);
 
         if (!in_array($user->user_type, ['driver'])) {
             return response()->json(['success' => false, 'message' => 'Tài khoản không hợp lệ'], 403);

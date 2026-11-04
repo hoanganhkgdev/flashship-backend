@@ -15,10 +15,14 @@ use Modules\Admin\Models\SupportConfig;
 |----------------------------------------------------------------------
 */
 Route::prefix('auth')->group(function () {
-    Route::post('/login',                 [AuthController::class, 'login']);
-    Route::post('/check-phone',           [AuthController::class, 'checkPhone']);
-    Route::post('/verify-otp-register',   [AuthController::class, 'verifyOtpAndRegister']);
-    Route::post('/reset-password',        [AuthController::class, 'resetPassword']);
+    // Giới hạn riêng theo IP cho các API chưa đăng nhập (đoán mật khẩu, dò số điện thoại, spam đăng ký) —
+    // chặt hơn mức chung 120/phút. Login còn có khoá theo tài khoản trong AuthController.
+    Route::middleware('throttle:driver-auth')->group(function () {
+        Route::post('/login',                 [AuthController::class, 'login']);
+        Route::post('/check-phone',           [AuthController::class, 'checkPhone']);
+        Route::post('/verify-otp-register',   [AuthController::class, 'verifyOtpAndRegister']);
+        Route::post('/reset-password',        [AuthController::class, 'resetPassword']);
+    });
 
     // auth:sanctum + driver.active KHÔNG kiểm tra user_type — customer/shop
     // đăng nhập vẫn gọi được /auth/firebase-token bằng token của họ, lấy ra
