@@ -25,6 +25,9 @@ class WalletController extends Controller
                 // Nợ quá hạn được giữ lại trong ví: chỉ phần vượt quá số này mới rút được.
                 'overdue_debt' => $overdue,
                 'withdrawable' => max(0, $wallet->balance - $overdue),
+                // Giới hạn mỗi lần rút, để app kiểm tra trước khi gửi (khớp validate ở withdraw()).
+                'min_withdraw' => \Modules\Core\Services\OperationalSettings::minWithdrawAmount($user->city_id),
+                'max_withdraw' => DriverWalletService::MAX_WITHDRAW,
             ],
         ]);
     }
